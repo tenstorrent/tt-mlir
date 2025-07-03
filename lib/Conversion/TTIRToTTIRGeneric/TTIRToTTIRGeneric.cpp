@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -230,6 +231,87 @@ protected:
                                         builder.getMultiDimIdentityMap(rank));
   }
 
+  static SmallVector<mlir::AffineMap>
+  getBroadcastAffineMapsArray(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
+                              ArrayRef<Value> outputs, bool isGridMap) {
+    TT_assertv((inputs.size() == 2 && outputs.size() == 1),
+               "Only binary ops support broadcast for now.");
+
+    const auto in0Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto in1Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const auto in0Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in0Type.getEncoding());
+    const auto in1Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in1Type.getEncoding());
+    const auto outLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outType.getEncoding());
+
+    const auto in0Shape = isGridMap ? in0Layout.getGridShape(in0Type)
+                                    : in0Layout.getShardShape(in0Type);
+    const auto in1Shape = isGridMap ? in1Layout.getGridShape(in1Type)
+                                    : in1Layout.getShardShape(in1Type);
+    const auto outShape = isGridMap ? outLayout.getGridShape(outType)
+                                    : outLayout.getShardShape(outType);
+
+    const int in0Rank = static_cast<int>(in0Shape.size());
+    const int in1Rank = static_cast<int>(in1Shape.size());
+    const int outRank = static_cast<int>(outShape.size());
+    TT_assert(outRank == std::max(in0Rank, in1Rank));
+
+    mlir::SmallVector<mlir::AffineExpr> in0Exprs(outRank);
+    mlir::SmallVector<mlir::AffineExpr> in1Exprs(outRank);
+
+    fprintf(stderr, "++ getBroadcastAffineMapsArray: rank %d & %d -> %d\n",
+            in0Rank, in1Rank, outRank);
+
+    llvm::SmallVector<int64_t> deducedShape(outRank, -1);
+    // Process dimensions, starting from the trailing one.
+    for (int i = -1; i >= -outRank; i--) {
+      const int in0Dim = in0Rank + i;
+      const int in1Dim = in1Rank + i;
+      const int outputDim = outRank + i;
+
+      // Sizes of the current dimension, -1 means the dimension doesn't exist.
+      const int64_t in0DimSize = (in0Dim >= 0) ? in0Shape[in0Dim] : -1;
+      const int64_t in1DimSize = (in1Dim >= 0) ? in1Shape[in1Dim] : -1;
+
+      fprintf(stderr, "++ Rank %d sizes: in0 %ld in1 %ld\n", i + outRank,
+              in0DimSize, in1DimSize);
+
+      // Validate broadcasting compatibility: if both dimensions exist, then
+      // they must either be equal, or at least one of them is 1.
+      TT_assertv(!((in0DimSize != -1) && (in1DimSize != -1) &&
+                   (in0DimSize != in1DimSize) && (in0DimSize != 1) &&
+                   (in1DimSize != 1)),
+                 "Incompatible bcast dims {} & {}.", in0DimSize, in1DimSize);
+
+      const bool in0Bcast = ((in0DimSize == -1) || (in0DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      const bool in1Bcast = ((in1DimSize == -1) || (in1DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      TT_assertv(!(in0Bcast && in1Bcast),
+                 "Ill-formed broadcast, needs unsqueeze.");
+
+      in0Exprs[outputDim] = in0Bcast ? builder.getAffineConstantExpr(0)
+                                     : builder.getAffineDimExpr(in0Dim);
+      in1Exprs[outputDim] = in1Bcast ? builder.getAffineConstantExpr(0)
+                                     : builder.getAffineDimExpr(in1Dim);
+      deducedShape[outputDim] = std::max(in0DimSize, in1DimSize);
+    }
+
+    TT_assertv(llvm::equal(deducedShape, outShape),
+               "Deduced bcast shape doesn't match the requested output shape.");
+
+    return {AffineMap::get(outRank, 0, in0Exprs, builder.getContext()),
+            AffineMap::get(outRank, 0, in1Exprs, builder.getContext()),
+            builder.getMultiDimIdentityMap(outRank)};
+  }
+
   // Convert from ttir enum to equivalent linalg enum.
   static SmallVector<mlir::utils::IteratorType>
   iteratorTypeTTIRToLinalg(mlir::OpBuilder &builder,
@@ -333,9 +415,104 @@ private:
       std::is_same_v<TileOp, ttir::TileLtzOp> ||
       std::is_same_v<TileOp, ttir::TileLezOp>;
 
+  static constexpr bool isNativeBcastOp =
+      std::is_same_v<ConcreteOp, ttir::AddOp> ||
+      std::is_same_v<ConcreteOp, ttir::SubtractOp> ||
+      std::is_same_v<ConcreteOp, ttir::MultiplyOp>;
+
+  std::pair<ttcore::TileBcastType, ttcore::TileBcastType>
+  getImplicitBcastInfo(ConcreteOp op, ArrayRef<Value> inputs,
+                       ArrayRef<Value> outputs) const {
+    if constexpr (!isNativeBcastOp) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    if (inputs.size() != 2u || outputs.size() != 1u) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    const auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const int lhsRank = static_cast<int>(lhsType.getRank());
+    const int rhsRank = static_cast<int>(rhsType.getRank());
+    const int outRank = static_cast<int>(outType.getRank());
+
+    if (outRank != std::max(lhsRank, rhsRank)) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    if (outRank != 2) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    const auto lhsShape = lhsType.getShape();
+    const auto rhsShape = rhsType.getShape();
+
+    mlir::SmallVector<bool> lhsIsBcast(outRank);
+    mlir::SmallVector<bool> rhsIsBcast(outRank);
+    for (int i = -1; i >= -outRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outDim = outRank + i;
+
+      const int64_t lhsDimSize = lhsDim >= 0 ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = rhsDim >= 0 ? rhsShape[rhsDim] : -1;
+
+      if ((lhsDimSize != -1) && (rhsDimSize != -1) &&
+          (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+          (rhsDimSize != 1)) {
+        return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      }
+
+      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((lhsDimSize == -1) || (lhsDimSize == 1));
+      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((rhsDimSize == -1) || (rhsDimSize == 1));
+      TT_assertv(!(lhsBcast && rhsBcast),
+                 "Ill-formed broadcast, needs unsqueeze.");
+
+      lhsIsBcast[outDim] = lhsBcast;
+      rhsIsBcast[outDim] = rhsBcast;
+    }
+
+    auto getTileBcastType =
+        [](ArrayRef<bool> isBcast) -> ttcore::TileBcastType {
+      const size_t rank = isBcast.size();
+      const bool isColBcast = isBcast[rank - 1];
+      const bool isRowBcast = isBcast[rank - 2];
+
+      if (isRowBcast && isColBcast) {
+        return ttcore::TileBcastType::Scalar;
+      }
+      if (isRowBcast) {
+        return ttcore::TileBcastType::Row;
+      }
+      if (isColBcast) {
+        return ttcore::TileBcastType::Column;
+      }
+      return ttcore::TileBcastType::None;
+    };
+
+    std::pair<ttcore::TileBcastType, ttcore::TileBcastType> tileBcastInfo{
+        getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
+    TT_assertv((tileBcastInfo.first == ttcore::TileBcastType::None ||
+                tileBcastInfo.second == ttcore::TileBcastType::None),
+               "Bi-directional broadcast is unsupported.");
+
+    return tileBcastInfo;
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    fprintf(stderr, "++ Rewriting named eltwise: ");
+    op->dump();
+
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
@@ -351,12 +528,25 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
+    const auto [lhsBcastType, rhsBcastType] =
+        getImplicitBcastInfo(op, origInputs, origOutputs);
+
     ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
+    SmallVector<mlir::AffineMap> indexingMaps;
+    if constexpr (isNativeBcastOp) {
+      indexingMaps =
+          getBroadcastAffineMapsArray(rewriter, inputs, outputs, true);
+      fprintf(stderr, "++ Handled bcast op, got indexingMaps\n");
+    } else {
+      indexingMaps = getAffineMapsArray(rewriter, numOperands, rank);
+      fprintf(stderr, "++ Not bcast op, got indexingMaps\n");
+    }
+    for (auto &m : indexingMaps) {
+      m.dump();
+    }
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
@@ -379,10 +569,24 @@ private:
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, rank);
+        SmallVector<mlir::AffineMap> linalgIndexingMaps;
+        if constexpr (isNativeBcastOp) {
+          linalgIndexingMaps =
+              getBroadcastAffineMapsArray(rewriter, inputs, outputs, false);
+        } else {
+          linalgIndexingMaps = getAffineMapsArray(rewriter, numOperands, rank);
+        }
+
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+        SmallVector<mlir::NamedAttribute, 2u> attributes;
+        attributes.emplace_back(
+            rewriter.getStringAttr("lhsBcastType"),
+            tt::ttcore::TileBcastTypeAttr::get(ctx, lhsBcastType));
+        attributes.emplace_back(
+            rewriter.getStringAttr("rhsBcastType"),
+            tt::ttcore::TileBcastTypeAttr::get(ctx, rhsBcastType));
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
@@ -408,7 +612,7 @@ private:
                 // For regular elementwise ops, create TileOp directly
                 yield = bbBuilder.create<TileOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs));
+                    /*operands=*/bbArgs.take_front(numInputs), attributes);
               }
 
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);

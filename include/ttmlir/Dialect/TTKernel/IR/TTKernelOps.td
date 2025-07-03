@@ -430,6 +430,89 @@ def TTKernel_UnaryBcastTileOp : TTKernel_FPUOp<"unary_bcast", [TTKernel_UnaryOpT
     }];
 }
 
+def TTKernel_BcastInitOp : TTKernel_InitOp<"init_bcast"> {
+  let summary = "Init function for binary operations with tile-level broadcast support.";
+  let description = [{
+    Must be run before add/sub/mul_tiles_bcast.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       TTKernel_CB:$ocb,
+                       TTKernel_BcastBinaryOpAttr:$bcast_binary_op,
+                       TTKernel_BcastTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $ocb `,` $bcast_binary_op `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_BcastAddTilesOp : TTKernel_FPUOp<"add_tiles_bcast", [TTKernel_BinaryOpTrait]> {
+  let summary = "Addition operation with tile-level broadcast support.";
+  let description = [{
+    Perform an add operation on the FPU with a pre-op broadcast on the second input tile.
+    Supported broadcast types: None, Col, Row, Scalar.
+    For column-broadcast, the 0th column of the second input tile should contain the input data.
+    For row-broadcast, the 0th row of the second input tile should contain the input data.
+    For scalar-broadcast, the top-left corner of the second input tile should contain the value.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       IndexLike:$in0_tile_index,
+                       IndexLike:$in1_tile_index,
+                       IndexLike:$dst_index,
+                       TTKernel_BcastTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_BcastSubTilesOp : TTKernel_FPUOp<"sub_tiles_bcast", [TTKernel_BinaryOpTrait]> {
+  let summary = "Subtraction operation with tile-level broadcast support.";
+  let description = [{
+    Perform a sub operation on the FPU with a pre-op broadcast on the second input tile.
+    Supported broadcast types: None, Col, Row, Scalar.
+    For column-broadcast, the 0th column of the second input tile should contain the input data.
+    For row-broadcast, the 0th row of the second input tile should contain the input data.
+    For scalar-broadcast, the top-left corner of the second input tile should contain the value.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       IndexLike:$in0_tile_index,
+                       IndexLike:$in1_tile_index,
+                       IndexLike:$dst_index,
+                       TTKernel_BcastTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_BcastMulTilesOp : TTKernel_FPUOp<"mul_tiles_bcast", [TTKernel_BinaryOpTrait]> {
+  let summary = "Multiply operation with tile-level broadcast support.";
+  let description = [{
+    Perform a mul operation on the FPU with a pre-op broadcast on the second input tile.
+    Supported broadcast types: None, Col, Row, Scalar.
+    For column-broadcast, the 0th column of the second input tile should contain the input data.
+    For row-broadcast, the 0th row of the second input tile should contain the input data.
+    For scalar-broadcast, the top-left corner of the second input tile should contain the value.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       IndexLike:$in0_tile_index,
+                       IndexLike:$in1_tile_index,
+                       IndexLike:$dst_index,
+                       TTKernel_BcastTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
     let summary = "Init function";
     let description = [{

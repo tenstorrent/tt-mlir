@@ -92,7 +92,9 @@ def TTIR_TileAddOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_add"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TTCore_Tile:$rhs,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -103,7 +105,9 @@ def TTIR_TileSubOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TTCore_Tile:$rhs,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -114,7 +118,9 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_mul"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TTCore_Tile:$rhs,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
+                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
     let results = (outs TTCore_Tile:$result);
 }
 

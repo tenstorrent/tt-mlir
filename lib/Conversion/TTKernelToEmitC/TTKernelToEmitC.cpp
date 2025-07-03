@@ -277,7 +277,9 @@ public:
     return {reduceType, reduceDim};
   }
 
-  StringRef getBroadcastType(ttkernel::BcastType bcastType) const {
+  template <typename BcastKindOp>
+  StringRef getBcastTypeStr(BcastKindOp op) const {
+    const auto bcastType = op.getBcastType();
     switch (bcastType) {
     case ttkernel::BcastType::Row:
       return "BroadcastType::ROW";
@@ -288,6 +290,20 @@ public:
     default:
       return "BroadcastType::NONE";
     }
+  }
+
+  template <typename BcastKindOp>
+  StringRef getBcastBinaryOpStr(BcastKindOp op) const {
+    const auto bcastOp = op.getBcastBinaryOp();
+    switch (bcastOp) {
+    case ttkernel::BcastBinaryOp::Add:
+      return "EltwiseBinaryType::ELWADD";
+    case ttkernel::BcastBinaryOp::Sub:
+      return "EltwiseBinaryType::ELWSUB";
+    case ttkernel::BcastBinaryOp::Mul:
+      return "EltwiseBinaryType::ELWMUL";
+    }
+    llvm_unreachable("Unknown bcast binary op");
   }
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
@@ -307,8 +323,22 @@ public:
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
       SmallVector<Attribute, 1> template_args;
-      template_args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(), getBroadcastType(op.getBcastType())));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::BcastInitOp>) {
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastBinaryOpStr(op)));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::BcastAddTilesOp> ||
+                         std::is_same_v<SourceOp, ttkernel::BcastSubTilesOp> ||
+                         std::is_same_v<SourceOp, ttkernel::BcastMulTilesOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
                          std::is_same_v<SourceOp,
@@ -775,6 +805,12 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastAddTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastSubTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastMulTilesOp>,
 
         // Transpose Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
@@ -853,8 +889,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

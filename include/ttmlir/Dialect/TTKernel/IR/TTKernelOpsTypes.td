@@ -60,6 +60,10 @@ def TTKernel_BcastTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_BcastType, "bca
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTKernel_BcastBinaryOpAttr : EnumAttr<TTKernel_Dialect, TTKernel_BcastBinaryOp, "bcast_binary_op"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTKernel_ReduceTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "reduce_type"> {
   let assemblyFormat = "`<` $value `>`";
 }

@@ -375,6 +375,32 @@ namespace {
 
 template <typename ConcreteOp>
 class TTIRFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
+private:
+  ttkernel::BcastBinaryOp getKernelBcastOp() const {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::TileAddOp>) {
+      return ttkernel::BcastBinaryOp::Add;
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileSubOp>) {
+      return ttkernel::BcastBinaryOp::Sub;
+    } else {
+      static_assert(std::is_same_v<ConcreteOp, ttir::TileMulOp>);
+      return ttkernel::BcastBinaryOp::Mul;
+    }
+  }
+
+  ttkernel::BcastType
+  getKernelBcastType(const ttcore::TileBcastType bcastType) const {
+    switch (bcastType) {
+    case ttcore::TileBcastType::Row:
+      return ttkernel::BcastType::Row;
+    case ttcore::TileBcastType::Column:
+      return ttkernel::BcastType::Col;
+    case ttcore::TileBcastType::Scalar:
+      return ttkernel::BcastType::Scalar;
+    default:
+      return ttkernel::BcastType::None;
+    }
+  }
+
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
   using KernelOpPair = TTKernelOpPair<ConcreteOp, ComputeOpMap>;
@@ -485,6 +511,61 @@ public:
       tryEraseDeadCBReinterpret(op.getA());
       tryEraseDeadCBReinterpret(op.getB());
       tryEraseDeadCBReinterpret(op.getOutput());
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileAddOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileSubOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileMulOp>) {
+      auto lhsBcastType =
+          op.getLhsBcastType().value_or(ttcore::TileBcastType::None);
+      auto rhsBcastType =
+          op.getRhsBcastType().value_or(ttcore::TileBcastType::None);
+      TT_assertv((lhsBcastType == ttcore::TileBcastType::None ||
+                  rhsBcastType == ttcore::TileBcastType::None),
+                 "Bi-directional broadcast is unsupported.");
+
+      auto cbLhs = getCB(rewriter, op.getLhs());
+      auto cbRhs = getCB(rewriter, op.getRhs());
+      auto cbOut = getOutCB(rewriter, op);
+      auto lhsIdx = adaptor.getLhs();
+      auto rhsIdx = adaptor.getRhs();
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+
+      // Only RHS bcast is supported at the ttkernel level
+      if (lhsBcastType != ttcore::TileBcastType::None &&
+          rhsBcastType == ttcore::TileBcastType::None) {
+        std::swap(cbLhs, cbRhs);
+        std::swap(lhsIdx, rhsIdx);
+        std::swap(lhsBcastType, rhsBcastType);
+      }
+
+      const auto kernelBcastOp = getKernelBcastOp();
+      const auto kernelBcastType = getKernelBcastType(rhsBcastType);
+
+      if (kernelBcastType == ttkernel::BcastType::None) {
+        rewriter.create<InitOp>(op->getLoc(), cbLhs, cbRhs);
+        rewriter.create<FPUOp>(op->getLoc(), cbLhs, cbRhs, lhsIdx, rhsIdx,
+                               dstIdx);
+      } else {
+        rewriter.create<ttkernel::BcastInitOp>(
+            op->getLoc(), cbLhs, cbRhs, cbOut, kernelBcastOp, kernelBcastType);
+
+        switch (kernelBcastOp) {
+        case ttkernel::BcastBinaryOp::Add:
+          rewriter.create<ttkernel::BcastAddTilesOp>(op->getLoc(), cbLhs, cbRhs,
+                                                     lhsIdx, rhsIdx, dstIdx,
+                                                     kernelBcastType);
+          break;
+        case ttkernel::BcastBinaryOp::Sub:
+          rewriter.create<ttkernel::BcastSubTilesOp>(op->getLoc(), cbLhs, cbRhs,
+                                                     lhsIdx, rhsIdx, dstIdx,
+                                                     kernelBcastType);
+          break;
+        case ttkernel::BcastBinaryOp::Mul:
+          rewriter.create<ttkernel::BcastMulTilesOp>(op->getLoc(), cbLhs, cbRhs,
+                                                     lhsIdx, rhsIdx, dstIdx,
+                                                     kernelBcastType);
+          break;
+        }
+      }
     } else {
       return llvm::failure();
     }
@@ -656,6 +737,15 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+
+      fprintf(stderr, "++ Tilize rewriter:\n");
+      fprintf(stderr, "++ uncollapsedMemrefType: ");
+      uncollapsedMemrefType.dump();
+      fprintf(stderr, "++ blockR: ");
+      blockR.dump();
+      fprintf(stderr, "++ blockC: ");
+      blockC.dump();
+
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
@@ -672,6 +762,15 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+
+      fprintf(stderr, "++ Untilize rewriter:\n");
+      fprintf(stderr, "++ uncollapsedMemrefType: ");
+      uncollapsedMemrefType.dump();
+      fprintf(stderr, "++ blockR: ");
+      blockR.dump();
+      fprintf(stderr, "++ blockC: ");
+      blockC.dump();
+
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);

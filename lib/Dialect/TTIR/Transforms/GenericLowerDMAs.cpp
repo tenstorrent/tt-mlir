@@ -28,6 +28,14 @@ class TTIRGenericLowerAffineDMAsRewritePattern
 public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
 
+  static bool isBroadcastDim(AffineMap indexingMap, int64_t dim) {
+    const auto expr = indexingMap.getResult(dim);
+    if (llvm::isa<AffineConstantExpr>(expr)) {
+      return llvm::cast<AffineConstantExpr>(expr).getValue() == 0;
+    }
+    return false;
+  }
+
   // Returns a tuple of the stream index and the index bounds. The stream index
   // represents the position in the stream that the DMA will is currently on,
   // and is relative per core. The index bounds represent the index upper
@@ -49,7 +57,16 @@ public:
     indexBounds.reserve(dmaIndexingMap.getNumResults());
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
-      unsigned dim = dmaIndexingMap.getDimPosition(result);
+      unsigned dim = 0;
+      Value iterIndex;
+      const bool isBcastDim = isBroadcastDim(dmaIndexingMap, result);
+      if (isBcastDim) {
+        iterIndex = builder.create<arith::ConstantIndexOp>(loc, 0);
+      } else {
+        dim = dmaIndexingMap.getDimPosition(result);
+        iterIndex = builder.create<IterIndexOp>(loc, builder.getIndexType(),
+                                                builder.getI64IntegerAttr(dim));
+      }
       std::optional<unsigned> gridResult =
           gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
       //
@@ -70,9 +87,8 @@ public:
       //
       assert(!gridResult || *gridResult == result);
       bool isGridDim = gridResult.has_value();
-      Value iterIndex = builder.create<IterIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
+      // TODO: what about isBcastDim?
       if (isGridDim) {
         // The grid dimension is always 1-1 with the result position.  Consider
         // the case where interchange moves k to the outermost loop. We'd have
@@ -95,7 +111,11 @@ public:
         index = iterIndex;
       }
       streamIndex.push_back(index);
-      indexBounds.push_back(gridShape[result]);
+      if (isBcastDim) {
+        indexBounds.push_back(1);
+      } else {
+        indexBounds.push_back(gridShape[result]);
+      }
     }
     return std::make_tuple(streamIndex, indexBounds);
   }

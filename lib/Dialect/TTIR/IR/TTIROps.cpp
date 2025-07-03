@@ -4583,6 +4583,19 @@ static mlir::LogicalResult verifyAffineShapesPermutation(
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   assert(indexingMaps.size() == shapes.size());
 
+  fprintf(stderr, "++ verifyAffineShapesPermutation: %s shapes:", shapeName);
+  for (auto shape : shapes) {
+    fprintf(stderr, " [ ");
+    for (auto dim : shape) {
+      fprintf(stderr, "%ld ", dim);
+    }
+    fprintf(stderr, "]");
+  }
+  fprintf(stderr, " with indexingMaps:\n");
+  for (auto indexingMap : indexingMaps) {
+    indexingMap.dump();
+  }
+
   for (size_t operandA = 0; operandA < indexingMaps.size(); ++operandA) {
     for (size_t operandB = 0; operandB < indexingMaps.size(); ++operandB) {
       if (operandA == operandB) {
