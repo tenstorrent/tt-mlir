@@ -698,8 +698,6 @@ struct Conv2dConfigAttrParams {
   CoreRangeSetAttr coreGrid;
   mlir::BoolAttr transposeShards;
   Layout outputLayout;
-  mlir::BoolAttr preprocessWeightsOnDevice;
-  mlir::BoolAttr alwaysPreprocessWeights;
   mlir::BoolAttr enableActDoubleBuffer;
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
@@ -730,9 +728,6 @@ struct Conv2dConfigAttrParams {
     transposeShards =
         getOrDefault(attr.getTransposeShards(), /*defaultValue=*/true);
     outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
-    preprocessWeightsOnDevice =
-        getOrDefault(attr.getPreprocessWeightsOnDevice());
-    alwaysPreprocessWeights = getOrDefault(attr.getAlwaysPreprocessWeights());
     enableActDoubleBuffer = getOrDefault(attr.getEnableActDoubleBuffer());
     enableWeightsDoubleBuffer =
         getOrDefault(attr.getEnableWeightsDoubleBuffer());
@@ -745,8 +740,7 @@ struct Conv2dConfigAttrParams {
         ctx, dtype, weightsDtype, activation, deallocateActivation,
         reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
         reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
-        transposeShards, outputLayout, preprocessWeightsOnDevice,
-        alwaysPreprocessWeights, enableActDoubleBuffer,
+        transposeShards, outputLayout, enableActDoubleBuffer,
         enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }
 };
@@ -755,8 +749,7 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
   auto convConfig = Conv2dConfigAttr::get(
       context, std::nullopt, std::nullopt, nullptr, nullptr, nullptr,
       std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt, nullptr,
-      nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr);
+      nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr);
   return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
 }
 
@@ -839,20 +832,6 @@ Conv2dConfigAttr Conv2dConfigAttr::withTransposeShards(bool value) const {
 Conv2dConfigAttr Conv2dConfigAttr::withOutputLayout(Layout layout) const {
   Conv2dConfigAttrParams params(*this);
   params.outputLayout = layout;
-  return params.buildConv2dConfig(getContext());
-}
-
-Conv2dConfigAttr
-Conv2dConfigAttr::withPreprocessWeightsOnDevice(bool value) const {
-  Conv2dConfigAttrParams params(*this);
-  params.preprocessWeightsOnDevice = BoolAttr::get(getContext(), value);
-  return params.buildConv2dConfig(getContext());
-}
-
-Conv2dConfigAttr
-Conv2dConfigAttr::withAlwaysPreprocessWeights(bool value) const {
-  Conv2dConfigAttrParams params(*this);
-  params.alwaysPreprocessWeights = BoolAttr::get(getContext(), value);
   return params.buildConv2dConfig(getContext());
 }
 
