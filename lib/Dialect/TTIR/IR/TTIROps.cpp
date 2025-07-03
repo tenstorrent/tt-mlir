@@ -3764,6 +3764,22 @@ static mlir::LogicalResult verifyAffineShapesPermutation(
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   assert(indexingMaps.size() == shapes.size());
 
+  fprintf(stderr, "++ verifyAffineShapesPermutation: shapeName %s\n",
+          shapeName);
+  fprintf(stderr, "++ IndexingMaps:\n");
+  for (auto indexingMap : indexingMaps) {
+    indexingMap.dump();
+  }
+  fprintf(stderr, "++ Shapes:");
+  for (auto shape : shapes) {
+    fprintf(stderr, " [ ");
+    for (auto dim : shape) {
+      fprintf(stderr, "%ld ", dim);
+    }
+    fprintf(stderr, "]");
+  }
+  fprintf(stderr, "\n");
+
   for (size_t operandA = 0; operandA < indexingMaps.size(); ++operandA) {
     for (size_t operandB = 0; operandB < indexingMaps.size(); ++operandB) {
       if (operandA == operandB) {
@@ -3774,6 +3790,11 @@ static mlir::LogicalResult verifyAffineShapesPermutation(
           inverseAndBroadcastProjectedPermutation(indexingMaps[operandA]);
       auto shapeMapB =
           inverseAndBroadcastProjectedPermutation(indexingMaps[operandB]);
+      fprintf(stderr, "++ operandA %zu, operandB %zu\n", operandA, operandB);
+      fprintf(stderr, "++ shapeMapA: ");
+      shapeMapA.dump();
+      fprintf(stderr, "++ shapeMapB: ");
+      shapeMapA.dump();
       auto shapeA = shapeMapA.compose(shapes[operandA]);
       auto shapeB = shapeMapB.compose(shapes[operandB]);
 

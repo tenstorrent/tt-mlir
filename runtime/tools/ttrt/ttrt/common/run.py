@@ -889,7 +889,11 @@ class Run:
                                 golden_fail = pcc_fail or allclose_fail
                                 if self["--print-input-output-tensors"] or golden_fail:
                                     torch.set_printoptions(
-                                        threshold=100, edgeitems=3, linewidth=120
+                                        precision=1,
+                                        threshold=4096,
+                                        edgeitems=3,
+                                        linewidth=512,
+                                        sci_mode=True,
                                     )
                                     for j, golden_input_tensor_torch in enumerate(
                                         program.input_tensors

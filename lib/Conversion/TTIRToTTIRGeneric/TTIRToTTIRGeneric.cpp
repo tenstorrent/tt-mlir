@@ -21,6 +21,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <magic_enum/magic_enum.hpp>
 
 // ----------------------------------------------------------------------------
 namespace mlir::tt {
@@ -50,8 +51,15 @@ protected:
   toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
                    mlir::SmallVector<Value> operands, bool tiled,
                    ttcore::MemorySpace memorySpace) const {
+
+    fprintf(stderr, "++ toLayoutOperands: Start\n");
+
     mlir::SmallVector<Value> newOperands;
     for (Value value : operands) {
+
+      fprintf(stderr, "++ Operand: ");
+      value.dump();
+
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
 
@@ -73,6 +81,9 @@ protected:
         auto defaultShape = ttcore::TileType::getDefaultShape();
         tileShape.assign(defaultShape.begin(), defaultShape.end());
         elementType = ttcore::TileType::get(elementType, tileShape);
+
+        fprintf(stderr, "++ Created tiled elementType: ");
+        elementType.dump();
       }
 
       // Create the new MetalLayoutAttr with new element type.
@@ -80,10 +91,18 @@ protected:
           rewriter.getContext(), logicalShape, deviceGridRank,
           ttcore::OOBVal::Undef, memorySpace);
 
+      layout.dump();
+
       // Calculate new physical shape based on grid + tiling.
       auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
           logicalShape, gridShape, tileShape, layout.getCollapsedIntervals(),
           layout.getDimAlignments());
+
+      fprintf(stderr, "++ Physical shape");
+      for (int64_t dim : physicalShape) {
+        fprintf(stderr, " %ld", dim);
+      }
+      fprintf(stderr, "\n");
 
       mlir::RankedTensorType layoutResultType =
           mlir::RankedTensorType::get(physicalShape, elementType, layout);
@@ -94,6 +113,7 @@ protected:
           rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
               ->getResult(0));
     }
+    fprintf(stderr, "++ toLayoutOperands: Finish\n");
     return newOperands;
   }
 
@@ -123,6 +143,85 @@ protected:
                              std::size_t rank) {
     return SmallVector<mlir::AffineMap>(arity,
                                         builder.getMultiDimIdentityMap(rank));
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getBroadcastAffineMapsArray(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
+                              ArrayRef<Value> outputs, bool isGridMap) {
+    assert(inputs.size() == 2);
+    assert(outputs.size() == 1);
+
+    const auto in0Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto in1Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const auto in0Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in0Type.getEncoding());
+    const auto in1Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in1Type.getEncoding());
+    const auto outLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outType.getEncoding());
+
+    const auto in0Shape = isGridMap ? in0Layout.getGridShape(in0Type)
+                                    : in0Layout.getShardShape(in0Type);
+    const auto in1Shape = isGridMap ? in1Layout.getGridShape(in1Type)
+                                    : in1Layout.getShardShape(in1Type);
+    const auto outShape = isGridMap ? outLayout.getGridShape(outType)
+                                    : outLayout.getShardShape(outType);
+
+    const int in0Rank = static_cast<int>(in0Shape.size());
+    const int in1Rank = static_cast<int>(in1Shape.size());
+    const int outRank = static_cast<int>(outShape.size());
+    const int deducedRank = std::max(in0Rank, in1Rank);
+    assert(deducedRank == outRank);
+
+    mlir::SmallVector<mlir::AffineExpr> in0Exprs(deducedRank);
+    mlir::SmallVector<mlir::AffineExpr> in1Exprs(deducedRank);
+
+    fprintf(stderr, "++ A rank %d B rank %d final rank %d\n", in0Rank, in1Rank,
+            deducedRank);
+
+    llvm::SmallVector<int64_t> deducedShape(deducedRank, -1);
+    // Process dimensions, starting from the trailing one.
+    for (int i = -1; i >= -deducedRank; i--) {
+      const int in0Dim = in0Rank + i;
+      const int in1Dim = in1Rank + i;
+      const int outputDim = deducedRank + i;
+
+      // Sizes of the current dimension, -1 means the dimension doesn't exist.
+      const int64_t in0DimSize = (in0Dim >= 0) ? in0Shape[in0Dim] : -1;
+      const int64_t in1DimSize = (in1Dim >= 0) ? in1Shape[in1Dim] : -1;
+
+      fprintf(stderr, "++ Reverse rank %d: A dim size %ld B dim size %ld\n", i,
+              in0DimSize, in1DimSize);
+
+      // Validate broadcasting compatibility: if both dimensions exist, then
+      // they must either be equal, or at least one of them is 1.
+      assert(!((in0DimSize != -1) && (in1DimSize != -1) &&
+               (in0DimSize != in1DimSize) && (in0DimSize != 1) &&
+               (in1DimSize != 1)));
+
+      const bool in0Bcast = ((in0DimSize == -1) || (in0DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      const bool in1Bcast = ((in1DimSize == -1) || (in1DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      assert(!(in0Bcast && in1Bcast));
+
+      in0Exprs[outputDim] = in0Bcast ? builder.getAffineConstantExpr(0)
+                                     : builder.getAffineDimExpr(in0Dim);
+      in1Exprs[outputDim] = in1Bcast ? builder.getAffineConstantExpr(0)
+                                     : builder.getAffineDimExpr(in1Dim);
+      deducedShape[outputDim] = std::max(in0DimSize, in1DimSize);
+    }
+
+    assert(llvm::equal(deducedShape, outShape));
+
+    return {AffineMap::get(deducedRank, 0, in0Exprs, builder.getContext()),
+            AffineMap::get(deducedRank, 0, in1Exprs, builder.getContext()),
+            builder.getMultiDimIdentityMap(deducedRank)};
   }
 
   // Convert from ttir enum to equivalent linalg enum.
@@ -208,6 +307,9 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    fprintf(stderr, "++ Named eltwise rewriter\n");
+    op->dump();
+
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
@@ -228,8 +330,20 @@ private:
 
     const std::size_t rank = grid.getShape().size();
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
+    SmallVector<mlir::AffineMap> indexingMaps;
+    // llvm::isa<ttir::AddOp>(op) also works, but can't deal with variants
+    constexpr bool isBcastOp = std::is_same_v<ttir::AddOp, ConcreteOp>;
+    if constexpr (isBcastOp) {
+      indexingMaps =
+          getBroadcastAffineMapsArray(rewriter, inputs, outputs, true);
+      fprintf(stderr, "++ bcastMaps\n");
+    } else {
+      indexingMaps = getAffineMapsArray(rewriter, numOperands, rank);
+      fprintf(stderr, "++ indexingMaps\n");
+    }
+    for (auto &m : indexingMaps) {
+      m.dump();
+    }
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
@@ -252,8 +366,16 @@ private:
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, rank);
+        SmallVector<mlir::AffineMap> linalgIndexingMaps;
+        if constexpr (isBcastOp) {
+          assert(numInputs == 2);
+          assert(numOutputs == 1);
+          linalgIndexingMaps =
+              getBroadcastAffineMapsArray(rewriter, inputs, outputs, false);
+        } else {
+          linalgIndexingMaps = getAffineMapsArray(rewriter, numOperands, rank);
+        }
+
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
