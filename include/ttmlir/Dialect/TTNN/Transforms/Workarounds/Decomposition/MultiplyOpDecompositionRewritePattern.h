@@ -17,6 +17,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // 1024, 32, 32). This causes DRAM OOM issues. In order to workaround this issue
 // we permute the dimensions of the tensors to (1, 1, 2048, 1024) before the
 // multiply op and then permute them back after the multiply op.
+// TODO(#3991): Remove this workaround once the issue is addressed.
 class MultiplyOpDecompositionRewritePattern
     : public OpRewritePattern<ttnn::MultiplyOp> {
 public:
