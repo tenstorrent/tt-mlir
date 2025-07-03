@@ -969,7 +969,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
 
   auto constraintsExp = LinearOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      biasShape, biasLayout,outputShape, outputLayout, false, false);
+      biasShape, biasLayout, outputShape, outputLayout, false, false);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have

@@ -1526,7 +1526,7 @@ llvm::Expected<OpConstraints> LinearOpInterface::getOpConstraints(
   // Create query closure
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,transposeA,
+        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
         transposeB, outputMemoryConfig, outputDType);
   };
 
