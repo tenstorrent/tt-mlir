@@ -1901,6 +1901,36 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SortOp::verify() {
+  auto outputs = getResults();
+  if (outputs.size() != 2) {
+    return emitOpError("Expected number of outputs = 2 but got ")
+           << outputs.size();
+  }
+
+  auto dim = getDim();
+  auto rank = getInput().getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [" +
+                       std::to_string(-rank) + ", " + std::to_string(rank - 1) +
+                       "], but got " + std::to_string(dim) + ")");
+  }
+
+  auto elementType =
+      mlir::cast<RankedTensorType>(outputs.back().getType()).getElementType();
+  if (!elementType.isInteger(16)) {
+    return emitOpError("Expected data type for indices is i16 but got ")
+           << elementType;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BatchNormOp
 //===----------------------------------------------------------------------===//
 

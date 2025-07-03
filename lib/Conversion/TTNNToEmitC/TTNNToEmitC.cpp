@@ -2050,6 +2050,38 @@ public:
 };
 } // namespace
 
+// Sort op conversion pattern
+//
+namespace {
+class SortOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SortOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::SortOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getDescending()),
+        emitter.emit(srcOp.getStable()),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp.getResult().front()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // BatchNormOp conversion pattern
 //
 namespace {
@@ -2228,7 +2260,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
                RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
-               PermuteOpConversionPattern,
+               SortOpConversionPattern, PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
                                                                   ctx);
 

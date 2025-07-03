@@ -3119,6 +3119,29 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttir::SortOp::verify() {
+  auto outputs = getResults();
+  if (outputs.size() != 2) {
+    return emitOpError("Expected number of outputs = 2 but got ")
+           << outputs.size();
+  }
+
+  auto dim = getDim();
+  auto rank = getInput().getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [" +
+                       std::to_string(-rank) + ", " + std::to_string(rank - 1) +
+                       "], but got " + std::to_string(dim) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
