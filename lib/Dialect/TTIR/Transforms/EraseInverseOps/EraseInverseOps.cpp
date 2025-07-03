@@ -18,9 +18,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-uint64_t
-countTms(Operation *op,
-         const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
     if (op->hasTrait<tt::ttir::detail::TensorManipulationTrait>()) {
@@ -53,15 +51,14 @@ public:
       return;
     }
 
-#ifdef TTMLIR_ENABLE_DEBUG_LOGS
-    auto constParams = ttcore::getConstsAndParams(funcOps[0]);
-#endif
     commuteAbovePatterns =
-        getCommuteRewritePatternSet<CommuteDirection::UPWARDS>(constParams);
+        getCommuteRewritePatternSet<CommuteDirection::UPWARDS>();
     commuteBelowPatterns =
-        getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>(constParams);
+        getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>();
     for (auto funcOp : funcOps) {
-      const int64_t nonConstevalableTMsBefore = countTms(funcOp, constParams);
+#ifdef TTMLIR_ENABLE_DEBUG_LOGS
+      const int64_t nonConstevalableTMsBefore = countTms(funcOp);
+#endif
 
       uint64_t maxIterationsValue = maxIterations.getValue();
       uint64_t previousAfterCommuteAboveTMCount =
@@ -77,10 +74,10 @@ public:
         // graph So we will return after we have commuted the TMs above at least
         // once
         applyCommuteAbovePatterns(funcOp);
-        uint64_t afterCommuteAboveTMCount = countTms(funcOp, constParams);
+        uint64_t afterCommuteAboveTMCount = countTms(funcOp);
 
         applyCommuteBelowPatterns(funcOp);
-        uint64_t afterCommuteBelowTMCount = countTms(funcOp, constParams);
+        uint64_t afterCommuteBelowTMCount = countTms(funcOp);
 
         // If the number of TM is the same as in the previous iteration, we have
         // converged.
@@ -106,7 +103,7 @@ public:
       }
 
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
-      const int64_t nonConstevalableTMsAfter = countTms(funcOp, constParams);
+      const int64_t nonConstevalableTMsAfter = countTms(funcOp);
 #endif
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
                    "Function: {} | Num TMs on the activation paths before "
@@ -124,8 +121,7 @@ private:
   FrozenRewritePatternSet commuteBelowPatterns;
 
   template <CommuteDirection commuteDirection>
-  RewritePatternSet getCommuteRewritePatternSet(
-      llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+  RewritePatternSet getCommuteRewritePatternSet() {
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
