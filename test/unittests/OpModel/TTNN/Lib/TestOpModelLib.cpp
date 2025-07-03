@@ -950,8 +950,8 @@ TEST_P(OpModelLinearParam, LinearParam) {
               inputVirtualGridA] = std::get<0>(params);
   const auto [inputShapeB, inputTensorLayoutB, inputBufferTypeB,
               inputVirtualGridB] = std::get<1>(params);
-  const auto [biasShape, biasTensorLayout, biasBufferType,
-              biasVirtualGrid] = std::get<2>(params);
+  const auto [biasShape, biasTensorLayout, biasBufferType, biasVirtualGrid] =
+      std::get<2>(params);
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<3>(params);
   llvm::SmallVector<int64_t> physicalGrid = std::get<4>(params);
@@ -969,7 +969,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
 
   auto constraintsExp = LinearOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      biasShape,biasLayout,outputShape, outputLayout, false, false);
+      biasShape, biasLayout,outputShape, outputLayout, false, false);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -1106,8 +1106,7 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
                                mlir::tt::ttnn::BufferType::L1,
                                llvm::SmallVector<int64_t>{7, 8}},
-            llvm::SmallVector<int64_t>{7, 8},
-            detail::ExpectedResult{false}),
+            llvm::SmallVector<int64_t>{7, 8}, detail::ExpectedResult{false}),
         std::make_tuple(
             detail::TestTensor{{56 * 32, 56 * 32},
                                mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,

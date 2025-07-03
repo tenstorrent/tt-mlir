@@ -728,8 +728,8 @@ LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape = getType().getShape();
 
   return op_model::ttnn::LinearOpInterface::getOpRuntime(
-      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape,
-      biasLayout, outputShape, opConfig.outputLayout, false, false);
+      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
+      outputShape, opConfig.outputLayout, false, false);
 }
 
 //===----------------------------------------------------------------------===//

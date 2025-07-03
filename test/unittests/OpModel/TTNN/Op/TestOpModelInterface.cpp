@@ -423,8 +423,9 @@ TEST_F(OpModelBase, LinearOpInterface) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto linear = builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                                         ::mlir::ValueRange{inputA, inputB, bias});
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   auto constraintsExp = getOpConstraints(linear.getOperation());
@@ -459,8 +460,9 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto linear = builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                                         ::mlir::ValueRange{inputA, inputB, bias});
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   OpModel backend = dyn_cast<OpModel>(linear.getOperation());
@@ -495,8 +497,9 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
                                         TensorMemoryLayout::BlockSharded)
                           .withIgnorePhysicalLayout(true);
-  auto linear = builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                                         ::mlir::ValueRange{inputA, inputB, bias});
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   OpModel backend = dyn_cast<OpModel>(linear.getOperation());

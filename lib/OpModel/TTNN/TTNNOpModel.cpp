@@ -1483,17 +1483,16 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-LinearOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
-                                    llvm::ArrayRef<int64_t> inputShapeA,
-                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                                    llvm::ArrayRef<int64_t> inputShapeB,
-                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-                                    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
-                                    llvm::ArrayRef<int64_t> outputShape,
-                                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
-                                    bool transposeA, bool transposeB) {
+llvm::Expected<OpConstraints> LinearOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+    bool transposeB) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1527,8 +1526,8 @@ LinearOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
   // Create query closure
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
-        transposeA, transposeB, outputMemoryConfig, outputDType);
+        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,transposeA,
+        transposeB, outputMemoryConfig, outputDType);
   };
 
   return operation::getOpConstraints("LinearOpInterface",
@@ -1539,16 +1538,16 @@ LinearOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t>
-LinearOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
-                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                                llvm::ArrayRef<int64_t> inputShapeB,
-                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                                std::optional<llvm::ArrayRef<int64_t>> biasShape,
-                                std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
-                                llvm::ArrayRef<int64_t> outputShape,
-                                mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
-                                bool transposeA, bool transposeB) {
+llvm::Expected<size_t> LinearOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+    bool transposeB) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1581,9 +1580,9 @@ LinearOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 
   // Create query closure
   auto linearOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::linear, device, inputSpecA,
-                                           inputSpecB, biasTensor, transposeA,
-                                           transposeB, outputMemoryConfig, outputDType);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
+        transposeB, outputMemoryConfig, outputDType);
   };
 
   return operation::getOpRuntime("LinearOpInterface", linearOpQuery);
