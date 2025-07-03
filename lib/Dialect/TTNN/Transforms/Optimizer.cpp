@@ -440,6 +440,8 @@ public:
 
       insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
 
+      workaroundDtypes(func);
+
       SmallVector<Type> funcResultTypes;
 
       // Pick up return op result types and update func type.
@@ -978,6 +980,61 @@ private:
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Successfully passed constraints after inserting RM");
       convertOpToRowMajorAndBack(op);
+    });
+  }
+
+  // TODO(rpavlovicTT): Remove this workaround once we implement it properly
+  // through WorkaroundsPass.
+  void workaroundDtypes(func::FuncOp func) {
+    func->walk([&](Operation *op) {
+      // List of ops that we need to apply dtypes workaround.
+      // At the moment we need to apply dtypes workaround for Where op.
+      if (!isa<ttnn::WhereOp>(op)) {
+        return;
+      }
+
+      ttnn::WhereOp whereOp = mlir::cast<ttnn::WhereOp>(op);
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Checking dtypes of {}",
+                   whereOp);
+      auto predicate = whereOp.getFirst();
+      Type elementType = predicate.getType().getElementType();
+
+      // When predicate is integer, we will convert it to dtype of second
+      // operand. This works around issue in TTNN lib where `where` op derives
+      // result dtype from the predicate which is not correct.
+      if (elementType.isInteger()) {
+        auto tensorLayout = utils::getLayoutAttrFromTensor(
+            mlir::cast<mlir::RankedTensorType>(whereOp.getSecond().getType()));
+
+        assert(tensorLayout && "Input operand must have a layout");
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Converting integer predicate to second operand dtype "
+                     "{}, second operand layout: {}",
+                     elementType, tensorLayout);
+
+        auto dType = tensorLayout.getDataType();
+        OpBuilder builder(whereOp);
+
+        TTNNLayoutAttr predicateLayout =
+            mlir::cast<TTNNLayoutAttr>(predicate.getType().getEncoding());
+
+        // Clone whole type, but with new data type and therefore new encoding.
+        Type newElementType = utils::getElementType(
+            whereOp->getContext(), predicateLayout.getLayout(), dType);
+        TTNNLayoutAttr newLayout = predicateLayout.withElementType(
+            newElementType, predicate.getType().getShape());
+        mlir::RankedTensorType newResultType = mlir::RankedTensorType::get(
+            predicate.getType().getShape(), newLayout.getScalarElementType(),
+            newLayout);
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Creating new typecast op with new result type: {}",
+                     newResultType);
+        auto newTypecastOp = builder.create<ttnn::TypecastOp>(
+            whereOp.getLoc(), newResultType, predicate, dType);
+
+        whereOp->setOperand(0, newTypecastOp);
+      }
     });
   }
 
