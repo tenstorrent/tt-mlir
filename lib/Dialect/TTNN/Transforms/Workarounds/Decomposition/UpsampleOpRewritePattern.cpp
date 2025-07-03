@@ -361,7 +361,7 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
                                           "to_layout"),
       outputType, targetLayoutUpsampleOp, outputLayoutAttr.getLayout(),
       ttcore::DataTypeAttr::get(getContext(), outputLayoutAttr.getDataType()),
-      outputMemoryConfig, utils::getOrInsertDevice(rewriter, srcOp));
+      outputMemoryConfig);
   rewriter.replaceOp(srcOp, outputToLayoutOp);
 
   return success();
