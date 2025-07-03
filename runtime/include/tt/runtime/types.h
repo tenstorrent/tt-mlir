@@ -59,6 +59,16 @@ enum class DispatchCoreType {
   ETH,
 };
 
+enum class FabricConfig {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS,
+  FABRIC_2D_DYNAMIC,
+  CUSTOM,
+};
+
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
@@ -197,7 +207,7 @@ struct MeshDeviceOptions {
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
-  std::optional<std::string> fabricConfig = std::nullopt;
+  std::optional<FabricConfig> fabricConfig = std::nullopt;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {

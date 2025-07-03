@@ -312,7 +312,7 @@ class Run:
         Run.register_arg(
             name="--fabric-config",
             type=str,
-            default="",
+            default=None,
             choices=None,
             help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
         )
@@ -562,7 +562,10 @@ class Run:
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
-            mesh_options.fabric_config = self["--fabric-config"]
+            if self["--fabric-config"] is not None:
+                mesh_options.fabric_config = parse_fabric_config(
+                    self["--fabric-config"]
+                )
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None

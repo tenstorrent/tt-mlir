@@ -39,48 +39,25 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
   return type;
 }
 
-[[nodiscard]] inline std::string trim_and_lower(std::string s) {
-  auto first = std::find_if_not(
-      s.begin(), s.end(), [](unsigned char ch) { return std::isspace(ch); });
-  if (first == s.end()) {
-    return {};
-  }
-  auto last = std::find_if_not(s.rbegin(), s.rend(), [](unsigned char ch) {
-                return std::isspace(ch);
-              }).base();
-  s.erase(last, s.end());
-  s.erase(s.begin(), first);
-  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return s;
-}
-
 inline ::tt::tt_metal::FabricConfig
-getFabricConfig(const std::string &fabricConfig) {
-  std::string s = trim_and_lower(fabricConfig);
-  if (s == "disabled") {
+getFabricConfig(tt::runtime::FabricConfig cfg) {
+  switch (cfg) {
+  case tt::runtime::FabricConfig::DISABLED:
     return ::tt::tt_metal::FabricConfig::DISABLED;
-  }
-  if (s == "fabric_1d") {
+  case tt::runtime::FabricConfig::FABRIC_1D:
     return ::tt::tt_metal::FabricConfig::FABRIC_1D;
-  }
-  if (s == "fabric_1d_ring") {
+  case tt::runtime::FabricConfig::FABRIC_1D_RING:
     return ::tt::tt_metal::FabricConfig::FABRIC_1D_RING;
-  }
-  if (s == "fabric_2d") {
+  case tt::runtime::FabricConfig::FABRIC_2D:
     return ::tt::tt_metal::FabricConfig::FABRIC_2D;
-  }
-  if (s == "fabric_2d_torus") {
+  case tt::runtime::FabricConfig::FABRIC_2D_TORUS:
     return ::tt::tt_metal::FabricConfig::FABRIC_2D_TORUS;
-  }
-  if (s == "fabric_2d_dynamic") {
+  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
     return ::tt::tt_metal::FabricConfig::FABRIC_2D_DYNAMIC;
-  }
-  if (s == "custom") {
+  case tt::runtime::FabricConfig::CUSTOM:
     return ::tt::tt_metal::FabricConfig::CUSTOM;
   }
-  return ::tt::tt_metal::FabricConfig::DISABLED;
+  throw std::invalid_argument("Unknown tt::runtime::FabricConfig value");
 }
 
 inline CoreRangeSet toCoreRangeSet(

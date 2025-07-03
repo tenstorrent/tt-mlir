@@ -48,6 +48,7 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        FabricConfig,
     )
 except ModuleNotFoundError:
     raise ImportError(
