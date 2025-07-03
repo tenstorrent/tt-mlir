@@ -46,8 +46,6 @@ struct Conv2dConfigOverrideParams {
   std::optional<CoreRangeSetAttr> coreGrid = std::nullopt;
   std::optional<bool> transposeShards = std::nullopt;
   std::optional<Layout> outputLayout = std::nullopt;
-  std::optional<bool> preprocessWeightsOnDevice = std::nullopt;
-  std::optional<bool> alwaysPreprocessWeights = std::nullopt;
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;
@@ -62,8 +60,6 @@ struct Conv2dConfigOverrideParams {
            !overrideShardingConfig.has_value() && !shardLayout.has_value() &&
            !coreGrid.has_value() && !transposeShards.has_value() &&
            !outputLayout.has_value() &&
-           !preprocessWeightsOnDevice.has_value() &&
-           !alwaysPreprocessWeights.has_value() &&
            !enableActDoubleBuffer.has_value() &&
            !enableWeightsDoubleBuffer.has_value() &&
            !enableSplitReader.has_value() && !enableSubblockPadding.has_value();

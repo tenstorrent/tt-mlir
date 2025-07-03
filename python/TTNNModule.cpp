@@ -176,8 +176,7 @@ void populateTTNNModule(nb::module_ &m) {
              std::optional<tt::ttnn::TensorMemoryLayout> shardLayout,
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
-             BoolAttr preprocessWeightsOnDevice,
-             BoolAttr alwaysPreprocessWeights, BoolAttr enableActDoubleBuffer,
+             BoolAttr enableActDoubleBuffer,
              BoolAttr enableWeightsDoubleBuffer, BoolAttr enableSplitReader,
              BoolAttr enableSubblockPadding) {
             MLIRContext *context = unwrap(ctx);
@@ -187,7 +186,6 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout,
-                preprocessWeightsOnDevice, alwaysPreprocessWeights,
                 enableActDoubleBuffer, enableWeightsDoubleBuffer,
                 enableSplitReader, enableSubblockPadding));
           })
@@ -289,22 +287,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return static_cast<uint32_t>(*self.getOutputLayout());
-                   })
-      .def_prop_ro("preprocess_weights_on_device",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getPreprocessWeightsOnDevice()) {
-                       return nb::none();
-                     }
-                     return self.getPreprocessWeightsOnDevice().getValue();
-                   })
-      .def_prop_ro("always_preprocess_weights",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getAlwaysPreprocessWeights()) {
-                       return nb::none();
-                     }
-                     return self.getAlwaysPreprocessWeights().getValue();
                    })
       .def_prop_ro("enable_act_double_buffer",
                    [](tt::ttnn::Conv2dConfigAttr self)

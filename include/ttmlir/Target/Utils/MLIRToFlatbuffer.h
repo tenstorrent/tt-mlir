@@ -787,8 +787,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getCoreGrid()),
       toFlatbuffer(cache, config.getTransposeShards()),
       toFlatbuffer(cache, config.getOutputLayout()),
-      toFlatbuffer(cache, config.getPreprocessWeightsOnDevice()),
-      toFlatbuffer(cache, config.getAlwaysPreprocessWeights()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
