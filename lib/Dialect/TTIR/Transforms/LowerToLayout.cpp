@@ -174,6 +174,12 @@ public:
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
+    fprintf(stderr, "++ createModifiedType: start\n");
+    fprintf(stderr, "++ Base type ");
+    baseType.dump();
+    fprintf(stderr, "++ Base layout ");
+    baseLayout.dump();
+
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     auto maybeBaseTypeLayout =
@@ -219,7 +225,15 @@ public:
             baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
             newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
 
-    return RankedTensorType::get(physicalShape, elementType, newLayout);
+    fprintf(stderr, "++ New elementType ");
+    elementType.dump();
+
+    const auto ret =
+        RankedTensorType::get(physicalShape, elementType, newLayout);
+    fprintf(stderr, "++ New tensor type: ");
+    ret.dump();
+    fprintf(stderr, "++ createModifiedType: finish\n");
+    return ret;
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,

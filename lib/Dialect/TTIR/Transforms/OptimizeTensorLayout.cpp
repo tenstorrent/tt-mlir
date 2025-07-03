@@ -30,6 +30,21 @@ static ttcore::GridAttr getOptimalGrid(PatternRewriter &rewriter,
       }
     }
   }
+
+  fprintf(stderr, "++ getOptimalGrid: memrefShape [");
+  for (auto dim : memrefShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ] deviceGridShape [");
+  for (auto dim : deviceGridShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ] -> optimal gridShape [");
+  for (auto dim : gridShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ]\n");
+
   return rewriter.getAttr<ttcore::GridAttr>(gridShape);
 }
 
