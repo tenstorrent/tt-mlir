@@ -538,7 +538,7 @@ class TTIRBuilder(TTIRBuilderOps):
         Returns:
             MLIR Type corresponding to the input dtype.
         """
-        if scale and zero_point:
+        if scale is not None and zero_point is not None:
             dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
 
