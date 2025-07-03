@@ -53,7 +53,9 @@ public:
       return;
     }
 
+#ifdef TTMLIR_ENABLE_DEBUG_LOGS
     auto constParams = ttcore::getConstsAndParams(funcOps[0]);
+#endif
     commuteAbovePatterns =
         getCommuteRewritePatternSet<CommuteDirection::UPWARDS>(constParams);
     commuteBelowPatterns =
@@ -103,7 +105,9 @@ public:
         return;
       }
 
+#ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsAfter = countTms(funcOp, constParams);
+#endif
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
                    "Function: {} | Num TMs on the activation paths before "
                    "EraseInverseOps: {}, "
