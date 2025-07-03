@@ -163,7 +163,7 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::Float32:
     return Float32Type::get(context);
   case DataType::Float16:
-    return Float16Type::get(context);
+    return BFloat16Type::get(context);
   case DataType::BFloat16:
     return BFloat16Type::get(context);
   case DataType::BFP_Float8:
