@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "7a44fb24")
+set(TT_METAL_VERSION "493a1ebfab")  # tt-metal 493a1ebfab with oleg change revert to fix build
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
