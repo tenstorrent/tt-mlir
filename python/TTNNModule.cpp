@@ -176,18 +176,17 @@ void populateTTNNModule(nb::module_ &m) {
              std::optional<tt::ttnn::TensorMemoryLayout> shardLayout,
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
-             BoolAttr enableActDoubleBuffer,
-             BoolAttr enableWeightsDoubleBuffer, BoolAttr enableSplitReader,
-             BoolAttr enableSubblockPadding) {
+             BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
                 context, dtype, weightsDtype, activation, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-                coreGrid, transposeShards, outputLayout,
-                enableActDoubleBuffer, enableWeightsDoubleBuffer,
-                enableSplitReader, enableSubblockPadding));
+                coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
+                enableWeightsDoubleBuffer, enableSplitReader,
+                enableSubblockPadding));
           })
       .def_prop_ro("dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
