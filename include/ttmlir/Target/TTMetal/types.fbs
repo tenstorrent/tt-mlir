@@ -13,11 +13,18 @@ table ShardSpecBuffer {
   tensor_shape_in_pages: Dim2d;
 }
 
+table InterleavedBufferConfig {
+  size: uint64;
+  page_size: uint64;
+}
+
 table ShardedBufferConfig {
   size: uint64;
   page_size: uint64;
   shard_spec_buffer: ShardSpecBuffer;
 }
+
+union BufferConfig {InterleavedBufferConfig, ShardedBufferConfig}
 
 table CircularBufferConfig {
   core_range_set: [Dim2dRange];
@@ -31,7 +38,7 @@ table BufferDesc {
   tile_shape: Dim2d;
   data_type: DataType;
   memory_space: MemorySpace;
-  sharded_buffer_config: ShardedBufferConfig;
+  buffer_config: BufferConfig;
   circular_buffer_config: CircularBufferConfig;
 }
 
