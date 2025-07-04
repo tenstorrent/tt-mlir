@@ -9,6 +9,10 @@
 #include "tools/profiler/op_profiler.hpp"
 #include "tt/runtime/detail/logger.h"
 
+// [todo] move into op_profiler.hpp includes after build break from tt-metal
+// b13938c See https://github.com/tenstorrent/tt-mlir/issues/4004
+#include "tt-metalium/tt_metal_profiler.hpp"
+
 #include <cstdint>
 
 namespace tt::runtime::ttmetal::profiler {
