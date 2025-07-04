@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "7a44fb24")
+set(TT_METAL_VERSION "f8f93226")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -189,9 +189,6 @@ install(
     ${CPM_SOURCE_CACHE}/reflect
     ${CPM_SOURCE_CACHE}/spdlog
     ${CPM_SOURCE_CACHE}/tt-logger
-    ${CPM_SOURCE_CACHE}/xtensor
-    ${CPM_SOURCE_CACHE}/xtensor-blas
-    ${CPM_SOURCE_CACHE}/xtl
   DESTINATION tt-metal/.cpmcache
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
