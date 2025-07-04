@@ -53,6 +53,7 @@ add_custom_target(sphinx
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
     TTIRBuilderModules
+    TTMLIRPythonModules
     copy-docs-dir mlir-doc
   COMMENT "Generating Sphinx documentation"
 )
