@@ -126,6 +126,7 @@ private:
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateConcatCommutePatterns(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
