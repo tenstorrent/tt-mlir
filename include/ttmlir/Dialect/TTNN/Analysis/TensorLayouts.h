@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_TENSORLAYOUTS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_TENSORLAYOUTS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"

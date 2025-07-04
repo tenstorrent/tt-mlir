@@ -2,24 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "llvm-gtest/gtest/gtest.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "llvm/ADT/SmallVector.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Value.h"
+#include "llvm/ADT/SmallVector.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
-#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-
-#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
+#include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -32,7 +30,7 @@ public:
   mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::OpBuilder builder = mlir::OpBuilder(&context);
   mlir::func::FuncOp func;
-  mlir::tt::DeviceAttr deviceAttr;
+  mlir::tt::ttcore::DeviceAttr deviceAttr;
 
   using OpMemSpec = GreedyL1InterleavedPolicy::OpMemSpec;
   using GreedyPolicyChoice = GreedyL1InterleavedPolicy::GreedyPolicyChoice;
@@ -42,9 +40,9 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
     createFuncOp();
-    deviceAttr = mlir::tt::lookupDevice(func);
+    deviceAttr = mlir::tt::ttcore::lookupDevice(func);
   }
 
   llvm::SmallVector<int64_t, 2> getTensorShape() {
@@ -92,13 +90,15 @@ public:
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr)};
+          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
+          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
+          tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr));
+          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
+          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
+          tensorMemoryLayoutAttr));
     }
   }
 

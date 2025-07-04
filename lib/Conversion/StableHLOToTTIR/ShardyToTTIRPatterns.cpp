@@ -5,8 +5,8 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/Mesh.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
@@ -58,11 +58,12 @@ static mlir::func::FuncOp getCalledFunction(CallOpInterface callOp) {
 // Check if Type includes TensorMeshShardingAttr
 static bool checkTypeIfTensorMeshShardingAttrExist(
     mlir::Type valueType,
-    mlir::tt::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
   auto type = mlir::cast<RankedTensorType>(valueType);
   mlir::Attribute encoding = type.getEncoding();
   if (auto existingTensorMeshShardingAttr =
-          dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(encoding)) {
+          dyn_cast_if_present<mlir::tt::ttcore::TensorMeshShardingAttr>(
+              encoding)) {
     if (existingTensorMeshShardingAttr.getName() !=
         incomingTensorMeshShardingAttr.getName()) {
       llvm_unreachable("Conflict mesh in TensorMeshShardingAttrs.");
@@ -75,7 +76,7 @@ static bool checkTypeIfTensorMeshShardingAttrExist(
 // Check if FuncOp input/result include TensorMeshShardingAttr
 static bool checkFuncOpIfTensorMeshShardingAttrExist(
     mlir::func::FuncOp funcOp,
-    mlir::tt::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
   auto funcOpType = funcOp.getFunctionType();
   return (funcOpType.getInputs().size() > 0 &&
           checkTypeIfTensorMeshShardingAttrExist(
@@ -87,7 +88,8 @@ static bool checkFuncOpIfTensorMeshShardingAttrExist(
 
 // Add tensorMeshShardingAttr to tensors and get updated types.
 static llvm::SmallVector<Type> addTensorMeshShardingAttrToValues(
-    mlir::ValueRange values, TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::ValueRange values,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   llvm::SmallVector<Type> types;
   if (values.size() == 0) {
     return types;
@@ -112,7 +114,8 @@ static llvm::SmallVector<Type> addTensorMeshShardingAttrToValues(
 // inside body of rewriter.modifyOpInPlace().
 template <typename OpTy>
 void propagateTensorMeshSharding(
-    OpTy srcOp, mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    OpTy srcOp,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   static_assert(std::is_same_v<OpTy, mlir::sdy::ManualComputationOp> ||
                     std::is_same_v<OpTy, mlir::func::FuncOp>,
                 "Only propagate TensorMeshSharding to "
@@ -208,7 +211,7 @@ public:
     auto meshNameStrAttr =
         mlir::StringAttr::get(context, firstSharding.getMeshName());
     auto tensorMeshShardingAttr =
-        mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr);
+        mlir::tt::ttcore::TensorMeshShardingAttr::get(context, meshNameStrAttr);
     rewriter.modifyOpInPlace(srcOp, [&]() {
       mlir::tt::propagateTensorMeshSharding<mlir::sdy::ManualComputationOp>(
           srcOp, tensorMeshShardingAttr);
@@ -244,7 +247,8 @@ public:
 
       mlir::tt::sharding_utils::MeshSharding meshSharding;
       auto error = meshSharding.convertSdyShardingToMeshSharding(
-          argSharding, targetMesh, mlir::tt::MeshShardDirection::FullToShard);
+          argSharding, targetMesh,
+          mlir::tt::ttcore::MeshShardDirection::FullToShard);
       if (auto e = error.takeError()) {
         return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
       }
@@ -286,7 +290,8 @@ public:
       auto [returnOperand, outSharding, opResult] = args;
       mlir::tt::sharding_utils::MeshSharding meshSharding;
       auto error = meshSharding.convertSdyShardingToMeshSharding(
-          outSharding, targetMesh, mlir::tt::MeshShardDirection::ShardToFull);
+          outSharding, targetMesh,
+          mlir::tt::ttcore::MeshShardDirection::ShardToFull);
       if (auto e = error.takeError()) {
         return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
       }
@@ -357,8 +362,8 @@ public:
       for (auto meshAxisAttr : sdyMesh.getAxes()) {
         meshShape.push_back(meshAxisAttr.getSize());
       }
-      mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
-                                                meshShape);
+      mlir::tt::ttcore::utils::addMeshToModuleAttribute(rewriter, module,
+                                                        meshName, meshShape);
     }
 
     // Before erasing MeshOp, visit public functions and properly handle
@@ -388,7 +393,7 @@ public:
         mlir::tt::sharding_utils::MeshSharding meshSharding;
         auto error = meshSharding.convertSdyShardingToMeshSharding(
             argShardingAttr, sdyMesh,
-            mlir::tt::MeshShardDirection::ShardToFull);
+            mlir::tt::ttcore::MeshShardDirection::ShardToFull);
         if (auto e = error.takeError()) {
           llvm_unreachable(llvm::toString(std::move(e)).c_str());
         }
@@ -418,7 +423,7 @@ public:
         mlir::tt::sharding_utils::MeshSharding meshSharding;
         auto error = meshSharding.convertSdyShardingToMeshSharding(
             retShardingAttr, sdyMesh,
-            mlir::tt::MeshShardDirection::FullToShard);
+            mlir::tt::ttcore::MeshShardDirection::FullToShard);
         if (auto e = error.takeError()) {
           llvm_unreachable(llvm::toString(std::move(e)).c_str());
         }
@@ -456,7 +461,7 @@ namespace mlir::tt {
 // Check matching of input and result tensor annotations and fix if there is any
 // issue.
 llvm::LogicalResult
-analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
+analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::ttcore::MeshesAttr meshes,
                                            mlir::Operation *srcOp,
                                            mlir::OpBuilder &builder) {
   if (srcOp->getNumResults() == 0 || srcOp->getNumOperands() == 0) {
@@ -466,16 +471,16 @@ analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
   auto resultType =
       mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType());
   if (auto tensorMeshShardingAttr =
-          mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+          mlir::dyn_cast_if_present<mlir::tt::ttcore::TensorMeshShardingAttr>(
               resultType.getEncoding())) {
     // Result is multi device tensor and thus expects args to be multi device
     // tensors. If args are not multi device tensor, propagate the missing
     // TensorMeshShardingAttr to args.
     for (auto arg : srcOp->getOperands()) {
       auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
-      if (auto argTensorMeshShardingAttr =
-              mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
-                  argType.getEncoding())) {
+      if (auto argTensorMeshShardingAttr = mlir::dyn_cast_if_present<
+              mlir::tt::ttcore::TensorMeshShardingAttr>(
+              argType.getEncoding())) {
         // If pre-existing TensorMeshShardingAttr is different from the
         // expected one, then fail.
         if (argTensorMeshShardingAttr.getName() !=
@@ -499,14 +504,14 @@ analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
     // tensor to single device tensor.
     for (auto arg : srcOp->getOperands()) {
       auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
-      if (auto argTensorMeshShardingAttr =
-              mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
-                  argType.getEncoding())) {
+      if (auto argTensorMeshShardingAttr = mlir::dyn_cast_if_present<
+              mlir::tt::ttcore::TensorMeshShardingAttr>(
+              argType.getEncoding())) {
         mlir::tt::sharding_utils::MeshSharding meshSharding;
         meshSharding.extractMeshShardingFromTensorMeshShardingAttr(
             meshes.getMesh(argTensorMeshShardingAttr.getName().str()),
             argTensorMeshShardingAttr,
-            mlir::tt::MeshShardDirection::ShardToFull);
+            mlir::tt::ttcore::MeshShardDirection::ShardToFull);
 
         mlir::Type elementType = argType.getElementType();
         llvm::ArrayRef<int64_t> shape = argType.getShape();
@@ -545,8 +550,8 @@ public:
     mlir::ModuleOp moduleOp = getOperation();
     mlir::MLIRContext *context = moduleOp.getContext();
     auto builder = mlir::OpBuilder(context);
-    auto meshes = moduleOp->getAttrOfType<mlir::tt::MeshesAttr>(
-        mlir::tt::MeshesAttr::name);
+    auto meshes = moduleOp->getAttrOfType<mlir::tt::ttcore::MeshesAttr>(
+        mlir::tt::ttcore::MeshesAttr::name);
 
     // We regard a module without meshes as a module only containing single
     // device tensors. Thus, skip this pass.

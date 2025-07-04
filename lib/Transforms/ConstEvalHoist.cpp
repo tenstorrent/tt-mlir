@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTTraits.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -50,7 +50,7 @@ namespace {
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
-    populateConstParams();
+    getConstsAndParams();
     buildConstEvalSubgraphs();
   }
 
@@ -106,12 +106,12 @@ public:
   }
 
 private:
-  void populateConstParams() {
+  void getConstsAndParams() {
     if (funcOp->isDeclaration()) {
       return;
     }
 
-    constParams = ttmlir::utils::populateConstParams(*funcOp);
+    constParams = mlir::tt::ttcore::getConstsAndParams(*funcOp);
   }
 
   // Recurse up hierarchy to find root of given subset.
@@ -292,12 +292,13 @@ private:
   // Helper functions
   bool isCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>();
+    return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
   }
 
   bool isSharedOp(mlir::Operation *op) {
     assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>();
+    return op
+        ->hasTrait<mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>();
   }
 
 private:
@@ -330,9 +331,9 @@ private:
 
 // Common implementation shared between passes
 namespace {
-// Deduplicate operations with TTDuplicateConstEvalTrait in a function.  Assumes
-// any op with TTDuplicateConstEvalTrait is equivalent to the same op with the
-// same attrs.
+// Deduplicate operations with TTCoreDuplicateConstEvalTrait in a function.
+// Assumes any op with TTCoreDuplicateConstEvalTrait is equivalent to the same
+// op with the same attrs.
 static void deduplicateSharedOps(func::FuncOp funcOp) {
   // Map from operation signature to first instance
   using OpKey = std::pair<StringRef, DictionaryAttr>;
@@ -342,7 +343,8 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
   SmallVector<Operation *, 8> opsToErase;
 
   funcOp.walk([&](Operation *op) {
-    if (op->hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>()) {
+    if (op->hasTrait<
+            mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>()) {
       // Create a key based on operation name and all attributes
       StringRef opName = op->getName().getStringRef();
       DictionaryAttr attrs = op->getAttrDictionary();
@@ -379,7 +381,7 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
 
 // Helper to inline a const-eval function.
 static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
-                                    mlir::tt::LoadCachedOp callOp,
+                                    mlir::tt::ttcore::LoadCachedOp callOp,
                                     OpBuilder &builder) {
   builder.setInsertionPoint(callOp);
 
@@ -419,7 +421,7 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
   OpBuilder builder(context);
 
   // Find all const-eval functions and their callers
-  llvm::DenseMap<mlir::func::FuncOp, mlir::tt::LoadCachedOp> funcToCall;
+  llvm::DenseMap<mlir::func::FuncOp, mlir::tt::ttcore::LoadCachedOp> funcToCall;
   llvm::SmallVector<mlir::func::FuncOp, 4> constEvalFuncs;
   llvm::SmallVector<mlir::func::FuncOp, 4> parentFuncs;
 
@@ -431,7 +433,7 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
   });
 
   // Find all calls to const-eval functions
-  module.walk([&](mlir::tt::LoadCachedOp loadOp) {
+  module.walk([&](mlir::tt::ttcore::LoadCachedOp loadOp) {
     mlir::StringRef calleeName = loadOp.getCallee();
     auto funcOp = module.lookupSymbol<mlir::func::FuncOp>(calleeName);
     assert(funcOp && ttmlir::utils::isConstEvalFunc(funcOp));
@@ -444,7 +446,7 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
     auto callIt = funcToCall.find(funcOp);
     assert(callIt != funcToCall.end() &&
            "Found const-eval func that was never called!");
-    mlir::tt::LoadCachedOp &callOp = callIt->second;
+    mlir::tt::ttcore::LoadCachedOp &callOp = callIt->second;
     // Get the parent function of this call
     mlir::func::FuncOp parentFunc =
         callOp->getParentOfType<mlir::func::FuncOp>();
@@ -484,7 +486,7 @@ public:
 
 namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
-// w/ tt.load_cached ops.
+// w/ ttcore.load_cached ops.
 class ConstEvalHoistTransform
     : public impl::ConstEvalHoistTransformBase<ConstEvalHoistTransform> {
 public:
@@ -630,7 +632,7 @@ private:
         mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
 
     // Create the LoadCachedOp with the correct argument order
-    auto callOp = builder.create<tt::LoadCachedOp>(
+    auto callOp = builder.create<ttcore::LoadCachedOp>(
         originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
 
     // Replace uses of original outputs with call results.

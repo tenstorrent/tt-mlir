@@ -26,7 +26,7 @@ public:
   void setEnableMemoryLayoutAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
-  void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &);
+  void setInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> &);
   void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
   void setConv2dConfigOverrides(llvm::StringMap<Conv2dConfigOverrideParams> &);
   // Add system descriptor path.
@@ -42,7 +42,7 @@ public:
   bool getEnableMemoryLayoutAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
-  llvm::StringMap<InputLayoutOverrideParams> getInputLayoutOverrides() const;
+  llvm::StringMap<InsertMemReconfigParams> getInsertMemReconfig() const;
   llvm::StringMap<OutputLayoutOverrideParams> getOutputLayoutOverrides() const;
   llvm::StringMap<Conv2dConfigOverrideParams> getConv2dConfigOverrides() const;
   std::string getSystemDescPath() const;
@@ -54,23 +54,22 @@ public:
 
   // Fill override maps.
   // This is used from tt-forge frontend where we define and compile the models.
-  void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
-  void addInputLayoutOverride(StringRef, SmallVector<int64_t> &);
+  void addInsertMemReconfig(StringRef, InsertMemReconfigParams);
+  void addInsertMemReconfig(StringRef, SmallVector<int64_t> &);
   void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
-                               tt::DataType);
+                               ttcore::DataType);
   void addConv2dConfigOverride(StringRef, Conv2dConfigOverrideParams);
 
-  std::unordered_map<std::string, InputLayoutOverrideParams>
-  getInputLayoutOverridesNanobindWrapper() const;
+  std::unordered_map<std::string, InsertMemReconfigParams>
+  getInsertMemReconfigNanobindWrapper() const;
   std::unordered_map<std::string, OutputLayoutOverrideParams>
   getOutputLayoutOverridesNanobindWrapper() const;
   std::unordered_map<std::string, Conv2dConfigOverrideParams>
   getConv2dConfigOverridesNanobindWrapper() const;
 
-  void addInputLayoutOverrideNanobindWrapper(std::string,
-                                             std::vector<int64_t> &);
+  void addInsertMemReconfigNanobindWrapper(std::string, std::vector<int64_t> &);
   void addOutputLayoutOverrideNanobindWrapper(std::string,
                                               OutputLayoutOverrideParams);
   void addConv2dConfigOverrideNanobindWrapper(std::string,
@@ -84,7 +83,7 @@ private:
   bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = false;
 
-  llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides;
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;
 
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides;
 

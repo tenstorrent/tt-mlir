@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
-#include "llvm-gtest/gtest/gtest.h"
 #include "llvm/Support/CommandLine.h"
+
+#include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -59,9 +60,9 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
 
   const auto &params = parsedOverride["op0"];
   ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.weightsDtype.has_value());
-  ASSERT_EQ(params.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "relu");
   ASSERT_TRUE(params.deallocateActivation.has_value());
@@ -109,7 +110,7 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
 
   const auto &params = parsedOverride["op0"];
   ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "");
   ASSERT_FALSE(params.weightsDtype.has_value());
@@ -146,15 +147,15 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
 
   const auto &params0 = parsedOverride["op0"];
   ASSERT_TRUE(params0.dtype.has_value());
-  ASSERT_EQ(params0.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params0.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params0.activation.has_value());
   ASSERT_EQ(params0.activation.value(), "");
 
   const auto &params1 = parsedOverride["op1"];
   ASSERT_TRUE(params1.dtype.has_value());
-  ASSERT_EQ(params1.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params1.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.weightsDtype.has_value());
-  ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.activation.has_value());
   ASSERT_EQ(params1.activation.value(), "relu");
 }
@@ -196,7 +197,7 @@ TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
   ASSERT_TRUE(params.memoryLayout.has_value());
   ASSERT_EQ(params.memoryLayout.value(), Layout::Tile);
   ASSERT_TRUE(params.dataType.has_value());
-  ASSERT_EQ(params.dataType.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params.dataType.value(), mlir::tt::ttcore::DataType::Float32);
 }
 
 TEST_F(OutputLayoutOverrideTest, ParsePartialOutputLayoutOverride) {
@@ -261,7 +262,7 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(params1.memoryLayout.has_value());
   ASSERT_EQ(params1.memoryLayout.value(), Layout::Tile);
   ASSERT_TRUE(params1.dataType.has_value());
-  ASSERT_EQ(params1.dataType.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params1.dataType.value(), mlir::tt::ttcore::DataType::Float32);
 
   const auto &params2 = parsedOverride["op2"];
   ASSERT_TRUE(params2.grid.has_value());
@@ -276,7 +277,7 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(params2.memoryLayout.has_value());
   ASSERT_EQ(params2.memoryLayout.value(), Layout::RowMajor);
   ASSERT_TRUE(params2.dataType.has_value());
-  ASSERT_EQ(params2.dataType.value(), mlir::tt::DataType::Float16);
+  ASSERT_EQ(params2.dataType.value(), mlir::tt::ttcore::DataType::Float16);
 }
 
 class TestOptimizerOverrideHandler : public ::testing::Test {
@@ -286,32 +287,32 @@ public:
 
   void SetUp() override {}
 
-  llvm::StringMap<InputLayoutOverrideParams> createInputLayoutOverrides() {
+  llvm::StringMap<InsertMemReconfigParams> createInsertMemReconfig() {
 
-    // struct InputLayoutOverrideParams {
+    // struct InsertMemReconfigParams {
     //   SmallVector<int64_t> operandIdxes;
     // };
 
-    llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides;
+    llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;
 
     // Create input layout overrides for 3 input overrides.
-    inputLayoutOverrides["input0"] = createInputLayoutOverrideParams();
-    inputLayoutOverrides["input1"] = createInputLayoutOverrideParams();
-    inputLayoutOverrides["input2"] = createInputLayoutOverrideParams();
+    insertMemReconfig["input0"] = createInsertMemReconfigParams();
+    insertMemReconfig["input1"] = createInsertMemReconfigParams();
+    insertMemReconfig["input2"] = createInsertMemReconfigParams();
 
-    return inputLayoutOverrides;
+    return insertMemReconfig;
   }
 
-  InputLayoutOverrideParams createInputLayoutOverrideParams() {
+  InsertMemReconfigParams createInsertMemReconfigParams() {
 
-    InputLayoutOverrideParams inputLayoutOverrideParams;
+    InsertMemReconfigParams insertMemReconfigParams;
 
     // Create input layout override params for 2 operands.
     // Their operand indexes are 0 and 1, respectively.
-    inputLayoutOverrideParams.operandIdxes.push_back(0);
-    inputLayoutOverrideParams.operandIdxes.push_back(1);
+    insertMemReconfigParams.operandIdxes.push_back(0);
+    insertMemReconfigParams.operandIdxes.push_back(1);
 
-    return inputLayoutOverrideParams;
+    return insertMemReconfigParams;
   }
 
   llvm::StringMap<OutputLayoutOverrideParams> createOutputLayoutOverrides() {
@@ -333,7 +334,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -349,7 +350,7 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::Interleaved;
     outputLayoutOverrideParams.memoryLayout = Layout::Tile;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
@@ -361,7 +362,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -377,7 +378,7 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::BlockSharded;
     outputLayoutOverrideParams.memoryLayout = Layout::RowMajor;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
@@ -389,7 +390,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -405,28 +406,27 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::HeightSharded;
     outputLayoutOverrideParams.memoryLayout = Layout::Tile;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
 
-  bool
-  compareInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> in1,
-                              llvm::StringMap<InputLayoutOverrideParams> in2) {
+  bool compareInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> in1,
+                                llvm::StringMap<InsertMemReconfigParams> in2) {
     // Check if the sizes of the two input layout overrides are the same.
     if (in1.size() != in2.size()) {
       return false;
     }
-    llvm::StringMap<InputLayoutOverrideParams>::iterator it1;
+    llvm::StringMap<InsertMemReconfigParams>::iterator it1;
     for (it1 = in1.begin(); it1 != in1.end(); it1++) {
       // Check if the two input layout overrides have the same keys.
-      llvm::StringMap<InputLayoutOverrideParams>::iterator it2 =
+      llvm::StringMap<InsertMemReconfigParams>::iterator it2 =
           in2.find(it1->getKey());
       if (it2 == in2.end()) {
         return false;
       }
       // Check if the two input layout overrides have the same values.
-      // The structure InputLayoutOverrideParams has overloaded operators for ==
+      // The structure InsertMemReconfigParams has overloaded operators for ==
       // and !=, so we can compare the objects in this way.
       if (it1->getValue() != it2->getValue()) {
         return false;
@@ -517,16 +517,15 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysisPolicy) {
             mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
 }
 
-// Test the setInputLayoutOverrides method
-TEST_F(TestOptimizerOverrideHandler, TestSetInputLayoutOverrides) {
+// Test the setInsertMemReconfig method
+TEST_F(TestOptimizerOverrideHandler, TestSetInsertMemReconfig) {
 
-  llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides =
-      createInputLayoutOverrides();
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
+      createInsertMemReconfig();
 
-  optimizerOverridesHandler.setInputLayoutOverrides(inputLayoutOverrides);
-  ASSERT_TRUE(compareInputLayoutOverrides(
-      optimizerOverridesHandler.getInputLayoutOverrides(),
-      inputLayoutOverrides));
+  optimizerOverridesHandler.setInsertMemReconfig(insertMemReconfig);
+  ASSERT_TRUE(compareInsertMemReconfig(
+      optimizerOverridesHandler.getInsertMemReconfig(), insertMemReconfig));
 }
 
 // Test the setOutputLayoutOverrides method
@@ -541,8 +540,8 @@ TEST_F(TestOptimizerOverrideHandler, TestSetOutputLayoutOverrides) {
       outputLayoutOverrides));
 }
 
-// Test the addInputLayoutOverride method passing the whole object
-TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideObject) {
+// Test the addinsertMemReconfig method passing the whole object
+TEST_F(TestOptimizerOverrideHandler, TestAddinsertMemReconfigObject) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -551,23 +550,22 @@ TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideObject) {
   // Here, we test the first function, which takes the whole object as a
   // parameter.
 
-  llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides =
-      createInputLayoutOverrides();
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
+      createInsertMemReconfig();
 
-  optimizerOverridesHandler.addInputLayoutOverride(
-      "input0", createInputLayoutOverrideParams());
-  optimizerOverridesHandler.addInputLayoutOverride(
-      "input1", createInputLayoutOverrideParams());
-  optimizerOverridesHandler.addInputLayoutOverride(
-      "input2", createInputLayoutOverrideParams());
+  optimizerOverridesHandler.addInsertMemReconfig(
+      "input0", createInsertMemReconfigParams());
+  optimizerOverridesHandler.addInsertMemReconfig(
+      "input1", createInsertMemReconfigParams());
+  optimizerOverridesHandler.addInsertMemReconfig(
+      "input2", createInsertMemReconfigParams());
 
-  ASSERT_TRUE(compareInputLayoutOverrides(
-      optimizerOverridesHandler.getInputLayoutOverrides(),
-      inputLayoutOverrides));
+  ASSERT_TRUE(compareInsertMemReconfig(
+      optimizerOverridesHandler.getInsertMemReconfig(), insertMemReconfig));
 }
 
-// Test the addInputLayoutOverride method passing the individual parameters
-TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideParams) {
+// Test the addInsertMemReconfig method passing the individual parameters
+TEST_F(TestOptimizerOverrideHandler, TestAddInsertMemReconfigParams) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -575,20 +573,19 @@ TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideParams) {
 
   // Here, we test the second function, which takes the individual parameters.
 
-  llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides =
-      createInputLayoutOverrides();
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
+      createInsertMemReconfig();
 
   llvm::SmallVector<int64_t> operandIdxes1 = {0, 1};
   llvm::SmallVector<int64_t> operandIdxes2 = {0, 1};
   llvm::SmallVector<int64_t> operandIdxes3 = {0, 1};
 
-  optimizerOverridesHandler.addInputLayoutOverride("input0", operandIdxes1);
-  optimizerOverridesHandler.addInputLayoutOverride("input1", operandIdxes2);
-  optimizerOverridesHandler.addInputLayoutOverride("input2", operandIdxes3);
+  optimizerOverridesHandler.addInsertMemReconfig("input0", operandIdxes1);
+  optimizerOverridesHandler.addInsertMemReconfig("input1", operandIdxes2);
+  optimizerOverridesHandler.addInsertMemReconfig("input2", operandIdxes3);
 
-  ASSERT_TRUE(compareInputLayoutOverrides(
-      optimizerOverridesHandler.getInputLayoutOverrides(),
-      inputLayoutOverrides));
+  ASSERT_TRUE(compareInsertMemReconfig(
+      optimizerOverridesHandler.getInsertMemReconfig(), insertMemReconfig));
 }
 
 // Test the addOutputLayoutOverride method passing the whole object
@@ -634,14 +631,14 @@ TEST_F(TestOptimizerOverrideHandler, TestAddOutputLayoutOverrideParams) {
 
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output0", grid1, BufferType::DRAM, TensorMemoryLayout::Interleaved,
-      Layout::Tile, mlir::tt::DataType::Float16);
+      Layout::Tile, mlir::tt::ttcore::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output1", grid2, BufferType::L1, TensorMemoryLayout::BlockSharded,
-      Layout::RowMajor, mlir::tt::DataType::Float16);
+      Layout::RowMajor, mlir::tt::ttcore::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output2", grid3, BufferType::SystemMemory,
       TensorMemoryLayout::HeightSharded, Layout::Tile,
-      mlir::tt::DataType::Float16);
+      mlir::tt::ttcore::DataType::Float16);
 
   ASSERT_TRUE(compareOutputLayoutOverrides(
       optimizerOverridesHandler.getOutputLayoutOverrides(),
@@ -682,7 +679,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
-  options += "override-input-layout=add_0_1_2=0 ";
+  options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
 
@@ -692,10 +689,10 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
-  optimizerOverridesHandler.addInputLayoutOverride("add_0_1_2", operandIdxes);
+  optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "add_1_2", grid, BufferType::DRAM, TensorMemoryLayout::Interleaved,
-      Layout::RowMajor, mlir::tt::DataType::Float32);
+      Layout::RowMajor, mlir::tt::ttcore::DataType::Float32);
 
   ASSERT_EQ(optimizerOverridesHandler.toString(), options);
 }

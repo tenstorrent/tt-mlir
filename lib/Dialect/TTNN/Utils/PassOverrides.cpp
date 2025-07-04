@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -82,7 +82,7 @@ bool Conv2dConfigOverrideParser::parse(
       auto [paramName, paramValue] = param.split(paramNameValueSeparator);
 
       if (paramName == "dtype") {
-        auto dtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto dtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!dtype) {
           opt.error("Invalid dtype: " + paramValue);
           return true;
@@ -93,7 +93,7 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.dtype = dtype;
       } else if (paramName == "weights_dtype") {
-        auto weightsDtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto weightsDtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!weightsDtype) {
           opt.error("Invalid weights_dtype: " + paramValue);
           return true;
@@ -450,7 +450,8 @@ bool OutputLayoutOverrideParser::parse(
           return true;
         }
         params.memoryLayout = memoryLayout;
-      } else if (auto dataType = mlir::tt::DataTypeStringToEnum(param)) {
+      } else if (auto dataType =
+                     mlir::tt::ttcore::DataTypeStringToEnum(param)) {
         if (params.dataType.has_value()) {
           opt.error("Multiple data type parameters provided: " + param);
           return true;
@@ -502,8 +503,8 @@ std::string OutputLayoutOverrideParser::toString(
           mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value())));
     }
     if (params.dataType.has_value()) {
-      parts.push_back(
-          std::string(mlir::tt::DataTypeEnumToString(params.dataType.value())));
+      parts.push_back(std::string(
+          mlir::tt::ttcore::DataTypeEnumToString(params.dataType.value())));
     }
 
     // Join parts with ":"
@@ -527,9 +528,9 @@ void OutputLayoutOverrideParser::print(
   os << "\n";
 }
 
-bool InputLayoutOverrideParser::parse(
+bool InsertMemReconfigParser::parse(
     llvm::cl::Option &opt, StringRef argName, StringRef arg,
-    llvm::StringMap<InputLayoutOverrideParams> &value) {
+    llvm::StringMap<InsertMemReconfigParams> &value) {
   SmallVector<StringRef> opOverrideList;
   constexpr size_t kvPairSize = 2;
   constexpr size_t iOpName = 0;
@@ -563,18 +564,18 @@ bool InputLayoutOverrideParser::parse(
 
     // Set parsed op overrides.
     value[opOverrideParts[iOpName]] =
-        InputLayoutOverrideParams{std::move(operandIndexes)};
+        InsertMemReconfigParams{std::move(operandIndexes)};
   }
   return false;
 }
 
-std::string InputLayoutOverrideParser::toString(
-    const llvm::StringMap<InputLayoutOverrideParams> &value) {
+std::string InsertMemReconfigParser::toString(
+    const llvm::StringMap<InsertMemReconfigParams> &value) {
   std::string res;
   size_t count = 0;
   for (const auto &entry : value) {
     res += std::string(entry.getKey()) + "=";
-    const InputLayoutOverrideParams &params = entry.getValue();
+    const InsertMemReconfigParams &params = entry.getValue();
     for (int64_t operandIdx : params.operandIdxes) {
       res += std::to_string(operandIdx) + ":";
     }
@@ -587,11 +588,11 @@ std::string InputLayoutOverrideParser::toString(
   return res;
 }
 
-void InputLayoutOverrideParser::print(
+void InsertMemReconfigParser::print(
     llvm::raw_ostream &os,
-    const llvm::StringMap<InputLayoutOverrideParams> &value) {
-  os << OptionNames::overrideInputLayout << "=";
-  os << InputLayoutOverrideParser::toString(value);
+    const llvm::StringMap<InsertMemReconfigParams> &value) {
+  os << OptionNames::insertMemReconfig << "=";
+  os << InsertMemReconfigParser::toString(value);
   os << "\n";
 }
 

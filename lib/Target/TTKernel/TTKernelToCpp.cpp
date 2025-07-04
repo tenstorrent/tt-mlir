@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -43,6 +44,7 @@ public:
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
+      emitExperimentalLLKs();
     }
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
@@ -82,7 +84,19 @@ public:
           loc, "compute_kernel_api/eltwise_unary/recip.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/fill.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/negative.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/rounding.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/typecast.h",
           /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
@@ -152,6 +166,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_untilize_llks_generated,
                     experimental_untilize_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+    }
+
+    if (hasCall("experimental::get_noc_multicast_addr")) {
+      auto experimentalDataflowLLKs =
+          StringRef(experimental_dataflow_api_generated,
+                    experimental_dataflow_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
   }
 

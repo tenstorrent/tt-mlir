@@ -12,13 +12,13 @@ from pykernel.types import *
 @ttkernel_tensix_compile()
 def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    # CHECK: func.func @eltwise_sfpu() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
-    per_core_block_cnt = get_compile_time_arg_val(int, 0)
-    per_core_block_dim = get_compile_time_arg_val(int, 1)
+    per_core_block_cnt = get_compile_time_arg_val(int, 2)
+    per_core_block_dim = get_compile_time_arg_val(int, 3)
 
-    # CHECK: "ttkernel.unary_op_init_common"(%arg0, %arg1){{.*}}
+    # CHECK: "ttkernel.unary_op_init_common"({{.*}})
     unary_op_init_common(cb_in, cb_out)
 
     for i in range(0, per_core_block_cnt, 1):

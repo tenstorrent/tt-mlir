@@ -6,6 +6,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
@@ -65,8 +66,10 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
       // Skip on blackhole. When link is down, get_connected_ethernet_core
       // will throw an exception.
-      // See https://github.com/tenstorrent/tt-mlir/issues/3423
-      if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+      // See https://github.com/tenstorrent/tt-mlir/issues/3423 for BH
+      // See https://github.com/tenstorrent/tt-mlir/issues/3781 for WH
+      if (device->arch() == ::tt::ARCH::BLACKHOLE ||
+          device->arch() == ::tt::ARCH::WORMHOLE_B0) {
         continue;
       }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
@@ -234,6 +237,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
+    constexpr std::uint32_t kDstRegisterSizeTiles = 8;
     constexpr std::uint32_t kNumComputeThreads = 1;
     constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
@@ -243,9 +247,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
         ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
         dramUnreservedEnd, chipPhysicalHelperCores, supportedDataTypes,
-        supportedTileSizes, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
-        kNumDatamovementThreads));
-    chipDescIndices.push_back(device->id());
+        supportedTileSizes, kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS,
+        kNumComputeThreads, kNumDatamovementThreads));
+    chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
         ::tt::target::ChipCapability::NONE;
@@ -272,7 +276,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   auto root = ::tt::target::CreateSystemDescRootDirect(
-      fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
+      fbb, &version, tt::target::common::system_desc_bfbs_schema_hash,
+      ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
   if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {

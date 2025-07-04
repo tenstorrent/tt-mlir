@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_ALLPOSSIBLELAYOUTSANALYSIS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_ALLPOSSIBLELAYOUTSANALYSIS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -19,14 +19,14 @@
 namespace mlir::tt::ttnn {
 
 struct AllPossibleLayoutsAnalysisInput {
-  GridAttr maxGrid;
+  ttcore::GridAttr maxGrid;
   llvm::DenseSet<Type> *allowedScalarTypes;
   bool rowMajorAllowed;
 
   AllPossibleLayoutsAnalysisInput()
       : maxGrid(nullptr), allowedScalarTypes(nullptr), rowMajorAllowed(false) {}
 
-  AllPossibleLayoutsAnalysisInput(GridAttr maxGrid,
+  AllPossibleLayoutsAnalysisInput(ttcore::GridAttr maxGrid,
                                   llvm::DenseSet<Type> *allowedScalarTypes,
                                   bool rowMajorAllowed)
       : maxGrid(maxGrid), allowedScalarTypes(allowedScalarTypes),

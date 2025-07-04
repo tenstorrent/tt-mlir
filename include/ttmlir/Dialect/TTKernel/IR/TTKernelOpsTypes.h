@@ -5,12 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSTYPES_H
 #define TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSTYPES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsEnums.h.inc"
 

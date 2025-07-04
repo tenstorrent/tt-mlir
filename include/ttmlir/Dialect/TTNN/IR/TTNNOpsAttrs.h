@@ -7,7 +7,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.h.inc"
@@ -37,7 +37,8 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
          layout == TensorMemoryLayout::BlockSharded;
 }
 
-inline bool isMeshDeviceTensor(TensorMeshShardingAttr tensorMeshSharding) {
+inline bool
+isMeshDeviceTensor(ttcore::TensorMeshShardingAttr tensorMeshSharding) {
   return tensorMeshSharding != nullptr;
 }
 

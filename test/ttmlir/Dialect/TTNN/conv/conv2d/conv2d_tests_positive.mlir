@@ -65,6 +65,19 @@ module {
     return %1 : tensor<16x54x46x128xbf16>
   }
 
+  func.func @conv2d_padding_4(%arg0: tensor<16x32x32x32xbf16>, %arg1: tensor<128x32x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<16x48x40x128xbf16> {
+    %0 = ttir.empty() : tensor<16x48x40x128xbf16>
+    // CHECK: "ttnn.conv2d"
+    %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
+            <{
+              stride = 1: i32,
+              padding = array<i32: 12, 8, 6, 2>,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<16x32x32x32xbf16>, tensor<128x32x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<16x48x40x128xbf16>) -> tensor<16x48x40x128xbf16>
+    return %1 : tensor<16x48x40x128xbf16>
+  }
+
   func.func @conv2d_dilation_1(%arg0: tensor<16x32x32x128xbf16>, %arg1: tensor<64x128x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<16x24x24x64xbf16> {
     %0 = ttir.empty() : tensor<16x24x24x64xbf16>
     // CHECK: "ttnn.conv2d"

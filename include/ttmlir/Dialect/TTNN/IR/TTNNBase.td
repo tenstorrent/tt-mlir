@@ -37,7 +37,7 @@ def TTNN_Dialect : Dialect {
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::ttcore::TTCoreDialect"
     ];
 }
 

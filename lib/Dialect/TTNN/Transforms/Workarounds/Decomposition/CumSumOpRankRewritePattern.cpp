@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -32,23 +32,19 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   adaptedShape.append(additionalAxes, 1);
 
   ReshapeOp adaptedInput = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getInput(), adaptedShape, rewriter);
+      srcOp.getInput(), adaptedShape, rewriter, "_reshapeInput");
 
   RankedTensorType outputType = srcOp.getResult().getType();
-  mlir::RankedTensorType adaptedOutputType =
-      mlir::RankedTensorType::Builder(outputType)
-          .setShape(adaptedShape)
-          .setEncoding(
-              mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-                  .withTensorShape(adaptedShape));
-
+  RankedTensorType adaptedOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, adaptedShape);
   MorehCumSumOp adaptedCumSumOp =
       rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
           srcOp->getLoc(), adaptedOutputType, adaptedInput, srcOp.getDim(),
           /*memory_config=*/nullptr);
 
   ReshapeOp cumsumOutput = ttir_to_ttnn::utils::generateReshape(
-      adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter);
+      adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter,
+      "_reshapeOutput");
   rewriter.replaceOp(srcOp, cumsumOutput);
 
   return success();

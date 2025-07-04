@@ -5,11 +5,12 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
@@ -28,6 +29,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <optional>
 
@@ -53,8 +55,9 @@ public:
     ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    DataType dtype = layoutAttr.getDataType();
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+    ttcore::DataType dtype = layoutAttr.getDataType();
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
 
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 
@@ -124,8 +127,8 @@ public:
 
     // Get data type, tensor layout, device and memory config
     //
-    DataTypeAttr dTypeAttr =
-        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
@@ -206,16 +209,14 @@ public:
             .getEncoding());
 
     // Determine the output data type
-    DataType dtype = outputLayoutAttr.getDataType();
-    DataTypeAttr outputDataType =
-        DataTypeAttr::get(rewriter.getContext(), dtype);
+    ttcore::DataType dtype = outputLayoutAttr.getDataType();
+    ttcore::DataTypeAttr outputDataType =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
 
     // Determine the output layout (tile or row major)
     ttnn::BufferType outputBufferType = outputLayoutAttr.getBufferType();
 
     ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
-
-    bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
@@ -229,10 +230,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
-        outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost
-            ? nullptr
-            : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
+        outputLayout, outputDataType, outputMemConfigAttr);
 
     return success();
   }
@@ -259,6 +257,28 @@ public:
     auto inputs =
         ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for binary operations
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ElementwiseBinaryOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
+
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
 };
@@ -406,8 +426,8 @@ public:
         op.getResult().getType().getEncoding());
 
     // Get data type, tensor layout, buffer type and memory config.
-    DataTypeAttr dTypeAttr =
-        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
 
@@ -469,23 +489,6 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDimension());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class TransposeOpConversionPattern
-    : public OpConversionPattern<ttir::TransposeOp> {
-public:
-  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim0(), adaptor.getDim1());
     return success();
   }
 };
@@ -877,6 +880,40 @@ public:
 };
 } // namespace
 
+namespace {
+class BatchNormOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check if the operand is a 4-dimensional tensor.
+    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
+            .getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          op, "Operand must be a 4-dimensional tensor");
+    }
+
+    // We only support excluded_dimension=1 for ttnn::batch_norm
+    if (adaptor.getDimension() != 1) {
+      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+    }
+
+    mlir::APFloat defaultMomentum(0.1f);
+
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
+        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
+        adaptor.getScale(), adaptor.getOffset(),
+        /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -930,33 +967,27 @@ public:
         {static_cast<int32_t>(kernelTy.getDimSize(2)),
          static_cast<int32_t>(kernelTy.getDimSize(3))});
 
-    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
+    auto strideAttr =
+        attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter, "stride");
     if (auto error = strideAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto paddingAttr =
-        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
-    if (auto error = paddingAttr.takeError()) {
+    auto expectedPaddingAttr =
+        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, "padding");
+    if (auto error = expectedPaddingAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[2] ||
-        paddingArrayRef[1] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
+    DenseI32ArrayAttr paddingAttr = *expectedPaddingAttr;
+    if (paddingAttr.size() == 4) {
+      // Reorders padding from (pT, pL, pB, pR) to (pT, pB, pL, pR).
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {paddingAttr[0], paddingAttr[2], paddingAttr[1], paddingAttr[3]});
     }
 
-    // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
-
     auto dilationAttr =
-        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
+        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter, "dilation");
     if (auto error = dilationAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
@@ -967,8 +998,8 @@ public:
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
-        inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
-        *dilationAttr, groupsAttr, nullptr);
+        inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
+        groupsAttr, /*conv2d_config=*/nullptr, /*compute_config=*/nullptr);
 
     return success();
   }
@@ -977,34 +1008,23 @@ private:
   llvm::Expected<DenseI32ArrayAttr>
   attrToDenseI32ArrayAttr(mlir::Attribute attr,
                           ConversionPatternRewriter &rewriter,
-                          uint32_t elementCount = 2) const {
-    switch (elementCount) {
-    case 2: {
-      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
-      // dilation). Converts the attribute into a pair of integers.
+                          StringRef attrName) const {
+    if (auto tuple = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      // TTNN does not support passing a single integer so we have to convert it
+      // to a pair.
       auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
       if (auto error = pair.takeError()) {
         return std::move(error);
       }
       return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
     }
-    case 4: {
-      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
-      // this case). Converts the attribute into a quadruple of integers.
-      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
-      if (auto error = quadruple.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr(
-          {std::get<0>(*quadruple), std::get<1>(*quadruple),
-           std::get<2>(*quadruple), std::get<3>(*quadruple)});
+
+    if (auto denseAttr = dyn_cast<DenseI32ArrayAttr>(attr)) {
+      return denseAttr;
     }
-    default: {
-      return llvm::createStringError(std::errc::invalid_argument,
-                                     "Unsupported element count: %d",
-                                     elementCount);
-    }
-    }
+
+    return llvm::createStringError("Unexpected attribute type for '%s'",
+                                   attrName.data());
   }
 };
 } // namespace
@@ -1086,7 +1106,7 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*memoryConfig=*/nullptr);
+        groupsAttr, /*conv2d_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1200,7 +1220,7 @@ public:
     auto resultType = op.getType();
     ttnn::TTNNLayoutAttr outputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
-    DataType outputDataType = outputLayoutAttr.getDataType();
+    ttcore::DataType outputDataType = outputLayoutAttr.getDataType();
 
     rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
         op, this->getTypeConverter()->convertType(resultType),
@@ -1234,7 +1254,8 @@ public:
       // addOp(lhs, negOp(rhs))
     } else {
       ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          srcOp.getLoc(), adaptor.getRhs().getType(), adaptor.getRhs());
+          ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_neg"),
+          adaptor.getRhs().getType(), adaptor.getRhs());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, outputType,
                                                adaptor.getLhs(), negOp);
@@ -1373,8 +1394,8 @@ public:
     ttnn::TTNNLayoutAttr layoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
-    DataTypeAttr dtypeAttr = rewriter.getAttr<DataTypeAttr>(
-        elementTypeToDataType(outputType.getElementType()));
+    ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
+        ttcore::elementTypeToDataType(outputType.getElementType()));
     Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     ttnn::MemoryConfigAttr memConfigAttr =
@@ -1400,6 +1421,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (!hasValidInsertedWindowDims(op)) {
+      return rewriter.notifyMatchFailure(
+          op, "ttnn and tt-metal have limited scatter support. Inserted window "
+              "dimenstion must be 1 in the input tensor shape.");
+    }
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
@@ -1407,6 +1433,20 @@ public:
         adaptor.getInput());
 
     return success();
+  }
+
+private:
+  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
+    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+
+    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
+      if (insertedWindowDims < inputShape.size() &&
+          inputShape[insertedWindowDims] != 1) {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 } // namespace
@@ -1448,153 +1488,55 @@ public:
 };
 } // namespace
 
-// Utility function to get scale and zero point for quantized types.
-static std::pair<mlir::FloatAttr, mlir::IntegerAttr>
-getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
-                     ConversionPatternRewriter &rewriter) {
-  auto quantPerTensorType =
-      mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType);
-  if (!quantPerTensorType) {
-    return {nullptr, nullptr};
-  }
-  auto scaleAttr = rewriter.getF32FloatAttr(quantPerTensorType.getScale());
-  auto zeroPointAttr = rewriter.getI32IntegerAttr(
-      static_cast<int32_t>(quantPerTensorType.getZeroPoint()));
-  return {scaleAttr, zeroPointAttr};
-}
-
-// Utility function to get axis for quantized types.
-static IntegerAttr getAxis(mlir::quant::QuantizedType elementType,
-                           ConversionPatternRewriter &rewriter) {
-  IntegerAttr axis;
-  if (auto perChannelType =
-          mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-              elementType)) {
-    axis = rewriter.getI32IntegerAttr(perChannelType.getQuantizedDimension());
-  }
-  return axis;
-}
-
 // Utility function to get data type for quantized types.
-static DataTypeAttr getDataType(mlir::Value val,
-                                ConversionPatternRewriter &rewriter,
-                                const TypeConverter *typeConverter) {
+static ttcore::DataTypeAttr getDataType(mlir::Value val,
+                                        ConversionPatternRewriter &rewriter,
+                                        const TypeConverter *typeConverter) {
   ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
       mlir::cast<RankedTensorType>(typeConverter->convertType(val.getType()))
           .getEncoding());
-  DataType dtype = outputLayoutAttr.getDataType();
-  return DataTypeAttr::get(rewriter.getContext(), dtype);
+  ttcore::DataType dtype = outputLayoutAttr.getDataType();
+  return ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
 }
 
 namespace {
 template <typename OpTy, typename TTNNOpTy>
-class QuantizationOpConversionPatternBase : public OpConversionPattern<OpTy> {
+class QuantizationOpConversionPattern : public OpConversionPattern<OpTy> {
 public:
   using OpConversionPattern<OpTy>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto elementType = getQuantizedElementType(op);
-    if (!elementType) {
-      return failure();
-    }
-
-    auto [scale, zeroPoint] = getScaleAndZeroPoint(elementType, rewriter);
-    if (!scale) {
-      return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
-    }
-
-    auto axisAttr = getAxis(elementType, rewriter);
-    auto outputDataType =
+    ttcore::DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), scale, zeroPoint, axisAttr, outputDataType,
-        ttnn::MemoryConfigAttr());
+        adaptor.getInput(), op.getScale(), op.getZeroPoint(),
+        op.getAxisAttr() ? op.getAxisAttr() : mlir::IntegerAttr(),
+        outputDataType, ttnn::MemoryConfigAttr());
     return success();
-  }
-
-protected:
-  virtual mlir::quant::QuantizedType getQuantizedElementType(OpTy op) const = 0;
-};
-
-class QuantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::QuantizeOp,
-                                                 ttnn::QuantizeOp> {
-public:
-  using QuantizationOpConversionPatternBase::
-      QuantizationOpConversionPatternBase;
-
-protected:
-  mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::QuantizeOp op) const override {
-    auto outputType = op.getOutput().getType();
-    return mlir::dyn_cast<mlir::quant::QuantizedType>(
-        outputType.getElementType());
-  }
-};
-
-class DequantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::DequantizeOp,
-                                                 ttnn::DequantizeOp> {
-public:
-  using QuantizationOpConversionPatternBase::
-      QuantizationOpConversionPatternBase;
-
-protected:
-  mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::DequantizeOp op) const override {
-    auto inputType = op.getInput().getType();
-    return mlir::dyn_cast<mlir::quant::QuantizedType>(
-        inputType.getElementType());
   }
 };
 
 class RequantizeOpConversionPattern
-    : public OpConversionPattern<ttir::RequantizeOp> {
+    : public OpConversionPattern<ttir::RequantizeUnrolledOp> {
 public:
-  using OpConversionPattern<ttir::RequantizeOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::RequantizeUnrolledOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::RequantizeUnrolledOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto inputType = op.getInput().getType();
-    auto outputType = op.getOutput().getType();
-
-    auto inputElementType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
-    auto outputElementType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
-
-    if (!inputElementType || !outputElementType) {
-      return failure();
-    }
-
-    auto [inputScale, inputZeroPoint] =
-        getScaleAndZeroPoint(inputElementType, rewriter);
-    if (!inputScale) {
-      return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
-    }
-
-    auto [outputScale, outputZeroPoint] =
-        getScaleAndZeroPoint(outputElementType, rewriter);
-    if (!outputScale) {
-      return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
-    }
-
-    auto axisAttr = getAxis(inputElementType, rewriter);
-    auto outputDataType =
+    ttcore::DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), inputScale, inputZeroPoint, outputScale,
-        outputZeroPoint, axisAttr, outputDataType, ttnn::MemoryConfigAttr());
+        adaptor.getInput(), op.getInScale(), op.getInZeroPoint(),
+        op.getOutScale(), op.getOutZeroPoint(),
+        op.getAxisAttr() ? op.getAxisAttr() : mlir::IntegerAttr(),
+        outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }
 };
@@ -1613,31 +1555,35 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
            FullOpConversionPattern,
            ToLayoutOpConversionPattern,
-           QuantizeOpConversionPattern,
-           DequantizeOpConversionPattern,
+           QuantizationOpConversionPattern<ttir::QuantizeUnrolledOp, ttnn::QuantizeOp>,
+           QuantizationOpConversionPattern<ttir::DequantizeUnrolledOp, ttnn::DequantizeOp>,
            RequantizeOpConversionPattern,
-           ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
-           ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
-           ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
-           ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
-           ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LessEqualOp, ttnn::LessEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LessThanOp, ttnn::LessThanOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
-           ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
-           ElementwiseOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
-           ElementwiseOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
-           ElementwiseOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
-           ElementwiseOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
-           ElementwiseOpConversionPattern<ttir::LessEqualOp, ttnn::LessEqualOp>,
-           ElementwiseOpConversionPattern<ttir::LessThanOp, ttnn::LessThanOp>,
            ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
            ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
+           ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
+           ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
+           ElementwiseOpConversionPattern<ttir::PowOp, ttnn::PowOp>,
+           ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
+           ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
+           ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
+           ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
+           ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
+           ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ElementwiseOpConversionPattern<ttir::GeluOp, ttnn::GeluOp>,
@@ -1648,19 +1594,17 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::Log1pOp, ttnn::Log1pOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
+           ElementwiseOpConversionPattern<ttir::ErfOp, ttnn::ErfOp>,
+           ElementwiseOpConversionPattern<ttir::ErfcOp, ttnn::ErfcOp>,
            ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
-           ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
            ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
            ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
            ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
            ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
-           ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
-           ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
-           ElementwiseOpConversionPattern<ttir::PowOp, ttnn::PowOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
@@ -1678,7 +1622,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
-           TransposeOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
@@ -1689,6 +1632,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
+           BatchNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

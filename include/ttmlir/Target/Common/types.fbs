@@ -30,6 +30,15 @@ enum DataType: uint16 {
   UInt16,
   UInt8,
   Int32,
+
+  // Unsupported data types
+  // Special handling is required if a user/frontend attempts to create or retrieve a tensor with these data types
+  Float64,
+  Int64,
+  UInt64,
+  Int16,
+  Int8,
+  Bool
 }
 
 enum OOBVal: ushort {
@@ -83,6 +92,7 @@ table ChipDesc {
   physical_helper_cores: ChipPhysicalHelperCores;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
+  dst_register_size_tiles: uint32;
   num_cbs: uint32;
   num_compute_threads: uint32;
   num_datamovement_threads: uint32;

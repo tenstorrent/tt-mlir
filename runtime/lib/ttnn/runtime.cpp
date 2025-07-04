@@ -4,13 +4,14 @@
 
 #include "Constants.h"
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -19,7 +20,10 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "types_generated.h"
+#include <numeric>
 
 namespace tt::runtime::ttnn {
 
@@ -44,7 +48,7 @@ static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
                                                const ::ttnn::Shape &shape) {
   std::uint64_t numElements = shape.volume();
   T *typedData = static_cast<T *>(rawData);
-  ::tt::stl::Span<T> data(typedData, typedData + numElements);
+  ::ttsl::Span<T> data(typedData, typedData + numElements);
   ::ttnn::Tensor tensor =
       ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
   return tensor;
@@ -54,23 +58,53 @@ static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
+  const void *dataToUse = data;
+  ::tt::target::DataType dataTypeToUse = dataType;
+  std::vector<std::byte> castedData;
+  if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
+    dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
+
+    LOG_WARNING("User provided a tensor of data type: ",
+                ::tt::target::EnumNameDataType(dataType),
+                " which is not supported by runtime/ttnn. Casting to: ",
+                ::tt::target::EnumNameDataType(dataTypeToUse),
+                ", this may impact throughput and the integrity of the data.");
+
+    uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
+                                           static_cast<std::uint64_t>(1),
+                                           std::multiplies<std::uint64_t>());
+
+    std::uint32_t itemSizeToUse =
+        ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
+
+    castedData.resize(itemSizeToUse * numElements);
+
+    if (data != nullptr) {
+      ::tt::runtime::utils::handleBufferCast(data, castedData.data(), dataType,
+                                             dataTypeToUse, numElements);
+    }
+    dataToUse = castedData.data();
+  }
 
   ::ttnn::Shape ttnnShape(shape);
-  ::ttnn::DataType ttnnDataType = utils::toTTNNDataType(dataType);
+  ::ttnn::DataType ttnnDataType = utils::toTTNNDataType(dataTypeToUse);
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
-    return utils::createTTNNTensor<float>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<float>(dataToUse, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::BFLOAT16:
-    return utils::createTTNNTensor<bfloat16>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<bfloat16>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT32:
-    return utils::createTTNNTensor<uint32_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint32_t>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT16:
-    return utils::createTTNNTensor<uint16_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint16_t>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT8:
-    return utils::createTTNNTensor<uint8_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint8_t>(dataToUse, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::INT32:
-    return utils::createTTNNTensor<int32_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<int32_t>(dataToUse, ttnnShape, ttnnDataType);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -80,23 +114,70 @@ static ::tt::runtime::Tensor createNullTensor() {
   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
 }
 
-static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
-                                                bool untilize) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-
-  const ::ttnn::Tensor &deviceTensor = tensorWrapper.getTensor();
+static ::tt::runtime::Tensor
+toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
+                   bool untilize, bool blocking) {
+  const ::ttnn::Tensor &inputTensor = tensorWrapper.getTensor();
   bool shouldRetain = tensorWrapper.shouldRetain();
 
-  ::ttnn::Tensor hostTensor = ::ttnn::from_device(deviceTensor);
+  // If the tensor is on host, no event recording needed
+  if (utils::isOnHost(inputTensor.storage_type())) {
+    ::ttnn::Tensor hostTensor = inputTensor;
+    if (untilize) {
+      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
+    }
+    return utils::createRuntimeTensorFromTTNN(
+        hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
+  }
+
+  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
+
+  // If untilize is true and the data type can be untilized on device
+  // Untilize on device first before reading back to host
+  if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(
+        ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                          std::nullopt),
+        blocking);
+
+    std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
+    if (!blocking) {
+      meshEvent =
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+    }
+
+    return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
+                                              shouldRetain);
+  }
+
+  // Host untilization requires data to be fully transferred first
+  // Therefore we need to block on from_device if untilize is true
+  if (untilize && !blocking) {
+    LOG_WARNING("Overriding blocking parameter to true because tensor cannot "
+                "be untilized on device.");
+    blocking = true;
+  }
+
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::from_device(inputTensor, /*blocking=*/blocking);
 
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
-                                   std::nullopt, std::nullopt,
-                                   static_cast<::ttnn::MeshDevice *>(nullptr));
+                                   std::nullopt, std::nullopt);
   }
 
-  return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
+  std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
+  // if we don't need to untilize, then from_device can execute asynchronously
+  // in this case we need to populate the event
+  if (!untilize && !blocking) {
+    meshEvent =
+        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+  }
+
+  return utils::createRuntimeTensorFromTTNN(hostTensor, /*meshEvent=*/meshEvent,
+                                            shouldRetain);
 }
 
 ::tt::runtime::Tensor
@@ -105,6 +186,8 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
   LOG_ASSERT(data != nullptr, "Cannot create borrowed tensor with null data");
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+             "Cannot create borrowed tensor with unsupported data type");
   ::ttnn::Shape ttnnShape(shape);
 
   switch (dataType) {
@@ -149,10 +232,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   std::transform(tensorShards.begin(), tensorShards.end(),
                  std::back_inserter(ttnnTensorShards),
                  [&](::tt::runtime::Tensor tensorShard) -> ::ttnn::Tensor {
-                   return tensorShard
-                       .as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-                           DeviceRuntime::TTNN)
-                       .getTensor();
+                   return utils::getTTNNTensorFromRuntimeTensor(tensorShard);
                  });
 
   DistributedTensorConfig distributionStrategy =
@@ -184,6 +264,9 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(
+                 utils::fromTTNNDataType(layoutDesc.dataType)),
+             "Data type must be supported");
   if (layoutDesc.isOnHost()) {
     ::ttnn::Tensor tensor =
         createOwnedTTNNTensor(nullptr, shape, stride, itemsize,
@@ -202,22 +285,19 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
 bool isTensorAllocated(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   return ttnnTensor.is_allocated();
 }
 
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor) {
-  const ::ttnn::Tensor &nnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
-  return utils::fromTTNNDataType(nnTensor.dtype());
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return utils::fromTTNNDataType(ttnnTensor.dtype());
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   void *dataPtr = nullptr;
   std::vector<std::byte> dataVec(getTensorElementSize(tensor) *
                                  getTensorVolume(tensor));
@@ -292,8 +372,7 @@ std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
 
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   std::vector<std::uint32_t> shape;
   for (size_t i = 0; i < ttnnTensor.logical_shape().size(); ++i) {
     shape.push_back(ttnnTensor.logical_shape()[i]);
@@ -303,8 +382,7 @@ std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
 
 std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   std::vector<std::uint32_t> stride;
   for (size_t i = 0; i < ttnnTensor.strides().size(); ++i) {
     stride.push_back(ttnnTensor.strides()[i]);
@@ -314,16 +392,14 @@ std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
 
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   return ttnnTensor.element_size();
 }
 
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
-  return ttnnTensor.padded_volume();
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ttnnTensor.physical_volume();
 }
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
@@ -378,13 +454,20 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
+  } else {
+    meshDevice->disable_and_clear_program_cache();
   }
 
   LOG_DEBUG("Device grid size = { ",
             meshDevice->compute_with_storage_grid_size().x, ", ",
             meshDevice->compute_with_storage_grid_size().y, " }");
 
-  return Device(std::static_pointer_cast<void>(meshDevice),
+  auto ttnnTraceCache =
+      std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
+  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
+
+  return Device(std::static_pointer_cast<void>(meshDevice), traceCache,
                 DeviceRuntime::TTNN);
 }
 
@@ -403,9 +486,7 @@ void closeMeshDevice(Device parentMesh) {
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-  }
+  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
 #endif
   ttnnMeshDevice.close();
 }
@@ -432,7 +513,11 @@ Device createSubMeshDevice(
   std::shared_ptr<::ttnn::MeshDevice> subMeshDevice =
       parentMeshDevice.create_submesh(shape, offset);
 
-  return Device(std::static_pointer_cast<void>(subMeshDevice),
+  auto ttnnTraceCache =
+      std::make_shared<::tt::runtime::ttnn::TraceCache>(subMeshDevice);
+  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
+  return Device(std::static_pointer_cast<void>(subMeshDevice), traceCache,
                 DeviceRuntime::TTNN);
 }
 
@@ -509,6 +594,12 @@ size_t getL1SizePerCore(Device meshDevice) {
   return ttnnMeshDevice.l1_size_per_core();
 }
 
+bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId) {
+  ::tt::runtime::ttnn::TraceCache &traceCache =
+      meshDevice.getTraceCache()->as<TraceCache>(DeviceRuntime::TTNN);
+  return traceCache.erase(binaryId, programId);
+}
+
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -516,9 +607,21 @@ void deallocateBuffers(Device deviceHandle) {
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  const ::ttnn::MeshDevice &meshDevice =
+  ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
+}
+
+void dumpDeviceProfileResults(Device deviceHandle) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
+#endif
 }
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
@@ -549,37 +652,63 @@ getMemoryView(Device deviceHandle) {
 }
 
 void wait(Event event) {
-  // Nothing to do for ttnn runtime
-  LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
+  LOG_FATAL("Waiting on events is not supported for ttnn runtime. Please use "
+            "wait on tensors instead.");
 }
 
-void wait(::tt::runtime::Tensor tensor) {
+void wait(::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
-  ::tt::runtime::ttnn::wait(tensor.event);
+
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
+
+  if (!meshEvent.has_value()) {
+    return;
+  }
+
+  // If no cqId provided, block and wait until the event is recorded
+  if (!cqId.has_value()) {
+    ::ttnn::events::event_synchronize(meshEvent.value());
+    return;
+  }
+
+  // tell cqId to wait until the event is recorded
+  ::ttnn::QueueId cqIdValue(cqId.value());
+  ::ttnn::events::wait_for_mesh_event(cqIdValue, meshEvent.value());
 }
 
-void wait(const std::vector<::tt::runtime::Tensor> &tensors) {
+void wait(const std::vector<::tt::runtime::Tensor> &tensors,
+          std::optional<uint8_t> cqId) {
   for (const ::tt::runtime::Tensor &tensor : tensors) {
-    ::tt::runtime::ttnn::wait(tensor);
+    ::tt::runtime::ttnn::wait(tensor, cqId);
   }
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize) {
+                                          bool untilize, bool blocking) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
-  const ::ttnn::Tensor &multiDeviceTensor = tensorWrapper.getTensor();
-  bool shouldRetain = tensorWrapper.shouldRetain();
+  ::tt::runtime::Tensor multiDeviceHostTensor =
+      ::tt::runtime::ttnn::toHostSingleTensor(tensorWrapper, untilize,
+                                              blocking);
+
+  std::vector<::ttnn::Tensor> singleTensors =
+      ::ttnn::distributed::get_device_tensors(
+          utils::getTTNNTensorFromRuntimeTensor(multiDeviceHostTensor));
+
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
-  std::vector<::ttnn::Tensor> singleTensors =
-      ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
-  for (auto &tensor : singleTensors) {
-    hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
+  for (const ::ttnn::Tensor &tensor : singleTensors) {
+    hostTensors.push_back(utils::createRuntimeTensorFromTTNN(
+        tensor, meshEvent, tensorWrapper.shouldRetain()));
   }
+
   return hostTensors;
 }
 
@@ -602,8 +731,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
-  ::tt::runtime::Tensor result =
-      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result = utils::createRuntimeTensorFromTTNN(
+      out, /*meshEvent=*/std::nullopt, shouldRetain);
 
   if (!shouldRetain) {
     ::tt::runtime::ttnn::deallocateTensor(tensor);
@@ -643,13 +772,54 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                 DeviceRuntime::TTNN);
 }
 
-void memcpy(void *dst, ::tt::runtime::Tensor src) {
-  const ::ttnn::Tensor &srcTensor =
-      src.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+void memcpy(void *dst, ::tt::runtime::Tensor src,
+            std::optional<::tt::target::DataType> dstDataType) {
+
+  if (dstDataType.has_value()) {
+    LOG_ASSERT(
+        dstDataType.value() == getTensorDataType(src) ||
+            !::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
+        "If destination data type is specified, it must match the "
+        "source data type or be an unsupported data type.");
+  }
+
+  const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
+
+  // Handle cast and copy
+  if (dstDataType.has_value() &&
+      !::tt::runtime::utils::isSupportedDataType(dstDataType.value())) {
+    LOG_ASSERT(utils::isOnHost(srcTensor.storage_type()),
+               "Tensor must be on host");
+    const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
+
+    ::tt::target::DataType srcDataType = getTensorDataType(src);
+    ::tt::target::DataType unsupportedDataTypeAlias =
+        tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
+
+    LOG_ASSERT(
+        srcDataType == unsupportedDataTypeAlias,
+        "Tensor data type must be the alias of the unsupported data type: " +
+            std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
+
+    LOG_WARNING(
+        "User is requesting to copy the data from a runtime tensor with "
+        "data type: ",
+        ::tt::target::EnumNameDataType(srcDataType),
+        " into buffer with expected data type: ",
+        ::tt::target::EnumNameDataType(*dstDataType),
+        ", the values will be casted, this may impact the throughput and the "
+        "integrity of the data.");
+
+    // Cast to dstDataType, mempy into dst, and return
+    return ::tt::runtime::utils::handleBufferCast(srcPtr, dst, srcDataType,
+                                                  dstDataType.value(),
+                                                  srcTensor.physical_volume());
+  }
+
+  // Handle direct copy without cast
   if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
+    size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dst, srcTensor);
@@ -657,23 +827,19 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
 }
 
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
-  ::ttnn::Tensor &dstTensor =
-      dst.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
-  const ::ttnn::Tensor &srcTensor =
-      src.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
-  LOG_ASSERT(srcTensor.padded_volume() * srcTensor.element_size() ==
-                 dstTensor.padded_volume() * dstTensor.element_size(),
+  ::ttnn::Tensor &dstTensor = utils::getTTNNTensorFromRuntimeTensor(dst);
+  const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
+  LOG_ASSERT(srcTensor.physical_volume() * srcTensor.element_size() ==
+                 dstTensor.physical_volume() * dstTensor.element_size(),
              "Input output tensor size mismatch in memcpy: ",
-             srcTensor.padded_volume(), " * ", srcTensor.element_size(),
-             " != ", dstTensor.padded_volume(), " * ",
+             srcTensor.physical_volume(), " * ", srcTensor.element_size(),
+             " != ", dstTensor.physical_volume(), " * ",
              dstTensor.element_size());
   if (utils::isOnHost(srcTensor.storage_type()) &&
       utils::isOnHost(dstTensor.storage_type())) {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
+    size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dstTensor, srcTensor);
@@ -681,9 +847,13 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
 }
 
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force) {
-  ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+  // If the tensor is retained, do not deallocate
+  if (getTensorRetain(tensor)) {
+    LOG_DEBUG("Tensor is retained thus not deallocating. To deallocate, set "
+              "retain to false first");
+    return;
+  }
+  ::ttnn::Tensor &ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::deallocate(ttnnTensor, force);
 }
 
@@ -911,9 +1081,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     return createNullTensor();
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::to_layout(::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR,
+                        std::nullopt, std::nullopt);
 
   return utils::createRuntimeTensorFromTTNN(hostTensor);
 }
@@ -922,24 +1092,12 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  std::shared_ptr<::ttnn::MeshDevice> meshDevice =
-      deviceHandle.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      std::move(meshDevice), executableHandle, programIndex, inputs);
-
-  return outputs;
-}
-
-std::vector<Tensor> runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
-                               std::vector<::tt::runtime::Tensor> &inputs) {
-  ProgramExecutor executor(executableHandle, inputs, std::move(meshDevice),
-                           programIndex);
+  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
+                           inputs);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
+
   return outputTensors;
 }
 

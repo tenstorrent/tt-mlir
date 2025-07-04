@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -24,6 +24,15 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
+  // If this option is true, run a pass that checks if all ops relevant
+  // to the optimizer (e.g. toLayout is ignored) have unique named locations.
+  // If not, it will emit an error. This is necessary for the overrides to be
+  // applied correctly.
+  Option<bool> checkUniqueLocations{
+      *this, "check-unique-locs",
+      llvm::cl::desc("Check if all operations have unique locations."),
+      llvm::cl::init(false)};
+
   // Option to manually insert TTNN_ToLayoutOp for specific op's operand.
   // The format is a comma separated list of op names and operand index
   // separated by ':' separator.
@@ -36,12 +45,12 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  Option<llvm::StringMap<InsertMemReconfigParams>, InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
 
   // Option to override output layout for specific operations. You can
   // override any number or combination of layout parameters. If not all are
@@ -55,7 +64,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
-  // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
+  // * tensor_memory_layout: none, interleaved, height_sharded,
   //   width_sharded or block_sharded
   // * memory_layout: row_major or tile
   // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
@@ -99,7 +108,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // * act_block_w_div: uint32_t
   // * reshard_if_not_optimal: [true, false]
   // * override_sharding_config: [true, false]
-  // * shard_layout: [block_sharded, interleaved, single_bank, height_sharded,
+  // * shard_layout: [block_sharded, interleaved, height_sharded,
   // width_sharded]
   // * core_grid:
   // * transpose_shards: [true, false]
@@ -125,7 +134,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // If this option is true, insert memory reconfiguration ops.
   //
@@ -154,16 +163,16 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to provide a fallback mock system descriptor arch to compile
   // against.
   //
-  Option<tt::Arch> mockSystemDescArch{
+  Option<ttcore::Arch> mockSystemDescArch{
       *this, OptionNames::mockSystemDescArch,
       llvm::cl::desc(
           "Arch name for constructing a mock system descriptor in lieu of "
           "system-desc-path."),
-      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+      llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
-                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                       clEnumValN(ttcore::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
-      llvm::cl::init(tt::Arch::WormholeB0)};
+      llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated
   // in legal layout analysis.
@@ -213,23 +222,26 @@ struct TTIRToTTNNBackendPipelineOptions
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
-                            llvm::cl::init(false)};
+                            llvm::cl::init(true)};
 
-  Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
-      *this, tt::OptionNames::argumentTypes,
-      llvm::cl::desc(
-          "Map of function name to argument types. To use this option in the "
-          "command line, you must provide a whitespace-free string\n\t"
-          " which is a sequence of phrases in the form "
-          "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
-          "<FUNC_NAME_STR>\n\t"
-          " is the name of a function and <ARG_TYPES> is a sequence of "
-          "argument types separated by commas. Each of which must be one\n\t"
-          " of \"input\", \"parameter\" or \"constant\". \n\t"
-          " Example: "
-          "\"argument-types=forward=input,parameter,parameter,constant\""
-          "\n\n"),
-      llvm::cl::init(TTArgumentTypeMap())};
+  Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
+      argumentTypeMap{
+          *this, ttcore::OptionNames::argumentTypes,
+          llvm::cl::desc(
+              "Map of function name to argument types. To use this option in "
+              "the "
+              "command line, you must provide a whitespace-free string\n\t"
+              " which is a sequence of phrases in the form "
+              "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
+              "<FUNC_NAME_STR>\n\t"
+              " is the name of a function and <ARG_TYPES> is a sequence of "
+              "argument types separated by commas. Each of which must be "
+              "one\n\t"
+              " of \"input\", \"parameter\" or \"constant\". \n\t"
+              " Example: "
+              "\"argument-types=forward=input,parameter,parameter,constant\""
+              "\n\n"),
+          llvm::cl::init(ttcore::TTArgumentTypeMap())};
 
   // TODO (azecevic): This pass is causing a lot of memory consumption and is
   // disabled by default (https://github.com/tenstorrent/tt-mlir/issues/2512).
@@ -242,6 +254,10 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
+
+  Option<bool> enableTrace{*this, "enable-trace",
+                           llvm::cl::desc("Enable trace optimization pass."),
+                           llvm::cl::init(false)};
 
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{

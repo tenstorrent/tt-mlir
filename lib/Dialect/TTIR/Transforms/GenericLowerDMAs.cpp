@@ -2,10 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -30,8 +33,9 @@ public:
   // bounds.
   static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
   buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape,
-                   AffineMap dmaIndexingMap, AffineMap gridIndexingMap) {
+                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
+                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
+                   AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -69,14 +73,21 @@ public:
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
       if (isGridDim) {
-        // gridI * dimI + iterI
-        Value dimConstant = builder.create<arith::ConstantOp>(
+        // The grid dimension is always 1-1 with the result position.  Consider
+        // the case where interchange moves k to the outermost loop. We'd have
+        // output map: (k, m, n) -> (m, n)
+        // In this example we want (m, n) to map to grid dims (0, 1) (not their
+        // dim positions i.e. (1, 2)).
+        const unsigned gridDim = result;
+
+        // gridI * blockFactorI + iterI
+        Value blockFactor = builder.create<arith::ConstantOp>(
             loc, builder.getIndexType(),
-            builder.getIndexAttr(shardShape[result]));
+            builder.getIndexAttr(blockFactors[dim]));
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-                                            builder.getI64IntegerAttr(dim));
+                                            builder.getI64IntegerAttr(gridDim));
         index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
-                                              index, dimConstant);
+                                              index, blockFactor);
         index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
                                               index, iterIndex);
       } else {
@@ -90,7 +101,7 @@ public:
 
   static size_t getElementSizeBytes(MemRefType memref) {
     mlir::Type elementType = memref.getElementType();
-    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
     return tileType ? tileType.getSizeBytes()
                     : elementType.getIntOrFloatBitWidth() / 8;
   }
@@ -185,8 +196,8 @@ public:
 
     AffineMap dmaIndexingMap = *dma.getSrcAffineMap();
     MemRefType memref = dma.getSrcMemRefType();
-    DeviceLayoutInterface layout =
-        mlir::cast<DeviceLayoutInterface>(memref.getLayout());
+    ttcore::DeviceLayoutInterface layout =
+        mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
     ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
     ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
@@ -201,18 +212,15 @@ public:
 
     auto [streamIndex, indexBounds] =
         buildStreamIndex(rewriter, dma.getLoc(), memrefGridShape,
-                         memrefShardShape, dmaIndexingMap, gridIndexingMap);
+                         genericParent.getBlockFactorsValue(), memrefShardShape,
+                         dmaIndexingMap, gridIndexingMap);
 
-    DeviceAttr device = genericParent.getDevice();
+    ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
-    // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-    // size instead of calculating it here.
-    size_t pageSize = device.getMemrefSizeBytes(underlyingMemrefAndView.first,
-                                                /*pageSize=*/0);
-    AffineMap memoryMap =
-        device.getMemoryMap(underlyingMemrefAndView, pageSize);
+    size_t size = device.getMemrefSizeBytes(underlyingMemrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView, size);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
@@ -248,12 +256,13 @@ public:
 
   LogicalResult matchAndRewrite(DMAOp dma,
                                 PatternRewriter &rewriter) const final {
-    if (dma.isAffine() || dma.isFullyIndexed()) {
+    if (dma.isAffine() || dma.isLowered()) {
       // Lower to affine first.
-      // Or if it's already fully indexed, nothing to do.
+      // Or if it's already fully lowered, nothing to do.
       return failure();
     }
 
+    // Fully index the memrefs.
     SmallVector<Value> srcIndices(dma.getSrcIndices());
     SmallVector<Value> dstIndices(dma.getDstIndices());
     Value zero = rewriter.create<arith::ConstantOp>(
@@ -266,6 +275,18 @@ public:
            static_cast<size_t>(dma.getDstMemRefType().getRank())) {
       dstIndices.push_back(zero);
     }
+
+    ttcore::DeviceAttr device = ttcore::lookupDevice(dma);
+    AffineMap srcMemoryMap =
+        getMemoryMap(device, dma.getSrc(), dma.isSrcRemote());
+    AffineMap dstMemoryMap =
+        getMemoryMap(device, dma.getDst(), dma.isDstRemote());
+
+    srcIndices = applyMap(rewriter, dma.getLoc(), srcMemoryMap, srcIndices,
+                          dma.isSrcRemote());
+    dstIndices = applyMap(rewriter, dma.getLoc(), dstMemoryMap, dstIndices,
+                          dma.isDstRemote());
+
     rewriter.replaceOpWithNewOp<ttir::DMAOp>(
         dma, dma.getResult().getType(), dma.getSrc(), nullptr, srcIndices,
         dma.getDst(), nullptr, dstIndices,
@@ -273,6 +294,65 @@ public:
         dma.getMcastShape());
 
     return success();
+  }
+
+  static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
+                                bool isRemote) {
+    if (isRemote) {
+      std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
+          mlir::tt::ttir::applyViews(input.getDefiningOp());
+      size_t srcSize =
+          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcSize);
+    }
+
+    MemRefType inputType = mlir::cast<MemRefType>(input.getType());
+    return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                               inputType.getElementType(),
+                               inputType.getLayout().getAffineMap());
+  }
+
+  static SmallVector<Value> applyMap(PatternRewriter &rewriter, Location loc,
+                                     AffineMap map, ValueRange index,
+                                     bool isRemote) {
+    auto affineApply = [&](AffineMap map, ValueRange index) {
+      return rewriter.create<affine::AffineApplyOp>(loc, map, index);
+    };
+
+    if (isRemote) {
+      assert(map.getNumResults() == 4);
+      // Break the map into respective gridY, gridX, offset "single result"
+      // parts. AffineApply only supports single result affine maps.
+      map = map.dropResults(0); // Drop the device index.
+      auto gridY = map.dropResults({1, 2});
+      auto gridX = map.dropResults({0, 2});
+      auto offset = map.dropResults({0, 1});
+      return {affineApply(gridY, index), affineApply(gridX, index),
+              affineApply(offset, index)};
+    }
+
+    assert(map.getNumResults() == 1);
+    return {affineApply(map, index)};
+  }
+
+  static AffineMap canonicalStridedMap(MLIRContext *context,
+                                       ArrayRef<int64_t> shape,
+                                       Type elementType, AffineMap map) {
+    assert(map.isIdentity() && "Only identity maps are supported for now.");
+    auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
+    int64_t elementSizeBytes = tileType
+                                   ? tileType.getSizeBytes()
+                                   : elementType.getIntOrFloatBitWidth() / 8;
+    int64_t currentStride = elementSizeBytes;
+    int64_t rank = shape.size();
+    mlir::AffineExpr strideExpr = getAffineConstantExpr(0, context);
+    for (int64_t i = rank - 1; i >= 0; i--) {
+      mlir::AffineExpr dim = getAffineDimExpr(i, context);
+      mlir::AffineExpr stride = getAffineConstantExpr(currentStride, context);
+      strideExpr = dim * stride + strideExpr;
+      currentStride *= shape[i];
+    }
+    return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
   }
 };
 } // namespace
@@ -289,6 +369,7 @@ public:
     patterns.add<TTIRGenericLowerAffineDMAsRewritePattern,
                  TTIRGenericLowerToFullyIndexedDMARewritePattern>(
         &getContext());
+    populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

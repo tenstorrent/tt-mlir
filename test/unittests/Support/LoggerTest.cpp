@@ -4,9 +4,10 @@
 
 #include "ttmlir/Support/Logger.h"
 
-#include "llvm-gtest/gtest/gtest.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include "gtest/gtest.h"
 
 #include <cstdlib>
 #include <sstream>

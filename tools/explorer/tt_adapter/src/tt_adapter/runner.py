@@ -284,7 +284,7 @@ class ModelRunner:
             )
             emitc_command = [
                 f"{self._build_dir}/bin/ttmlir-opt",
-                "--ttnn-modify-signatures-for-dylib",
+                "--ttnn-tuplify-tensors",
                 "--convert-ttnn-to-emitc",
                 ttnn_ir_file,
                 "-o",

@@ -35,7 +35,7 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
   let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
 
   let extraClassDeclaration = [{
-      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
+      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::ttcore::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
       {
         assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
         return CoreRangeAttr::get(context, offset, grid.getShape());
@@ -83,17 +83,19 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
 
   let extraClassDeclaration = [{
     static ComputeConfigAttr get(mlir::MLIRContext *context,
-                                mlir::SymbolRefAttr kernelSymbol,
-                                CoreRangeAttr coreRange,
-                                KernelArgsAttr kernelArgs) {
+                                 mlir::SymbolRefAttr kernelSymbol,
+                                 CoreRangeAttr coreRange,
+                                 KernelArgsAttr kernelArgs,
+                                 bool fp32DestAccEn,
+                                 ::llvm::ArrayRef<UnpackToDestMode> unpackToDestMode) {
       return ComputeConfigAttr::get(context,
-                                   kernelSymbol,
-                                   coreRange,
-                                   kernelArgs,
-                                   MathFidelity::HiFi4,
-                                   false,
-                                   false,
-                                   {UnpackToDestMode::Default});
+                                    kernelSymbol,
+                                    coreRange,
+                                    kernelArgs,
+                                    MathFidelity::HiFi4,
+                                    fp32DestAccEn,
+                                    false,
+                                    unpackToDestMode);
     };
 
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Compute; }

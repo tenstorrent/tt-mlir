@@ -4,8 +4,8 @@
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -45,7 +45,7 @@ struct ConvertTTIRToTTMetal
     target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
-    target.addLegalDialect<tt::TTDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
@@ -54,11 +54,11 @@ struct ConvertTTIRToTTMetal
     target.addLegalOp<ttir::ViewLayoutOp>();
 
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
-      return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });
     target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
-      return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });
 

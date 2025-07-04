@@ -5,14 +5,13 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_TTIROPSINTERFACES_H
 #define TTMLIR_DIALECT_TTIR_IR_TTIROPSINTERFACES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 namespace mlir::tt::ttir {
 
 namespace detail {
-mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
 mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
 } // namespace detail
 

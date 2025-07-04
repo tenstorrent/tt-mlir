@@ -35,7 +35,7 @@ bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op) {
 
   static constexpr const char *vecCreateFnAsStr = R"(
 template <typename... T>
-std::vector<ttnn::Tensor> utilCreateVec(T &&...t) {
+std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
 }
 )";
@@ -84,9 +84,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::Interleaved:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::INTERLEAVED");
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::SINGLE_BANK");
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
@@ -131,54 +128,54 @@ emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr) {
   return builder.getType<emitc::OpaqueAttr>(attr.getValue() ? "true" : "false");
 }
 
-emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
+emitc::OpaqueAttr convertDType(Builder &builder, ttcore::DataTypeAttr attr) {
   switch (attr.getValue()) {
-  case tt::DataType::BFloat16:
+  case ttcore::DataType::BFloat16:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT16");
-  case tt::DataType::Float32:
+  case ttcore::DataType::Float32:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::FLOAT32");
-  case tt::DataType::UInt32:
+  case ttcore::DataType::UInt32:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT32");
-  case tt::DataType::BFP_BFloat8:
+  case ttcore::DataType::BFP_BFloat8:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT8_B");
-  case tt::DataType::BFP_BFloat4:
+  case ttcore::DataType::BFP_BFloat4:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT4_B");
-  case tt::DataType::UInt8:
+  case ttcore::DataType::UInt8:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT8");
-  case tt::DataType::UInt16:
+  case ttcore::DataType::UInt16:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT16");
-  case tt::DataType::Int32:
+  case ttcore::DataType::Int32:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
-  case tt::DataType::Float16:
-  case tt::DataType::BFP_Float2:
-  case tt::DataType::BFP_Float4:
-  case tt::DataType::BFP_Float8:
-  case tt::DataType::BFP_BFloat2:
+  case ttcore::DataType::Float16:
+  case ttcore::DataType::BFP_Float2:
+  case ttcore::DataType::BFP_Float4:
+  case ttcore::DataType::BFP_Float8:
+  case ttcore::DataType::BFP_BFloat2:
     llvm_unreachable("Unsupported ttnn::DataType");
   }
 
-  llvm_unreachable("Unkonwn tt::DataType");
+  llvm_unreachable("Unkonwn ttcore::DataType");
 }
 
 emitc::OpaqueAttr convertReduceType(ConversionPatternRewriter &rewriter,
-                                    tt::ReduceType reduceType) {
+                                    ttcore::ReduceType reduceType) {
   switch (reduceType) {
-  case tt::ReduceType::Sum:
+  case ttcore::ReduceType::Sum:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Sum");
-  case tt::ReduceType::Mean:
+  case ttcore::ReduceType::Mean:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Mean");
-  case tt::ReduceType::Max:
+  case ttcore::ReduceType::Max:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Max");
-  case tt::ReduceType::Min:
+  case ttcore::ReduceType::Min:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Min");
-  case tt::ReduceType::Std:
+  case ttcore::ReduceType::Std:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Std");
-  case tt::ReduceType::Var:
+  case ttcore::ReduceType::Var:
     return rewriter.getType<emitc::OpaqueAttr>(
         "::ttnn::operations::reduction::ReduceType::Var");
   }

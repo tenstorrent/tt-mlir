@@ -61,7 +61,7 @@ MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width, u
         TileType::get(
             unwrap(ctx), // Now we unwrap the MlirContext object to cast it to a mlir::MLIRContext object (w/o affecting ownership)
             llvm::SmallVector<std::int64_t>{height, width}, // We construct the list here since a list isn't natively defined in the C-API,
-            static_cast<tt::DataType>(dataType) // Here we cast the int value to get the Enum value from `tt::DataType`
+            static_cast<ttcore::DataType>(dataType) // Here we cast the int value to get the Enum value from `ttcore::DataType`
         ) // Invoking the builtin get operator to create and get the pointer for some object
     );
 }
@@ -272,8 +272,8 @@ MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(
 
 using namespace mlir::tt::ttkernel;
 
-MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, uint64_t port, uint64_t address, MlirType memrefType) {
-  return wrap(CBType::get(unwrap(ctx), symbolizeCBPort(port).value(), address, mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
+MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, MlirType memrefType) {
+  return wrap(CBType::get(unwrap(ctx), mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
 }
 ```
 7. Define the `nanobind` build target in `python/CMakeLists.txt` by adding `ttkernel` as a dialect, and providing `TTkernelModule.cpp` as a source for `TTMLIRPythonExtensions.Main`.

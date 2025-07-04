@@ -14,6 +14,7 @@
 #include "tt-metalium/mesh_device.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/events.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
@@ -35,12 +36,14 @@
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
+#include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/trace.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
@@ -153,21 +156,28 @@ size_t getNumDramChannels(Device meshDevice);
 size_t getDramSizePerChannel(Device meshDevice);
 size_t getL1SizePerCore(Device meshDevice);
 
+bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
+
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
+
+void dumpDeviceProfileResults(Device device);
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
 void wait(Event event);
 
-void wait(::tt::runtime::Tensor tensor);
+void wait(::tt::runtime::Tensor tensor,
+          std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<::tt::runtime::Tensor> &tensors);
+void wait(const std::vector<::tt::runtime::Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize = false);
+                                          bool untilize = false,
+                                          bool blocking = true);
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
@@ -176,7 +186,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
-void memcpy(void *dst, ::tt::runtime::Tensor src);
+void memcpy(void *dst, ::tt::runtime::Tensor src,
+            std::optional<tt::target::DataType> dstDataType = std::nullopt);
 
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src);
 
@@ -192,11 +203,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
-
-std::vector<::tt::runtime::Tensor>
-runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-           Binary executableHandle, std::uint32_t programIndex,
-           std::vector<::tt::runtime::Tensor> &inputs);
 
 } // namespace tt::runtime::ttnn
 

@@ -26,9 +26,9 @@ void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(
   memoryLayoutAnalysisPolicy = value;
 }
 
-void OptimizerOverridesHandler::setInputLayoutOverrides(
-    llvm::StringMap<InputLayoutOverrideParams> &value) {
-  inputLayoutOverrides = value;
+void OptimizerOverridesHandler::setInsertMemReconfig(
+    llvm::StringMap<InsertMemReconfigParams> &value) {
+  insertMemReconfig = value;
 }
 void OptimizerOverridesHandler::setOutputLayoutOverrides(
     llvm::StringMap<OutputLayoutOverrideParams> &value) {
@@ -78,9 +78,9 @@ std::vector<int64_t> OptimizerOverridesHandler::getMeshShape() const {
   return meshShape;
 }
 
-llvm::StringMap<InputLayoutOverrideParams>
-OptimizerOverridesHandler::getInputLayoutOverrides() const {
-  return inputLayoutOverrides;
+llvm::StringMap<InsertMemReconfigParams>
+OptimizerOverridesHandler::getInsertMemReconfig() const {
+  return insertMemReconfig;
 }
 llvm::StringMap<OutputLayoutOverrideParams>
 OptimizerOverridesHandler::getOutputLayoutOverrides() const {
@@ -92,14 +92,14 @@ OptimizerOverridesHandler::getConv2dConfigOverrides() const {
   return conv2dConfigOverrides;
 }
 
-std::unordered_map<std::string, InputLayoutOverrideParams>
-OptimizerOverridesHandler::getInputLayoutOverridesNanobindWrapper() const {
-  std::unordered_map<std::string, InputLayoutOverrideParams>
-      inputLayoutOverridesWrapper;
-  for (auto &entry : inputLayoutOverrides) {
-    inputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
+std::unordered_map<std::string, InsertMemReconfigParams>
+OptimizerOverridesHandler::getInsertMemReconfigNanobindWrapper() const {
+  std::unordered_map<std::string, InsertMemReconfigParams>
+      insertMemReconfigWrapper;
+  for (auto &entry : insertMemReconfig) {
+    insertMemReconfigWrapper[entry.getKey().str()] = entry.getValue();
   }
-  return inputLayoutOverridesWrapper;
+  return insertMemReconfigWrapper;
 }
 
 std::unordered_map<std::string, OutputLayoutOverrideParams>
@@ -147,10 +147,10 @@ std::string OptimizerOverridesHandler::toString() const {
 
   // Create input layout overrides.
   //  Example:
-  //    override-input-layout=input0=0:1,input1=0,input2=0:1:2
-  if (inputLayoutOverrides.size() > 0) {
-    options += OptionNames::overrideInputLayout.str() + "=" +
-               InputLayoutOverrideParser::toString(inputLayoutOverrides) + " ";
+  //    insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
+  if (insertMemReconfig.size() > 0) {
+    options += OptionNames::insertMemReconfig.str() + "=" +
+               InsertMemReconfigParser::toString(insertMemReconfig) + " ";
   }
 
   // Create output layout overrides.
@@ -195,14 +195,13 @@ std::string OptimizerOverridesHandler::toString() const {
   return options;
 }
 
-void OptimizerOverridesHandler::addInputLayoutOverride(
-    StringRef opName, InputLayoutOverrideParams params) {
-  inputLayoutOverrides[opName] = params;
+void OptimizerOverridesHandler::addInsertMemReconfig(
+    StringRef opName, InsertMemReconfigParams params) {
+  insertMemReconfig[opName] = params;
 }
-void OptimizerOverridesHandler::addInputLayoutOverride(
+void OptimizerOverridesHandler::addInsertMemReconfig(
     StringRef opName, SmallVector<int64_t> &operandIdxes) {
-  inputLayoutOverrides[opName] =
-      InputLayoutOverrideParams{std::move(operandIdxes)};
+  insertMemReconfig[opName] = InsertMemReconfigParams{std::move(operandIdxes)};
 }
 void OptimizerOverridesHandler::addOutputLayoutOverride(
     StringRef opName, OutputLayoutOverrideParams params) {
@@ -211,7 +210,7 @@ void OptimizerOverridesHandler::addOutputLayoutOverride(
 void OptimizerOverridesHandler::addOutputLayoutOverride(
     StringRef opName, SmallVector<int64_t> &grid, BufferType bufferType,
     TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
-    tt::DataType dataType) {
+    ttcore::DataType dataType) {
   outputLayoutOverrides[opName] = OutputLayoutOverrideParams{
       std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
 }
@@ -221,12 +220,12 @@ void OptimizerOverridesHandler::addConv2dConfigOverride(
   conv2dConfigOverrides[opName] = params;
 }
 
-void OptimizerOverridesHandler::addInputLayoutOverrideNanobindWrapper(
+void OptimizerOverridesHandler::addInsertMemReconfigNanobindWrapper(
     std::string opName, std::vector<int64_t> &operandIdxes) {
   StringRef opNameStringRef(opName);
   SmallVector<int64_t> operandIdxesSmallVector(operandIdxes.begin(),
                                                operandIdxes.end());
-  addInputLayoutOverride(opNameStringRef, operandIdxesSmallVector);
+  addInsertMemReconfig(opNameStringRef, operandIdxesSmallVector);
 }
 
 void OptimizerOverridesHandler::addOutputLayoutOverrideNanobindWrapper(

@@ -6,17 +6,15 @@
 #define TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/Support/LLVM.h"
 
-namespace mlir {
-namespace tt {
-namespace ttir {
+namespace mlir::tt::ttir {
 namespace impl {
 bool verifyInvolution(mlir::Operation *op);
 bool verifyIdempotence(mlir::Operation *op);
 bool verifyBinaryIdempotence(mlir::Operation *op);
 mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op);
 mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op);
+mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
 mlir::OpFoldResult foldInvolution(mlir::Operation *op);
 mlir::OpFoldResult foldIdempotence(mlir::Operation *op);
 mlir::OpFoldResult foldBinaryIdempotence(mlir::Operation *op);
@@ -84,8 +82,14 @@ struct TTIRGenericRegionDatamovementOpTrait
   }
 };
 
-} // namespace ttir
-} // namespace tt
-} // namespace mlir
+template <typename ConcreteType>
+struct Broadcastable : public OpTrait::TraitBase<ConcreteType, Broadcastable> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyBroadcastable(op);
+  }
+};
+
+} // namespace mlir::tt::ttir
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H

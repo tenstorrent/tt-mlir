@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -33,7 +33,8 @@ getOperandTensorRanks(mlir::Operation *op) {
   // Iterate over operands (inputs)
   for (auto operand : op->getOperands()) {
     // Check if the operand is a tensor
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       // Add the rank of the tensor (number of dimensions)
       ranks.push_back(tensorType.getRank());
     }
@@ -48,7 +49,8 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   uniqueName.append(op->getName().getStringRef());
 
   for (auto operand : op->getOperands()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       uniqueName += "_";
       llvm::raw_svector_ostream os(uniqueName);
       llvm::interleave(tensorType.getShape(), os, "x");
@@ -64,7 +66,7 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
 static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
                                    mlir::Operation *origOp,
                                    mlir::OpBuilder &builder) {
-  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
+  if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
     if (dpsOp.isDpsInit(&origOp->getOpOperand(argIdx))) {
       funcOp.setArgAttr(argIdx, "bufferization.access",
                         builder.getStringAttr("write"));
@@ -74,7 +76,7 @@ static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
     }
   } else {
     funcOp.setArgAttr(argIdx, "bufferization.access",
-                      builder.getStringAttr("read_write"));
+                      builder.getStringAttr("read-write"));
   }
 }
 
@@ -95,7 +97,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Value> convertedOperands;
 
   for (auto operand : opToHoist->getOperands()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       if (!tensorType.getElementType().isF32()) {
         // Create f32 version of tensor type
         auto f32TensorType = RankedTensorType::get(
@@ -121,7 +124,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   // Gather result types for function signature
   llvm::SmallVector<mlir::Type> resultTypes;
   for (auto result : opToHoist->getResultTypes()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result)) {
+    if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
       if (!tensorType.getElementType().isF32()) {
         resultTypes.push_back(RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding()));
@@ -137,7 +140,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   mlir::FunctionType localFuncType =
       mlir::FunctionType::get(context, operandTypes, resultTypes);
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, operandTypes, {});
+      mlir::FunctionType::get(context, operandTypes, resultTypes);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
   llvm::SmallString<16> localFunctionName = functionName;
@@ -166,7 +169,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     // Add bufferization access attributes to function arguments
     for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
-              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
       }
     }
@@ -180,31 +183,49 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
     // Update operand types to f32 for tensor types
-    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumOperands())) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              clonedOp->getOperand(i).getType())) {
+    for (auto operand : clonedOp->getOperands()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
-          clonedOp->getOperand(i).setType(newType);
+          operand.setType(newType);
         }
       }
     }
 
     // Update result types to f32 for tensor types
-    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumResults())) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              clonedOp->getResult(i).getType())) {
+    for (auto result : clonedOp->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
-          clonedOp->getResult(i).setType(newType);
+          result.setType(newType);
         }
       }
     }
 
-    // Add a return operation to the function.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
+    // Add an attribute to the function that maps return values to output
+    // arguments
+    if (auto dpsOp =
+            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
+      // Ensure there's only a single output
+      assert(dpsOp.getDpsInits().size() == 1 &&
+             "Only operations with a single output are supported");
+
+      // Get the index of the output operand
+      unsigned outputIdx =
+          opToHoist->getNumOperands() - dpsOp.getDpsInits().size();
+
+      // Store this mapping as an attribute on the function
+      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
+                           builder.getI64IntegerAttr(outputIdx));
+    }
+
+    // Add a return operation to the function with the operation results
+    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
+                                         clonedOp->getResults());
 
     // Declare the function prototype in the source module.
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
@@ -215,10 +236,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     sourceModule.push_back(localFunc);
 
     // Now that the function is in the module, add bufferization access
-    // attributes
+    // attributes.
     for (auto arg : llvm::enumerate(localFunc.getArguments())) {
       if (auto tensorType =
-              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
       }
     }
@@ -239,7 +260,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Value> finalResults;
   for (auto [result, callResult] :
        llvm::zip(opToHoist->getResults(), callOp.getResults())) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
       if (!tensorType.getElementType().isF32()) {
         auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(),
@@ -264,13 +286,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
 // An analysis class which currently relies on manually tagging ops with a
 // `should_hoist` attribute, but in the future will also tag fall-back ops, etc.
+namespace {
 class TTIRHoistAnalyze {
 public:
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
   TTIRHoistAnalyze(mlir::ModuleOp moduleOp) {
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr("should_hoist")) {
+      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name)) {
         llvm::SmallSet<mlir::Operation *, 4> opSet;
         opSet.insert(nestedOp);
         hoistedOps.push_back(opSet);
@@ -283,7 +306,9 @@ public:
 private:
   HoistOpSet hoistedOps;
 };
+} // namespace
 
+namespace {
 // Transform pass to hoist specific ops (based on configured analysis pass) into
 // a cpu submodule for later independent lowering.
 class TTIRHoistTransform
@@ -301,9 +326,9 @@ public:
       return;
     }
 
-    tt::DeviceModuleOp deviceModule;
+    ttcore::DeviceModuleOp deviceModule;
     for (Operation &op : rootModule.getBodyRegion().front()) {
-      if (auto maybeDeviceModule = dyn_cast<tt::DeviceModuleOp>(op)) {
+      if (auto maybeDeviceModule = dyn_cast<ttcore::DeviceModuleOp>(op)) {
         deviceModule = maybeDeviceModule;
         break;
       }
@@ -314,7 +339,7 @@ public:
     ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(deviceInnerModule &&
-           "tt::DeviceModuleOp must have single ModuleOp child!");
+           "ttcore::DeviceModuleOp must have single ModuleOp child!");
 
     IRRewriter rewriter(&getContext());
 
@@ -329,10 +354,10 @@ public:
     }
 
     // Check if a "cpu_module" already exists.
-    tt::CPUModuleOp cpuModule;
+    ttcore::CPUModuleOp cpuModule;
     mlir::ModuleOp cpuInnerModule;
     for (auto &op : rootModule.getBody()->getOperations()) {
-      if (auto module = llvm::dyn_cast<tt::CPUModuleOp>(op)) {
+      if (auto module = llvm::dyn_cast<ttcore::CPUModuleOp>(op)) {
         cpuModule = module;
         cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
             cpuModule.getBodyRegion().front().front());
@@ -344,7 +369,7 @@ public:
     // If no CPU module exists, create one.
     if (!cpuModule) {
       rewriter.setInsertionPointToEnd(rootModule.getBody());
-      cpuModule = rewriter.create<tt::CPUModuleOp>(loc);
+      cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
       rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
       cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
@@ -357,5 +382,6 @@ public:
     }
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir

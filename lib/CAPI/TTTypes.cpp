@@ -6,9 +6,9 @@
 #include "mlir/CAPI/Support.h"
 #include "ttmlir-c/TTAttrs.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-using namespace mlir::tt;
+using namespace mlir::tt::ttcore;
 
 MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
                              uint32_t dataType) {

@@ -46,45 +46,29 @@
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
 #include "operations/moreh/moreh_cumsum.h"
+#include "operations/normalization/batch_norm.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
-#include "tt/runtime/detail/debug.h"
+#include "operations/trace/trace.h"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-#include "tracy/Tracy.hpp"
-#endif
 
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
 
-static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
-#endif
-}
-
-static const ::tt::target::ttnn::Program *
-getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
-  const ::tt::target::ttnn::TTNNBinary &fbb =
-      *utils::getBinary(executableHandle);
-  const ::tt::target::ttnn::Program *program =
-      fbb.programs()->Get(programIndex);
-  return program;
-}
-
 ProgramExecutor::ProgramExecutor(
-    const Binary &executableHandle,
-    std::vector<::tt::runtime::Tensor> &programInputs,
-    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
-    : program(getProgram(executableHandle, programIndex)),
-      executableHandle(executableHandle) {
+    ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
+    const size_t programIndex,
+    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram)
+    : program(utils::getProgram(executableHandle, programIndex)),
+      executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
   std::vector<uint32_t> programInputIds;
@@ -107,7 +91,7 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), std::move(meshDevice),
+      common::DylibManager(program->dylibs()), std::move(deviceHandle),
       executableHandle, programIndex);
 }
 
@@ -133,13 +117,16 @@ void ProgramExecutor::execute() {
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
-    tracyLogOpLocation(op);
+    perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
+    perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
+    perf::Env::get().tracyLogProgramMetadata(
+        perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    dumpPerfCountersIfNeeded(context->getMeshDevice());
+    dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
@@ -147,21 +134,6 @@ void ProgramExecutor::execute() {
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
   return context->getTensorPool().gatherOutputTensors();
-}
-
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static uint32_t counter = 0;
-  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter) +
-                                           " operations");
-    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
-      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-    }
-    counter = 0;
-  }
-#endif
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -332,11 +304,30 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    return operations::trace::run(op->type_as_TraceOp(), getContext());
+  }
   default: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+}
+
+void ProgramExecutor::dumpPerfCountersIfNeeded() {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  static uint32_t counter = 0;
+  if (++counter >= perf::Env::get().dumpDeviceRate) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                           std::to_string(counter) +
+                                           " operations");
+    ::tt::tt_metal::DumpMeshDeviceProfileResults(context->getMeshDevice());
+    counter = 0;
+  }
+#endif
 }
 
 } // namespace tt::runtime::ttnn

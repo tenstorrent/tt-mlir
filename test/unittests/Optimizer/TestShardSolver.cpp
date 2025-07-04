@@ -2,15 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include "llvm-gtest/gtest/gtest.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -19,6 +18,8 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
+
+#include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -36,7 +37,7 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
     createFuncOp();
   }
 
@@ -49,7 +50,7 @@ public:
         getTensorShape(), builder.getF32Type(),
         TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
                             BufferType::DRAM,
-                            mlir::tt::GridAttr::get(&context, {1, 1}),
+                            mlir::tt::ttcore::GridAttr::get(&context, {1, 1}),
                             mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                 &context, TensorMemoryLayout::Interleaved)));
   }
@@ -100,14 +101,14 @@ public:
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
-          mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
+          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
           mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                       tensorMemoryLayout))};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
-          mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
+          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
           mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                       tensorMemoryLayout)));
     }

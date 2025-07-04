@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -38,11 +38,12 @@ namespace mlir::tt::ttir {
 #define TT_ALLOC_TRACE(/* fmt, args */...)                                     \
   TTMLIR_TRACE(ttmlir::LogComponent::Allocator, __VA_ARGS__)
 
-inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
+inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
+                                          ttcore::MemorySpace dflt) {
   auto memSpace = memref.getMemorySpace();
-  return memSpace
-             ? mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()
-             : dflt;
+  return memSpace ? mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
+                        .getValue()
+                  : dflt;
 }
 
 //===----------------------------------------------------------------------===//
@@ -56,17 +57,21 @@ using SequenceT = AllocationPlanner::SequenceT;
 struct MemorySpaceInfo {
 
   MemorySpaceInfo() = default;
-  MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT size, AllocSizeT alignment)
-      : baseAddress(baseAddress), size(size), alignment(alignment) {
-    assert(baseAddress % alignment == 0 && "expected aligned base address");
+  MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT maxAddress,
+                  AllocSizeT alignment)
+      : baseAddress(baseAddress), maxAddress(maxAddress), alignment(alignment) {
+    TT_assert(baseAddress % alignment == 0, "expected aligned base address");
+    TT_assert(baseAddress < maxAddress, "expected positive memory capacity");
   }
 
+  // Valid address range is [baseAddress, maxAddress).
+
   AllocSizeT baseAddress = 0;
-  AllocSizeT size = 0;
+  AllocSizeT maxAddress = 0;
   AllocSizeT alignment = 0;
 
   static constexpr std::size_t kMaxEnumValForMemorySpace =
-      (getMaxEnumValForMemorySpace() + 1);
+      (ttcore::getMaxEnumValForMemorySpace() + 1);
 };
 
 using MemorySpaces =
@@ -147,12 +152,6 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
       return false;
     }
 
-    // A view_layout signals that an op wants to take a view of an
-    // operand, possibly to switch to a different core grid shape.
-    if (mlir::isa_and_nonnull<ttir::ViewLayoutOp>(definingOp)) {
-      return true;
-    }
-
     // No stream (NOC ops) will be needed if 'operand' is already
     // allocated in L1 ("alias" mode), which is currently guaranteed
     // to be the case for outputs.
@@ -183,10 +182,10 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
           }
           const auto dimPosition =
               operandIndexingMap.getDimPosition(resultIndex);
-          IteratorType iteratorType =
-              mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition])
+          ttcore::IteratorType iteratorType =
+              mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
                   .getValue();
-          return (iteratorType == IteratorType::Reduction);
+          return (iteratorType == ttcore::IteratorType::Reduction);
         });
     return operandNeedsDataMovement;
   }
@@ -194,12 +193,12 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
   static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
                            ttir::GenericOp op) {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
-    auto streamAttr = rewriter.getAttr<ViewLayoutAttr>(
+    auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         rewriter.getMultiDimIdentityMap(memref.getRank()));
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storageAttr = ShardLayoutAttr::get(memref, /*buffers=*/1);
+    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
@@ -251,13 +250,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Analyze buffer allocation needs for a module.
   FailureOr<ModuleAnalysisData> runAnalyzeBuffers(ModuleOp moduleOp) {
 
-    SystemDescAttr systemDesc = getCurrentScopeSystemDesc(moduleOp);
-    ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
+    ttcore::SystemDescAttr systemDesc =
+        ttcore::getCurrentScopeSystemDesc(moduleOp);
+    ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
 
     MemorySpaces memSpaces = getMemorySpaces(chipDesc);
     ModuleAnalysisData moduleAnalysis(memSpaces);
 
-    moduleOp->walk([&](func::FuncOp func) {
+    WalkResult analysisWalk = moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return WalkResult::skip();
       }
@@ -272,6 +272,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       return WalkResult::advance();
     });
 
+    if (analysisWalk.wasInterrupted()) {
+      return failure();
+    }
+
     return moduleAnalysis;
   }
 
@@ -284,7 +288,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Analyze and plan buffer allocation for a func.
   FailureOr<FuncAnalysisData> runAnalyzeBuffers(func::FuncOp func,
                                                 const MemorySpaces &memSpaces) {
-    DeviceAttr device = lookupDevice(func);
+    ttcore::DeviceAttr device = ttcore::lookupDevice(func);
     Block &funcBody = func.getBody().front();
 
     // Start with SSA liveness for `func`.
@@ -348,8 +352,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     for (auto &[op, ctx] : livenessJoinGraph) {
       if (memref::AllocOp alloc = llvm::dyn_cast<memref::AllocOp>(op)) {
         MemRefType memrefTy = alloc.getType();
-        MemorySpace memorySpace = getMemorySpace(
-            memrefTy, MemorySpace::System); // Interpret unset as "host memory".
+        ttcore::MemorySpace memorySpace = getMemorySpace(
+            memrefTy,
+            ttcore::MemorySpace::System); // Interpret unset as "host memory".
 
         if (!isL1MemorySpace(memorySpace)) {
           continue; // Only handling L1 space at the moment.
@@ -357,7 +362,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
+        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 
@@ -372,11 +377,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
     TT_ALLOC_DEBUG("allocation planning outcome: {}", stats);
 
-    const auto memSizeL1 =
-        memSpaces[llvm::to_underlying(MemorySpace::DeviceL1)].size;
-    if (stats.memUsage > memSizeL1) {
+    const auto &memSpace =
+        memSpaces[llvm::to_underlying(ttcore::MemorySpace::DeviceL1)];
+    const auto memCapacity = memSpace.maxAddress - memSpace.baseAddress;
+    if (stats.memUsage > memCapacity) {
       return func.emitOpError() << "required memory usage " << stats.memUsage
-                                << " exceeds memory size " << memSizeL1;
+                                << " exceeds memory capacity " << memCapacity
+                                << " (usable space is [" << memSpace.baseAddress
+                                << ", " << memSpace.maxAddress << "))";
     }
 
     return analysis;
@@ -419,8 +427,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       memref::AllocOp alloc = analysis.allocs[t];
 
       MemRefType memrefTy = alloc.getType();
-      MemorySpace memorySpace = getMemorySpace(
-          memrefTy, MemorySpace::System); // Interpret unset as "host memory".
+      ttcore::MemorySpace memorySpace = getMemorySpace(
+          memrefTy,
+          ttcore::MemorySpace::System); // Interpret unset as "host memory".
 
       if (!isL1MemorySpace(memorySpace)) {
         continue; // Only handling L1 space at the moment.
@@ -471,19 +480,19 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return maxLast;
   }
 
-  static MemorySpaces getMemorySpaces(ChipDescAttr chipDesc) {
+  static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc) {
     std::array<MemorySpaceInfo, MemorySpaceInfo::kMaxEnumValForMemorySpace>
         info;
     // Currently, we only need some slots in 'info'.
     {
-      info[llvm::to_underlying(MemorySpace::DeviceL1)] = MemorySpaceInfo(
-          chipDesc.getL1UnreservedBase(),
-          chipDesc.getL1Size() - chipDesc.getScratchL1RegionSize(),
-          chipDesc.getNocL1AddressAlignBytes());
+      info[llvm::to_underlying(ttcore::MemorySpace::DeviceL1)] =
+          MemorySpaceInfo(chipDesc.getL1UnreservedBase(), chipDesc.getL1Size(),
+                          chipDesc.getNocL1AddressAlignBytes());
 
-      info[llvm::to_underlying(MemorySpace::DeviceDRAM)] = MemorySpaceInfo(
-          chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
-          chipDesc.getNocDRAMAddressAlignBytes());
+      info[llvm::to_underlying(ttcore::MemorySpace::DeviceDRAM)] =
+          MemorySpaceInfo(chipDesc.getDramUnreservedBase(),
+                          chipDesc.getDramChannelSize(),
+                          chipDesc.getNocDRAMAddressAlignBytes());
     }
     return info;
   }

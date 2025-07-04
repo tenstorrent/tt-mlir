@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttnn-layout --ttnn-workaround %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --ttnn-workaround %s | FileCheck %s
 
 module  {
   func.func @embedding_weight_6D(%input: tensor<2x4xui32>, %weight: tensor<1x1x1x1x10x10xbf16>) -> tensor<2x4x10xbf16> {

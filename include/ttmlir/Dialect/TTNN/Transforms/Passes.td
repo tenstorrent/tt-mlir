@@ -91,17 +91,12 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
   }];
 }
 
-def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::mlir::ModuleOp"> {
-  let summary = "Modify signatures of the functions for dylib path.";
+def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
+  let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
-    This pass is intended to be used only when the end result is a dylib!
-
-    It modifies signatures of forward functions so that they take a canonical
-    form. Essentially, input tensors are packed into a tuple and then accessed
-    in the function body. This allows for easier interfacing with the generated
-    dylib as the signatures are then uniform across all forward functions.
-    Device object is hoisted from func body to the signature as well. Return
-    type is also modified to be a tuple.
+    This pass identifies all functions in the module that exclusively use tensors as inputs and outputs. It rewrites
+    each such function by packing all input arguments into a single tuple and wrapping the return value(s) into a tuple
+    type as well.
 
     Given a forward function like this:
 
@@ -115,23 +110,28 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
     }
     ```
 
-    The pass will modify the signature such that:
-    - input tensors are packed into a tuple
-    - get_device op is removed and device object is hoisted to the signature
-    - return type is modified to be a tuple
+    The pass will return:
 
     ```mlir
     func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
-      %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
-      %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
       %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
       %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %5 = tt.tuple %4 : tuple<tensor<32x32xbf16>>
+      %5 = ttcore.tuple %4 : tuple<tensor<32x32xbf16>>
       return %5 : tuple<tensor<32x32xbf16>>
     }
     ```
   }];
+
+  let options = [
+    Option<"tuplifyInputIfEmpty",
+            "tuplify-input-if-empty",
+            "bool", /*default=*/"false",
+            "If input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
+            "signatures are required have tuples on the input, like the EmitC dylib path.">
+  ];
 }
 
 def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::ModuleOp"> {
@@ -147,6 +147,47 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+}
+
+def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
+  let summary = "TTNN Trace hoist transform";
+  let description = [{
+    Transform pass which runs an analysis pass to find traceable subgraphs and hoist them into separate trace functions.
+    The ops within the trace functions are then captured and replayed during runtime using the metal trace infra.
+    This is a performance optimization feature that enables batches of ops to be replayed with a single command instead
+    of dispatching commands for each op individually. One hard requirement is that all ops within a trace must be device
+    operations and cannot have any host involvements.
+
+    Example:
+
+    ```mlir
+    %0 = ttir.empty() : tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %1 : tensor<32x32xbf16>
+    ```
+
+    will generate the following trace function (arbitrarily naming it as `single_add_trace_0`) that will get captured and replayed at runtime:
+
+    ```mlir
+    func.func @single_add_trace_0(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      return %0 : tensor<32x32xbf16, #ttnn_layout>
+    }
+    ```
+
+    and a ttnn.trace operation will get inserted in the original mlir to signal this:
+
+    ```mlir
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    %1 = ttnn.trace(%0, 0, false, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    ```
+  }];
+}
+
+def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
+{
+  let summary = "Check if operations have unique locations.";
+  let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
 }
 
 #endif

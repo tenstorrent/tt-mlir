@@ -5,8 +5,8 @@
 #ifndef TTMLIR_CONVERSION_STABLEHLOTOTTIR_SHARDINGUTILS_H
 #define TTMLIR_CONVERSION_STABLEHLOTOTTIR_SHARDINGUTILS_H
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -43,10 +43,9 @@ public:
                                       mlir::StringAttr shardingAttr);
 
   // Convert sdy.sharding to meshSharding.
-  llvm::Expected<bool>
-  convertSdyShardingToMeshSharding(mlir::sdy::TensorShardingAttr sdySharding,
-                                   mlir::sdy::MeshAttr mesh,
-                                   mlir::tt::MeshShardDirection direction);
+  llvm::Expected<bool> convertSdyShardingToMeshSharding(
+      mlir::sdy::TensorShardingAttr sdySharding, mlir::sdy::MeshAttr mesh,
+      mlir::tt::ttcore::MeshShardDirection direction);
 
   // Check and update arg sharding attribute and determine if
   // mesh_shard op needs to be created or not.
@@ -68,17 +67,17 @@ public:
                    mlir::sdy::MeshAttr meshAttr);
 
   // Given parsed MeshSharding info, get TensorMeshShardingAttr.
-  mlir::tt::TensorMeshShardingAttr
+  mlir::tt::ttcore::TensorMeshShardingAttr
   getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter);
 
   // Given TensorMeshShardingAttr, extract MeshSharding info.
   void extractMeshShardingFromTensorMeshShardingAttr(
-      mlir::tt::MeshAttr mesh,
-      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
-      mlir::tt::MeshShardDirection direction);
+      mlir::tt::ttcore::MeshAttr mesh,
+      mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr,
+      mlir::tt::ttcore::MeshShardDirection direction);
 
   // Getter functions.
-  mlir::tt::MeshShardDirection getShardDirection() const {
+  mlir::tt::ttcore::MeshShardDirection getShardDirection() const {
     return shardDirection;
   }
 
@@ -90,7 +89,7 @@ public:
       const mlir::tt::sharding_utils::MeshSharding &meshSharding,
       size_t num_devices);
 
-  mlir::tt::MeshShardType getShardType() const { return shardType; }
+  mlir::tt::ttcore::MeshShardType getShardType() const { return shardType; }
   llvm::ArrayRef<int64_t> getShardShape() const { return shardShape; }
   llvm::ArrayRef<int64_t> getShardDims() const { return shardDims; }
   llvm::ArrayRef<int64_t> getMeshShape() const { return meshShape; }
@@ -103,8 +102,8 @@ private:
   llvm::Expected<bool> determineGSPMDShardingDims();
 
   // Set sharyType other than devices and reset values.
-  void setNonDevicesShardType(tt::MeshShardType targetShardType) {
-    assert(targetShardType != tt::MeshShardType::Devices);
+  void setNonDevicesShardType(ttcore::MeshShardType targetShardType) {
+    assert(targetShardType != ttcore::MeshShardType::Devices);
     shardType = targetShardType;
     // Specific values are required to fill corresponding attributes in
     // mesh_shard operation.
@@ -115,16 +114,19 @@ private:
 
   // Force dummy sharding op by setting shard_type to identity. The mesh_shard
   // op will be ignored at runtime by simply copying input tensor to output.
-  void setDummyShardingOp() { shardType = mlir::tt::MeshShardType::Identity; }
+  void setDummyShardingOp() {
+    shardType = mlir::tt::ttcore::MeshShardType::Identity;
+  }
 
   // Decide wheter to create mesh_shard op and shard_type. Detailed
   // description can be found in function body.
   bool determineMeshShardOpCreationAndShardType(bool foundArgSharding);
 
 private:
-  mlir::tt::MeshShardDirection shardDirection =
-      mlir::tt::MeshShardDirection::ShardToFull;
-  mlir::tt::MeshShardType shardType = mlir::tt::MeshShardType::Identity;
+  mlir::tt::ttcore::MeshShardDirection shardDirection =
+      mlir::tt::ttcore::MeshShardDirection::ShardToFull;
+  mlir::tt::ttcore::MeshShardType shardType =
+      mlir::tt::ttcore::MeshShardType::Identity;
   llvm::SmallVector<int64_t> shardShape{-1};
   llvm::SmallVector<int64_t> shardDims{-1};
   llvm::SmallVector<int64_t> meshShape{-1};
@@ -148,7 +150,7 @@ inline mlir::sdy::MeshAttr adjustSdyMeshAttr(mlir::Operation *srcOp,
 
 inline mlir::RankedTensorType addTensorMeshShardingAttrToRankedTensorType(
     mlir::RankedTensorType type,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   mlir::Type elementType = type.getElementType();
   llvm::ArrayRef<int64_t> shape = type.getShape();
   return RankedTensorType::get(shape, elementType, tensorMeshShardingAttr);
@@ -156,7 +158,7 @@ inline mlir::RankedTensorType addTensorMeshShardingAttrToRankedTensorType(
 
 inline mlir::Type addTensorMeshShardingAttrToValue(
     mlir::Value value,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   auto updatedType = addTensorMeshShardingAttrToRankedTensorType(
       mlir::cast<RankedTensorType>(value.getType()), tensorMeshShardingAttr);
   value.setType(updatedType);
@@ -165,7 +167,7 @@ inline mlir::Type addTensorMeshShardingAttrToValue(
 
 inline void addTensorMeshShardingAttrToFunctionArg(
     mlir::func::FuncOp funcOp, int64_t argIdx,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   // Add TensorMeshShardingAttr to function arg.
   addTensorMeshShardingAttrToValue(funcOp.getArgument(argIdx),
                                    tensorMeshShardingAttr);
@@ -180,7 +182,7 @@ inline void addTensorMeshShardingAttrToFunctionArg(
 
 inline void addTensorMeshShardingAttrToFunctionRet(
     mlir::func::FuncOp funcOp, int64_t retIdx,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr) {
   // Add TensorMeshShardingAttr to function return.
   auto *funcReturnOp = funcOp.getBody().front().getTerminator();
   addTensorMeshShardingAttrToValue(funcReturnOp->getOperand(retIdx),
@@ -200,7 +202,7 @@ template <typename AttrType>
 bool checkAndRemoveFuncArgSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t argIdx,
     AttrType shardingAttr,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr,
     llvm::StringRef argShardingStrRef) {
   auto argShardingAttr =
       funcOp.getArgAttrOfType<AttrType>(argIdx, argShardingStrRef);
@@ -227,7 +229,7 @@ template <typename AttrType>
 bool checkAndRemoveFuncReturnSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t retIdx,
     AttrType shardingAttr,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr,
     llvm::StringRef retShardingStrRef) {
   auto retShardingAttr =
       funcOp.getResultAttrOfType<AttrType>(retIdx, retShardingStrRef);

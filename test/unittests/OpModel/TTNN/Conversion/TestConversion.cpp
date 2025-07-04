@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
 #include "llvm/ADT/SmallVector.h"
-#include "gtest/gtest.h"
 
 class MlirToTtnnConversion : public OpModelFixture {};
 class Conversion : public OpModelFixture {};
@@ -50,17 +50,18 @@ INSTANTIATE_TEST_SUITE_P(
 class ConversionDataType
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::DataType, ::tt::tt_metal::DataType>> {};
+          std::tuple<mlir::tt::ttcore::DataType, ::tt::tt_metal::DataType>> {};
 
 TEST_P(ConversionDataType, DataType) {
-  const mlir::tt::DataType &dataType = std::get<0>(GetParam());
+  const mlir::tt::ttcore::DataType &dataType = std::get<0>(GetParam());
   const ::tt::tt_metal::DataType &expectedDataType = std::get<1>(GetParam());
 
   llvm::SmallVector<int64_t> tensorShape = {32, 32};
   auto layout = mlir::tt::ttnn::TTNNLayoutAttr::get(
       &context, tensorShape,
-      mlir::tt::TileType::get(&context, {32, 32}, dataType),
-      mlir::tt::ttnn::BufferType::L1, mlir::tt::GridAttr::get(&context, {8, 8}),
+      mlir::tt::ttcore::TileType::get(&context, {32, 32}, dataType),
+      mlir::tt::ttnn::BufferType::L1,
+      mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
       mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
           &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
 
@@ -76,21 +77,21 @@ TEST_P(ConversionDataType, DataType) {
 
 INSTANTIATE_TEST_SUITE_P(
     ToDataType, ConversionDataType,
-    ::testing::Values(std::make_tuple(mlir::tt::DataType::Float32,
+    ::testing::Values(std::make_tuple(mlir::tt::ttcore::DataType::Float32,
                                       ::tt::tt_metal::DataType::FLOAT32),
-                      std::make_tuple(mlir::tt::DataType::BFloat16,
+                      std::make_tuple(mlir::tt::ttcore::DataType::BFloat16,
                                       ::tt::tt_metal::DataType::BFLOAT16),
-                      std::make_tuple(mlir::tt::DataType::BFP_BFloat8,
+                      std::make_tuple(mlir::tt::ttcore::DataType::BFP_BFloat8,
                                       ::tt::tt_metal::DataType::BFLOAT8_B),
-                      std::make_tuple(mlir::tt::DataType::BFP_BFloat4,
+                      std::make_tuple(mlir::tt::ttcore::DataType::BFP_BFloat4,
                                       ::tt::tt_metal::DataType::BFLOAT4_B),
-                      std::make_tuple(mlir::tt::DataType::UInt32,
+                      std::make_tuple(mlir::tt::ttcore::DataType::UInt32,
                                       ::tt::tt_metal::DataType::UINT32),
-                      std::make_tuple(mlir::tt::DataType::UInt16,
+                      std::make_tuple(mlir::tt::ttcore::DataType::UInt16,
                                       ::tt::tt_metal::DataType::UINT16),
-                      std::make_tuple(mlir::tt::DataType::UInt8,
+                      std::make_tuple(mlir::tt::ttcore::DataType::UInt8,
                                       ::tt::tt_metal::DataType::UINT8),
-                      std::make_tuple(mlir::tt::DataType::Int32,
+                      std::make_tuple(mlir::tt::ttcore::DataType::Int32,
                                       ::tt::tt_metal::DataType::INT32)));
 
 //================================================================================
@@ -441,8 +442,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                         tt::tt_metal::TensorMemoryLayout::INTERLEAVED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::SingleBank,
-                        tt::tt_metal::TensorMemoryLayout::SINGLE_BANK),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                         tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
@@ -473,9 +472,22 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
             mlirBufferType == mlir::tt::ttnn::BufferType::L1);
   EXPECT_EQ(memoryConfig.is_dram(),
             mlirBufferType == mlir::tt::ttnn::BufferType::DRAM);
-  EXPECT_EQ(memoryConfig.is_sharded(),
-            mlirTensorMemoryLayout !=
-                mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  EXPECT_FALSE(layout.getIgnorePhysicalLayout());
+
+  if (mlirTensorMemoryLayout !=
+      mlir::tt::ttnn::TensorMemoryLayout::Interleaved) {
+    EXPECT_TRUE(memoryConfig.is_sharded());
+    EXPECT_TRUE(memoryConfig.shard_spec().has_value());
+
+    auto partialLayout = layout.withIgnorePhysicalLayout(true);
+    EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
+    EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
+
+    const auto partialConfig =
+        mlir::tt::op_model::ttnn::conversion::getMemoryConfig(partialLayout);
+    EXPECT_TRUE(partialConfig.is_sharded());
+    EXPECT_FALSE(partialConfig.shard_spec().has_value());
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

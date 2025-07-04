@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -20,15 +21,8 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   // With reshape op, the output layout changes due to new output shape, hence
   // we need to create a new output layout attribute with the new shape.
   RankedTensorType inputType = input.getType();
-  ttnn::TTNNLayoutAttr inputLayoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-  ttnn::TTNNLayoutAttr outputLayoutAttr =
-      inputLayoutAttr.withTensorShape(newShape);
-
-  // Create a new output type for reshape operation with new shape and new
-  // output layout.
-  RankedTensorType outputType = RankedTensorType::get(
-      newShape, inputType.getElementType(), outputLayoutAttr);
+  RankedTensorType outputType =
+      ttnn::utils::RankedTensorTypeFactory::create(inputType, newShape);
 
   // Add suffix to keep the location name unique.
   Location newLoc =

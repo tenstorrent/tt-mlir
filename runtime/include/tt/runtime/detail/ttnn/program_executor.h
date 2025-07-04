@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
 #define TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
 
-#include "tt/runtime/detail/debug.h"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/types.h"
@@ -25,10 +25,11 @@ class ProgramContext; // Forward declaration
 class ProgramExecutor {
 public:
   // Constructor for executing a program
-  ProgramExecutor(const Binary &executableHandle,
+  ProgramExecutor(::tt::runtime::Device deviceHandle,
+                  ::tt::runtime::Binary &executableHandle,
+                  const size_t programIndex,
                   std::vector<::tt::runtime::Tensor> &programInputs,
-                  std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-                  const size_t programIndex = 0);
+                  bool constEvalProgram = false);
 
   /**
    * Executes pre and post operation callbacks if registered
@@ -58,13 +59,17 @@ private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
+  bool constEvalProgram;
 
   /**
    * Executes a single operation
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
-  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+  /**
+   * Dumps device profile counters if needed
+   */
+  void dumpPerfCountersIfNeeded();
 };
 
 } // namespace tt::runtime::ttnn

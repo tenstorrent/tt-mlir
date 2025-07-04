@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -27,11 +28,16 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttnn {
@@ -94,7 +100,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTNNOptimizerBase<DerivedT>)
 
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
-    overrideInputLayout = std::move(options.overrideInputLayout);
+    insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
@@ -106,13 +112,13 @@ public:
   }
 
 protected:
-  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
-                       mlir::tt::ttnn::InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
+                       mlir::tt::ttnn::InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          ::llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
@@ -186,11 +192,12 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+    ttcore::GridAttr deviceGrid =
+        ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
-    SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
-        moduleOp->getAttr(tt::SystemDescAttr::name));
-    ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+        moduleOp->getAttr(ttcore::SystemDescAttr::name));
+    ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
 
     // Step 1: Run ScalarDataTypeAnalysis to collect all scalar types used in
@@ -305,8 +312,6 @@ public:
         return;
       }
 
-      SmallVector<Type> funcResultTypes;
-
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
@@ -327,11 +332,7 @@ public:
 
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
-          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
-          if (funcReturn) {
-            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
-                                   funcReturn.getOperandTypes().end());
-          }
+          // Skip ops with no results.
           return;
         }
 
@@ -365,6 +366,15 @@ public:
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
           op->getResult(0).setType(newTensorType);
+
+          // Update output data type for ops that have output data type
+          // attribute.
+          if (op->hasTrait<HasOutputDTypeTrait>()) {
+            ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
+                op->getContext(), layoutAttr.getDataType());
+            op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                        newDataTypeAttr);
+          }
 
           // Update DPS operand layout as well.
           //
@@ -420,11 +430,29 @@ public:
         }
       });
 
+      llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
+        insertedMemoryReconfigOps =
+            processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps, deviceGrid);
+      processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
+
+      insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
+
+      SmallVector<Type> funcResultTypes;
+
+      // Pick up return op result types and update func type.
+      func->walk([&](Operation *op) {
+        if (op->getNumResults() == 0) {
+          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
+          if (funcReturn) {
+            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
+                                   funcReturn.getOperandTypes().end());
+          }
+          return;
+        }
+      });
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -446,7 +474,7 @@ private:
     for (const auto &[opLoc, _] : overrideOutputLayout) {
       overridenOpExists[opLoc] = false;
     }
-    for (const auto &[opLoc, _] : overrideInputLayout) {
+    for (const auto &[opLoc, _] : insertMemReconfig) {
       overridenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
@@ -494,9 +522,9 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      auto opInputOverride = overrideInputLayout.find(opLocName);
+      auto opInputOverride = insertMemReconfig.find(opLocName);
 
-      if (opInputOverride == overrideInputLayout.end()) {
+      if (opInputOverride == insertMemReconfig.end()) {
         return;
       }
 
@@ -511,43 +539,15 @@ private:
 
     // Check for non-existing ops in override
     //
-    assert(overrideInputLayout.size() == overrideReshardEdges.size());
+    assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
-  mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
-                                                        OpBuilder &builder) {
-    Block *block = contextOp->getBlock();
-    for (auto &op : block->getOperations()) {
-      if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
-        return deviceOp.getResult();
-      }
-    }
-
-    // Device op does not exist in the block, hence we need to create it.
-    DeviceAttr deviceAttr = lookupDevice(contextOp);
-    auto currentInsertionPoint = builder.saveInsertionPoint();
-    builder.setInsertionPoint(block, block->begin());
-    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
-    if (meshShape.empty()) {
-      meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
-    }
-    // TODO (jnie): Currently hardcoding the mesh offset to 0x0
-    // Need a proper plan to dynamically determine this.
-    llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
-
-    auto deviceOp = builder.create<ttnn::GetDeviceOp>(
-        contextOp->getLoc(), builder.getType<DeviceType>(),
-        ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
-                                 meshShape[1]),
-        ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
-                                  meshOffset[1]));
-    builder.restoreInsertionPoint(currentInsertionPoint);
-    return deviceOp;
-  }
-
-  void processMemReconfigEdges(
+  static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
-      GridAttr deviceGrid) {
+      ttcore::GridAttr deviceGrid) {
+
+    // Mapping from producer op to inserted memory reconfig op.
+    llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -621,26 +621,35 @@ private:
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),
                             producerOpLayout.getLayout()),
-            DataTypeAttr::get(consumerOp->getContext(),
-                              producerOpLayout.getDataType()),
-            outputMemConfigAttr, getOrCreateDeviceOpValue(consumerOp, builder));
+            ttcore::DataTypeAttr::get(consumerOp->getContext(),
+                                      producerOpLayout.getDataType()),
+            outputMemConfigAttr);
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
         TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                      "Inserted memory reconfig op: {}",
                      mlir::cast<ToLayoutOp>(memoryReconfigOp));
+        if (producerOp) {
+          insertedMemoryReconfigOps[producerOp] = memoryReconfigOp;
+        }
       }
     }
+    return insertedMemoryReconfigOps;
   }
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps,
-                       GridAttr deviceGrid) {
-    for (Operation *op : spillToDramOps) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
-                   op->getName());
+                       ttcore::GridAttr deviceGrid,
+                       const llvm::DenseMap<Operation *, Operation *>
+                           &insertedMemoryReconfigOps) {
+
+    for (Operation *spilledOp : spillToDramOps) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Processing spilled op: {} {} @{}", spilledOp,
+                   spilledOp->getName(), spilledOp->getLoc());
+
       RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+          mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
       llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
@@ -653,34 +662,323 @@ private:
           tensorShape, tensorType.getElementType(), dramLayout);
 
       // Create a ToLayoutOp with the new DRAM layout.
-      OpBuilder builder(op->getContext());
-      DataTypeAttr dataType =
-          DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
+      OpBuilder builder(spilledOp->getContext());
+      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+          spilledOp->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
-          LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+          LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(), dramLayout.getMemLayout(),
-          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          spilledOp->getContext(), dramLayout.getMemLayout(),
+          BufferTypeAttr::get(spilledOp->getContext(), BufferType::DRAM),
           utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
-      builder.setInsertionPointAfter(op);
+      builder.setInsertionPointAfter(spilledOp);
       Location loc =
-          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
-      Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, op->getResult(0), newLayout, dataType,
-          memConfigAttr, getOrCreateDeviceOpValue(op, builder));
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Inserted spill to DRAM prevLayout: {}\nnewLayout: {}",
-                   layoutAttr, newLayout);
+          ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(), "_spill");
 
-      for (auto &use : op->getResult(0).getUses()) {
-        if (use.getOwner() != toLayoutOp) {
-          use.getOwner()->setOperand(use.getOperandNumber(),
-                                     toLayoutOp->getResult(0));
+      // Step 1: Save all uses as (Operation*, operand index).
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
+
+      // Step 2: Insert spilling to DRAM.
+      Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr);
+
+      // Step 3: Reconnect uses.
+      for (auto &use : uses) {
+        Operation *useOp = use.first;
+        useOp->setOperand(use.second, spillToDRAMOp->getResult(0));
+      }
+
+      // TODO(rpavlovicTT): It's possible that spilled op was followed by
+      // memory reconfig ops. It's also possible that spilled op is a fork and
+      // has memory reconfig ops on more than one branch. In that case we should
+      // wire through each memory reconfig op and choose one which can inherit
+      // L1 tensor. Rest of the users must read from tensor spilled to DRAM.
+      // Right now we save only last memory reconfig op and try to skip spill
+      // to DRAM on that branch.
+      if (insertedMemoryReconfigOps.count(spilledOp)) {
+        // There is a memory reconfig op inserted on a branch outgoing from
+        // spilled op. We will avoid spill to DRAM on that branch.
+        Operation *memoryReconfigOp = insertedMemoryReconfigOps.at(spilledOp);
+        auto spilledOpResultLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType())
+                .getEncoding());
+        assert(spilledOpResultLayout &&
+               "Expected spilled op result to have layout");
+        auto memoryReconfigOpLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(
+                memoryReconfigOp->getResult(0).getType())
+                .getEncoding());
+        assert(memoryReconfigOpLayout &&
+               "Expected memory reconfig op result to have layout");
+
+        if (memoryReconfigOpLayout == spilledOpResultLayout) {
+          // Memory reconfig op has same layout as spilled op. We will avoid
+          // memory reconfig op on that branch. Data will flow directly from
+          // spilled op to consumer of memory reconfig op and will not leave L1.
+          assert(memoryReconfigOp->hasOneUse() &&
+                 "Expected memory reconfig op to have one use");
+          auto memoryReconfigOpConsumerOperand =
+              memoryReconfigOp->getResult(0).getUses().begin();
+
+          Operation *memoryReconfigOpConsumerOp =
+              memoryReconfigOpConsumerOperand->getOwner();
+          memoryReconfigOpConsumerOp->setOperand(
+              memoryReconfigOpConsumerOperand->getOperandNumber(),
+              spilledOp->getResult(0));
+
+          // Ensure memory reconfig op consumer is after spilling to DRAM to
+          // avoid losing data. This is a sanity check. Schedule should
+          // guarantee valid order.
+          assert(
+              spillToDRAMOp->isBeforeInBlock(memoryReconfigOpConsumerOp) &&
+              "Memory reconfig op consumer should be after spilling to DRAM");
+
+          memoryReconfigOp->erase();
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Erased memory reconfig op: {}@{}",
+                       memoryReconfigOp->getName(), memoryReconfigOp->getLoc());
+        } else {
+          // Memory reconfig op does not have the same layout as spilled op.
+          // We can't get rid of memory reconfig op but we can avoid reading
+          // from DRAM on that branch. MemoryReconfigOp has only one operand and
+          // we will wire it to spilled op's result.
+          memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
         }
       }
     }
+  }
+
+  // Check if the op can be executed with row major layout on the input.
+  // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3972
+  bool checkOpConstraints(Operation *op,
+                          std::vector<TTNNLayoutAttr> inputLayouts,
+                          size_t l1CacheSize, bool convertInputToRowMajor) {
+
+    if (convertInputToRowMajor) {
+      inputLayouts[0] = utils::convertTTNNLayoutToRowMajor(
+          op->getContext(), inputLayouts[0],
+          mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+    }
+
+    OpModel backend = mlir::dyn_cast<OpModel>(*op);
+    assert(backend && "Backend constraints are not implemented for op");
+
+    // Empty consumerConfig with conv2d config if conv2d op.
+    OpConfig consumerConfig;
+    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
+      consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+    }
+
+    auto opConstraintsResult =
+        backend.getOpConstraints(inputLayouts, consumerConfig);
+
+    if (!opConstraintsResult) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Failed constraints call after: {}", op->getLoc());
+      op->emitWarning("Failed constraints call after: " +
+                      llvm::toString(opConstraintsResult.takeError()));
+      return false;
+    }
+
+    auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
+        opConstraintsResult.get();
+    constexpr float tensorL1UsageCap = 0.8;
+    bool l1UsageValid =
+        (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;
+    if (!l1UsageValid) {
+      op->emitWarning("L1 usage exceeded with " +
+                      std::to_string(outputTensorUsage + cBUsagePeak) +
+                      " out of " + std::to_string(l1CacheSize) +
+                      " scaled down to " +
+                      std::to_string(tensorL1UsageCap * l1CacheSize));
+      return false;
+    }
+
+    return true;
+  }
+
+  // Surround op with memory reconfig ops that convert tensor to row major
+  // layout for the op and revert the result back to tile layout. This will be
+  // used as a workaround for MaxPool2d op which works with row major layout.
+  void convertOpToRowMajorAndBack(Operation *op) {
+    OpBuilder builder(op->getContext());
+    builder.setInsertionPoint(op);
+
+    assert(op->getNumOperands() == 1 && "Expected exactly one operand");
+    auto operand = op->getOperand(0);
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(operand.getType());
+    TTNNLayoutAttr inputLayout =
+        mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+
+    assert(inputLayout.hasInterleavedDRAMTensorMemoryLayout() &&
+           "Expected interleaved DRAM tensor memory layout");
+
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    TTNNLayoutAttr outputLayout =
+        mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+    // Make a new layout with the same shape but row major.
+    TTNNLayoutAttr inputRowMajorLayout = utils::convertTTNNLayoutToRowMajor(
+        op->getContext(), inputLayout, inputType.getShape());
+    RankedTensorType newInputTensorType = RankedTensorType::get(
+        inputType.getShape(), inputRowMajorLayout.getElementType(),
+        inputRowMajorLayout);
+
+    Location loc =
+        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_to_rm_before");
+
+    // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3973
+    Operation *memoryReconfigOpBefore = builder.create<ttnn::ToLayoutOp>(
+        loc, newInputTensorType, operand,
+        LayoutAttr::get(op->getContext(), Layout::RowMajor),
+        ttcore::DataTypeAttr::get(op->getContext(), inputLayout.getDataType()),
+        MemoryConfigAttr::get(
+            op->getContext(), inputLayout.getMemLayout(),
+            BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+            /*shardSpec=*/std::nullopt));
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Inserted memory reconfig before, type: {}",
+                 memoryReconfigOpBefore->getResult(0).getType());
+
+    // Update op's operand.
+    op->setOperand(0, memoryReconfigOpBefore->getResult(0));
+
+    // Create new tensor type for the op's result. Reuse element type from the
+    // input.
+    TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
+        inputRowMajorLayout.getElementType(),
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+    Type newTensorType = RankedTensorType::get(
+        outputType.getShape(), outputRowMajorLayout.getElementType(),
+        outputRowMajorLayout);
+
+    // Replace op's encoding with row major.
+    op->getResult(0).setType(newTensorType);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Changed encoding of {}@{} to row major {}", op->getName(),
+                 op->getLoc(), outputRowMajorLayout);
+
+    // Save uses of op's result.
+    llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+    for (auto &use : op->getResult(0).getUses()) {
+      uses.emplace_back(use.getOwner(), use.getOperandNumber());
+    }
+
+    // Add another memory reconfig after op. This op will revert tensor back to
+    // tile layout.
+    builder.setInsertionPointAfter(op);
+    Operation *memoryReconfigOpAfter = builder.create<ttnn::ToLayoutOp>(
+        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_to_rm_after"),
+        outputType, op->getResult(0),
+        LayoutAttr::get(op->getContext(), Layout::Tile),
+        ttcore::DataTypeAttr::get(op->getContext(), outputLayout.getDataType()),
+        MemoryConfigAttr::get(
+            op->getContext(), outputLayout.getMemLayout(),
+            BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+            /*shardSpec=*/std::nullopt));
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Inserted memory reconfig after, type: {}",
+                 memoryReconfigOpAfter->getResult(0).getType());
+
+    // Update all uses of op's result.
+    for (auto &use : uses) {
+      Operation *useOp = use.first;
+      useOp->setOperand(use.second, memoryReconfigOpAfter->getResult(0));
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Updated use: {}@{} input type: {}", useOp->getName(),
+                   useOp->getLoc(), useOp->getOperand(use.second).getType());
+    }
+  }
+
+  // Walks graph and for specific op types (MaxPool2d and Upsample) inserts
+  // necessary memory reconfigurations to convert tensors to row major layout.
+  // Note: in the long term this can be an analysis that is used by the
+  // optimizer to determine if a memory reconfig is needed for non-sharded ops.
+  void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
+    func->walk([&](Operation *op) {
+      if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
+        return;
+      }
+
+      RankedTensorType resultType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      TTNNLayoutAttr resultLayout =
+          mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+
+      if (resultLayout.hasShardedTensorMemoryLayout()) {
+        return;
+      }
+
+      size_t numOperands = op->getNumOperands();
+      assert(numOperands > 0 && "Expected at least one operand");
+      std::vector<TTNNLayoutAttr> inputLayouts;
+      for (size_t i = 0; i < numOperands; i++) {
+        auto operand = op->getOperand(i);
+
+        if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
+          // Skip device type operand.
+          continue;
+        }
+
+        RankedTensorType input =
+            mlir::cast<RankedTensorType>(operand.getType());
+        auto layout = ttnn::utils::getLayoutAttrFromTensor(input);
+
+        assert(layout && "Input operand must have a layout");
+        inputLayouts.push_back(layout);
+      }
+      assert(inputLayouts.size() > 0 && "Expected at least one input");
+
+      if (!inputLayouts[0].isTiled() ||
+          inputLayouts[0].hasShardedTensorMemoryLayout()) {
+        // Input is already in RowMajor or has sharded tensor memory layout, no
+        // need to convert.
+        return;
+      }
+
+      if (isa<ttnn::MaxPool2dOp>(op)) {
+        // Unequivocally surround MaxPool2d with RM. Ideally we should query op
+        // constraints to see if RM is supported. But issue
+        // https://github.com/tenstorrent/tt-metal/issues/24358 blocks usage
+        // of getOpConstraints for MaxPool2d.
+        // TODO(rpavlovicTT): fix it once getOpConstraints is supported for
+        // MaxPool2d.
+        convertOpToRowMajorAndBack(op);
+        return;
+      }
+
+      // Let's check first if the op can be executed with the current layout.
+      if (checkOpConstraints(op, inputLayouts, l1CacheSize,
+                             /*convertInputToRowMajor=*/false)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Successfully passed constraints, no conversion needed");
+        return;
+      }
+
+      // Failed to satisfy constraints, try with row major layout for the input
+      // operand.
+      if (!checkOpConstraints(op, inputLayouts, l1CacheSize,
+                              /*convertInputToRowMajor=*/true)) {
+        op->emitOpError(
+            "Failed to satisfy constraints with Tile and RM layouts");
+        signalPassFailure();
+        return;
+      }
+
+      // Row major input passed constraints, let's add necessary conversions.
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Successfully passed constraints after inserting RM");
+      convertOpToRowMajorAndBack(op);
+    });
   }
 
   // Trace all possible layouts for debugging

@@ -6,7 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 
 def TTIROpInterface : OpInterface<"TTIROp"> {
   let cppNamespace = "::mlir::tt::ttir";
@@ -15,21 +15,21 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*desc=*/[{
         Get the device of the current scope.
       }],
-      /*retTy=*/"::mlir::tt::SystemDescAttr",
+      /*retTy=*/"::mlir::tt::ttcore::SystemDescAttr",
       /*methodName=*/"getSystemDesc",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeSystemDesc($_op);"
+      /*defaultImplementation=*/"return ::mlir::tt::ttcore::getCurrentScopeSystemDesc($_op);"
     >,
     InterfaceMethod<
       /*desc=*/[{
         Get the device of the current scope.
       }],
-      /*retTy=*/"::mlir::tt::DeviceAttr",
+      /*retTy=*/"::mlir::tt::ttcore::DeviceAttr",
       /*methodName=*/"getDevice",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::lookupDevice($_op);"
+      /*defaultImplementation=*/"return ::mlir::tt::ttcore::lookupDevice($_op);"
     >,
     InterfaceMethod<
       /*desc=*/[{
@@ -52,14 +52,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*defaultImplementation=*/"return false;"
     >,
   ];
-}
-
-def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
-  let cppNamespace = "::mlir::tt::ttir";
-
-  let verify = [{
-    return detail::verifyBroadcastable($_op);
-  }];
 }
 
 def TTIR_PartiallyBroadcastable : OpInterface<"PartiallyBroadcastable"> {
@@ -124,6 +116,24 @@ def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return ttir::applyViews($_op);"
+    >,
+  ];
+}
+
+def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface denotes which op operand indices require their operands to be
+        sourced from the destination register.  It is primarily used by the
+        insert-dst-register-access pass to autogenerate copynests to and from dst.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
     >,
   ];
 }

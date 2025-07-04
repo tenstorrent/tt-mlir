@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-to-ttir-generic %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-generic %s | FileCheck %s
 
 !ttype = tensor<128x96xf32>
 
@@ -40,7 +40,37 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_sin
     %5 = "ttir.sin"(%4, %out) : (!ttype, !ttype) -> !ttype
-    return %5: !ttype
+    // named elementwise op, binary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub
+    %6 = "ttir.subtract"(%4, %5, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_ceil
+    %7 = "ttir.ceil"(%6, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_rsqrt
+    %8 = "ttir.rsqrt"(%7, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, binary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_pow
+    %9 = "ttir.pow"(%7, %8, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_negative
+    %10 = "ttir.neg"(%9, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_cos
+    %11 = "ttir.cos"(%10, %out) : (!ttype, !ttype) -> !ttype
+    return %11: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

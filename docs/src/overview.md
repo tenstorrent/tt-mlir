@@ -79,7 +79,7 @@ simpler.
 ### MLIR Primitives
 
 So what does MLIR look like, how does it work and get parsed? The
-hierarchy of an MLIR Module is as shown:
+hierarchy of an MLIR module is as shown:
 ```mlir
 #permutation = array<i64: 0, 2, 1>
 
@@ -210,7 +210,7 @@ Desired Optimization List:
 
     -   Data Storage, Memory Configuration, Grid Configuration
 
--   TT-NN (backend)
+-   TTNN (backend)
 
     -   Kernel Configuration\*, Network Optimization
 
@@ -284,13 +284,13 @@ covers key topics if implementation details are needed.
 ### EmitC Dialect
 \[[Reference](https://mlir.llvm.org/docs/Dialects/EmitC/)\]
 
-## TT-Explorer - Performance Optimization Tool
+## tt-explorer - Performance Optimization Tool
 
 A unique project related to TT-MLIR is the integration of Performance
 Optimization Tools such that users are easily able to visualize and
 readily tune their models without needing an expert level understanding
 of the tech stack.
-[TT-Explorer](https://github.com/vprajapati-tt/tt-explorer)
+['tt-explorer'](./tt-explorer.md)
 is built with Google AI's [Model
 Explorer](https://github.com/google-ai-edge/model-explorer)
 as a base for the visualization tool, and a [custom

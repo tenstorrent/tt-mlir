@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
@@ -25,7 +25,7 @@ public:
         return type;
       }
 
-      elementType = toTTMLIRSupportedDataType(elementType);
+      elementType = mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
       if (!elementType) {
         return {};
       }

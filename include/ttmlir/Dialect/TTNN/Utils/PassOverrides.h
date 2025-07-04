@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/Support/CommandLine.h"
@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn {
 struct OptionNames {
 
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
-  static constexpr StringRef overrideInputLayout = "override-input-layout";
+  static constexpr StringRef insertMemReconfig = "insert-memreconfig";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
@@ -29,11 +29,12 @@ struct OptionNames {
   static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
 };
 
 struct Conv2dConfigOverrideParams {
-  std::optional<tt::DataType> dtype = std::nullopt;
-  std::optional<tt::DataType> weightsDtype = std::nullopt;
+  std::optional<ttcore::DataType> dtype = std::nullopt;
+  std::optional<ttcore::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
@@ -75,7 +76,7 @@ struct OutputLayoutOverrideParams {
   std::optional<TensorMemoryLayout> tensorMemoryLayout =
       std::nullopt; // INTERLEAVED / SHARDED etc...
   std::optional<Layout> memoryLayout = std::nullopt; // ROW_MAJOR / TILE
-  std::optional<tt::DataType> dataType = std::nullopt;
+  std::optional<ttcore::DataType> dataType = std::nullopt;
 
   bool empty() const {
     return !grid.has_value() && !bufferType.has_value() &&
@@ -154,11 +155,11 @@ struct OutputLayoutOverrideParams {
   }
 };
 
-struct InputLayoutOverrideParams {
+struct InsertMemReconfigParams {
 
   SmallVector<int64_t> operandIdxes;
 
-  bool operator==(const InputLayoutOverrideParams &rhs) const {
+  bool operator==(const InsertMemReconfigParams &rhs) const {
     if (operandIdxes.size() != rhs.operandIdxes.size()) {
       return false;
     }
@@ -170,7 +171,7 @@ struct InputLayoutOverrideParams {
     return true;
   }
 
-  bool operator!=(const InputLayoutOverrideParams &rhs) const {
+  bool operator!=(const InsertMemReconfigParams &rhs) const {
     return !(*this == rhs);
   }
 };
@@ -214,20 +215,19 @@ public:
                     const llvm::StringMap<OutputLayoutOverrideParams> &value);
 };
 
-struct InputLayoutOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>> {
+struct InsertMemReconfigParser
+    : public llvm::cl::parser<llvm::StringMap<InsertMemReconfigParams>> {
 public:
-  InputLayoutOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>>(opt) {}
+  InsertMemReconfigParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<InsertMemReconfigParams>>(opt) {}
 
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<InputLayoutOverrideParams> &value);
+             llvm::StringMap<InsertMemReconfigParams> &value);
 
-  static std::string
-  toString(const llvm::StringMap<InputLayoutOverrideParams> &);
+  static std::string toString(const llvm::StringMap<InsertMemReconfigParams> &);
 
   static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<InputLayoutOverrideParams> &value);
+                    const llvm::StringMap<InsertMemReconfigParams> &value);
 };
 
 } // namespace mlir::tt::ttnn

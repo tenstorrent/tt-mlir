@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -13,7 +13,7 @@ using namespace mlir::tt::ttnn;
 
 // Check if the tensor is tiled
 bool TTNNLayoutAttr::isTiled() const {
-  return ::mlir::isa<::mlir::tt::TileType>(getElementType());
+  return ::mlir::isa<::mlir::tt::ttcore::TileType>(getElementType());
 }
 
 // Get layout of the tensor (RowMajor/Tile)
@@ -35,6 +35,11 @@ bool TTNNLayoutAttr::hasL1BufferType() const {
 // Check if the tensor memory buffer type is DRAM
 bool TTNNLayoutAttr::hasDRAMBufferType() const {
   return isDRAMBufferType(getBufferType());
+}
+
+std::pair<std::int64_t, std::int64_t>
+TTNNLayoutAttr::getDefaultCollapseIntervals() const {
+  return {0, -1};
 }
 
 // Check if the tensor memory layout is sharded
@@ -134,7 +139,8 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
 // return The logical shard shape in case of block sharded tensor memory layout.
 llvm::SmallVector<int64_t>
 TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-    ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, GridAttr grid) {
+    ArrayRef<int64_t> tensorShape, mlir::AffineMap linear,
+    mlir::tt::ttcore::GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
@@ -161,14 +167,15 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 llvm::SmallVector<int64_t>
 TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
     ArrayRef<int64_t> tensorShape, mlir::Type elementType,
-    mlir::AffineMap linear, mlir::tt::GridAttr grid) {
+    mlir::AffineMap linear, mlir::tt::ttcore::GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
-  assert(mlir::isa<mlir::tt::TileType>(elementType));
+  assert(mlir::isa<mlir::tt::ttcore::TileType>(elementType));
 
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
   mlir::SmallVector<std::int64_t> physicalTiledShape =
-      mlir::cast<mlir::tt::TileType>(elementType).getTiledShape(physicalShape);
+      mlir::cast<mlir::tt::ttcore::TileType>(elementType)
+          .getTiledShape(physicalShape);
   uint64_t numOfTiles =
       std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
                       std::multiplies<std::int64_t>());
@@ -179,7 +186,8 @@ TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
   mlir::SmallVector<std::int64_t> shardShape;
   shardShape.resize(grid.getShape().size() - 1, 1);
   shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
-  return mlir::cast<mlir::tt::TileType>(elementType).getScalarShape(shardShape);
+  return mlir::cast<mlir::tt::ttcore::TileType>(elementType)
+      .getScalarShape(shardShape);
 }
 
 // Get the buffer type (DRAM/L1/SystemMemory)
@@ -196,25 +204,26 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
 // FloatType/IntegerType
 mlir::Type TTNNLayoutAttr::getScalarElementType() const {
   Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    return mlir::cast<TileType>(elementType).getElementType();
+  if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(elementType).getElementType();
   }
   return elementType;
 }
 
 // Get scalar element type.
 // Example: memref<2x2xf32> -> f32
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> f32
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> f32
 //
 // return The scalar element type.
-mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
+mlir::tt::ttcore::DataType TTNNLayoutAttr::getDataType() const {
   Type elementType = getElementType();
   if (isTiled()) {
-    TileType tileType = mlir::cast<TileType>(elementType);
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
     return tileType.getDataType();
   }
 
-  return elementTypeToDataType(elementType);
+  return mlir::tt::ttcore::elementTypeToDataType(elementType);
 }
 
 // Get the size of the element in bytes
@@ -226,7 +235,8 @@ mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
 uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
   if (isTiled()) {
-    TileType tileType = mlir::cast<TileType>(elementType);
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
     return tileType.getSizeBytes();
   }
   return elementType.getIntOrFloatBitWidth() / 8;
@@ -235,9 +245,9 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 // Get shard shape
 //
 // Return the shape of the shard.
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 2, 2 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3x!tt.tile<32x32xf32>> -> { 2, 3 }
+// Example: memref<2x3x!ttcore.tile<32x32xf32>> -> { 2, 3 }
 //
 // return The shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
@@ -248,15 +258,16 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
 //
 // If the element type is TileType, this function returns the scalar shape of
 // the shard.
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 64, 64 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3!tt.tile<32x32xf32>> -> { 64, 96 }
+// Example: memref<2x3!ttcore.tile<32x32xf32>> -> { 64, 96 }
 //
 // return The scalar shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
   if (isTiled()) {
-    return mlir::cast<TileType>(getElementType()).getScalarShape(shardShape);
+    return mlir::cast<mlir::tt::ttcore::TileType>(getElementType())
+        .getScalarShape(shardShape);
   }
 
   return shardShape;
@@ -286,7 +297,8 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
   mlir::AffineExpr y = linear.getResult(rank - 2);
   mlir::AffineExpr x = linear.getResult(rank - 1);
 
-  TileType tileType = mlir::cast<TileType>(getElementType());
+  mlir::tt::ttcore::TileType tileType =
+      mlir::cast<mlir::tt::ttcore::TileType>(getElementType());
   int64_t tileH = tileType.getHeight();
   int64_t tileW = tileType.getWidth();
 
@@ -329,10 +341,11 @@ uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
 // param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    ArrayRef<int64_t> tensorShape, GridAttr grid,
+    ArrayRef<int64_t> tensorShape, mlir::tt::ttcore::GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(getContext(), tensorShape, getElementType(), getBufferType(), grid,
-             getMemLayout(), getTensorMeshSharding(), collapseIntervals);
+             getMemLayout(), getTensorMeshSharding(), collapseIntervals,
+             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -346,7 +359,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 // param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    RankedTensorType ty, GridAttr grid,
+    RankedTensorType ty, mlir::tt::ttcore::GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   assert(ty);
   return TTNNLayoutAttr::withGrid(ty.getShape(), grid, collapseIntervals);
@@ -367,7 +380,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return TTNNLayoutAttr::get(getContext(), tensorShape, elementType,
                              getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMeshSharding(), collapseIntervals);
+                             getTensorMeshSharding(), collapseIntervals,
+                             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -380,19 +394,21 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
 // return The new TTNNLayoutAttr with the given memory space.
 TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
   TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
-  tt::GridAttr grid = getGrid();
+  mlir::tt::ttcore::GridAttr grid = getGrid();
 
   // For SystemMemory we need to clear memory layout and set grid to 1x1.
   if (memorySpace == BufferType::SystemMemory) {
     memLayoutAttr = TensorMemoryLayoutAttr{};
-    grid = tt::GridAttr::get(getContext(), grid.getShape().size());
+    grid =
+        mlir::tt::ttcore::GridAttr::get(getContext(), grid.getShape().size());
   }
 
   // For DRAM we need to set memory layout to interleaved and set grid to 1x1.
   if (memorySpace == BufferType::DRAM) {
     memLayoutAttr = TensorMemoryLayoutAttr::get(
         getContext(), TensorMemoryLayout::Interleaved);
-    grid = tt::GridAttr::get(getContext(), grid.getShape().size());
+    grid =
+        mlir::tt::ttcore::GridAttr::get(getContext(), grid.getShape().size());
   }
 
   // For L1 we will inherit the memory layout if its set.
@@ -406,9 +422,9 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
 
   return TTNNLayoutAttr::get(
       getContext(), getLinear(), grid,
-      buildMemRef<BufferType, BufferTypeAttr>(
+      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMeshSharding());
+      memLayoutAttr, getTensorMeshSharding(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -422,10 +438,11 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
 TTNNLayoutAttr
 TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(),
-                             buildMemRef<BufferType, BufferTypeAttr>(
+                             ttcore::buildMemRef<BufferType, BufferTypeAttr>(
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
-                             memLayoutAttr, getTensorMeshSharding());
+                             memLayoutAttr, getTensorMeshSharding(),
+                             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -455,9 +472,9 @@ TTNNLayoutAttr
 TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
   return TTNNLayoutAttr::get(
       getContext(), getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(
+      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMeshSharding());
+      getMemLayout(), getTensorMeshSharding(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -473,9 +490,37 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
   // which might be different than the original value used to create the layout
   // attribute. This will work for now since we always use default value, but in
   // the future we would need to take this into account.
-  return TTNNLayoutAttr::get(getContext(), tensorShape, getElementType(),
-                             getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMeshSharding());
+  return TTNNLayoutAttr::get(
+      getContext(), tensorShape, getElementType(), getBufferType(), getGrid(),
+      getMemLayout(), getTensorMeshSharding(), getDefaultCollapseIntervals(),
+      getIgnorePhysicalLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr, setting the
+// ignorePhysicalLayout property to the provided value. This is a status bit.
+// The physical properties of the layout are preserved as calculated previously
+// and remain accessible via getters
+//
+// param context The MLIR context.
+// param ignorePhysicalLayout The new value for ignorePhysicalLayout.
+// return The new TTNNLayoutAttr.
+TTNNLayoutAttr
+TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
+  return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
+                             getMemLayout(), getTensorMeshSharding(),
+                             ignorePhysicalLayout);
+};
+
+TTNNLayoutAttr
+TTNNLayoutAttr::get(::mlir::MLIRContext *context, AffineMap linear,
+                    ttcore::GridAttr grid, MemRefType memref,
+                    TensorMemoryLayoutAttr mem_layout,
+                    ttcore::TensorMeshShardingAttr tensor_mesh_sharding) {
+  return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
+                             tensor_mesh_sharding,
+                             /*ignorePhysicalLayout=*/false);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -492,23 +537,24 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
 // return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
-    Type elementType, BufferType bufferType, GridAttr grid,
+    Type elementType, BufferType bufferType, mlir::tt::ttcore::GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
-    TensorMeshShardingAttr tensorMeshSharding,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
+    bool ignorePhysicalLayout) {
 
   llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
                                               tensorShape.end());
 
   // If the tensor is tiled the last two dims need to be rounded up to tile size
   // before creating the affine map. E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
-  if (llvm::isa<TileType>(elementType)) {
+  if (llvm::isa<mlir::tt::ttcore::TileType>(elementType)) {
     physicalShape = utils::getTilePaddedShape(tensorShape);
   }
 
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
-  AffineMap linear = collapsedLinearAffineMap(
+  AffineMap linear = mlir::tt::ttcore::collapsedLinearAffineMap(
       context, physicalShape, grid.getShape(), collapseIntervals);
 
   // Calculate shard shape
@@ -523,16 +569,19 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   }
 
   // Build memref type with the given parameters
-  MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
-      context, shardShape, elementType, bufferType);
+  MemRefType memRefType =
+      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+          context, shardShape, elementType, bufferType);
   return get(context, linear, grid, memRefType, memLayoutAttr,
-             tensorMeshSharding);
+             tensorMeshSharding, ignorePhysicalLayout);
 }
 
 ::llvm::LogicalResult TTNNLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
-    GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout,
-    TensorMeshShardingAttr tensorMeshSharding) {
+    mlir::tt::ttcore::GridAttr, MemRefType memref,
+    TensorMemoryLayoutAttr memLayout,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
+    bool ignorePhysicalLayout) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
   return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
@@ -636,8 +685,8 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 // Conv2dConfigAttr. Instead iwe will use this struct to store the params and
 // build a new Conv2dConfigAttr.
 struct Conv2dConfigAttrParams {
-  mlir::tt::DataType dtype;
-  mlir::tt::DataType weightsDtype;
+  mlir::tt::ttcore::DataType dtype;
+  mlir::tt::ttcore::DataType weightsDtype;
   mlir::StringAttr activation;
   mlir::BoolAttr deallocateActivation;
   mlir::BoolAttr reallocateHaloOutput;
@@ -664,9 +713,9 @@ struct Conv2dConfigAttrParams {
       return attr ? attr : mlir::BoolAttr::get(ctx, defaultValue);
     };
 
-    dtype = attr.getDtype().value_or(mlir::tt::DataType::BFloat16);
+    dtype = attr.getDtype().value_or(mlir::tt::ttcore::DataType::BFloat16);
     weightsDtype =
-        attr.getWeightsDtype().value_or(mlir::tt::DataType::BFloat16);
+        attr.getWeightsDtype().value_or(mlir::tt::ttcore::DataType::BFloat16);
     activation = attr.getActivation() ? attr.getActivation()
                                       : mlir::StringAttr::get(ctx, "");
     deallocateActivation = getOrDefault(attr.getDeallocateActivation());
@@ -717,13 +766,15 @@ Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   return params.buildConv2dConfig(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withDtype(DataType dtype) const {
+Conv2dConfigAttr
+Conv2dConfigAttr::withDtype(mlir::tt::ttcore::DataType dtype) const {
   Conv2dConfigAttrParams params(*this);
   params.dtype = dtype;
   return params.buildConv2dConfig(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withWeightsDtype(DataType dtype) const {
+Conv2dConfigAttr
+Conv2dConfigAttr::withWeightsDtype(mlir::tt::ttcore::DataType dtype) const {
   Conv2dConfigAttrParams params(*this);
   params.weightsDtype = dtype;
   return params.buildConv2dConfig(getContext());
@@ -834,16 +885,17 @@ bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr && getActivation().getValue() != "";
 }
 
-CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
-                                                GridAttr shardGrid,
-                                                GridAttr deviceGrid) {
+CoreRangeSetAttr
+ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
+                               mlir::tt::ttcore::GridAttr shardGrid,
+                               mlir::tt::ttcore::GridAttr deviceGrid) {
   llvm::SmallVector<CoreRangeAttr> coreRangeSet;
   AffineMap mapping = (shardGrid.getMapping().isEmpty() == true)
                           ? deviceGrid.getMapping()
                           : shardGrid.getMapping();
 
   for (const auto &locsize2d :
-       mlir::tt::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
+       mlir::tt::ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         CoreRangeAttr::get(context, CoreCoordAttr::get(context, loc[0], loc[1]),
@@ -852,4 +904,64 @@ CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   }
 
   return CoreRangeSetAttr::get(context, coreRangeSet);
+}
+
+struct DeviceComputeKernelConfigAttrParams {
+  std::optional<mlir::tt::ttnn::MathFidelity> mathFidelity;
+  mlir::BoolAttr mathApproxMode;
+  mlir::BoolAttr fp32DestAccEn;
+  mlir::BoolAttr packerL1Acc;
+  mlir::BoolAttr dstFullSyncEn;
+
+  DeviceComputeKernelConfigAttrParams() = delete;
+
+  DeviceComputeKernelConfigAttrParams(DeviceComputeKernelConfigAttr attr) {
+    mathFidelity = attr.getMathFidelity();
+    mathApproxMode = attr.getMathApproxMode();
+    fp32DestAccEn = attr.getFp32DestAccEn();
+    packerL1Acc = attr.getPackerL1Acc();
+    dstFullSyncEn = attr.getDstFullSyncEn();
+  }
+
+  DeviceComputeKernelConfigAttr
+  buildDeviceComputeKernelConfigAttr(mlir::MLIRContext *ctx) const {
+    return DeviceComputeKernelConfigAttr::get(ctx, mathFidelity, mathApproxMode,
+                                              fp32DestAccEn, packerL1Acc,
+                                              dstFullSyncEn);
+  }
+};
+
+DeviceComputeKernelConfigAttr DeviceComputeKernelConfigAttr::withMathFidelity(
+    mlir::tt::ttnn::MathFidelity mathFidelity) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.mathFidelity = mathFidelity;
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withMathApproxMode(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.mathApproxMode = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withFp32DestAccEn(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.fp32DestAccEn = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withPackerL1Acc(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.packerL1Acc = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.dstFullSyncEn = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
 }

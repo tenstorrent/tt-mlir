@@ -22,9 +22,10 @@ target_link_libraries(TestConversion
     gtest
     gtest_main
     TTNNOpModelLib
-    MLIRTTDialect
+    MLIRTTCoreDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
 )
+
 endif()

@@ -2,7 +2,7 @@
 
 Device in tt-mlir is somewhat of an overloaded term and can refer to different
 things depending on the context. This document will only speak to the compiler's
-abstract representation of a device captured by attribute `#tt.device`.
+abstract representation of a device captured by attribute `#ttcore.device`.
 
 ## Terms
 
@@ -53,19 +53,19 @@ All of the following examples will assume the physical hardware has an 8x8 physi
 grid of cores.  We will use notation `[N, 8x8]` to represent a `N` chip system,
 each with an 8x8 physical grid.
 
-`#tt.device` in is simplest, single chip form `[1, 8x8]`, just maps directly 1-1 to the
+`#ttcore.device` in is simplest, single chip form `[1, 8x8]`, just maps directly 1-1 to the
 underlying physical hardware device.
 
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>,
   meshShape = 1,
   chipIds = [0]
 >
 ```
 
 Let's break down what each of these attributes mean:
-- `workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>`: This is a 2D logical grid with dim 8x8.
+- `workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>`: This is a 2D logical grid with dim 8x8.
   It's followed by an affine map `(d0, d1) -> (0, d0, d1)` that provides a mapping
   from the logical grid to the physical grid.  In this case, the logical grid is the same
   as the physical grid, so the mapping is the identity function. The logical
@@ -120,8 +120,8 @@ logical grid that divides the batch dimension in half across the two chips.
 This is denoted by `meshShape = 2x1x1` which means the logical grid is 3D.
 
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>,
   meshShape = 2x1x1,
   chipIds = [0, 1]
 >
@@ -135,10 +135,10 @@ the logical device grid:
 
 ```mlir
 tensor<16x3x64x128xf32,
-  #tt.metal_layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
+  #ttcore.metal_layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
     undef,
     <2x2x4>,
-    memref<8x3x1x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
+    memref<8x3x1x!ttcore.tile<32 x 32, bfp_bf8>, #ttcore.memory_space<l1>>
   >
 >
 ```
@@ -155,8 +155,8 @@ though the two chips are concatenated together side by side to form a single
 the chips in the second dimension.
 
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>,
   meshShape = 1x2,
   chipIds = [0, 1]
 >
@@ -170,10 +170,10 @@ the logical device grid:
 
 ```mlir
 tensor<256x1024xf32,
-  #tt.metal_layout<(d0, d1) -> (d0, d1),
+  #ttcore.metal_layout<(d0, d1) -> (d0, d1),
     undef,
     <4x16>,
-    memref<2x2x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
+    memref<2x2x!ttcore.tile<32 x 32, bfp_bf8>, #ttcore.memory_space<l1>>
   >
 >
 ```
@@ -190,8 +190,8 @@ system `[4, 8x8]` and view it as a `2x8x16` grid. Note that the `meshShape` is
 `2x1x2` which means to concatenate the chips in the first and third dimensions.
 
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
   meshShape = 2x1x2,
   chipIds = [0, 1, 2, 3]
 >
@@ -205,10 +205,10 @@ We can consider the following tensor to map onto this grid:
 
 ```mlir
 tensor<64x256x1024xf32,
-  #tt.metal_layout<(d0, d1) -> (d0, d1),
+  #ttcore.metal_layout<(d0, d1) -> (d0, d1),
     undef,
     <2x4x16>,
-    memref<32x2x2x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
+    memref<32x2x2x!ttcore.tile<32 x 32, bfp_bf8>, #ttcore.memory_space<l1>>
   >
 >
 ```
@@ -228,13 +228,13 @@ take 4 chips and interpret them differently (though they could take the same
 logical grid).
 
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
   meshShape = 2x1x2,
   chipIds = [0, 1, 2, 3]
 >
-#tt.device<
-  workerGrid = #tt.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>,
   meshShape = 2x2,
   chipIds = [4, 5, 6, 7]
 >
@@ -264,8 +264,8 @@ relu(aT)
 
 1. We'll establish a regular, single chip, identity logical grid:
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>,
   meshShape = 1,
   chipIds = [0]
 >
@@ -273,8 +273,8 @@ relu(aT)
 2. Execute `exp`.
 3. We'll reinterpret the grid as transposed:
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d1, d0)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d1, d0)>,
   meshShape = 1,
   chipIds = [0]
 >
@@ -293,8 +293,8 @@ For the sake of examples, here's a few more ways of reinterpreting the logical g
 
 #### Extra Wide Grid
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>,
   meshShape = 1,
   chipIds = [0]
 >
@@ -302,8 +302,8 @@ For the sake of examples, here's a few more ways of reinterpreting the logical g
 
 #### Extra Tall + Transposed Grid
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>,
   meshShape = 1,
   chipIds = [0]
 >
@@ -311,8 +311,8 @@ For the sake of examples, here's a few more ways of reinterpreting the logical g
 
 #### Staircase
 ```mlir
-#tt.device<
-  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>,
+#ttcore.device<
+  workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>,
   meshShape = 1,
   chipIds = [0]
 >
@@ -387,6 +387,6 @@ support any of the grid interpretations above.
 
 ## Concerns
 
-- `tt.device` is very flexible, but with this flexibility comes the potential
+- `ttcore.device` is very flexible, but with this flexibility comes the potential
   for misuse.  It's important that the compiler is able to validate the legal
   configurations of this attribute for the target backend.

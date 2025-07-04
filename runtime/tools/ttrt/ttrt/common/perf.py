@@ -7,7 +7,6 @@ import json
 import importlib.machinery
 import sys
 import signal
-import os
 import io
 import subprocess
 import time
@@ -18,6 +17,7 @@ import atexit
 import traceback
 from pathlib import Path
 import csv
+import ast
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -127,6 +127,20 @@ class Perf:
             help="toggles emitc testing",
         )
         Perf.register_arg(
+            name="--trace-region-size",
+            type=int,
+            default=0,
+            choices=None,
+            help="Device trace region size",
+        )
+        Perf.register_arg(
+            name="--dump-device-rate",
+            type=int,
+            default=1000,
+            choices=None,
+            help="Rate at which to flush device perf information",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -162,11 +176,6 @@ class Perf:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query(
-            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
-            self.logger,
-            self.artifacts,
-        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
@@ -180,7 +189,6 @@ class Perf:
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing perf API")
-        self.query()
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
@@ -208,12 +216,6 @@ class Perf:
                 )
                 return
 
-            if not bin.check_system_desc(self.query):
-                self.logger.warning(
-                    "System desc does not match, are you sure that the binary is valid? - Skipped"
-                )
-                return
-
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
                     self.logging.warning(
@@ -234,23 +236,6 @@ class Perf:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
                     bin.check_version(ignore=self["--ignore-version"])
-                except Exception as e:
-                    test_result = {
-                        "file_path": path,
-                        "result": "skip",
-                        "exception": str(e),
-                        "log_file": self.logger.file_name,
-                        "artifacts": self.artifacts.artifacts_folder_path,
-                        "program_index": self["--program-index"],
-                    }
-                    self.logging.warning(
-                        f"SKIP: test={path} was skipped with exception={str(e)}"
-                    )
-                    self.results.add_result(test_result)
-                    continue
-
-                try:
-                    bin.check_system_desc(self.query)
                 except Exception as e:
                     test_result = {
                         "file_path": path,
@@ -292,23 +277,6 @@ class Perf:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
                     bin.check_version(ignore=self["--ignore-version"])
-                except Exception as e:
-                    test_result = {
-                        "file_path": path,
-                        "result": "skip",
-                        "exception": str(e),
-                        "log_file": self.logger.file_name,
-                        "artifacts": self.artifacts.artifacts_folder_path,
-                        "program_index": self["--program-index"],
-                    }
-                    self.logging.warning(
-                        f"SKIP: test={path} was skipped with exception={str(e)}"
-                    )
-                    self.results.add_result(test_result)
-                    continue
-
-                try:
-                    bin.check_system_desc(self.query)
                 except Exception as e:
                     test_result = {
                         "file_path": path,
@@ -427,6 +395,16 @@ class Perf:
                     if self["--emitc"]:
                         command_options += " --emitc "
 
+                    if self["--trace-region-size"] > 0:
+                        command_options += (
+                            f" --trace-region-size {self['--trace-region-size']} "
+                        )
+
+                    if self["--dump-device-rate"] != 1000:
+                        command_options += (
+                            f" --dump-device-rate {self['--dump-device-rate']} "
+                        )
+
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
                         f"{ttrt_executable_path} run {bin.file_path} {command_options}"
@@ -496,7 +474,6 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
-                    self.artifacts.save_binary(bin, self.query)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path
@@ -513,36 +490,129 @@ class Perf:
                     process_ops(None, None, False)
 
                     # Add post-processing steps to insert location data into the ops_perf data file
-                    with open(profiler_csv_file_path, "r") as perf_file:
-                        perf_reader = csv.DictReader(perf_file)
-                        headers = list(perf_reader.fieldnames) + ["LOC"]
-                        perf_data = list(perf_reader)
+                    # Get the op location to it's global call count mapping
+                    def get_mlir_analysis_results(key):
+                        call_count_mapping = {}
 
-                    with open(profiler_csv_file_path, "w+") as perf_file, open(
-                        tracy_ops_data_file_path, "r"
-                    ) as message_file:
-                        import re
+                        with open(tracy_ops_data_file_path, "r") as file:
+                            lines = iter(file)
+                            buffer = None
 
-                        message_reader = csv.reader(message_file, delimiter=";")
-                        ops_index = 0
-                        current_loc = None
-                        loc_pattern = re.compile(r"^loc\(.*\)$")
-                        for message in message_reader:
-                            message = message[
-                                0
-                            ].strip()  # Don't need timestamp information
-                            # Check if this is a valid loc line
-                            if loc_pattern.match(message):
-                                current_loc = message
-                            elif message.startswith("`"):
-                                # This is a TTNN Message, assign current_loc to this op
-                                if current_loc and len(perf_data) > ops_index:
-                                    perf_data[ops_index]["LOC"] = current_loc
-                                    ops_index += 1
-                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
-                        perf_writer.writeheader()
-                        for row in perf_data:
-                            perf_writer.writerow(row)
+                            while True:
+                                # Use buffered line if available, otherwise get next
+                                line = buffer if buffer else next(lines, None)
+                                buffer = None
+
+                                if line is None:
+                                    break  # End of file
+
+                                # Find all the TT_DNN_DEVICE_OP under this LOC and record their global call counts
+                                line = line.strip()
+                                if key in line:
+                                    # Format of line is
+                                    # MLIR_OP_LOCATION;loc("/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/n150/const-eval/Output/const-eval.mlir.tmp.mlir":17:14);5420869271
+                                    # MLIR_CONST_EVAL_OP;true;6449925338
+                                    parts = line.split(";")
+                                    data = parts[1]
+                                    block = []
+                                    for next_line in lines:
+                                        next_line = next_line.strip()
+                                        if key in next_line:
+                                            buffer = (
+                                                next_line  # Save for next outer loop
+                                            )
+                                            break
+                                        elif "TT_DNN_DEVICE_OP" in next_line:
+                                            block.append(next_line)
+
+                                    # Process the collected block. Find it's global call count and add it to the loc
+                                    for bline in block:
+                                        parts = bline.split(",")
+                                        # Strip and split part[3] on semicolon or space, and grab the number
+                                        num_part = parts[3].strip()
+                                        digits = ""
+                                        for c in num_part:
+                                            if c.isdigit():
+                                                digits += c
+                                            else:
+                                                break
+                                        global_call_count = (
+                                            int(digits) if digits else None
+                                        )
+                                        call_count_mapping[global_call_count] = data
+
+                        return call_count_mapping
+
+                    global_call_count_loc_mapping = get_mlir_analysis_results(
+                        "MLIR_OP_LOCATION"
+                    )
+                    global_call_count_const_eval_op_mapping = get_mlir_analysis_results(
+                        "MLIR_CONST_EVAL_OP"
+                    )
+                    global_call_count_program_metadata_op_mapping = (
+                        get_mlir_analysis_results("MLIR_PROGRAM_METADATA")
+                    )
+
+                    # Add location data, const_eval_op data and program metadata to profiler csv file
+                    dir_name = os.path.dirname(profiler_csv_file_path)
+                    base_name = os.path.basename(profiler_csv_file_path)
+                    file_root, file_ext = os.path.splitext(base_name)
+                    temp_file = os.path.join(dir_name, f"{file_root}_temp{file_ext}")
+
+                    with open(
+                        profiler_csv_file_path, mode="r", newline=""
+                    ) as infile, open(temp_file, mode="w", newline="") as outfile:
+                        reader = csv.DictReader(infile)
+                        fieldnames = reader.fieldnames + [
+                            "LOC",
+                            "CONST_EVAL_OP",
+                            "PROGRAM_METADATA",
+                        ]
+                        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                        writer.writeheader()
+
+                        for row in reader:
+                            # Access the value at "GLOBAL CALL COUNT"
+                            local_call_count = row.get("GLOBAL CALL COUNT")
+                            local_call_count = int(local_call_count.strip())
+
+                            # Append the location column with its location data
+                            if local_call_count in global_call_count_loc_mapping.keys():
+                                row["LOC"] = global_call_count_loc_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["LOC"] = "loc(unknown)"
+
+                            # Append the const_eval_op column with its const_eval_op data
+                            if (
+                                local_call_count
+                                in global_call_count_const_eval_op_mapping.keys()
+                            ):
+                                row[
+                                    "CONST_EVAL_OP"
+                                ] = global_call_count_const_eval_op_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["CONST_EVAL_OP"] = "false"
+
+                            # Append the program metadata column with its metadata
+                            if (
+                                local_call_count
+                                in global_call_count_program_metadata_op_mapping.keys()
+                            ):
+                                row[
+                                    "PROGRAM_METADATA"
+                                ] = global_call_count_program_metadata_op_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["PROGRAM_METADATA"] = "{}"
+
+                            writer.writerow(row)
+
+                    os.replace(temp_file, profiler_csv_file_path)
 
                     self.file_manager.copy_file(
                         perf_folder_path,
@@ -559,6 +629,97 @@ class Perf:
                             if result["result"] == "test_error":
                                 raise TTRTTestException(str(result["exception"]))
                             raise Exception(f'{result["exception"]}')
+
+                        if result["file_path"] == bin.file_path:
+                            # post-process statistics for ttnn host duration, device fw duration
+                            bin.program_results = result["program_results"]
+                            total_ttnn_api_duration_map = {}
+                            total_device_kernel_duration_map = {}
+
+                            with open(
+                                profiler_csv_file_path,
+                                mode="r",
+                                newline="",
+                                encoding="utf-8",
+                            ) as csvfile:
+                                reader = csv.DictReader(csvfile)
+
+                                for row in reader:
+                                    const_eval_op = bool(row.get("CONST_EVAL_OP"))
+                                    program_metadata = ast.literal_eval(
+                                        row.get("PROGRAM_METADATA")
+                                    )
+                                    device_kernel_duration = int(
+                                        row.get("DEVICE KERNEL DURATION [ns]")
+                                    )
+                                    ttnn_api_duration = int(
+                                        row.get("HOST DURATION [ns]")
+                                    )
+
+                                    if len(program_metadata) == 0:
+                                        continue
+
+                                    program_index = program_metadata["program_index"]
+                                    loop_number = program_metadata["loop_number"]
+
+                                    if (
+                                        program_index
+                                        not in total_ttnn_api_duration_map.keys()
+                                    ):
+                                        total_ttnn_api_duration_map[program_index] = {}
+
+                                    if (
+                                        program_index
+                                        not in total_device_kernel_duration_map.keys()
+                                    ):
+                                        total_device_kernel_duration_map[
+                                            program_index
+                                        ] = {}
+
+                                    if (
+                                        loop_number
+                                        not in total_ttnn_api_duration_map[
+                                            program_index
+                                        ].keys()
+                                    ):
+                                        total_ttnn_api_duration_map[program_index][
+                                            loop_number
+                                        ] = 0
+
+                                    if (
+                                        loop_number
+                                        not in total_device_kernel_duration_map[
+                                            program_index
+                                        ].keys()
+                                    ):
+                                        total_device_kernel_duration_map[program_index][
+                                            loop_number
+                                        ] = 0
+
+                                    total_device_kernel_duration_map[program_index][
+                                        loop_number
+                                    ] += device_kernel_duration
+                                    total_ttnn_api_duration_map[program_index][
+                                        loop_number
+                                    ] += ttnn_api_duration
+
+                            for (
+                                program_index,
+                                loop_dic,
+                            ) in total_ttnn_api_duration_map.items():
+                                for loop_number, duration in loop_dic.items():
+                                    bin.update_total_ttnn_api_duration_ns(
+                                        program_index, loop_number, duration
+                                    )
+
+                            for (
+                                program_index,
+                                loop_dic,
+                            ) in total_device_kernel_duration_map.items():
+                                for loop_number, duration in loop_dic.items():
+                                    bin.update_total_device_kernel_duration_ns(
+                                        program_index, loop_number, duration
+                                    )
 
                 except Exception as e:
                     result = "error"
@@ -602,6 +763,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -617,6 +779,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

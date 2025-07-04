@@ -195,19 +195,21 @@ You have now configured TT-MLIR.
 
 You can add different flags to your build. Here are some options to consider:
 
-* To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
-* To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
-* To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
-* To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
-* If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
-* The TTNN build is automatically integrated / handled by the tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-* The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
+- To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
+- To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
+- To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
+- If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
+- To enable `tt-explorer` add the `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, `-DTTMLIR_ENABLE_RUNTIME=ON`, and `-DTT_RUNTIME_DEBUG=ON`.
+- To enable optimizer pass that uses the op model library, add `-DTTMLIR_ENABLE_OPMODEL=ON`.
+- The TTNN build is automatically integrated / handled by the tt-mlir cmake build system. For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
+- The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
-| OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
-|----|-----------------------|-----------------------| -----------------------------|
-| Ubuntu 22.04  | ✅ | ✅ | ✅ |
-| Ubuntu 20.04  | ✅ | ❌ | ❌ |
-| MacOS         | ✅ | ❌ | ❌ |
+| OS           | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
+| ------------ | --------------------- | --------------------- | ---------------------------- |
+| Ubuntu 22.04 | ✅                    | ✅                    | ✅                           |
+| Ubuntu 20.04 | ✅                    | ❌                    | ❌                           |
+| MacOS        | ✅                    | ❌                    | ❌                           |
 
 #### Testing the Build
 
@@ -219,6 +221,7 @@ cmake --build build -- check-ttmlir
 ```
 
 ## Lint
+
 Set up lint so you can spot errors and stylistic issues before runtime:
 
 ```bash
@@ -231,6 +234,7 @@ cmake --build build -- clang-tidy
 > source env/activate
 > cmake --build build -- clang-tidy-ci
 > ```
+>
 > This reproduces the `Lint (clang-tidy)` CI job. It runs `clang-tidy` only on committed files that have been modified relative to the `origin/main` branch.
 
 ## Pre-commit
@@ -253,7 +257,7 @@ For more information visit [pre-commit](https://pre-commit.com/).
 
 Build the documentation by doing the following:
 
-1. Make sure you have `mdbook` and `doxygen` installed.
+1. Make sure you have `mdbook`, `doxygen`, `sphinx`, and `sphinx-markdown-builder` installed.
 
 2. Build the docs:
 
@@ -262,6 +266,7 @@ source env/activate
 cmake --build build -- docs
 mdbook serve build/docs
 ```
+
 > **NOTE:** `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
 ### Common Build Errors
@@ -327,6 +332,7 @@ Then retry your build command. If the error persists, you may need to do the fol
 ### Debugging Python on Mac OS
 
 When debugging python on macOS via lldb you may see an error like:
+
 ```
 (lldb) r
 error: process exited with status -1 (attach failed (Not allowed to attach to process.  Look in the console messages (Console.app), near the debugserver entries, when the attach failed.  The subsystem that denied t
@@ -337,6 +343,7 @@ For preinstalled macOS binaries you must manually codesign with debug entitlemen
 
 
 Create file `debuggee-entitlement.xml`:
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -351,6 +358,7 @@ Create file `debuggee-entitlement.xml`:
 ```
 
 Sign the binary:
+
 ```bash
 sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
 ```

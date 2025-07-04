@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
@@ -26,7 +26,8 @@ void registerTTMetalToFlatbuffer() {
         return translateTTMetalToFlatbuffer(op, os);
       },
       [](DialectRegistry &registry) {
-        registry.insert<mlir::tt::TTDialect, mlir::tt::ttmetal::TTMetalDialect,
+        registry.insert<mlir::tt::ttcore::TTCoreDialect,
+                        mlir::tt::ttmetal::TTMetalDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
                         mlir::emitc::EmitCDialect, mlir::memref::MemRefDialect,
                         mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();

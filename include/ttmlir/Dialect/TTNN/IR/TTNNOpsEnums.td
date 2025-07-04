@@ -22,7 +22,6 @@ def TTNN_Layout : I32EnumAttr<"Layout", "TTNN Layout",
 }
 
 def TTNN_TensorMemoryLayout_Interleaved : I32EnumAttrCase<"Interleaved", 0, "interleaved">;
-def TTNN_TensorMemoryLayout_SingleBank : I32EnumAttrCase<"SingleBank", 1, "single_bank">;
 def TTNN_TensorMemoryLayout_HeightSharded : I32EnumAttrCase<"HeightSharded", 2, "height_sharded">;
 def TTNN_TensorMemoryLayout_WidthSharded : I32EnumAttrCase<"WidthSharded", 3, "width_sharded">;
 def TTNN_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 4, "block_sharded">;
@@ -30,7 +29,6 @@ def TTNN_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 4, "b
 def TTNN_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TTNN Tensor Memory Layout",
                            [
                             TTNN_TensorMemoryLayout_Interleaved,
-                            TTNN_TensorMemoryLayout_SingleBank,
                             TTNN_TensorMemoryLayout_HeightSharded,
                             TTNN_TensorMemoryLayout_WidthSharded,
                             TTNN_TensorMemoryLayout_BlockSharded,
@@ -262,6 +260,22 @@ def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
                            [
                             TTNN_ShardMode_Physical,
                             TTNN_ShardMode_Logical
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_MathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+
+def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
+                           [
+                            TTNN_MathFidelityLoFi,
+                            TTNN_MathFidelityHiFi2,
+                            TTNN_MathFidelityHiFi3,
+                            TTNN_MathFidelityHiFi4,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 #dram = #ttnn.buffer_type<dram>
@@ -7,8 +7,8 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 3 + d2, d3), <1x1>, memref<12288x3xbf16, #system_memory>>
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 + d1 + d2, d3), <1x1>, memref<1x64xbf16, #system_memory>>
 #ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<900x64xbf16, #system_memory>>
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<29x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<29x2x!tt.tile<32x32, bf16>, #system_memory>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<29x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<29x2x!ttcore.tile<32x32, bf16>, #system_memory>>
 
 #conv2d_config = #ttnn.conv2d_config<
   dtype = bf16,

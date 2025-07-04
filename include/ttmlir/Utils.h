@@ -5,8 +5,6 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -33,12 +31,8 @@ constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
 
 template <typename T>
 T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
-template <typename T>
-T alignDown(T ptr, T alignment) {
-  return ptr & ~(alignment - 1);
+  T distance = ptr % alignment;
+  return ptr + (distance == 0 ? 0 : (alignment - distance));
 }
 
 template <typename T>
@@ -145,7 +139,7 @@ std::string join(Range &&R, llvm::StringRef separator) {
 //           return wrap(tt::CircularBufferAttributesAttr::get(
 //               unwrap(ctx), static_cast<tt::CB>(cb_id),
 //               mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
-//               page_size, static_cast<tt::DataType>(data_format)));
+//               page_size, static_cast<ttcore::DataType>(data_format)));
 //         })
 //     .def_static("get", [](MlirContext ctx,
 //                           std::vector<MlirAttribute> attributesArray) {
@@ -439,53 +433,6 @@ inline size_t countUsers(mlir::Value value) {
   return std::distance(value.user_begin(), value.user_end());
 }
 
-// Return vector of currentOp operands and drop:
-// - dps operand if currentOp is a DestinationStyleOpInterface
-// - operand which is defined by currentOpOperand
-inline llvm::SmallVector<mlir::OpOperand *>
-getOtherOperands(mlir::Operation *currentOp,
-                 mlir::Operation *currentOpOperand) {
-  llvm::SmallVector<mlir::OpOperand *> operands;
-  auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp);
-  for (auto &opOperand : currentOp->getOpOperands()) {
-    if (dpsOp && dpsOp.isDpsInit(&opOperand)) {
-      continue;
-    }
-
-    if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
-      if (op != currentOpOperand) {
-        operands.push_back(&opOperand);
-      }
-    } else {
-      // This is block argument.
-      operands.push_back(&opOperand);
-    }
-  }
-
-  return operands;
-}
-
-// Filters out the constant parameters from the function signature.
-inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
-populateConstParams(mlir::func::FuncOp funcOp) {
-  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
-
-  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-
-  for (auto arg : funcOp.getArguments()) {
-    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
-            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
-      auto argTypeValue = typeAttr.getValue();
-      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
-          argTypeValue == mlir::tt::ArgumentType::Constant) {
-        constParams.insert(arg);
-      }
-    }
-  }
-
-  return constParams;
-}
-
 inline bool isConstEvalFunc(mlir::Operation *op) {
   if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
     return funcOp->hasAttr(g_constEvalAttrName);
@@ -498,6 +445,104 @@ T castContainer(const From &value) {
   return T(value.begin(), value.end());
 };
 
+namespace loop {
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Operation *op) {
+  OpType opType = mlir::dyn_cast<OpType>(op);
+  OpType maybeOuter = mlir::dyn_cast<OpType>(op->getParentOp());
+  while (maybeOuter) {
+    opType = maybeOuter;
+    maybeOuter = mlir::dyn_cast<OpType>(maybeOuter->getParentOp());
+  }
+  return opType;
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Region *region) {
+  return getOutermostLoopNest<OpType>(region->getParentOp());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Block *block) {
+  return getOutermostLoopNest<OpType>(block->getParent());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::OpOperand &use) {
+  return getOutermostLoopNest<OpType>(use.getOwner());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Value value) {
+  return getOutermostLoopNest<OpType>(value.getParentRegion());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::ValueRange values) {
+  assert(!values.empty());
+  return getOutermostLoopNest<OpType>(values.front());
+}
+
+} // namespace loop
+
+// Given a startng mlir::Value return a set of all values in the use-def
+// chain. This chain is not topologically sorted, so the order of values in the
+// result is not guaranteed. If you want to topologically sort the chain
+// use topologicalSort.
+inline llvm::SetVector<mlir::Value> getUseDefChain(mlir::Value start) {
+  llvm::SetVector<mlir::Value> useDefChain;
+  llvm::SmallVector<mlir::Value> worklist{start};
+  llvm::SmallPtrSet<mlir::Value, 4> visited;
+
+  while (!worklist.empty()) {
+    mlir::Value value = worklist.pop_back_val();
+    useDefChain.insert(value);
+
+    mlir::Operation *defOp = value.getDefiningOp();
+    if (!defOp) {
+      continue;
+    }
+
+    for (mlir::OpOperand &operand : defOp->getOpOperands()) {
+      mlir::Value operandValue = operand.get();
+      if (visited.contains(operandValue)) {
+        continue;
+      }
+      visited.insert(operandValue);
+      worklist.push_back(operandValue);
+    }
+  }
+
+  return useDefChain;
+}
+
+// Given list of mlir::Value filter out block arguments.
+inline llvm::SetVector<mlir::BlockArgument>
+filterBlockArguments(llvm::ArrayRef<mlir::Value> values) {
+  llvm::SetVector<mlir::BlockArgument> blockArgs;
+  for (mlir::Value value : values) {
+    if (auto blockArg = llvm::dyn_cast<mlir::BlockArgument>(value)) {
+      blockArgs.insert(blockArg);
+    }
+  }
+
+  return blockArgs;
+}
+
+// Given list of mlir::Value filter out operations that define them.
+// If value is not operation it is ignored.
+inline llvm::SetVector<mlir::Operation *>
+filterOperations(llvm::ArrayRef<mlir::Value> values) {
+  llvm::SetVector<mlir::Operation *> ops;
+  for (mlir::Value value : values) {
+    if (auto *op = value.getDefiningOp()) {
+      ops.insert(op);
+    }
+  }
+
+  return ops;
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

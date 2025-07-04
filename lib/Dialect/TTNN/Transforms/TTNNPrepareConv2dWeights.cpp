@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -31,7 +32,8 @@ public:
     moduleOp.walk([&](ttnn::Conv2dOp conv2dOp) {
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
 
-      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+      ttcore::GridAttr deviceGrid =
+          ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
       ttnn::TTNNLayoutAttr inputLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());

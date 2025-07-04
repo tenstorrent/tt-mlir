@@ -44,14 +44,13 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Find clang 17
-#
-find_program(CLANG_17 clang++-17)
-if(CLANG_17)
-    message(STATUS "Found Clang-17 here: ${CLANG_17}")
-    set(CMAKE_CXX_COMPILER "${CLANG_17}")
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(WARNING "Not using the Clang compiler!")
 else()
-    message(WARNING "Clang++-17 not found!!!")
+  message(STATUS "Found Clang-${CLANG_VERSION_MAJOR} here: ${CMAKE_CXX_COMPILER}")
+  if(CLANG_VERSION_MAJOR LESS 17)
+    message(WARNING "Clang version is less than 17!")
+  endif()
 endif()
 
 # TT_METAL_HOME env variable needs to be set
@@ -84,6 +83,8 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+    ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
     ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
     ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
     ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -130,10 +131,7 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
-
-    # TTNN
-    # _ttnn  # Why doesn't this work?
-    ${METAL_LIB_DIR}/_ttnn.so
+    ${METAL_LIB_DIR}/_ttnncpp.so
 )
 
 # Compile definitions

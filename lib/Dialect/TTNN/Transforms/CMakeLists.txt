@@ -8,14 +8,18 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
+        TTNNUniqueLocs.cpp
         TTNNPrepareConv2dWeights.cpp
         TTNNFusing.cpp
+        TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
+        Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
         Workarounds/Decomposition/RepeatOpRewritePattern.cpp
+        Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
@@ -24,10 +28,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
-        MLIRTTDialect
+        MLIRTTCoreDialect
         )

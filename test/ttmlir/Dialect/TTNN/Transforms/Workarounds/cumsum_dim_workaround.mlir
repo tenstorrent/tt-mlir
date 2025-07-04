@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt -tt-register-device --ttnn-layout --ttnn-workaround %s | FileCheck %s
+// RUN: ttmlir-opt -ttcore-register-device --ttnn-layout --ttnn-workaround %s | FileCheck %s
 
 module {
   func.func public @test_moreh_cumsum_dim2(%arg0: tensor<4x4x128x128xf32>) -> tensor<4x4x128x128xf32> {

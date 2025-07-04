@@ -4,5 +4,5 @@ add_mlir_dialect_library(MLIRTTKernelTransforms
         DEPENDS
         MLIRTTKernelOpsIncGen
         MLIRTTKernelPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
         )

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -59,14 +59,13 @@ static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
   return TensorMemoryLayoutAttr{};
 }
 
-static TTNNLayoutAttr
-createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
-                 BufferType bufferType = g_defaultMemorySpaceDevice,
-                 bool isTiled = true) {
+static TTNNLayoutAttr createLayoutAttr(
+    MLIRContext *ctx, ttcore::GridAttr deviceGrid, RankedTensorType type,
+    BufferType bufferType = g_defaultMemorySpaceDevice, bool isTiled = true) {
 
   std::int64_t deviceGridRank = deviceGrid.getShape().size();
   // Default to single core grid
-  GridAttr tensorGrid = GridAttr::get(ctx, deviceGridRank);
+  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx, deviceGridRank);
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
@@ -77,16 +76,16 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
   // Ex: for a quant p of fp32->int8, the storage type is int8.
   if (auto quantType =
           mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
-    elementType = isTiled ? TileType::get(quantType.getStorageType())
+    elementType = isTiled ? ttcore::TileType::get(quantType.getStorageType())
                           : quantType.getStorageType();
   } else {
-    elementType =
-        isTiled ? TileType::get(type.getElementType()) : type.getElementType();
+    elementType = isTiled ? ttcore::TileType::get(type.getElementType())
+                          : type.getElementType();
   }
   mlir::Attribute encoding = type.getEncoding();
-  TensorMeshShardingAttr tensorMeshShardingAttr;
+  ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
   if (auto encodingMeshSharding =
-          mlir::dyn_cast_if_present<TensorMeshShardingAttr>(encoding)) {
+          mlir::dyn_cast_if_present<ttcore::TensorMeshShardingAttr>(encoding)) {
     tensorMeshShardingAttr = encodingMeshSharding;
   } else if (auto layout =
                  mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
@@ -101,8 +100,8 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
   auto meshShardOp = mlir::dyn_cast_if_present<ttir::MeshShardOp>(srcOp);
-  return meshShardOp &&
-         meshShardOp.getShardType() != mlir::tt::MeshShardType::Identity;
+  return meshShardOp && meshShardOp.getShardType() !=
+                            mlir::tt::ttcore::MeshShardType::Identity;
 }
 
 //===----------------------------------------------------------------------===//
@@ -117,7 +116,7 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
 namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
+  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
       if (isa_and_nonnull<TTNNLayoutAttr>(type.getEncoding())) {
@@ -151,7 +150,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
   // Get mesh sharding
-  TensorMeshShardingAttr desiredTensorMeshSharding =
+  ttcore::TensorMeshShardingAttr desiredTensorMeshSharding =
       ttnnLayoutAttr.getTensorMeshSharding();
 
   // Get the current element type (i.e bf16/TileType etc)
@@ -162,14 +161,15 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // Get element type that should be used in the new ttnn layout
   Type desiredElementType =
-      tiled ? TileType::get(ty.getElementType()) : ty.getElementType();
+      tiled ? ttcore::TileType::get(ty.getElementType()) : ty.getElementType();
 
   // If the element type is quantized, use the desired type.
   // Ex: for a quant op of fp32->int8, the storage type is int8.
   if (auto quantType =
           mlir::dyn_cast<mlir::quant::QuantizedType>(ty.getElementType())) {
-    desiredElementType = tiled ? TileType::get(quantType.getStorageType())
-                               : quantType.getStorageType();
+    desiredElementType = tiled
+                             ? ttcore::TileType::get(quantType.getStorageType())
+                             : quantType.getStorageType();
   }
 
   // If the current buffer type, element type and memory layout are the same as
@@ -329,7 +329,7 @@ private:
           mlir::cast<RankedTensorType>(input.getType());
       TTNNLayoutAttr inputLayout =
           mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
-      return mlir::isa<TileType>(inputLayout.getElementType());
+      return mlir::isa<ttcore::TileType>(inputLayout.getElementType());
     }
 
     // These ops constrain to ROW_MAJOR on their operands
@@ -396,7 +396,8 @@ namespace {
 class TTNNLayoutFuncInputOutputTypeRewriter
     : public OpRewritePattern<mlir::func::FuncOp> {
 public:
-  TTNNLayoutFuncInputOutputTypeRewriter(MLIRContext *ctx, GridAttr deviceGrid)
+  TTNNLayoutFuncInputOutputTypeRewriter(MLIRContext *ctx,
+                                        ttcore::GridAttr deviceGrid)
       : OpRewritePattern<mlir::func::FuncOp>(ctx), deviceGrid(deviceGrid) {}
 
   LogicalResult matchAndRewrite(mlir::func::FuncOp funcOp,
@@ -415,7 +416,7 @@ public:
   }
 
 private:
-  GridAttr deviceGrid;
+  ttcore::GridAttr deviceGrid;
 
   // Rewrite the function declaration to have system memory in/out types
   // Func declarations are used by CPU-hoisted functions.
@@ -495,32 +496,27 @@ private:
     if (funcOp.isDeclaration()) {
       return false;
     }
-    SmallVector<mlir::func::ReturnOp> returnOps;
-    funcOp.walk(
-        [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
-
-    bool forceSysMem = false;
-    for (auto returnOp : returnOps) {
-      forceSysMem |= shouldForceOutputSystemMemory(returnOp);
-    }
-    if (!forceSysMem) {
-      return false;
-    }
 
     bool modified = false;
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes;
-    for (auto type : funcOp.getResultTypes()) {
-      if (!mlir::isa<RankedTensorType>(type)) {
-        outputTypes.push_back(type);
-        continue;
+    funcOp.walk([&](mlir::func::ReturnOp returnOp) {
+      for (auto [type, operand] :
+           llvm::zip_equal(funcOp.getResultTypes(), returnOp->getOperands())) {
+        if (!mlir::isa<RankedTensorType>(type) ||
+            !shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
+          outputTypes.push_back(type);
+          continue;
+        }
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
+        RankedTensorType newType =
+            toSystemMemoryType(funcOp.getContext(), tensorType);
+        outputTypes.push_back(newType);
+        modified |= (tensorType != newType);
       }
-      RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
-      RankedTensorType newType =
-          toSystemMemoryType(funcOp.getContext(), tensorType);
-      outputTypes.push_back(newType);
-      modified |= (tensorType != newType);
-    }
+      return mlir::WalkResult::interrupt();
+    });
+
     if (modified) {
       FunctionType newFuncType =
           rewriter.getFunctionType(inputTypes, outputTypes);
@@ -559,18 +555,6 @@ private:
       return true;
     }
 
-    return false;
-  }
-
-  bool shouldForceOutputSystemMemory(mlir::func::ReturnOp returnOp) const {
-    for (Value operand : returnOp.getOperands()) {
-      if (!mlir::isa<RankedTensorType>(operand.getType())) {
-        continue;
-      }
-      if (shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
-        return true;
-      }
-    }
     return false;
   }
 };
@@ -635,7 +619,7 @@ public:
     // we construct a ttnn layout attribute with default values:
     // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
-      DeviceAttr device = lookupDevice(getOperation());
+      ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
           &getContext(), device.getWorkerGrid());
@@ -677,7 +661,7 @@ public:
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
-    registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::tt::ttcore::TTCoreDialect>();
     registry.insert<mlir::func::FuncDialect>();
   }
 };

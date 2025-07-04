@@ -8,7 +8,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
@@ -18,54 +18,54 @@ namespace mlir::tt::op_model::ttnn {
 
 namespace conversion {
 
-::tt::tt_metal::DataType getDataType(const DataType dataType) {
+::tt::tt_metal::DataType getDataType(const ttcore::DataType dataType) {
   switch (dataType) {
-  case tt::DataType::Float32:
+  case ttcore::DataType::Float32:
     return ::tt::tt_metal::DataType::FLOAT32;
-  case tt::DataType::BFloat16:
+  case ttcore::DataType::BFloat16:
     return ::tt::tt_metal::DataType::BFLOAT16;
-  case tt::DataType::BFP_BFloat8:
+  case ttcore::DataType::BFP_BFloat8:
     return ::tt::tt_metal::DataType::BFLOAT8_B;
-  case tt::DataType::BFP_BFloat4:
+  case ttcore::DataType::BFP_BFloat4:
     return ::tt::tt_metal::DataType::BFLOAT4_B;
-  case tt::DataType::UInt32:
+  case ttcore::DataType::UInt32:
     return ::tt::tt_metal::DataType::UINT32;
-  case tt::DataType::UInt16:
+  case ttcore::DataType::UInt16:
     return ::tt::tt_metal::DataType::UINT16;
-  case tt::DataType::UInt8:
+  case ttcore::DataType::UInt8:
     return ::tt::tt_metal::DataType::UINT8;
-  case tt::DataType::Int32:
+  case ttcore::DataType::Int32:
     return ::tt::tt_metal::DataType::INT32;
   default:
     throw std::runtime_error("Invalid element type");
   }
 }
 
-tt::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
+ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
   switch (dataType) {
   case ::tt::tt_metal::DataType::FLOAT32:
-    return tt::DataType::Float32;
+    return ttcore::DataType::Float32;
   case ::tt::tt_metal::DataType::BFLOAT16:
-    return tt::DataType::BFloat16;
+    return ttcore::DataType::BFloat16;
   case ::tt::tt_metal::DataType::BFLOAT8_B:
-    return tt::DataType::BFP_BFloat8;
+    return ttcore::DataType::BFP_BFloat8;
   case ::tt::tt_metal::DataType::BFLOAT4_B:
-    return tt::DataType::BFP_BFloat4;
+    return ttcore::DataType::BFP_BFloat4;
   case ::tt::tt_metal::DataType::UINT32:
-    return tt::DataType::UInt32;
+    return ttcore::DataType::UInt32;
   case ::tt::tt_metal::DataType::UINT16:
-    return tt::DataType::UInt16;
+    return ttcore::DataType::UInt16;
   case ::tt::tt_metal::DataType::UINT8:
-    return tt::DataType::UInt8;
+    return ttcore::DataType::UInt8;
   case ::tt::tt_metal::DataType::INT32:
-    return tt::DataType::Int32;
+    return ttcore::DataType::Int32;
   default:
     throw std::runtime_error("Invalid element type");
   }
 }
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
-  ::tt::stl::SmallVector<uint32_t> small_vector_shape;
+  ::ttsl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
   }
@@ -113,7 +113,7 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
   assert(layout.getGrid().getMapping().isEmpty() == false);
-  for (const auto &[loc, size] : utils::toCoreRangeSet(
+  for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
            layout.getGrid().getShape(), layout.getGrid().getMapping())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
         CoreCoord(loc[0], loc[1]),
@@ -124,13 +124,19 @@ getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  if (layout.getIgnorePhysicalLayout()) {
+    return std::nullopt;
+  }
+
+  if (!isShardedMemoryLayout(layout.getMemLayout().getValue())) {
+    return std::nullopt;
+  }
+
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
-  return isShardedMemoryLayout(layout.getMemLayout().getValue())
-             ? std::make_optional(::tt::tt_metal::ShardSpec(
-                   getCoreRangeSet(layout), getShardShape(layout),
-                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR))
-             : std::nullopt;
+  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
+                                   getShardShape(layout),
+                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
 
 ::tt::tt_metal::BufferType
@@ -172,8 +178,6 @@ getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
-  case mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
@@ -187,8 +191,6 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
   case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
     return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
-  case ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK:
-    return mlir::tt::ttnn::TensorMemoryLayout::SingleBank;
   case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
     return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
   case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
@@ -223,6 +225,8 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  assert(!layout.getIgnorePhysicalLayout() &&
+         "TensorSpecs cannot be created without physical layouts");
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
@@ -230,7 +234,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize) {
   // Check the shard bounding box
   auto memoryConfig = tensorSpec.memory_config();
-  if (memoryConfig.is_sharded()) {
+  if (memoryConfig.is_sharded() && memoryConfig.shard_spec().has_value()) {
     ::tt::tt_metal::CoreRange shardBoundingBox =
         memoryConfig.shard_spec().value().grid.bounding_box();
     ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
@@ -247,16 +251,16 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   try {
     tensorSpec.compute_packed_buffer_size_bytes();
     tensorSpec.compute_page_size_bytes();
-    tensorSpec.compute_shard_spec_buffer();
+    tensorSpec.compute_buffer_sharding_args();
   } catch (const std::exception &e) {
     return false;
   }
   return true;
 }
 
-::ttnn::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
-  return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
+  return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
@@ -405,7 +409,7 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   Type elementType;
   if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
-    elementType = mlir::tt::TileType::get(
+    elementType = mlir::tt::ttcore::TileType::get(
         context,
         {tensorSpec.page_config().get_tile().get_height(),
          tensorSpec.page_config().get_tile().get_width()},
@@ -421,7 +425,7 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context,
       getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
 
-  GridAttr grid = mlir::tt::GridAttr::get(
+  ttcore::GridAttr grid = mlir::tt::ttcore::GridAttr::get(
       context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
       ::mlir::tt::ttnn::optimizer_utils::
           createSingleDeviceVirtualToPhysicalAffineMap(

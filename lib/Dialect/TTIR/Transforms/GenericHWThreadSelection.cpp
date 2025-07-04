@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -62,9 +62,9 @@ public:
     threads.erase(threads.begin() + outputOperandsIndex);
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), op.getGrid(), op.getIndexingMaps(),
-        op.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        op.getNumRegions() - 1);
+        op.getOutputs(), op.getGrid(), op.getBlockFactors(),
+        op.getIndexingMaps(), op.getIteratorTypes(),
+        rewriter.getArrayAttr(threads), op.getNumRegions() - 1);
 
     unsigned regionIndex = 0;
     for (mlir::Region &region : op.getRegions()) {
@@ -99,8 +99,8 @@ public:
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
     ModuleOp moduleOp = getOperation();
-    auto systemDesc =
-        moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+    auto systemDesc = moduleOp->getAttrOfType<mlir::tt::ttcore::SystemDescAttr>(
+        mlir::tt::ttcore::SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
     moduleOp.walk([&](GenericOp op) {
       // assert that the op has a valid HW thread selection

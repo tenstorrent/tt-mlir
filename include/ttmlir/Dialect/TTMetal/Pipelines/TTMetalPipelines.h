@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 #define TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Pass/PassOptions.h"
 
@@ -33,16 +33,53 @@ struct TTIRToTTMetalPipelineOptions
   // Option to provide a fallback mock system descriptor arch to compile
   // against.
   //
-  Option<tt::Arch> mockSystemDescArch{
+  Option<ttcore::Arch> mockSystemDescArch{
       *this, "mock-system-desc-arch",
       llvm::cl::desc(
           "Arch name for constructing a mock system descriptor in lieu of "
           "system-desc-path."),
-      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+      llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
-                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                       clEnumValN(ttcore::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
-      llvm::cl::init(tt::Arch::WormholeB0)};
+      llvm::cl::init(ttcore::Arch::WormholeB0)};
+
+  Option<unsigned> maxDstRegisterSizeTiles{
+      *this, "max-dst-register-size-tiles",
+      llvm::cl::desc("Clamp the maximum destination register size in tiles. 0 "
+                     "means unset."),
+      llvm::cl::init(0)};
+
+  ListOption<int64_t> matmulInterchange{
+      *this, "matmul-interchange",
+      llvm::cl::desc(
+          "Set an interchange for generic ops that match matmul style indexing "
+          "maps and iterator types. The interchange indices here always "
+          "correspond to the innermost 3 dims.")};
+
+  // Option to control whether generic conversion uses 'tile_matmul'
+  // (default) or 'tile_matmul_block'.
+  //
+  Option<bool> useTileMatmul{*this, "use-tile-matmul",
+                             llvm::cl::desc("Use tile_matmul"),
+                             llvm::cl::init(true)};
+
+  // Options to control the default memspaces for placing input/output tensors.
+  //
+  Option<ttcore::MemorySpace> defaultInputMemSpace{
+      *this, "default-input-memspace",
+      llvm::cl::desc("Set default memspace for input tensors"),
+      llvm::cl::values(
+          clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+          clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
+  Option<ttcore::MemorySpace> defaultOutputMemSpace{
+      *this, "default-output-memspace",
+      llvm::cl::desc("Set default memspace for output tensors"),
+      llvm::cl::values(
+          clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+          clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

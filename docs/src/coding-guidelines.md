@@ -53,7 +53,7 @@ Using TTIRToTTNN.cpp as an example, this is what includes would look like for us
 ``` c++
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"  # main header
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"  # these are local/private headers
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"  # these are local/private headers
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"  # llvm project/subproj headers

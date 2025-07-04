@@ -157,18 +157,17 @@ jobs:
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: n300,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
+          {runs-on: n300,   sh-run: true, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
           {runs-on: llmbox, sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: llmbox, sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/llmbox/perf"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "consteval",         image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/const-eval", ttrt_flags: "--loops 5 --dirty-tensor-schedule=0:2,1:1,3:1,3:3 --check-cache-stats=hits:2,misses:3 --artifact-dir=ttrt-artifacts/const-eval"},
           # {runs-on: tg,     sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,     sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "pytest",   path: "runtime/tools/ttrt/test"},
@@ -177,11 +176,12 @@ jobs:
           {runs-on: n300-llmbox, sh-run: true, name: "run",  suite: "silicon",       image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/device_agnostic"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op",          image: "tracy",  type: "pytest",  path: "test/python/op_by_op"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/multi_device"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
+          {runs-on: n300,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -279,7 +279,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+        llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
 
         if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
           echo "Running optimizer tests"
@@ -296,14 +296,17 @@ jobs:
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
         fi
 
-    - name: Copy unit test report
-      if: matrix.build.type == 'unit'
+    - name: Run Runtime Unit Tests
       shell: bash
+      if: ${{ matrix.build.suite == 'runtime_debug' && matrix.build.type == 'unit' }}
       run: |
-        if [ -f build/test/report.xml ]; then
-          cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
-          echo "Unit test report copied"
-        fi
+        source env/activate
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        echo "Running TTNN Runtime Unit Tests"
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
 
     - name: Run TTNN-Standalone test
       shell: bash
@@ -356,6 +359,15 @@ jobs:
         pip uninstall -y ai-edge-model-explorer
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
+
+    # PyKernel Test Runner
+    - name: Prepare and run PyKernel Test
+      if: matrix.build.type == 'pykernel'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build build
+        cmake --build build -- pykernel-demo
 
     # pytest runner
     - name: Run pytest ttrt tests
@@ -547,7 +559,27 @@ jobs:
       run: |
         source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+
+    - name: Upload Check Test Report xml
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: check_test_report.xml
+        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        if-no-files-found: 'ignore'
+
+    - name: Show Check Test Report
+      continue-on-error: true
+      uses: mikepenz/action-junit-report@v5
+      if: always()
+      with:
+        report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        check_name: Debug
+        detailed_summary: true
+        include_time_in_summary: true
+        include_passed: true
 
     - name: Prepare code coverage report
       run: |

@@ -1,11 +1,11 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-fusing-pass=true" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 // This is common pattern throught Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
 // Then we fuse add into conv2d with bias and lastly we fuse conv2d and relu into conv2d with activation.
 module {
-  func.func @main(%weight: tensor<64x64x3x3xf32> {tt.argument_type = #tt.argument_type<constant>}, %arg5: tensor<1x1x1x64xf32> {tt.argument_type = #tt.argument_type<constant>}, %arg6: tensor<1x1x1x64xf32>, %input: tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32> {
+  func.func @main(%weight: tensor<64x64x3x3xf32> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg5: tensor<1x1x1x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg6: tensor<1x1x1x64xf32>, %input: tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32> {
     // CHECK: "ttnn.multiply"
     // CHECK: "ttnn.conv2d"
     // CHECK-SAME: activation = "relu"

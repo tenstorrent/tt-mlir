@@ -5,50 +5,55 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
-#include "llvm/Support/CommandLine.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::utils {
 
-// Map tt::MemorySpace to ttnn::BufferType
+constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
+
+// Map ttcore::MemorySpace to ttnn::BufferType
 //
 mlir::tt::ttnn::BufferType
-toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
+toTTNNBufferType(const mlir::tt::ttcore::MemorySpace memorySpace);
 
-// Map ttnn::BufferType to tt::MemorySpace
+// Map ttnn::BufferType to ttcore::MemorySpace
 //
-mlir::tt::MemorySpace
+mlir::tt::ttcore::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given encoding.
-RankedTensorType
-createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
-                                   ttnn::TTNNLayoutAttr encoding);
+struct RankedTensorTypeFactory {
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TTNNLayoutAttr encoding);
 
-// Helper method to create a RankedTensorType with the given element type.
-RankedTensorType
-createRankedTensorTypeWithElementType(RankedTensorType tensorType,
-                                      Type elementType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 Type memrefElementType);
 
-// Helper method to create a RankedTensorType with the given buffer type.
-RankedTensorType
-createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
-                                     ttnn::BufferType bufferType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given memory layout.
-RankedTensorType
-createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
-                                       ttnn::TensorMemoryLayout memoryLayout);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TensorMemoryLayout memoryLayout);
 
-// Helper method to create a RankedTensorType with the given grid.
-RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
-                                                GridAttr grid);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::Layout layout);
+
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 mlir::tt::ttcore::GridAttr grid);
+
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 mlir::tt::ttcore::DataType);
+
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ArrayRef<int64_t> tensorShape);
+};
 
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
@@ -60,7 +65,7 @@ TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
 
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,
-                    DataType dataType);
+                    mlir::tt::ttcore::DataType dataType);
 
 // Helper method to get op location name if it exists. Else return empty string.
 std::string getOpLocName(Operation *op);
@@ -73,14 +78,23 @@ void irToFile(mlir::Operation *op, std::string filename);
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
 // Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layout,
-                                                     GridAttr deviceGrid);
+std::optional<ShardSpecAttr>
+createShardSpecIfNeeded(TTNNLayoutAttr layout,
+                        mlir::tt::ttcore::GridAttr deviceGrid);
 
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
-                        ShapeAttr shardShape, GridAttr shardGrid,
-                        GridAttr deviceGrid);
+                        ShapeAttr shardShape,
+                        mlir::tt::ttcore::GridAttr shardGrid,
+                        mlir::tt::ttcore::GridAttr deviceGrid);
+
+bool isTTNNTraceFunc(func::FuncOp funcOp);
+
+// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
+TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
+                                           TTNNLayoutAttr layout,
+                                           llvm::ArrayRef<int64_t> shape);
 
 } // namespace mlir::tt::ttnn::utils
 

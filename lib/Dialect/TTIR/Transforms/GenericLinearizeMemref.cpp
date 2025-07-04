@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -21,21 +21,14 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-struct TTIRGenericLinearizeMemrefRewriter final
-    : public OpRewritePattern<GenericOp> {
+template <typename LoadStoreOp>
+struct TTIRLinearizeMemrefAccessRewriter final
+    : public OpRewritePattern<LoadStoreOp> {
 public:
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
-
-  static bool isLinearizedMemref(BlockArgument arg) {
-    auto memref = mlir::cast<MemRefType>(arg.getType());
-    if (memref.getShape().size() == 1) {
-      return true;
-    }
-
-    return llvm::all_of(arg.getUsers(), [](Operation *user) {
-      return mlir::isa<memref::CollapseShapeOp>(user);
-    });
-  }
+  TTIRLinearizeMemrefAccessRewriter(
+      ::mlir::MLIRContext *context,
+      DenseMap<Value, memref::CollapseShapeOp> &collapseOps)
+      : OpRewritePattern<LoadStoreOp>(context), collapseOps(&collapseOps) {}
 
   static mlir::AffineMap linearizeAffineMap(::mlir::MLIRContext *context,
                                             mlir::AffineMap map,
@@ -57,48 +50,42 @@ public:
     return linearResult.compose(map);
   }
 
-  LogicalResult matchAndRewrite(GenericOp op,
+  LogicalResult matchAndRewrite(LoadStoreOp op,
                                 PatternRewriter &rewriter) const final {
-    assert(op.getNumRegions() == 1 &&
-           "expected single compute region at this stage");
-    Block *entry = &op.getRegion(0).front();
-    rewriter.setInsertionPointToStart(entry);
-    auto args = entry->getArguments();
-    if (llvm::all_of(args, isLinearizedMemref)) {
+    Value val = op.getMemref();
+    auto memref = mlir::cast<MemRefType>(val.getType());
+    if (memref.getRank() == 1) {
+      // Already linearized.
       return failure();
     }
 
+    auto shape = memref.getShape();
+    auto linearMap = linearizeAffineMap(
+        rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+
+    memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);
+    if (!linearizedArg) {
+      rewriter.setInsertionPointAfterValue(val);
+      SmallVector<ReassociationIndices, 4> collapsedDims = {
+          llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+      assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,
+                                                              collapsedDims) &&
+             "linearizeAffineMap assumes that the shape is collapsible aka "
+             "has contiguous memory layout");
+      linearizedArg = rewriter.create<memref::CollapseShapeOp>(op.getLoc(), val,
+                                                               collapsedDims);
+      collapseOps->insert({val, linearizedArg});
+    }
+
     rewriter.modifyOpInPlace(op, [&]() {
-      for (auto arg : args) {
-        if (isLinearizedMemref(arg)) {
-          continue;
-        }
-        auto memref = mlir::cast<MemRefType>(arg.getType());
-        auto shape = memref.getShape();
-        SmallVector<ReassociationIndices, 4> collapsedDims = {
-            llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
-        assert(memref::CollapseShapeOp::isGuaranteedCollapsible(
-                   memref, collapsedDims) &&
-               "linearizeAffineMap assumes that the shape is collapsible aka "
-               "has contiguous memory layout");
-        auto linearMap = linearizeAffineMap(
-            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
-        auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
-            arg.getLoc(), arg, collapsedDims);
-        rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
-                                      linearizedArg);
-        for (auto *user : linearizedArg->getUsers()) {
-          if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
-            load.setMap(linearMap.compose(load.getMap()));
-          } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
-            store.setMap(linearMap.compose(store.getMap()));
-          }
-        }
-      }
+      op.setMemRef(linearizedArg.getResult());
+      op.setMap(linearMap.compose(op.getMap()));
     });
 
     return success();
   }
+
+  DenseMap<Value, memref::CollapseShapeOp> *collapseOps;
 };
 } // namespace
 
@@ -110,17 +97,15 @@ public:
       TTIRGenericLinearizeMemref>::TTIRGenericLinearizeMemrefBase;
 
   void runOnOperation() final {
+    DenseMap<Value, memref::CollapseShapeOp> collapseOps;
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericLinearizeMemrefRewriter>(&getContext());
+    patterns.add<TTIRLinearizeMemrefAccessRewriter<affine::AffineLoadOp>,
+                 TTIRLinearizeMemrefAccessRewriter<affine::AffineStoreOp>>(
+        &getContext(), collapseOps);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
     }
-  }
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-    registry.insert<mlir::arith::ArithDialect>();
   }
 };
 } // namespace

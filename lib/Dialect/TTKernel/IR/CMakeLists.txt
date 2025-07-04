@@ -8,9 +8,9 @@ add_mlir_dialect_library(MLIRTTKernelDialect
 
         DEPENDS
         MLIRTTKernelOpsIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTMetalDialect
-        MLIRTTDialect
+        MLIRTTCoreDialect
         )

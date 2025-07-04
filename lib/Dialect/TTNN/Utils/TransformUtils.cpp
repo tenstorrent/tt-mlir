@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -21,7 +21,7 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
     }
   }
 
-  DeviceAttr deviceAttr = lookupDevice(op);
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
   llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -47,7 +47,8 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-                 DataType targetTensorDataType, llvm::StringRef locSuffix) {
+                 ttcore::DataType targetTensorDataType,
+                 llvm::StringRef locSuffix) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -73,15 +74,14 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the output result type with the new data type and encoding.
-  RankedTensorType toLayoutOpResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
-              inputToLayoutOpType,
-              mlir::tt::dataTypeToElementType(rewriter.getContext(),
-                                              targetTensorDataType)),
-          toLayoutOpResultEncoding);
+  RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
+      RankedTensorTypeFactory::create(
+          inputToLayoutOpType,
+          mlir::tt::ttcore::dataTypeToElementType(rewriter.getContext(),
+                                                  targetTensorDataType)),
+      toLayoutOpResultEncoding);
 
-  DeviceAttr deviceAttr = lookupDevice(op);
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
 
   // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
@@ -91,18 +91,13 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
           deviceAttr.getWorkerGrid()));
 
-  // Get the device value if the tensor output is not on the host.
-  auto deviceValue = targetTensorBufferType == ttnn::BufferType::SystemMemory
-                         ? nullptr
-                         : Value(utils::getOrInsertDevice(rewriter, op));
-
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired
-  // tensor layout, buffer type and memory layout.o
+  // tensor layout, buffer type and memory layout.
   return rewriter.create<ttnn::ToLayoutOp>(
       loc, toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
-      DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
-      outputMemConfigAttr, deviceValue);
+      ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
+      outputMemConfigAttr);
 }
 } // namespace mlir::tt::ttnn::utils

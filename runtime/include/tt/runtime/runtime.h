@@ -22,6 +22,7 @@ SystemDesc getCurrentSystemDesc(
 namespace detail {
 void deallocateBuffers(Device device);
 void dumpMemoryReport(Device device);
+void dumpDeviceProfileResults(Device device);
 
 /*
 This function get the memory view per device
@@ -66,14 +67,6 @@ Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
-
-// TODO(mrakita): Should be deprecated but D2M path is using this, investigate
-// if it can also use the new `createBorrowedHostTensor` function.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
@@ -160,15 +153,19 @@ size_t getNumDramChannels(Device meshDevice);
 size_t getDramSizePerChannel(Device meshDevice);
 size_t getL1SizePerCore(Device meshDevice);
 
+bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
+
 void wait(Event event);
 
-void wait(Tensor tensor);
+void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<Tensor> &tensors);
+void wait(const std::vector<Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
 // Copies device tensor data to host tensor with owned storage, with option to
 // untilize data.
-std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
+                           bool blocking = true);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
@@ -176,7 +173,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
-void memcpy(void *dst, Tensor src);
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> targetDataType = std::nullopt);
 
 void memcpy(Tensor dst, Tensor src);
 

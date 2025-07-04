@@ -20,28 +20,10 @@ class TTKernel_Type<string name, string typeMnemonic, list<Trait> traits = []>
 def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     let summary = "TTKernel cb";
     let description = "Circular buffer type in TTKernel dialect";
-    let parameters = (ins "CBPort":$port,
-                          "uint64_t":$address,
-                          "MemRefType":$memref,
-                          "uint64_t":$page_size,
-                          "uint64_t":$num_buffers);
-    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers `>`";
+    let parameters = (ins "MemRefType":$memref);
+    let assemblyFormat = "`<` $memref `>`";
 
     let extraClassDeclaration = [{
-        static CBType get(::mlir::MLIRContext *context,
-                              CBPort port,
-                              uint64_t address,
-                              MemRefType memref) {
-          uint64_t numBuffers = 1;
-          uint64_t pageSize = 0;
-          if (::mlir::isa<::mlir::tt::TileType>(memref.getElementType())) {
-            pageSize = ::mlir::cast<::mlir::tt::TileType>(memref.getElementType()).getSizeBytes();
-          } else {
-            pageSize = memref.getShape().back() * (memref.getElementType().getIntOrFloatBitWidth() / 8);
-          }
-          return CBType::get(context, port, address, memref, pageSize, numBuffers);
-        }
-
         ::llvm::ArrayRef<int64_t> getShape() const {
           return getMemref().getShape();
         }
@@ -51,7 +33,7 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
         }
 
         int64_t getNumTiles() const {
-          assert(mlir::isa<mlir::tt::TileType>(getMemref().getElementType()) &&
+          assert(mlir::isa<mlir::tt::ttcore::TileType>(getMemref().getElementType()) &&
                  "getNumTiles only supports tile element type");
           return getNumElements();
         }

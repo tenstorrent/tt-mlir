@@ -1,8 +1,13 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true override-input-layout=relu=0 override-output-layout=relu=tile row-major-enabled=true" -o shard_transpose.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=relu=0 override-output-layout=relu=tile row-major-enabled=true" -o shard_transpose.mlir %s
 // RUN: FileCheck %s --input-file=shard_transpose.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer shard_transpose.mlir > %t.ttnn
+// UNSUPPORTED: true
+// Test is failing with an ND hang after metal commit daf8fbadc8
+// See issue https://github.com/tenstorrent/tt-mlir/issues/3743
 
+// TODO(rpavlovicTT): transpose-op sharding still not supported by default
+// It will be fixed with #3205 and #2637.
 module attributes {} {
   func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x224x3x224xf32> {
     %0 = ttir.empty() : tensor<1x224x3x224xf32> loc(#loc1)

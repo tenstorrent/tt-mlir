@@ -7,9 +7,9 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -26,20 +26,27 @@ namespace mlir::tt::ttnn {
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
 
-  tt::TTRegisterDevicePassOptions registerDeviceOptions;
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(
+      mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
 
-  pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
+  pm.addPass(
+      mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  // Fuse after TTIR -> TTIR decomposition to enable fusing of ops that are
+  // decomposed.
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
@@ -55,13 +62,21 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
+  // Fuse TTIR ops after rest of TTIR pipeline.
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
 }
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Add pass to check for unique operation locations if enabled
+  if (options.checkUniqueLocations) {
+    pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
+  }
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
+    optimizerOptions.insertMemReconfig = options.insertMemReconfig;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
@@ -126,13 +141,13 @@ void createTTIRToTTNNBackendPipeline(
   // Element type normalization should be the first pass in the pipeline.
   pm.addPass(ttir::createElementTypeNormalization());
   // Create DeviceModule to wrap all ops.
-  pm.addPass(tt::createTTWrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
-      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
 
@@ -155,6 +170,9 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  if (options.enableTrace) {
+    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+  }
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
@@ -164,17 +182,32 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
+  // Pass specific options.
+  //
+  // Always set input tuplification to true - dylib signatures are contractual
+  // and required to have tuples/vectors on the input signature (and output).
+  //
+  TTNNTuplifyTensorsOptions tuplifyOptions;
+  tuplifyOptions.tuplifyInputIfEmpty = true;
+
+  // Construct pipeline from other pipelines/passes.
+  //
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTUnwrapDeviceModulePass());
-  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 

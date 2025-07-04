@@ -6,7 +6,7 @@
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Support.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include <optional>
 
@@ -177,9 +177,10 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
         unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
   }
 
-  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
-  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap,
-                                  mlir::cast<mlir::tt::GridAttr>(unwrap(grid)),
-                                  mlir::cast<mlir::MemRefType>(unwrap(memref)),
-                                  memLayoutAttr, tensorMeshShardingAttr));
+  mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
+  return wrap(
+      TTNNLayoutAttr::get(unwrap(ctx), affineMap,
+                          mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
+                          mlir::cast<mlir::MemRefType>(unwrap(memref)),
+                          memLayoutAttr, tensorMeshShardingAttr));
 }

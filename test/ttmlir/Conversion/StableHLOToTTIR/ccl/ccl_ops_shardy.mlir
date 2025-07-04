@@ -19,20 +19,20 @@ module @jit_matmul_shardy0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_r
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 2>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #tt.shard_type<replicate>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 
 // -----
 
@@ -54,20 +54,20 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -89,20 +89,20 @@ module @jit_matmul_shardy2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #tt.shard_type<replicate>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 
 // -----
 
@@ -119,14 +119,14 @@ module @jit_neg_shardy0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -143,14 +143,14 @@ module @jit_neg_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 1, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 1, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -167,14 +167,14 @@ module @jit_neg_shardy2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -191,14 +191,14 @@ module @jit_neg_shardy3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 3, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 2>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 3, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 2>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -215,14 +215,14 @@ module @jit_neg_shardy4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -239,14 +239,14 @@ module @jit_neg_shardy5 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 3, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 2>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 3, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 2>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -263,14 +263,14 @@ module @jit_neg_shardy6 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 8>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 8>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -287,29 +287,29 @@ module @jit_neg_shardy7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 // CHECK-LABEL @main
 // CHECK: %arg{{[0-9]+}}: tensor<1x1024x128x1024xf32>
-// CHECK-NOT: tensor<1x1024x128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-NOT: tensor<1x1024x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<1x1024x128x1024xf32>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1, 8, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
-// CHECK-NOT: tensor<1x1024x128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-NOT: tensor<1x1024x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<1x1024x128x1024xf32>
-// CHECK-SAME: tensor<1x128x128x1024xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<1x128x128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<1x128x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<1x128x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 // CHECK-NOT: tensor<1x128x128x1024xf32>
-// CHECK-SAME: tensor<1x128x128x1024xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-NOT: tensor<1x1024x128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<1x128x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-NOT: tensor<1x1024x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<1x1024x128x1024xf32>
-// CHECK-NOT: tensor<1x1024x128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-NOT: tensor<1x1024x128x1024xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<1x1024x128x1024xf32>
 
 // -----
@@ -331,43 +331,43 @@ module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : 
   }
 }
 // CHECK-LABEL @main
-// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
-// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
-// CHECK-NOT: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh", [ 4(1),  1]>>
+// CHECK-NOT: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<8192x16384xf32>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
-// CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: tensor<8192x784xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: tensor<4096x196xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x196xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
-// CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh", [ 4(1),  1]>>
+// CHECK-SAME: tensor<196x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<196x16384xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: = "ttir.all_reduce"
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-NOT: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-NOT: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<8192x16384xf32>
-// CHECK-NOT: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-NOT: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<8192x16384xf32>
 
 // -----
@@ -389,41 +389,41 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
   }
 }
 // CHECK-LABEL @main
-// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
-// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
+// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh", [ 4(1),  1]>>
+// CHECK-SAME: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  1]>>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
-// CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: tensor<8192x784xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: tensor<4096x196xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x196xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
-// CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh", [ 4(1),  1]>>
+// CHECK-SAME: tensor<196x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<196x16384xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: = "ttir.all_reduce"
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: tensor<4096x16384xf32, #ttcore.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  1]>>
+// CHECK-SAME: tensor<8192x16384xf32, #ttcore.mesh_sharding<"mesh", [ 2(0),  1]>>
 
 // -----
 
@@ -437,9 +437,9 @@ module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 8, 1, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -461,9 +461,9 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
   }
 }
 // CHECK: "ttir.dot_general"
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
+// CHECK-SAME: tensor<1024x1024xf32, #ttcore.mesh_sharding<"mesh", [ 8(1),  1]>>
+// CHECK-SAME: tensor<1024x1024xf32, #ttcore.mesh_sharding<"mesh", [ 8(1),  1]>>
+// CHECK-SAME: tensor<1024x1024xf32, #ttcore.mesh_sharding<"mesh", [ 8(1),  1]>>
 
 // -----
 module @sdy_manual_computation_constant {
@@ -478,6 +478,6 @@ module @sdy_manual_computation_constant {
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #tt.shard_type<replicate>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>

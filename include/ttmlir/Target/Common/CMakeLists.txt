@@ -7,4 +7,4 @@ set(COMMON_FBS_GEN_SOURCES
   debug_info.fbs
 )
 
-build_flatbuffers("${COMMON_FBS_GEN_SOURCES}" COMMON_FBS)
+build_flatbuffers("common" "${COMMON_FBS_GEN_SOURCES}" COMMON_FBS)

@@ -76,10 +76,10 @@ def main():
     # ----------------------------------------------------------------------------- #
 
     # Input Layout
-    obj.add_input_layout_override("add", [1, 2])
-    obj.add_input_layout_override("mul", [0, 1])
-    obj.add_input_layout_override("sub", [2, 3])
-    print(f"Input Layout: {obj.get_input_layout_overrides()}\n")
+    obj.add_insert_memreconfig("add", [1, 2])
+    obj.add_insert_memreconfig("mul", [0, 1])
+    obj.add_insert_memreconfig("sub", [2, 3])
+    print(f"Input Layout: {obj.get_insert_memreconfig()}\n")
 
     # Output Layout
     obj.add_output_layout_override(

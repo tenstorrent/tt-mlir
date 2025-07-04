@@ -50,12 +50,32 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
+// TODO (jnie): Add support for fp32, currently there's some precision loss
+// which causes some FE tests to fail.
+// Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
+bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
+  return dataType == ::ttnn::DataType::BFLOAT16;
+}
+
+bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
+  return dataType == ::ttnn::DataType::BFLOAT16;
+}
+
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(::tt::runtime::Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
   LOG_ASSERT(isTTNN, "Unsupported binary format");
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
+}
+
+const ::tt::target::ttnn::Program *
+getProgram(const ::tt::runtime::Binary &executableHandle,
+           std::uint32_t programIndex) {
+  const ::tt::target::ttnn::TTNNBinary &fbb = *getBinary(executableHandle);
+  const ::tt::target::ttnn::Program *program =
+      fbb.programs()->Get(programIndex);
+  return program;
 }
 
 ::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
@@ -125,6 +145,19 @@ getBinary(::tt::runtime::Flatbuffer binary) {
   }
 }
 
+MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ::tt::target::MathFidelity::LoFi:
+    return MathFidelity::LoFi;
+  case ::tt::target::MathFidelity::HiFi2:
+    return MathFidelity::HiFi2;
+  case ::tt::target::MathFidelity::HiFi3:
+    return MathFidelity::HiFi3;
+  case ::tt::target::MathFidelity::HiFi4:
+    return MathFidelity::HiFi4;
+  }
+}
+
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout) {
   switch (layout) {
   case ::tt::target::TensorLayout::Tile:
@@ -142,8 +175,6 @@ getBinary(::tt::runtime::Flatbuffer binary) {
   switch (tensorMemoryLayout) {
   case ::tt::target::ttnn::TensorMemoryLayout::Interleaved:
     return ::ttnn::TensorMemoryLayout::INTERLEAVED;
-  case ::tt::target::ttnn::TensorMemoryLayout::SingleBank:
-    return ::ttnn::TensorMemoryLayout::SINGLE_BANK;
   case ::tt::target::ttnn::TensorMemoryLayout::HeightSharded:
     return ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::WidthSharded:
@@ -289,35 +320,26 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   return std::make_optional(memoryConfig);
 }
 
-::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
-                                                  bool retain) {
-  auto tensorPtr =
-      std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
+::tt::runtime::Tensor
+createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                            const std::optional<::ttnn::MeshEvent> &meshEvent,
+                            bool retain) {
+  auto tensorPtr = std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(
+      tensor, meshEvent, retain);
+
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
-                               nullptr, DeviceRuntime::TTNN);
+                               /*data=*/nullptr, DeviceRuntime::TTNN);
+}
+
+::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
+  return tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+      .getTensor();
 }
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  LOG_ASSERT(
-      workaround::Env::get().rawHostDataPointerWrapper,
-      "rawHostDataPointerWrapper workaround must be enabled to use this API");
-  void *dataPtr = std::visit(
-      ::tt::runtime::utils::overloaded{
-          [&](const ::tt::tt_metal::HostStorage &storage) -> void * {
-            ::tt::tt_metal::HostBuffer hostBuffer = storage.buffer;
-            return static_cast<void *>(hostBuffer.view_bytes().data());
-          },
-          [&](const ::tt::tt_metal::MultiDeviceHostStorage &storage) -> void * {
-            LOG_ASSERT(storage.num_buffers() == 1);
-            ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
-            return static_cast<void *>(hostBuffer.view_bytes().data());
-          },
-          [](auto &&storage) -> void * {
-            LOG_FATAL("Unsupported storage type ", debug::toString(storage));
-            return nullptr;
-          }},
-      tensor.storage());
-  return dataPtr;
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,

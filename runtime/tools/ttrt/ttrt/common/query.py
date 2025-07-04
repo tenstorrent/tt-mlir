@@ -146,7 +146,10 @@ class Query:
                 "log_file": self.logger.file_name,
                 "artifacts": self.artifacts.artifacts_folder_path,
             }
-            self.logging.error(f"ERROR: getting system_desc failed")
+            issue_msg = "See issue https://github.com/tenstorrent/tt-metal/issues/23600"
+            self.logging.error(
+                f"ERROR: getting system_desc failed\n{issue_msg}\nException: {str(e)}"
+            )
             self.results.add_result(test_result)
             self.test_result = "error"
 

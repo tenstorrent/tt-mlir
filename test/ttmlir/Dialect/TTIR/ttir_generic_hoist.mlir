@@ -1,10 +1,11 @@
 // RUN: ttmlir-opt --canonicalize %s | FileCheck %s
 #map = affine_map<(d0, d1) -> (d0, d1)>
-#parallel = #tt.iterator_type<parallel>
+#parallel = #ttcore.iterator_type<parallel>
 func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
-    grid = #tt.grid<1x1>,
+    block_factors = [1, 1],
+    grid = #ttcore.grid<1x1>,
     indexing_maps = [#map, #map, #map],
     iterator_types = [#parallel, #parallel],
     threads = [#ttir.thread<compute>],

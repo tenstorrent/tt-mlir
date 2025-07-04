@@ -6,7 +6,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -26,6 +26,28 @@ static ::mlir::ParseResult
 parseDimensionList(::mlir::AsmParser &odsParser,
                    ::llvm::SmallVector<int64_t> &dimensions) {
   return odsParser.parseDimensionList(dimensions, false, false);
+}
+
+template <typename... Args>
+static void printVargDimensionList(mlir::AsmPrinter &printer, Args &&...dims) {
+  printDimensionList(printer,
+                     llvm::SmallVector<int64_t>({std::forward<Args>(dims)...}));
+}
+
+template <typename... Args>
+static mlir::ParseResult parseVargDimensionList(mlir::AsmParser &odsParser,
+                                                Args &...dims) {
+  llvm::SmallVector<int64_t> dimensions;
+  mlir::ParseResult result = parseDimensionList(odsParser, dimensions);
+  if (succeeded(result)) {
+    llvm::SmallVector<std::tuple_element_t<0, std::tuple<Args...>> *> copy(
+        {&dims...});
+    assert(dimensions.size() == sizeof...(dims));
+    for (size_t i = 0; i < dimensions.size(); ++i) {
+      *copy[i] = dimensions[i];
+    }
+  }
+  return result;
 }
 } // namespace mlir::tt::ttnn
 
