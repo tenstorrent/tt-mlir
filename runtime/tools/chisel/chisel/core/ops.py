@@ -19,6 +19,7 @@ import pdb
 
 attr_type_set = set()
 
+
 class IRModule:
     def __init__(
         self,
@@ -46,7 +47,6 @@ class IRModule:
     def get_function_inputs(self):
         assert self._main_op is not None
         return self._main_op.arguments
-            
 
     def get_main_op(self):
         return self._main_op

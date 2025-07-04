@@ -28,6 +28,7 @@ for model, main_fns in TEST_CONFIGS.items():
         device = BASE / model / "ttnn.mlir"
         params.append((golden, device, fn))
 
+
 @pytest.mark.parametrize("golden_path, device_path, main_fn", params)
 def test_ir_module(golden_path: Path, device_path: Path, main_fn: str):
     print(f"Device path: {device_path}")

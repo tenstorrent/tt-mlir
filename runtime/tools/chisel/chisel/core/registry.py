@@ -16,6 +16,7 @@ import pandas as pd
 from pathlib import Path
 import os
 
+
 class OpGroup:
     def __init__(self, id):
         self.id = id
@@ -77,9 +78,7 @@ class Registry:
             self.op_groups[location_hash] = OpGroup(location_hash)
         self.op_groups[location_hash].add_op(op, execution_type)
 
-    def find_op(
-        self, location, asm: str, execution_type: ExecutionType
-    ):
+    def find_op(self, location, asm: str, execution_type: ExecutionType):
         for op in self.op_groups[location].ops[execution_type]:
             if op.get_asm(enable_debug_info=True) == asm:
                 return op
@@ -92,12 +91,12 @@ class Registry:
         with_output: bool = True,
     ):
         return self.op_groups[group_id].get_last(execution_type, with_output)
-        
+
     def _merge_empty_golden_groups(self):
         # Groups are keyed by (line, col); sorting gives textual order.
         sorted_ids = sorted(self.op_groups.keys())
         idx = 0
-        while idx < len(sorted_ids) - 1:            # last group has no “next”
+        while idx < len(sorted_ids) - 1:  # last group has no “next”
             gid = sorted_ids[idx]
             group = self.op_groups[gid]
 
@@ -105,17 +104,19 @@ class Registry:
             if len(group.ops[ExecutionType.DEVICE]) != 0:
                 idx += 1
                 continue
-            
+
             next_gid = sorted_ids[idx + 1]
             next_group = self.op_groups[next_gid]
 
             # Move GOLDEN ops over.
-            next_group.ops[ExecutionType.GOLDEN] = group.ops[ExecutionType.GOLDEN] + next_group.ops[ExecutionType.GOLDEN]
+            next_group.ops[ExecutionType.GOLDEN] = (
+                group.ops[ExecutionType.GOLDEN] + next_group.ops[ExecutionType.GOLDEN]
+            )
 
             # Remove the empty group and update our traversal list.
             del self.op_groups[gid]
-            sorted_ids.pop(idx)                  # keep idx at same position
-            
+            sorted_ids.pop(idx)  # keep idx at same position
+
     def dump_registry(self, out_path="registry_dump.xlsx"):
         """
         Export the registry as an Excel spreadsheet.
@@ -138,7 +139,9 @@ class Registry:
 
             rows.append(
                 {
-                    "Location": f"{loc[0]}:{loc[1]}" if isinstance(loc, tuple) else str(loc),
+                    "Location": f"{loc[0]}:{loc[1]}"
+                    if isinstance(loc, tuple)
+                    else str(loc),
                     "Golden ops": "\n".join(golden_ops),
                     "Device ops": "\n".join(device_ops),
                 }
@@ -151,10 +154,10 @@ class Registry:
             df.to_excel(writer, sheet_name="registry", index=False)
 
             # simple formatting tweaks
-            wb  = writer.book
+            wb = writer.book
             fmt = wb.add_format({"text_wrap": True, "valign": "top"})
-            ws  = writer.sheets["registry"]
-            ws.set_column(0, 0, 15)     # Location column width
+            ws = writer.sheets["registry"]
+            ws.set_column(0, 0, 15)  # Location column width
             ws.set_column(1, 2, 60, fmt)  # wrap the long lists
 
         print(f"Registry written to {out_path.resolve()}")

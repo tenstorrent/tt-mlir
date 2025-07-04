@@ -8,7 +8,6 @@ from ttmlir.ir import Context
 from chisel.core.enums import ExecutionType
 
 
-
 # Base folder
 BASE = Path("/proj_sw/user_dev/ndrakulic/chisel")
 
@@ -26,10 +25,14 @@ TEST_CONFIGS = {
 # Create parameter list
 params = []
 for model, main_fns in TEST_CONFIGS.items():
-    for ext, execution in [("ttir.mlir", ExecutionType.GOLDEN), ("ttnn.mlir", ExecutionType.DEVICE)]:
+    for ext, execution in [
+        ("ttir.mlir", ExecutionType.GOLDEN),
+        ("ttnn.mlir", ExecutionType.DEVICE),
+    ]:
         for fn in main_fns:
             path = BASE / model / ext
             params.append((path, execution, fn))
+
 
 @pytest.mark.parametrize("path, execution_type, main_fn", params)
 def test_ir_module(path: Path, execution_type: ExecutionType, main_fn: str):
