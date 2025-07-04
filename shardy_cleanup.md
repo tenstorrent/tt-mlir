@@ -1,4 +1,8 @@
-
+# 0.0 Shardy
+- Documentation: https://openxla.org/shardy
+- Sharding representation: https://openxla.org/shardy/sharding_representation
+- Sharding propagation: https://openxla.org/shardy/propagation
+- Compiler APIs: https://openxla.org/shardy/compiler_api
 
 # 1.0 StableHLO Pipeline
 
@@ -421,12 +425,14 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 
 # 3.0 ttcore enums
 ## 3.1 TTCore_MeshShardDirection
+Describes direction of sharding for mesh_shard op.
 ```
 - TTCore_MeshShardDirection_FullToShard
 - TTCore_MeshShardDirection_ShardToFull
 ```
 
 ## 3.2 TTCore_MeshShardType
+Describes how to shard the input tensor for mesh_shard op.
 ```
 - TTCore_MeshShardType_Identity: input and output tensors are pre-sharded and no sharding is required
 - TTCore_MeshShardType_Replicate: all devices have replicated tensor data
@@ -434,6 +440,7 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 ```
 
 ## 3.3 TTCore_ArgumentType
+Describes what type the argument is.
 ```
 - TTCore_ArgumentType_Input
 - TTCore_ArgumentType_Parameter
@@ -442,6 +449,7 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 ```
 
 ## 3.4 TTCore_ReduceType
+Describes what reduction type to use for multi-chip reduce ops (all_reduce, reduce_scatter).
 ```
 - TTCore_ReduceType_Sum
 - TTCore_ReduceType_Mean
@@ -452,6 +460,7 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 ```
 
 ## 3.5 TTCore_ShardStatus
+Describes what shard state an argument is in.
 ```
 - TTCore_ShardStatusType_Sharded
 - TTCore_ShardStatusType_Unsharded
@@ -459,43 +468,50 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 
 # 4.0 ttcore types
 ## 4.1 TTCore_MeshAttr
+Describes a mesh.
 ```
 - string: name
 - array: shape
 ```
 
 ## 4.2 TTCore_MeshesAttr
+Describes a list of meshes.
 ```
 - array: TTCore_MeshAttr
 ```
 
 ## 4.3 TTCore_MeshShardDirectionAttr
+Describes the sharding direction.
 ```
 - TTCore_MeshShardDirection
 ```
 
 ## 4.4 TTCore_MeshShardTypeAttr
+Describes how to shard a tensor.
 ```
 - TTCore_MeshShardType
 ```
 
 ## 4.5 TTCore_ReduceTypeAttr
+Describes mutlichip op reduction type.
 ```
 - TTCore_ReduceType
 ```
 
 ## 4.6 TTCore_TensorMeshAttr
+Tensor encoding which declares what mesh a tensor lives on.
 ```
-tensor encoding which declares what mesh a tensor lives on
 - TTCore_MeshAttr
 ```
 
 ## 4.7 TTCore_ShardStatusAttr
+Describes the sharding status of an argument.
 ```
 - TTCore_ShardStatus
 ```
 
-##4.8 TTCore_ArgumentTypeAttr
+## 4.8 TTCore_ArgumentTypeAttr
+Describes the type of an argument.
 ```
 - TTCore_ArgumentType
 ```
@@ -588,3 +604,6 @@ tensor encoding which declares what mesh a tensor lives on
 - TTNN_Device
 - array: source_target_pairs
 ```
+
+# 7.0 Conversion from shlo -> ttcore
+taps: todo
