@@ -22,6 +22,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
@@ -995,6 +996,41 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
   return success();
 }
+
+// Rewrites the current PoolingOp to operate directly on quantized operands.
+//
+// This method constructs a new PoolingOp using the provided quantized inputs
+// and result type, preserving the original operation’s attributes.
+//
+// Returns:
+// - A pointer to the newly created quantized PoolingOp.
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> quantizedOperands,
+    mlir::Type quantizedResultType) {
+  // Can only commute if the pooling method is Max.
+  if (this->getPoolingMethod() != PoolingMethod::Max) {
+    return nullptr;
+  }
+  // Can only commute in the per tensor quantized case.
+  if (auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+          quantizedResultType)) {
+    return nullptr;
+  }
+  unsigned numInputs = getInputs().size();
+  unsigned numOutputs = getOutputs().size();
+  mlir::ValueRange inputs = quantizedOperands.take_front(numInputs);
+  mlir::ValueRange outputs =
+      quantizedOperands.drop_front(numInputs).take_front(numOutputs);
+  auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
+      getLoc(), mlir::TypeRange{quantizedResultType}, inputs, outputs,
+      getPoolingMethod(), getWindowDimensions(), getWindowStrides(),
+      getBaseDilations(), getWindowDilations(), getPadding());
+  rewriter.replaceOp(*this, newOp.getResults());
+  return newOp.getOperation();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // Common verifier for pooling ops
