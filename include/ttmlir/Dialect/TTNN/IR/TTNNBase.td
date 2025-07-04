@@ -10,7 +10,6 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNRequiresExplicitBroadcastInterface.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNElementwiseBinaryInterface.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN dialect definition.

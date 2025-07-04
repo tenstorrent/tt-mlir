@@ -50,8 +50,9 @@ public:
       }
 
       llvm::SmallVector<int64_t> prevShape = implicitBroadcastedShape;
-      mlir::OpTrait::util::getBroadcastedShape(prevShape, originalOperandShape,
-                                               implicitBroadcastedShape);
+      assert(mlir::OpTrait::util::getBroadcastedShape(
+                 prevShape, originalOperandShape, implicitBroadcastedShape) &&
+             "Operands must be broadcast-compatible");
     }
 
     auto resultType = mlir::cast<RankedTensorType>(dps->getResult(0).getType());
