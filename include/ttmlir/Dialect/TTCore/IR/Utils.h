@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -45,23 +46,58 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
                                     bool privateVisibility = true,
                                     size_t alignment = 0);
 
+// Helper function to check if a block argument is consteval-able (Parameter or
+// Constant)
+inline bool isConstOrParamArg(mlir::BlockArgument blockArg,
+                              mlir::func::FuncOp funcOp) {
+  if (auto typeAttr = funcOp.getArgAttrOfType<ArgumentTypeAttr>(
+          blockArg.getArgNumber(), ArgumentTypeAttr::name)) {
+    auto argTypeValue = typeAttr.getValue();
+    return argTypeValue == ArgumentType::Parameter ||
+           argTypeValue == ArgumentType::Constant;
+  }
+  return false;
+}
+
 // Filters out the constant parameters from the function signature.
 inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
 getConstsAndParams(mlir::func::FuncOp funcOp) {
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
 
   for (auto arg : funcOp.getArguments()) {
-    if (auto typeAttr = funcOp.getArgAttrOfType<ArgumentTypeAttr>(
-            arg.getArgNumber(), ArgumentTypeAttr::name)) {
-      auto argTypeValue = typeAttr.getValue();
-      if (argTypeValue == ArgumentType::Parameter ||
-          argTypeValue == ArgumentType::Constant) {
-        constsAndParams.insert(arg);
-      }
+    if (isConstOrParamArg(arg, funcOp)) {
+      constsAndParams.insert(arg);
     }
   }
 
   return constsAndParams;
+}
+
+// This function will return true if a given Value is the result of operations
+// performed only between  block arguments in which have been marked as
+// consteval-able (Parameter or Constant ArgumentType).
+inline bool valueTracesToConstantArgs(const mlir::Value &value) {
+  auto useDefChain = ttmlir::utils::getUseDefChain(value);
+  auto subgraphBlockArgs =
+      ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+  mlir::func::FuncOp funcOp = nullptr;
+
+  if (!subgraphBlockArgs.empty()) {
+    mlir::Block *argOwner = subgraphBlockArgs.front().getOwner();
+    funcOp =
+        mlir::dyn_cast_or_null<mlir::func::FuncOp>(argOwner->getParentOp());
+  }
+  if (!funcOp) {
+    return false;
+  }
+
+  for (auto blockArg : subgraphBlockArgs) {
+    if (!isConstOrParamArg(blockArg, funcOp)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 bool isTiled(RankedTensorType tensorType);
 
