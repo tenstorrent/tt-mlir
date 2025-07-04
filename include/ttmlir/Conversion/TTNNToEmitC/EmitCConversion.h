@@ -1091,7 +1091,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".output_layout = "
           << EmitCTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
-      firstElement = false;
     }
     rso << "}";
     return buf;
