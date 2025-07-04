@@ -332,16 +332,6 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
     config.output_layout = getPageLayout(*conv2dConfig->getOutputLayout());
   }
 
-  if (conv2dConfig->getPreprocessWeightsOnDevice()) {
-    config.preprocess_weights_on_device =
-        conv2dConfig->getPreprocessWeightsOnDevice().getValue();
-  }
-
-  if (conv2dConfig->getAlwaysPreprocessWeights()) {
-    config.always_preprocess_weights =
-        conv2dConfig->getAlwaysPreprocessWeights().getValue();
-  }
-
   if (conv2dConfig->getEnableActDoubleBuffer()) {
     config.enable_act_double_buffer =
         conv2dConfig->getEnableActDoubleBuffer().getValue();

@@ -458,8 +458,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"CoreRangeSetAttr">:$core_grid,
                         OptionalParameter<"BoolAttr">:$transpose_shards,
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
-                        OptionalParameter<"BoolAttr">:$preprocess_weights_on_device,
-                        OptionalParameter<"BoolAttr">:$always_preprocess_weights,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_split_reader,
@@ -483,8 +481,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withCoreGrid(CoreRangeSetAttr grid) const;
     Conv2dConfigAttr withTransposeShards(bool value) const;
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
-    Conv2dConfigAttr withPreprocessWeightsOnDevice(bool value) const;
-    Conv2dConfigAttr withAlwaysPreprocessWeights(bool value) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableSplitReader(bool value) const;
