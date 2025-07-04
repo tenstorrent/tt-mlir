@@ -18,8 +18,6 @@ table Conv2dConfig {
   core_grid: CoreRangeSet;
   transpose_shards: bool = null;
   output_layout: TensorLayout = null;
-  preprocess_weights_on_device: bool = null;
-  always_preprocess_weights: bool = null;
   enable_act_double_buffer: bool = null;
   enable_weights_double_buffer: bool = null;
   enable_split_reader: bool = null;
