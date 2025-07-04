@@ -112,10 +112,10 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
       options.repeatFoldingWorkaroundEnabled};
 
-  // Optimizer solves layout constraints using graph capture.
   if (options.optimizerPassEnabled) {
-    workaroundOptions.layoutWorkaroundsEnabled = false;
+    workaroundOptions.optimizerEnabled = true;
   }
+
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
 }

@@ -269,11 +269,17 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 class TTNNOperandsWorkaroundsRewriter
     : public OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface> {
 public:
-  TTNNOperandsWorkaroundsRewriter(MLIRContext *ctx)
-      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx) {}
+  TTNNOperandsWorkaroundsRewriter(MLIRContext *ctx,
+                                  const std::set<mlir::StringRef> *enabledOps)
+      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx),
+        enabledOps(enabledOps) {}
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
+    if (!enabledOps->count(op.getOperation()->getName().getStringRef())) {
+      return failure();
+    }
+
     // To layout op is a special case, we don't want to rewrite it. We use it
     // to apply workarounds to the operands and results of TTNN operations.
     if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
@@ -324,6 +330,10 @@ public:
     // Return success if the transformations were applied.
     return modified ? success() : failure();
   }
+
+private:
+  // Set of ops that are enabled for workarounds.
+  const std::set<mlir::StringRef> *enabledOps;
 };
 
 // Currently, TTNN does not support AllGather when the gather is happening on
@@ -756,7 +766,15 @@ public:
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
+
+      std::set<mlir::StringRef> enabledOps;
+      if (optimizerEnabled) {
+        enabledOps = enabledOpsForWorkaroundWithOptimizer;
+      } else {
+        enabledOps = utils::getAllTTNNDialectOps(&getContext());
+      }
+
+      patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext(), &enabledOps);
 
       // All layout workarounds should be applied during the first iteration.
       // If the workarounds are not applied in the first iteration, it
@@ -786,5 +804,12 @@ private:
       return;
     }
   }
+
+  static const std::set<mlir::StringRef> enabledOpsForWorkaroundWithOptimizer;
 };
+
+const std::set<mlir::StringRef>
+    TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
+        ttnn::WhereOp::getOperationName()};
+
 } // namespace mlir::tt::ttnn

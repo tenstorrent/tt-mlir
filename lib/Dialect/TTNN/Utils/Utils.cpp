@@ -234,4 +234,20 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
   return layout.withElementType(elementType, shape);
 }
 
+std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
+  std::set<mlir::StringRef> opNames;
+  TTNNDialect *dialect = context->getLoadedDialect<TTNNDialect>();
+
+  // We should use getRegisteredOperationsByDialect but it has a bug in MLIR.
+  // See https://github.com/llvm/llvm-project/issues/146940.
+  for (mlir::RegisteredOperationName opName :
+       context->getRegisteredOperations()) {
+    if (opName.getDialectNamespace() != dialect->getNamespace()) {
+      continue;
+    }
+    opNames.insert(opName.getStringRef());
+  }
+  return opNames;
+}
+
 } // namespace mlir::tt::ttnn::utils
