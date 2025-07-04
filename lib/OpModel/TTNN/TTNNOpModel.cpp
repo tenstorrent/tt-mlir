@@ -1417,7 +1417,7 @@ llvm::Expected<size_t> ToLayoutOpInterface::getOpRuntime(
 // ToMemoryConfigOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> ToMemoryConfigOpInterface::getOpConstraints(
-    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
     llvm::ArrayRef<int64_t> outputShape,

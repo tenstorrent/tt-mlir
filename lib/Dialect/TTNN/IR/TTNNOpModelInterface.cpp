@@ -622,7 +622,8 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   if (!check) {
     return check.takeError();
   }
-  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return op_model::ttnn::ToMemoryConfigOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], getMemoryConfig(), outputShape,
