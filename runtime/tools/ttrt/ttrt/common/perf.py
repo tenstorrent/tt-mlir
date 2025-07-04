@@ -141,6 +141,13 @@ class Perf:
             help="Rate at which to flush device perf information",
         )
         Perf.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -377,6 +384,12 @@ class Perf:
                     self.tracy_capture_tool_process = subprocess.Popen(
                         tracy_capture_tool_command, shell=True
                     )
+
+                    if self["--benchmark"]:
+                        self["--loops"] = 2
+                        self["--enable-program-cache"] = True
+                        self["--disable-golden"] = True
+                        self["--program-index"] = 0
 
                     command_options = f"--enable-perf-trace --program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
@@ -617,6 +630,44 @@ class Perf:
                     self.file_manager.copy_file(
                         perf_folder_path,
                         profiler_csv_file_path,
+                    )
+
+                    # create ops_perf_results_minus_const_eval.csv
+                    dir_name = os.path.dirname(profiler_csv_file_path)
+                    base_name = os.path.basename(profiler_csv_file_path)
+                    file_root, file_ext = os.path.splitext(base_name)
+                    profiler_csv_minus_const_eval_file_path = os.path.join(
+                        dir_name, f"{file_root}_minus_const_eval{file_ext}"
+                    )
+
+                    with open(
+                        profiler_csv_file_path, mode="r", newline="", encoding="utf-8"
+                    ) as infile:
+                        reader = csv.DictReader(infile)
+
+                        # Open the output CSV file for writing
+                        with open(
+                            profiler_csv_minus_const_eval_file_path,
+                            mode="w",
+                            newline="",
+                            encoding="utf-8",
+                        ) as outfile:
+                            writer = csv.DictWriter(
+                                outfile, fieldnames=reader.fieldnames
+                            )
+                            writer.writeheader()
+
+                            # Filter and write rows where CONST_EVAL_OP == "true"
+                            for row in reader:
+                                if (
+                                    row.get("CONST_EVAL_OP", "").replace(" ", "")
+                                    == "false"
+                                ):
+                                    writer.writerow(row)
+
+                    self.file_manager.copy_file(
+                        perf_folder_path,
+                        profiler_csv_minus_const_eval_file_path,
                     )
 
                     # post-process test results
