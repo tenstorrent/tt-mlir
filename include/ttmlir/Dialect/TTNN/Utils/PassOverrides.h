@@ -59,8 +59,7 @@ struct Conv2dConfigOverrideParams {
            !reshardIfNotOptimal.has_value() &&
            !overrideShardingConfig.has_value() && !shardLayout.has_value() &&
            !coreGrid.has_value() && !transposeShards.has_value() &&
-           !outputLayout.has_value() &&
-           !enableActDoubleBuffer.has_value() &&
+           !outputLayout.has_value() && !enableActDoubleBuffer.has_value() &&
            !enableWeightsDoubleBuffer.has_value() &&
            !enableSplitReader.has_value() && !enableSubblockPadding.has_value();
   }
