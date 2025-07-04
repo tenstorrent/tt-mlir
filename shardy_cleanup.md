@@ -3,25 +3,25 @@
 # 1.0 StableHLO Pipeline
 
 ## 1.1 Passes
-1. (inliner) inliner 
-2. (apply-tt-argument-annotations)
-3. (apply-argument-shard-status)
-4. (apply-shardy-argument-annotations)
+### 1.1.1 (inliner) inliner 
+### 1.1.2 (apply-tt-argument-annotations)
+### 1.1.3 (apply-argument-shard-status)
+### 1.1.4 (apply-shardy-argument-annotations)
   - if manual computation op exists, graph is solved. remove all sdy annotations from arguments
   - if not solved graph
     - partially solved graph: if sdy annotations exists (arguments, graph ops, sharding constraint) do nothing
     - if no sdy annotations exists
       - if arguments are annotated with tt.arguments, convert into sdy for batch parallel
       - if arguments are not annotated with tt.arguments, perform automatic analysis for batch parallel
-5. (apply-sharding-constraints) apply sharding constraints
-6. (aggressive-propagation) sdy propagation
-7. (sharding-constraint-to-reshard) sharding constraint to reshards
-8. (insert-explicit-reshards) insert explicit reshards
-9. (wrap-under-manual-computation) wrap all global ops under manual computation op
-10. (reshard-to-collectives) reshard to collectives
-11. (update-global-to-local-shapes) update global shapes to local shapes
-12. (close-shardings) close shardings
-13. (canonicalizer) canonicalizer
+### 1.1.5 (apply-sharding-constraints) apply sharding constraints
+### 1.1.6 (aggressive-propagation) sdy propagation
+### 1.1.7 (sharding-constraint-to-reshard) sharding constraint to reshards
+### 1.1.8 (insert-explicit-reshards) insert explicit reshards
+### 1.1.9 (wrap-under-manual-computation) wrap all global ops under manual computation op
+### 1.1.10 (reshard-to-collectives) reshard to collectives
+### 1.1.11 (update-global-to-local-shapes) update global shapes to local shapes
+### 1.1.12 (close-shardings) close shardings
+### 1.1.13 (canonicalizer) canonicalizer
 
 After all passes have run, we have a completely solved graph with all ops under a manual computation op and arguments are annotated with whether they are pre-sharded or not. No sdy annotations exist (except for sdy.mesh)
 
@@ -69,12 +69,12 @@ input is not sharded
 output is not sharded
 
 example
-'''
+```
 func.func public @abs(%arg0: tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32> {
   %0 = stablehlo.abs %arg0 : tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations)
