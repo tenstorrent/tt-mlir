@@ -78,43 +78,43 @@ func.func public @abs(%arg0: tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32>
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations)
-'''
+```
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<32x48x24x32xf32> {
   %0 = stablehlo.abs %arg0 : tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 3. (apply-argument-shard-status)
-'''
+```
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> tensor<32x48x24x32xf32> {
   %0 = stablehlo.abs %arg0 : tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 4. (apply-shardy-argument-annotations)
 This is assuming argument dictionary is provided. If it is not provided, perform automatic analysis to determine how to shard the inputs.
 Also, we need to pass the system desc at this stage to determine whether to compile for single chip or multi chip.
 Single chip graphs will have 1x1 mesh, multi chip graphs will have 1xn.
-'''
+```
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> tensor<32x48x24x32xf32> {
   %0 = stablehlo.abs %arg0 : tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 5. (apply-sharding-constraints): no change
 6. (aggressive-propagation)
-'''
+```
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<32x48x24x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch", ?}, {?}, {?}, {?}]>}) {
   %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch", ?}, {?}, {?}, {?}]>]>} : tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 7. (sharding-constraint-to-reshard): no change
 8. (insert-explicit-reshards): no change
 9. (wrap-under-manual-computation)
-'''
+```
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<32x48x24x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch", ?}, {?}, {?}, {?}]>}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch", ?}, {?}, {?}, {?}]>] manual_axes={} (%arg1: tensor<32x48x24x32xf32>) {
@@ -123,10 +123,10 @@ func.func public @abs(%arg0: tensor<32x48x24x32xf32> {sdy.sharding = #sdy.shardi
   } : (tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 10. (reshard-to-collectives): no change
 11. (update-global-to-local-shapes)
-'''
+```
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> tensor<32x48x24x32xf32> {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch", ?}, {?}, {?}, {?}]>] manual_axes={"model", "batch"} (%arg1: tensor<16x48x24x32xf32>) {
@@ -135,9 +135,9 @@ func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #tt
   } : (tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 12. (close-shardings)
-'''
+```
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> tensor<32x48x24x32xf32> {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] manual_axes={"model", "batch"} (%arg1: tensor<16x48x24x32xf32>) {
@@ -146,7 +146,7 @@ func.func public @abs(%arg0: tensor<32x48x24x32xf32> {ttcore.argument_type = #tt
   } : (tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32>
   return %0 : tensor<32x48x24x32xf32>
 }
-'''
+```
 13. (canonicalizer): no change
 
 ## 2.2 Case 2
@@ -158,7 +158,7 @@ input is not sharded
 output is not sharded
 
 example
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32>) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] out_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] manual_axes={"y", "x"} (%arg1: tensor<1x512x128x256xf32>) {
@@ -167,11 +167,11 @@ func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128
   } : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
   return %0 : tensor<1x1024x128x1024xf32>
 }
-'''
+```
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations)
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<1x1024x128x1024xf32> {ttcore.argument_type = #ttcore.argument_type<input>}) -> (tensor<1x1024x128x1024xf32>) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] out_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] manual_axes={"y", "x"} (%arg1: tensor<1x512x128x256xf32>) {
@@ -180,9 +180,9 @@ func.func public @main(%arg0: tensor<1x1024x128x1024xf32> {ttcore.argument_type 
   } : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
   return %0 : tensor<1x1024x128x1024xf32>
 }
-'''
+```
 3. (apply-argument-shard-status)
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<1x1024x128x1024xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<1x1024x128x1024xf32>) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] out_shardings=[<@mesh, [{}, {"x"}, {}, {"y"}]>] manual_axes={"y", "x"} (%arg1: tensor<1x512x128x256xf32>) {
@@ -191,7 +191,7 @@ func.func public @main(%arg0: tensor<1x1024x128x1024xf32> {ttcore.argument_type 
   } : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
   return %0 : tensor<1x1024x128x1024xf32>
 }
-'''
+```
 4-13. no change
 
 ## 2.3 Case 3
@@ -203,7 +203,7 @@ inputs are pre-sharded
 outputs will remain sharded
 
 example
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
   %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
@@ -217,11 +217,11 @@ func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding
   } : (tensor<8192x784xf32>, tensor<784x16384xf32>) -> tensor<8192x16384xf32>
   return %0 : tensor<8192x16384xf32>
 }
-'''
+```
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations)
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>, ttcore.argument_type = #ttcore.argument_type<parameter>}) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
   %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
@@ -235,9 +235,9 @@ func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding
   } : (tensor<8192x784xf32>, tensor<784x16384xf32>) -> tensor<8192x16384xf32>
   return %0 : tensor<8192x16384xf32>
 }
-'''
+```
 3. (apply-argument-shard-status)
-'''
+```
 sdy.mesh @mesh = <["x"=2, "y"=4]>
 func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<sharded>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>, ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
   %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
@@ -251,7 +251,7 @@ func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding
   } : (tensor<8192x784xf32>, tensor<784x16384xf32>) -> tensor<8192x16384xf32>
   return %0 : tensor<8192x16384xf32>
 }
-'''
+```
 4-13. no change
 
 ## 2.4 Case 4
@@ -263,38 +263,38 @@ inputs are pre-sharded
 outputs will remain sharded
 
 example
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
   %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations): no change (we could provide them but just for example sake, we didn't)
 3. (apply-argument-shard-status)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
   %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 4. (apply-shardy-argument-annotations): no change
 5. (apply-sharding-constraints): no change
 6. (aggressive-propagation)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<2048x1024xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"batch", ?}, {?}]>}) {
   %0 = stablehlo.reshape %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch", ?}, {?}]>]>} : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 7. (sharding-constraint-to-reshard): no change
 8. (insert-explicit-reshards): no change
 9. (wrap-under-manual-computation)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<2048x1024xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"batch", ?}, {?}]>}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch", ?}, {?}]>] manual_axes={} (%arg1: tensor<1024x2x32x32xf32>) {
@@ -303,10 +303,10 @@ func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.shar
   } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 10. (reshard-to-collectives): no change
 11. (update-global-to-local-shapes)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch", ?}, {?}]>] manual_axes={"x", "batch"} (%arg1: tensor<128x2x32x32xf32>) {
@@ -315,9 +315,9 @@ func.func public @main(%arg0: tensor<1024x2x32x32xf32> {ttcore.shard_status = #t
   } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 12. (close-shardings)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "batch"=8]>
 func.func public @main(%arg0: tensor<1024x2x32x32xf32> {ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {}, {}, {}]>] out_shardings=[<@mesh, [{"batch"}, {}]>] manual_axes={"x", "batch"} (%arg1: tensor<128x2x32x32xf32>) {
@@ -326,7 +326,7 @@ func.func public @main(%arg0: tensor<1024x2x32x32xf32> {ttcore.shard_status = #t
   } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
   return %0 : tensor<2048x1024xf32>
 }
-'''
+```
 13. (canonicalizer): no change
 
 ## 2.5 Case 5
@@ -338,7 +338,7 @@ inputs are pre-sharded
 outputs will remain sharded
 
 example
-'''
+```
 sdy.mesh @mesh = <["_axis_0"=2, "_axis_1"=4]>
 func.func @main(%arg0: tensor<f32> {sdy.sharding = #sdy.sharding<@mesh, []>}, %arg1: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {"_axis_1"}]>}) -> (tensor<16384x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {"_axis_1"}]>}) {
   %0 = stablehlo.broadcast_in_dim %arg0, dims = [] {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"_axis_0"}, {"_axis_1"}]>]>} : (tensor<f32>) -> tensor<8192x784xf32>
@@ -346,52 +346,52 @@ func.func @main(%arg0: tensor<f32> {sdy.sharding = #sdy.sharding<@mesh, []>}, %a
   %2 = "stablehlo.all_gather"(%1) <{all_gather_dim = 0 : i64, channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, use_global_device_ids}> {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"_axis_0"}, {"_axis_1"}]>]>} : (tensor<8192x784xf32>) -> tensor<16384x784xf32>
   return %2 : tensor<16384x784xf32>
 }
-'''
+```
 
 ## 2.6 Case 6
 There can be other situations where the graph is partially solved, at various steps of the sharding solver stage, in which case the above passes should take care of. For example, we walk through a sharding constraint example which will exercise the external shardy passes.
 
 example
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.sharding_constraint %arg0 <@mesh, [{}, {}]> : tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
-'''
+```
 
 1. (inliner): no change
 2. (apply-tt-argument-annotations): no change (doesn't matter if we include it for this example or not)
 3. (apply-argument-shard-status)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.sharding_constraint %arg0 <@mesh, [{}, {}]> : tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
-'''
+```
 4. (apply-shardy-argument-annotations): no change
 5. (apply-sharding-constraints): no change
 6. (aggressive-propagation): no change
 7. (sharding-constraint-to-reshard)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.reshard %arg0 <@mesh, [{}, {}]> : tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
-'''
+```
 8. (insert-explicit-reshards)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.reshard %arg0 <@mesh, [{}, {}]> : tensor<32x32xf32>
   %1 = sdy.reshard %0 <@mesh, [{"y"}, {"x"}]> : tensor<32x32xf32>
   return %1 : tensor<32x32xf32>
 }
-'''
+```
 9. (wrap-under-manual-computation)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x"}, {"y"}]>] out_shardings=[<@mesh, [{"y"}, {"x"}]>] manual_axes={} (%arg1: tensor<32x32xf32>) {
@@ -401,9 +401,9 @@ func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@m
   } : (tensor<32x32xf32>) -> tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
-'''
+```
 10. (reshard-to-collectives)
-'''
+```
 sdy.mesh @mesh = <["x"=1, "y"=2]>
 func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>, ttcore.shard_status = #ttcore.shard_status<sharded>}) -> (tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {"x"}]>}) {
   %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x"}, {"y"}]>] out_shardings=[<@mesh, [{"y"}, {"x"}]>] manual_axes={} (%arg1: tensor<32x32xf32>) {
@@ -413,7 +413,7 @@ func.func public @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@m
   } : (tensor<32x32xf32>) -> tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
-'''
+```
 11. (update-global-to-local-shapes)
 We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert into stablehlo.all_gather.
 12. (close-shardings): no change
@@ -421,170 +421,170 @@ We don't have conversion for sdy.all_slice yet but sdy.all_gather will convert i
 
 # 3.0 ttcore enums
 ## 3.1 TTCore_MeshShardDirection
-'''
+```
 - TTCore_MeshShardDirection_FullToShard
 - TTCore_MeshShardDirection_ShardToFull
-'''
+```
 
 ## 3.2 TTCore_MeshShardType
-'''
+```
 - TTCore_MeshShardType_Identity: input and output tensors are pre-sharded and no sharding is required
 - TTCore_MeshShardType_Replicate: all devices have replicated tensor data
 - TTCore_MeshShardType_Devices: all devices have sharded data
-'''
+```
 
 ## 3.3 TTCore_ArgumentType
-'''
+```
 - TTCore_ArgumentType_Input
 - TTCore_ArgumentType_Parameter
 - TTCore_ArgumentType_Constant
 - TTCore_ArgumentType_Default
-'''
+```
 
 ## 3.4 TTCore_ReduceType
-'''
+```
 - TTCore_ReduceType_Sum
 - TTCore_ReduceType_Mean
 - TTCore_ReduceType_Max
 - TTCore_ReduceType_Min
 - TTCore_ReduceType_Std
 - TTCore_ReduceType_Var 
-'''
+```
 
 ## 3.5 TTCore_ShardStatus
-'''
+```
 - TTCore_ShardStatusType_Sharded
 - TTCore_ShardStatusType_Unsharded
-'''
+```
 
 # 4.0 ttcore types
 ## 4.1 TTCore_MeshAttr
-'''
+```
 - string: name
 - array: shape
-'''
+```
 
 ## 4.2 TTCore_MeshesAttr
-'''
+```
 - array: TTCore_MeshAttr
-'''
+```
 
 ## 4.3 TTCore_MeshShardDirectionAttr
-'''
+```
 - TTCore_MeshShardDirection
-'''
+```
 
 ## 4.4 TTCore_MeshShardTypeAttr
-'''
+```
 - TTCore_MeshShardType
-'''
+```
 
 ## 4.5 TTCore_ReduceTypeAttr
-'''
+```
 - TTCore_ReduceType
-'''
+```
 
 ## 4.6 TTCore_TensorMeshAttr
-'''
+```
 tensor encoding which declares what mesh a tensor lives on
 - TTCore_MeshAttr
-'''
+```
 
 ## 4.7 TTCore_ShardStatusAttr
-'''
+```
 - TTCore_ShardStatus
-'''
+```
 
 ##4.8 TTCore_ArgumentTypeAttr
-'''
+```
 - TTCore_ArgumentType
-'''
+```
 
 # 5.0 ttir ops
 ## 5.1 TTIR_MeshShardOp
-'''
+```
 - ranked_tensor: input
 - ranked_tensor: output
 - TTCore_MeshShardTypeAttr
 - TTCore_MeshShardDirectionAttr
 - array: shard_shape
 - array: shard_dims
-'''
+```
 
 ## 5.2 TTIR_AllGatherOp
-'''
+```
 - ranked_tensor: input
 - ranked_tensor: output
 - i32: all_gather_dim
 - ui32: cluster_axis
-'''
+```
 
 ## 5.3 TTIR_AllReduceOp
-'''
+```
 - ranked_tensor: input
 - ranked_tensor: output
 - TTCore_ReduceTypeAttr
 - ui32: cluster_axis
-'''
+```
 
 ## 5.4 TTIR_ReduceScatterOp
-'''
+```
 - ranked_tensor: input
 - ranked_tensor: output
 - TTCore_ReduceTypeAttr
 - i32: scatter_dim
 - ui32: cluster_axis
-'''
+```
 
 ## 5.5 TTIR_CollectivePermuteOp
-'''
+```
 - ranked_tensor: input
 - ranked_tensor: output
 - array: source_target_pairs
-'''
+```
 
 # 6.0 ttnn ops
 ## 6.1 TTNN_MeshShardOp
-'''
+```
 - ranked_tensor: input
 - TTNN_Device
 - TTCore_MeshShardDirectionAttr
 - TTCore_MeshShardTypeAttr
 - array: shard_shape
 - array: shard_dims
-'''
+```
 
 ## 6.2 TTNN_AllGatherOp
-'''
+```
 - ranked_tensor: input
 - TTNN_Device
 - i32: all_gather_dim
 - ui32: cluster_axis
 - ui32: num_links
-'''
+```
 
 ## 6.3 TTNN_ReduceScatterOp
-'''
+```
 - ranked_tensor: input
 - TTNN_Device
 - TTCore_ReduceTypeAttr
 - i32: scatter_dim
 - ui32: cluster_axis
 - ui32: num_links
-'''
+```
 
 ## 6.4 TTNN_AllReduceOp
-'''
+```
 - ranked_tensor: input
 - TTNN_Device
 - TTCore_ReduceTypeAttr
 - ui32: cluster_axis
 - ui32: num_links
-'''
+```
 
 ## 6.5 TTNN_CollectivePermuteOp
-'''
+```
 - ranked_tensor: input
 - TTNN_Device
 - array: source_target_pairs
-'''
+```
