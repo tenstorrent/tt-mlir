@@ -16,7 +16,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZETENSORLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-static ttcore::GridAttr getOptimalGrid(PatternRewriter &rewriter,
+static ttcore::GridAttr getOptimalGrid(OpBuilder &rewriter,
                                        ArrayRef<int64_t> memrefShape,
                                        ArrayRef<int64_t> deviceGridShape) {
   assert(memrefShape.size() == deviceGridShape.size());
@@ -56,7 +56,7 @@ static RankedTensorType applyGridShape(RankedTensorType tensorType,
 }
 
 static RankedTensorType calculateOptimalLayoutForTensorType(
-    PatternRewriter &rewriter, Value tensor,
+    OpBuilder &rewriter, Value tensor,
     const SmallVector<int64_t> &workerGridShape) {
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
   auto tensorEncoding =
@@ -147,6 +147,21 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
   return inverse.compose(flattenedBlockFactors);
 }
 
+// This override is the "trivial" way to k-block matmuls so that we can test and
+// benchmark large matmuls. We set the block factor for k to the size of the k
+// shard dimension. This means each block is one tile. In the future, we should
+// intelligently pick this factor to optimize memory usage.
+static void
+overrideMatmulKBlockFactor(OpBuilder &rewriter, Value in0Tensor,
+                           SmallVector<int64_t> &blockFactors,
+                           const SmallVector<int64_t> &workerGridShape) {
+  auto optimalTensorType =
+      calculateOptimalLayoutForTensorType(rewriter, in0Tensor, workerGridShape);
+  ttcore::MetalLayoutAttr metalLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(optimalTensorType.getEncoding());
+  blockFactors[2] = metalLayout.getShardShape(optimalTensorType)[1];
+}
+
 namespace {
 struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
   TTIRGenericTensorLayoutRewriter(MLIRContext *context,
@@ -170,6 +185,14 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         metalLayout.getShardShape(newTensorType);
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
         op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    // If we are doing matmul, we override the k block factor.
+    if (op.getIteratorTypesValue().size() == 3 &&
+        op.getIteratorTypesValue()[0] == ttcore::IteratorType::Parallel &&
+        op.getIteratorTypesValue()[1] == ttcore::IteratorType::Parallel &&
+        op.getIteratorTypesValue()[2] == ttcore::IteratorType::Reduction) {
+      overrideMatmulKBlockFactor(rewriter, op->getOperand(0), blockFactors,
+                                 workerGridShape);
+    }
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
     if (op.getGrid().getShape() == metalLayout.getGridShape(newTensorType) &&
         !blockFactorsChanged) {
