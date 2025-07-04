@@ -2658,4 +2658,24 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
   return walkResult.wasInterrupted() ? ::mlir::failure() : ::mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+// PointToPointOp
+//===----------------------------------------------------------------------===//
+
+// PointToPointOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PointToPointOp::verify() {
+  if (getOutputTensor()) { // output_tensor is optional
+    auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
+    auto outputType =
+        llvm::dyn_cast<RankedTensorType>(getOutputTensor().getType());
+
+    if (inputType.getElementType() != outputType.getElementType() ||
+        inputType.getShape() != outputType.getShape()) {
+      return emitOpError(
+          "Output tensor must match input tensor in shape and element type.");
+    }
+  }
+  return success();
+}
+
 } // namespace mlir::tt::ttnn
