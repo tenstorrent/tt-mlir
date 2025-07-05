@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 from pathlib import Path
-from chisel.core.ops import IRModule, attr_type_set
+from chisel.core.ops import IRModule
 from ttmlir.ir import Context
 from chisel.core.enums import ExecutionType
 
@@ -40,5 +40,5 @@ def test_ir_module(path: Path, execution_type: ExecutionType, main_fn: str):
         mlir_text=path.read_text(),
         context=Context(),
         execution_type=execution_type,
-        main_op_name=main_fn,
+        main_function_name=main_fn,
     )
