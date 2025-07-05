@@ -365,6 +365,8 @@ def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     let description = [{
       Must be called before recip_tile function.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
@@ -385,6 +387,8 @@ def TTKernel_PowBinaryTilesInitOp : TTKernel_InitOp<"power_binary_tile_init"> {
     let description = [{
       Must be run before power_binary_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -404,6 +408,8 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let description = [{
       Must be run before exp_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
@@ -418,11 +424,34 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$tile_index);
 }
 
+def TTKernel_LogTileInitOp : TTKernel_InitOp<"log_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of log_tile.";
+    let description = [{
+      Must be run before log_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_LogTileOp : TTKernel_SFPUOp<"log_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Log operation";
+    let description = [{
+      Performs element-wise computation of log on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
 def TTKernel_NegativeTileInitOp : TTKernel_InitOp<"negative_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of negative_tile.";
     let description = [{
       Must be run before negative_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_NegativeTileOp : TTKernel_SFPUOp<"negative_tile", [TTKernel_UnaryOpTrait]> {
@@ -442,6 +471,8 @@ def TTKernel_CosTileInitOp : TTKernel_InitOp<"cos_tile_init"> {
     let description = [{
       Must be run before cos_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_CosTileOp : TTKernel_SFPUOp<"cos_tile", [TTKernel_UnaryOpTrait]> {
@@ -456,11 +487,55 @@ def TTKernel_CosTileOp : TTKernel_SFPUOp<"cos_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$tile_index);
 }
 
+def TTKernel_TanTileInitOp : TTKernel_InitOp<"tan_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of tan_tile.";
+    let description = [{
+      Must be run before tan_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_TanTileOp : TTKernel_SFPUOp<"tan_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Tan operation";
+    let description = [{
+      Performs element-wise computation of the trigonometric tangent operation on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
+def TTKernel_SqrtTileInitOp : TTKernel_InitOp<"sqrt_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of sqrt_tile.";
+    let description = [{
+      Must be run before sqrt_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_SqrtTileOp : TTKernel_SFPUOp<"sqrt_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sqrt operation";
+    let description = [{
+      Performs element-wise computation of sqrt on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
 def TTKernel_RsqrtTileInitOp : TTKernel_InitOp<"rsqrt_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of rsqrt_tile.";
     let description = [{
       Must be run before rsqrt_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_RsqrtTileOp : TTKernel_SFPUOp<"rsqrt_tile", [TTKernel_UnaryOpTrait]> {
@@ -529,6 +604,96 @@ def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_Unar
     let arguments = (ins IndexLike:$dst0_index);
 }
 
+def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Floor tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of floor operation
+      DST[dst0_index] <- floor(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Floor f32 tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of floor operation
+      DST[dst0_index] <- floor(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_AbsTileInitOp : TTKernel_InitOp<"abs_tile_init"> {
+    let summary = "Init function for abs_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before abs_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_AbsTileOp : TTKernel_SFPUOp<"abs_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Absolute value tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of absolute value operation
+      DST[dst0_index] <- abs(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_AbsTileI32Op : TTKernel_SFPUOp<"abs_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Absolute value i32 tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of absolute value operation
+      DST[dst0_index] <- abs(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
+    let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before logical_not_unary_tile(_int32).
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Logical negation tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of logical negation operation
+      DST[dst0_index] <- !DST[dst0_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Logical negation tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of logical negation operation for the int32 data type
+      DST[dst0_index] <- !DST[dst0_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{
@@ -558,6 +723,8 @@ def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let description = [{
       Must be run before sigmoid_tile.
     }];
+
+    let arguments = (ins);
 }
 
 def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTrait]> {

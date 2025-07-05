@@ -30,10 +30,34 @@ def abs(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     return builder.abs(in0, unit_attrs=unit_attrs)
 
 
-def logical_not(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.logical_not(in0, unit_attrs=unit_attrs)
+# TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
+    def logical_not(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        randn_tensor = torch.randn(shape, dtype=torch.float32)
+        input_tensor = randn_tensor.uniform_(-10.0, 10.0)
+        input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
+        input_tensor = input_tensor.to(dtype)
+        # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype
+        golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
+        builder.set_graph_input_output(
+            [input_tensor], [golden_output_tensor], override=True
+        )
+        return builder.logical_not(in0, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        logical_not,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def bitwise_not(
@@ -59,9 +83,11 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_tan(shape: Shape, dtype: torch.dtype, request):
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
     def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         import math
 
@@ -80,6 +106,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
@@ -92,9 +119,11 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_log(shape: Shape, dtype: torch.dtype, request):
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
     def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         randn_tensor = torch.randn(shape, dtype=dtype)
         abs_tensor = torch.abs(randn_tensor)
@@ -111,6 +140,7 @@ def test_log(shape: Shape, dtype: torch.dtype, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
@@ -193,8 +223,29 @@ def leaky_relu(
     return builder.leaky_relu(in0, unit_attrs=unit_attrs)
 
 
-def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.sqrt(in0, unit_attrs=unit_attrs)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
+    def sqrt(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
+        golden_output_tensor = torch.sqrt(input_tensor)
+        builder.set_graph_input_output(
+            [input_tensor], [golden_output_tensor], override=True
+        )
+        return builder.sqrt(in0, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        sqrt,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -1539,7 +1590,6 @@ def create_hoisted_concat_op(op_func, name):
 # Create hoisted versions of all hoistable operations with proper names
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
-    create_hoisted_unary_op(sqrt, "sqrt"),
     create_hoisted_unary_op(abs, "abs"),
     create_hoisted_unary_op(ceil, "ceil"),
     create_hoisted_unary_op(floor, "floor"),
@@ -1664,9 +1714,8 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
 unary_ops = [
     exp,
     expm1 | Marks(pytest.mark.skip_target("ttmetal")),
-    floor | Marks(pytest.mark.skip_target("ttmetal")),
-    abs | Marks(pytest.mark.skip_target("ttmetal")),
-    logical_not | Marks(pytest.mark.skip_target("ttmetal")),
+    floor | Marks(pytest.mark.fails_golden),
+    abs,
     neg,
     sign | Marks(pytest.mark.skip_target("ttmetal")),
     cos,
@@ -1676,10 +1725,9 @@ unary_ops = [
     relu | Marks(pytest.mark.skip_target("ttmetal")),
     gelu | Marks(pytest.mark.skip_target("ttmetal")),
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
-    sqrt | Marks(pytest.mark.skip_target("ttmetal")),
     cbrt | Marks(pytest.mark.skip_target("ttmetal")),
     sigmoid | Marks(pytest.mark.fails_golden),
-    reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
+    reciprocal,
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),
     ceil | Marks(pytest.mark.fails_golden),
     sum | Marks(pytest.mark.skip_target("ttmetal")),
@@ -1725,7 +1773,7 @@ def test_unary_ops(
         lt | Marks(pytest.mark.skip_target("ttmetal")),
         ge | Marks(pytest.mark.skip_target("ttmetal")),
         gt | Marks(pytest.mark.skip_target("ttmetal")),
-        div | Marks(pytest.mark.skip_target("ttmetal")),
+        div,
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),

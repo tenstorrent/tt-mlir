@@ -245,22 +245,29 @@ struct OpMap {};
 // clang-format off
 using ComputeOpMap = OpMap<
   // Elementwise FPU
-  std::pair<ttir::TileAddOp,      std::pair<ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>>,
-  std::pair<ttir::TileMatmulOp,   std::pair<ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>>,
-  std::pair<ttir::TileMulOp,      std::pair<ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>>,
-  std::pair<ttir::TileSubOp,      std::pair<ttkernel::SubTilesInitOp, ttkernel::SubTilesOp>>,
+  std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
+  std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
+  std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
   // Elementwise SFPU
-  std::pair<ttir::TileCeilOp,     std::pair<ttkernel::RoundingTileInitOp,   ttkernel::CeilTileOp>>,
-  std::pair<ttir::TileCosOp,      std::pair<ttkernel::CosTileInitOp,        ttkernel::CosTileOp>>,
-  std::pair<ttir::TileDivOp,      std::pair<ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>>,
-  std::pair<ttir::TileExpOp,      std::pair<ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>>,
-  std::pair<ttir::TileMaximumOp,  std::pair<ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>>,
-  std::pair<ttir::TileNegativeOp, std::pair<ttkernel::NegativeTileInitOp,   ttkernel::NegativeTileOp>>,
-  std::pair<ttir::TilePowOp,      std::pair<ttkernel::PowBinaryTilesInitOp, ttkernel::PowBinaryTilesOp>>,
-  std::pair<ttir::TileRsqrtOp,    std::pair<ttkernel::RsqrtTileInitOp,      ttkernel::RsqrtTileOp>>,
-  std::pair<ttir::TileSigmoidOp,  std::pair<ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>>,
-  std::pair<ttir::TileSinOp,      std::pair<ttkernel::SinTileInitOp,        ttkernel::SinTileOp>>
+  std::pair<ttir::TileAbsOp,        std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<ttir::TileCeilOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
+  std::pair<ttir::TileCosOp,        std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
+  std::pair<ttir::TileDivOp,        std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
+  std::pair<ttir::TileExpOp,        std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
+  std::pair<ttir::TileFloorOp,      std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
+  std::pair<ttir::TileLogOp,        std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
+  std::pair<ttir::TileLogicalNotOp, std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
+  std::pair<ttir::TileMaximumOp,    std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
+  std::pair<ttir::TileNegativeOp,   std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TilePowOp,        std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
+  std::pair<ttir::TileRecipOp,      std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
+  std::pair<ttir::TileRsqrtOp,      std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
+  std::pair<ttir::TileSqrtOp,       std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
+  std::pair<ttir::TileSigmoidOp,    std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
+  std::pair<ttir::TileSinOp,        std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
+  std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>
 >;
 // clang-format on
 
@@ -381,14 +388,42 @@ public:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
-    if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp>) {
+    if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
+                  std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
       const bool isCBF32 = llvm::isa<Float32Type>(elemType);
       if (isCBF32) {
-        rewriter.create<ttkernel::CeilTileF32Op>(op->getLoc(),
-                                                 adaptor.getInput());
+        if (std::is_same_v<SFPUOp, ttkernel::CeilTileOp>) {
+          rewriter.create<ttkernel::CeilTileF32Op>(op->getLoc(),
+                                                   adaptor.getInput());
+        } else {
+          rewriter.create<ttkernel::FloorTileF32Op>(op->getLoc(),
+                                                    adaptor.getInput());
+        }
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
+      }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
+                         std::is_same_v<SFPUOp,
+                                        ttkernel::LogicalNotUnaryTileOp>) {
+      const auto elemType =
+          mlir::cast<ttcore::TileType>(op.getInput().getType())
+              .getElementType();
+      bool isCBI32 = false;
+      if (llvm::isa<IntegerType>(elemType)) {
+        isCBI32 = mlir::cast<IntegerType>(elemType).isSigned() &&
+                  mlir::cast<IntegerType>(elemType).getWidth() == 32;
+      }
+      if (isCBI32) {
+        if (std::is_same_v<SFPUOp, ttkernel::AbsTileOp>) {
+          rewriter.create<ttkernel::AbsTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else {
+          rewriter.create<ttkernel::LogicalNotUnaryTileI32Op>(
+              op->getLoc(), adaptor.getInput());
+        }
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
@@ -1060,16 +1095,23 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
                // Elementwise SFPU.
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileAbsOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCeilOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCosOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileFloorOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileRecipOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTypecastRewriter,
