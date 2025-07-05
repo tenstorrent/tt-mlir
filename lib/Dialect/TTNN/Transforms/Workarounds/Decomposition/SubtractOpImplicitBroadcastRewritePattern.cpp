@@ -17,8 +17,9 @@ LogicalResult SubtractOpImplicitBroadcastRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  ttnn::NegOp negOp =
-      rewriter.create<ttnn::NegOp>(srcOp.getLoc(), rhsType, srcOp.getRhs());
+  ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
+      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_neg"), rhsType,
+      srcOp.getRhs());
   rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, srcOp.getResult().getType(),
                                            srcOp.getLhs(), negOp);
 
