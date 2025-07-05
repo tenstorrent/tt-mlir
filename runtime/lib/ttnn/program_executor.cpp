@@ -26,6 +26,7 @@
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
+#include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
@@ -246,6 +247,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    return operations::data_movement::run(op->type_as_SortOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());

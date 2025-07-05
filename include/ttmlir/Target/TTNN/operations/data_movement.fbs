@@ -56,6 +56,15 @@ table SliceOp {
   step: [int64];
 }
 
+table SortOp {
+  in: tt.target.ttnn.TensorRef;
+  dim: int8;
+  descending: bool;
+  stable: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  outputs: [tt.target.ttnn.TensorRef];
+}
+
 table TransposeOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
