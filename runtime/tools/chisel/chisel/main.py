@@ -92,34 +92,34 @@ class ChiselContext:
         self.ttir_path: pathlib.Path = self.input_dir / "ttir.mlir"
         self.flatbuffer_path: pathlib.Path = self.input_dir / "fb.ttnn"
 
-        # self.context = Context()
-        # self.context.load_all_available_dialects()
-        # self.cache_tensor = {}
+        self.context = Context()
+        self.context.load_all_available_dialects()
+        self.cache_tensor = {}
 
-        # logger.debug("Loading IRs...")
-        # self.device_ir_module = IRModule(
-        #     mlir_text=self.ttnn_path.read_text(),
-        #     context=self.context,
-        #     execution_type=ExecutionType.DEVICE,
-        #     main_op_name=self.main_fn,
-        # )
-        # self.golden_ir_module = IRModule(
-        #     mlir_text=self.ttir_path.read_text(),
-        #     context=self.context,
-        #     execution_type=ExecutionType.GOLDEN,
-        #     main_op_name=self.main_fn,
-        # )
+        logger.debug("Loading IRs...")
+        self.device_ir_module = IRModule(
+            mlir_text=self.ttnn_path.read_text(),
+            context=self.context,
+            execution_type=ExecutionType.DEVICE,
+            main_op_name=self.main_fn,
+        )
+        self.golden_ir_module = IRModule(
+            mlir_text=self.ttir_path.read_text(),
+            context=self.context,
+            execution_type=ExecutionType.GOLDEN,
+            main_op_name=self.main_fn,
+        )
 
-        # modules = {
-        #     ExecutionType.DEVICE: self.device_ir_module,
-        #     ExecutionType.GOLDEN: self.golden_ir_module,
-        # }
+        modules = {
+            ExecutionType.DEVICE: self.device_ir_module,
+            ExecutionType.GOLDEN: self.golden_ir_module,
+        }
 
-        # self.registry = Registry(modules)
-        # self.golden_tensor_pool = TensorPool()
-        # self.device_tensor_pool = TensorPool()
-        # self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)
-        # self.load_inputs()
+        self.registry = Registry(modules)
+        self.golden_tensor_pool = TensorPool()
+        self.device_tensor_pool = TensorPool()
+        self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)
+        self.load_inputs()
 
         logger.debug("Setting up TTRT...")
         args = {
@@ -302,7 +302,7 @@ class ChiselContext:
             raise e
 
     def setup_ttrt_hooks(self):
-        # callback_env_pre = DebugHooks.get(self.debug_preop, self.debug_postop)
+        callback_env_pre = DebugHooks.get(self.debug_preop, self.debug_postop)
         pass
 
     def run(self):
@@ -312,7 +312,7 @@ class ChiselContext:
 
 
 def main():
-    model = "opt125m"
+    model = "andrej"
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input_dir", type=pathlib.Path, default=f"/proj_sw/user_dev/ndrakulic/chisel/{model}"
