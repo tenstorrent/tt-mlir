@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from ttmlir.ir import Operation, WalkOrder, WalkResult, Context, Module
 from ttmlir.dialects import func
@@ -9,12 +9,22 @@ from ttmlir.dialects import func
 from .enums import ExecutionType
 from ..utils.location import hash_location
 
+
 def get_op_outputs(op: Operation):
     outputs = []
     for result in op.results:
         if hasattr(result.type, "shape") and hasattr(result.type, "element_type"):
             outputs.append(result)
     return outputs
+
+
+def get_op_inputs(op: Operation):
+    inputs = []
+    for operand in op.operands:
+        if hasattr(operand.type, "shape") and hasattr(operand.type, "element_type"):
+            inputs.append(operand)
+    return inputs
+
 
 class IRModule:
     def __init__(
@@ -41,6 +51,7 @@ class IRModule:
         self.main_function_name = main_function_name
         self._functions: Dict[str, Operation] = {}
         self._function_ops: Dict[str, List[Operation]] = {}
+        self._last_loc_line: Dict[Tuple[int, int], int] = {}
 
         self.ignored_ops = ignored_ops
 
@@ -55,18 +66,18 @@ class IRModule:
             if isinstance(op, func.FuncOp) and op.name.value == name:
                 return op
 
-    def get_function(self, name: str | None):
+    def get_function(self, name: str | None = None):
         if name is None:
             name = self.main_function_name
         return self._functions[name]
 
-    def get_function_inputs(self, name: str | None) -> List[Operation]:
+    def get_function_inputs(self, name: str | None = None) -> List[Operation]:
         if name is None:
             name = self.main_function_name
         assert name in self._functions
         return self._functions[name].arguments
 
-    def get_function_ops(self, name: str | None) -> List[Operation]:
+    def get_function_ops(self, name: str | None = None) -> List[Operation]:
         if name is None:
             name = self.main_function_name
         if name in self._function_ops:
@@ -84,6 +95,16 @@ class IRModule:
 
         self._function_ops[name] = ops
         return ops
+
+    @property
+    def last_loc_line(self):
+        return self._last_loc_line
+
+    def populate_last_loc_line(self, name: str | None = None):
+        if name is None:
+            name = self.main_function_name
+        for i, op in enumerate(self.get_function_ops(name)):
+            self._last_loc_line[hash_location(op.location)] = i
 
     def _dfs(self, op: Operation, walk_order: WalkOrder = WalkOrder.POST_ORDER):
         assert op is not None

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+from torch._jit_internal import ignore
 import pytest
 from pathlib import Path
 from chisel.core.ops import IRModule
@@ -42,3 +43,5 @@ def test_ir_module(path: Path, execution_type: ExecutionType, main_fn: str):
         execution_type=execution_type,
         main_function_name=main_fn,
     )
+
+    ir_module.populate_last_loc_line()

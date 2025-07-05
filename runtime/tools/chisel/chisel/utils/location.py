@@ -6,6 +6,7 @@ from ttmlir.ir import Location
 
 UNKNOWN_LOCATION = (-1, -1)
 
+
 def hash_location(location: Location) -> Tuple[int, int]:
     assert location is not None
     if not hasattr(location, "start_line"):
