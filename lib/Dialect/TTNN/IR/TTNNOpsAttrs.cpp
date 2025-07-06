@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -68,6 +69,28 @@ bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
 bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
   return hasDRAMBufferType() &&
          (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
+}
+
+// Checks:
+// 1. If buffer type is L1, then any grid size is allowed.
+// 2. Otherwise, unit grid is expected.
+llvm::LogicalResult
+verifyGridSize(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+               mlir::tt::ttcore::GridAttr gridAttr,
+               BufferTypeAttr bufferTypeAttr) {
+  BufferType bufferType = bufferTypeAttr.getValue();
+  if (isL1BufferType(bufferType)) {
+    return llvm::success();
+  }
+
+  llvm::SmallVector<int64_t> expectedGridShape({1, 1});
+  if (llvm::equal(gridAttr.getShape(), expectedGridShape)) {
+    return llvm::success();
+  }
+  return emitError() << "expected (" << expectedGridShape
+                     << ") grid shape for non-L1 buffer type, got ("
+                     << gridAttr.getShape() << ") for " << bufferTypeAttr
+                     << " buffer type";
 }
 
 // Checks:
@@ -576,15 +599,25 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
              tensorMeshSharding, ignorePhysicalLayout);
 }
 
-::llvm::LogicalResult TTNNLayoutAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
-    mlir::tt::ttcore::GridAttr, MemRefType memref,
+llvm::LogicalResult TTNNLayoutAttr::verify(
+    llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
+    mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
     mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
     bool ignorePhysicalLayout) {
-  BufferType bufferType =
-      mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
-  return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
+  BufferTypeAttr bufferTypeAttr =
+      mlir::cast<BufferTypeAttr>(memref.getMemorySpace());
+  BufferType bufferType = bufferTypeAttr.getValue();
+
+  llvm::LogicalResult status = ::llvm::success();
+  if (llvm::failed(verifyGridSize(emitError, grid, bufferTypeAttr))) {
+    status = llvm::failure();
+  }
+  if (llvm::failed(
+          verifyBufferAndMemoryLayout(emitError, bufferType, memLayout))) {
+    status = llvm::failure();
+  }
+  return status;
 }
 
 // Construct a new MemoryConfig
