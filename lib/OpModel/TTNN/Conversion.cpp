@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -415,14 +416,17 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context,
       getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
 
-  ttcore::GridAttr grid = mlir::tt::ttcore::GridAttr::get(
-      context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-      ::mlir::tt::ttnn::optimizer_utils::
-          createSingleDeviceVirtualToPhysicalAffineMap(
-              context, memoryLayoutAttr.getValue(), deviceGrid));
+  ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
+  if (isL1BufferType(bufferType)) {
+    gridAttr = mlir::tt::ttcore::GridAttr::get(
+        context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
+        ::mlir::tt::ttnn::optimizer_utils::
+            createSingleDeviceVirtualToPhysicalAffineMap(
+                context, memoryLayoutAttr.getValue(), deviceGrid));
+  }
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
-      context, shape, elementType, bufferType, grid, memoryLayoutAttr);
+      context, shape, elementType, bufferType, gridAttr, memoryLayoutAttr);
 }
 
 } // namespace conversion
