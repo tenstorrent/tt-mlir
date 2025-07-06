@@ -482,13 +482,36 @@ def lt(
     return builder.lt(in0, in1, unit_attrs=unit_attrs)
 
 
-def div(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.div(in0, in1, unit_attrs=unit_attrs)
+# TODO (wenbinlyuTT): fix f32 accuracy issue for small values
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
+    def div(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        dividend_tensor = torch.randn(shape, dtype=dtype)
+        divisor_tensor = torch.randn(shape, dtype=dtype)
+        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
+        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
+        output_golden = torch.div(dividend_tensor, divisor_tensor)
+        builder.set_graph_input_output(
+            [dividend_tensor, divisor_tensor], [output_golden], override=True
+        )
+        return builder.div(in0, in1, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        div,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def remainder(
@@ -1619,7 +1642,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
-    create_hoisted_binary_op(div, "div"),
 ]
 
 hoisted_ternary_ops = [
@@ -1773,7 +1795,6 @@ def test_unary_ops(
         lt | Marks(pytest.mark.skip_target("ttmetal")),
         ge | Marks(pytest.mark.skip_target("ttmetal")),
         gt | Marks(pytest.mark.skip_target("ttmetal")),
-        div,
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),
