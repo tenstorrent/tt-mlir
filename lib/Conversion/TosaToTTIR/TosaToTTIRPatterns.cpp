@@ -92,17 +92,17 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
     mlir::OpBuilder builder(getContext());
-    mlir::DenseI64ArrayAttr src_shape_attr = adaptor.getNewShapeAttr();
-    SmallVector<Attribute> dims;
-    for (int64_t dim : src_shape_attr.asArrayRef()) {
-      dims.push_back(builder.getI32IntegerAttr(dim));
-    }
-    auto dst_shape_attr = rewriter.getArrayAttr(dims);
 
+    std::vector<int32_t> new_shape_i32;
+    for (int64_t dim : outputType.getShape()) {
+      new_shape_i32.push_back(static_cast<int32_t>(dim));
+    }
+    ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32); 
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
-        srcOp, outputType, adaptor.getInput1(), outputTensor, dst_shape_attr,
+        srcOp, outputType, adaptor.getInput1(), outputTensor, new_shape_attr,
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
