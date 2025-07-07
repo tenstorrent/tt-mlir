@@ -88,8 +88,12 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
 
   // Combine all host tensor shards into a single host tensor with
   // multi device host storage.
-  ::ttnn::Tensor out = ::ttnn::distributed::aggregate_as_tensor(
-      newHostTensors, input.distributed_tensor_config());
+  const auto &config = input.distributed_tensor_config();
+  ::ttnn::MeshShape meshShape =
+      utils::getMeshShapeFromConfig(config, newHostTensors);
+
+  ::ttnn::Tensor out =
+      ::ttnn::distributed::from_host_shards(newHostTensors, meshShape);
 
   out = ::ttnn::to_device(out, meshDevice, input.memory_config());
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
