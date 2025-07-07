@@ -144,12 +144,12 @@ point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
 
   outputTensorsHost[receiverId] = inputTensorsHost[senderId];
 
-  ::ttnn::Tensor aggregatedTensor = ::ttnn::to_device(
-      ::ttnn::distributed::aggregate_as_tensor(
-          outputTensorsHost, inputTensor.distributed_tensor_config()),
+  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
+      ::ttnn::distributed::from_host_shards(outputTensorsHost,
+                                            inputTensor.mesh_device()->shape()),
       inputTensor.mesh_device(), inputTensor.memory_config());
 
-  return aggregatedTensor;
+  return outputTensor;
 }
 } // namespace tt::runtime::ttnn::operations::ccl::point_to_point
 

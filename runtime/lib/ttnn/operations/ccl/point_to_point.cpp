@@ -42,11 +42,11 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
 
   outputTensorsHost[op->receiver_id()] = inputTensorsHost[op->sender_id()];
 
-  ::ttnn::Tensor aggregatedTensor = ::ttnn::to_device(
-      ::ttnn::distributed::aggregate_as_tensor(
-          outputTensorsHost, inputTensor.distributed_tensor_config()),
+  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
+      ::ttnn::distributed::from_host_shards(outputTensorsHost,
+                                            inputTensor.mesh_device()->shape()),
       inputTensor.mesh_device(), inputTensor.memory_config());
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), aggregatedTensor);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), outputTensor);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
