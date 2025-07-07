@@ -39,10 +39,6 @@ jobs:
           echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
           echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
           echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
-          - name: Check if Builder Build Only
-            if: inputs.builder_build
-            run: |
-              echo "::set-output name=other_changed_files::true"
 
   build-image:
     needs: ignore-files
