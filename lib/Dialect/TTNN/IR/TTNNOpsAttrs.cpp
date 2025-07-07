@@ -72,13 +72,11 @@ bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
 }
 
 // Checks:
-// 1. If buffer type is L1, then any grid size is allowed.
+// 1. If buffer type is L1, then any grid shape is allowed.
 // 2. Otherwise, unit grid is expected.
 llvm::LogicalResult
-verifyGridSize(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-               mlir::tt::ttcore::GridAttr gridAttr,
-               BufferTypeAttr bufferTypeAttr) {
-  BufferType bufferType = bufferTypeAttr.getValue();
+verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+                mlir::tt::ttcore::GridAttr gridAttr, BufferType bufferType) {
   if (isL1BufferType(bufferType)) {
     return llvm::success();
   }
@@ -89,8 +87,8 @@ verifyGridSize(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
   }
   return emitError() << "expected (" << expectedGridShape
                      << ") grid shape for non-L1 buffer type, got ("
-                     << gridAttr.getShape() << ") for " << bufferTypeAttr
-                     << " buffer type";
+                     << gridAttr.getShape() << ") for "
+                     << stringifyBufferType(bufferType) << " buffer type";
 }
 
 // Checks:
@@ -605,12 +603,11 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
     TensorMemoryLayoutAttr memLayout,
     mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
     bool ignorePhysicalLayout) {
-  BufferTypeAttr bufferTypeAttr =
-      mlir::cast<BufferTypeAttr>(memref.getMemorySpace());
-  BufferType bufferType = bufferTypeAttr.getValue();
+  BufferType bufferType =
+      mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
   llvm::LogicalResult status = ::llvm::success();
-  if (llvm::failed(verifyGridSize(emitError, grid, bufferTypeAttr))) {
+  if (llvm::failed(verifyGridShape(emitError, grid, bufferType))) {
     status = llvm::failure();
   }
   if (llvm::failed(
