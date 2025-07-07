@@ -144,10 +144,24 @@ public:
     MemRefType cbType = firstCopyInfo.getCbType();
     // Calculate dst shape as N slices of cb shape.
     int64_t volume = ttmlir::utils::volume(cbType.getShape());
+    // Hardcoding these next few lines is wrong, need to find subblock factors
+    // for parallel dims, not necessarily [0, 1]
+    volume =
+        volume /
+        region.getParentOfType<ttir::GenericOp>().getSubblockFactorsValue()[0] /
+        region.getParentOfType<ttir::GenericOp>().getSubblockFactorsValue()[1];
     assert(volume <= dstRegisterSizeTiles);
     int64_t numDstSlices = dstRegisterSizeTiles / volume;
     SmallVector<int64_t> dstShape({numDstSlices});
-    dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
+    // dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
+    dstShape.push_back(
+        cbType.getShape()[0] /
+        region.getParentOfType<ttir::GenericOp>().getSubblockFactorsValue()[0]);
+    dstShape.push_back(
+        cbType.getShape()[1] /
+        region.getParentOfType<ttir::GenericOp>().getSubblockFactorsValue()[1]);
+    volume = ttmlir::utils::volume(ArrayRef<int64_t>(dstShape));
+    assert(volume <= dstRegisterSizeTiles);
     MemRefType dstType =
         MemRefType::get(dstShape, cbType.getElementType(),
                         mlir::AffineMap::getMultiDimIdentityMap(
@@ -225,10 +239,10 @@ public:
     Operation *ancestor =
         ttmlir::utils::loop::getOutermostLoopNest<affine::AffineForOp>(
             loadOrStore.getOperation());
-    if (!ancestor) {
-      // If there is no loop nest the common ancestor is the operation itself.
-      ancestor = loadOrStore;
-    }
+    // if (!ancestor) {
+    // If there is no loop nest the common ancestor is the operation itself.
+    ancestor = loadOrStore;
+    // }
 
     auto [iter, inserted] = loopNests.try_emplace(ancestor);
     CopyInfo &copyInfo = iter->second;
@@ -364,7 +378,9 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstIndexOffset,
-                         loadStore.getMap());
+                         loadStore.getMap(),
+                         loadStore->template getParentOfType<ttir::GenericOp>()
+                             .getSubblockFactorsValue());
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -378,7 +394,9 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstIndexOffset,
-                         loadStore.getMap());
+                         loadStore.getMap(),
+                         loadStore->template getParentOfType<ttir::GenericOp>()
+                             .getSubblockFactorsValue());
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
@@ -391,7 +409,12 @@ public:
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
-               int64_t dstIndexOffset, AffineMap map) {
+               int64_t dstIndexOffset, AffineMap map,
+               ArrayRef<int64_t> subblockFactors) {
+
+    // auto index = [&](int64_t i) { return
+    // rewriter.create<arith::ConstantIndexOp>(loc, i); };
+
     AffineMap l1AccessMap = map;
     SmallVector<Value> l1AccessIndices =
         llvm::to_vector(llvm::map_range(currentIndices, [&](Value index) {
@@ -401,6 +424,9 @@ public:
     AffineMap dstAccessMap = map.insertResult(
         getAffineConstantExpr(dstIndexOffset, rewriter.getContext()), 0);
     SmallVector<Value> dstAccessIndices = l1AccessIndices;
+    // Again, these can't be hardcoded, need to find the subblock factors for
+    // the respective dims
+    llvm::errs() << dstAccessIndices.size() << "\n";
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
 };
