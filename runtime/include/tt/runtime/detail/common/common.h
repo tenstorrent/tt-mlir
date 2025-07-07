@@ -6,11 +6,11 @@
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
 #include <optional>
-#include <tt-metalium/fabric_types.hpp>
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 
+#include "tt-metalium/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"
