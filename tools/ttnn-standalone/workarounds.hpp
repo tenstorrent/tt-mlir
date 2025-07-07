@@ -142,9 +142,6 @@ point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
     outputTensorsHost = inputTensorsHost;
   }
 
-  std::vector<::ttnn::Tensor> outputTensorsHost =
-      extractShardsToHost(outputTensor);
-
   outputTensorsHost[receiverId] = inputTensorsHost[senderId];
 
   ::ttnn::Tensor aggregatedTensor = ::ttnn::to_device(
