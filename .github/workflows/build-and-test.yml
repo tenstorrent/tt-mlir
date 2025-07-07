@@ -3,6 +3,15 @@ name: Build and Test
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      metal_override:
+        description: 'Git SHA of commit in tenstorrent/tt-metal'
+        required: false
+        type: string
+      builder_build:
+        description: 'Run build on builder'
+        required: false
+        type: boolean
 
 permissions:
   checks: write
@@ -30,7 +39,10 @@ jobs:
           echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
           echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
           echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
-
+          - name: Check if Builder Build Only
+            if: inputs.builder_build
+            run: |
+              echo "::set-output name=other_changed_files::true"
 
   build-image:
     needs: ignore-files
@@ -40,6 +52,7 @@ jobs:
     outputs:
       docker-image-harbor: ${{ steps.build.outputs.docker-image-harbor }}
       docker-image: ${{ steps.build.outputs.docker-image }}
+      runner: ${{ steps.build.outputs.runner }}
     steps:
 
       - name: Fix permissions
@@ -68,6 +81,11 @@ jobs:
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image-harbor=harbor.ci.tenstorrent.net/$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.builder_build }}" == "true" ]]; then
+            echo "runner=builder" >> "$GITHUB_OUTPUT"
+          else
+            echo "runner=ubuntu-latest" >> "$GITHUB_OUTPUT"
+          fi
 
   # Build tt-mlir images
 
@@ -78,12 +96,14 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
+          { enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          { enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on:
+      - ${{ needs.build-image.outputs.runner }}
+      - in-service
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
@@ -97,6 +117,13 @@ jobs:
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
+
+    - name: Set metal override
+      if: ${{ inputs.metal_override }}
+      run: |
+          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
+          echo "Updating tt-metal to SHA: $LATEST_TT_METAL_VERSION"
+          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"$LATEST_TT_METAL_VERSION\")/" third_party/CMakeLists.txt
 
     - name: Fetch job id
       id: fetch-job-id

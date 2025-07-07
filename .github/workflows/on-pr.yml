@@ -2,6 +2,15 @@ name: On PR
 
 on:
   workflow_dispatch:
+    inputs:
+      metal_override:
+        description: 'Git SHA of commit in tenstorrent/tt-metal'
+        required: false
+        type: string
+      builder_build:
+        description: 'Run build on builder'
+        required: false
+        type: boolean
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [ "main" ]
@@ -28,6 +37,9 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+    with:
+      metal_override: ${{ github.event.inputs.metal_override }}
+      builder_build: ${{ github.event.inputs.builder_build }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
