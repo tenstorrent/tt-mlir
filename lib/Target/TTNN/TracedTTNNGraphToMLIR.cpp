@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -17,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
@@ -46,7 +48,9 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
+#include <optional>
 #include <regex>
+#include <string>
 #include <unordered_set>
 
 namespace mlir::tt::ttnn {
@@ -84,14 +88,14 @@ SmallVector<int64_t> parseShape(StringRef shapeStr) {
 // Helper function to parse data type from string like "DataType::FLOAT32"
 ttcore::DataTypeAttr parseDataType(StringRef dataTypeStr,
                                    MLIRContext *context) {
-  if (dataTypeStr.contains("FLOAT32")) {
+  if (dataTypeStr == "DataType::FLOAT32") {
     return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float32);
   }
-  if (dataTypeStr.contains("FLOAT16")) {
-    return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float16);
-  }
-  if (dataTypeStr.contains("BFLOAT16")) {
+  if (dataTypeStr == "DataType::BFLOAT16") {
     return ttcore::DataTypeAttr::get(context, ttcore::DataType::BFloat16);
+  }
+  if (dataTypeStr == "DataType::FLOAT16") {
+    return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float16);
   }
 
   // Default to float32
@@ -99,7 +103,8 @@ ttcore::DataTypeAttr parseDataType(StringRef dataTypeStr,
 }
 
 // Helper function to parse layout from string like "Layout::TILE"
-LayoutAttr parseLayout(StringRef layoutStr, MLIRContext *context) {
+std::optional<LayoutAttr> parseLayout(StringRef layoutStr,
+                                      MLIRContext *context) {
   if (layoutStr.contains("TILE")) {
     return LayoutAttr::get(context, ttnn::Layout::Tile);
   }
@@ -108,6 +113,9 @@ LayoutAttr parseLayout(StringRef layoutStr, MLIRContext *context) {
   }
   if (layoutStr.contains("INVALID")) {
     return LayoutAttr::get(context, ttnn::Layout::Invalid);
+  }
+  if (layoutStr.contains("nullopt")) {
+    return std::nullopt;
   }
 
   llvm_unreachable("Unknown layout");
@@ -213,12 +221,17 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
   builder.setInsertionPoint(module.getBody(), module.getBody()->begin());
 
+  ttcore::registerDevice(module);
+
   FunctionType funcType = builder.getFunctionType({}, {});
   // FunctionType::get(builder.getContext(), {}, {});
   auto func =
       builder.create<func::FuncOp>(module.getLoc(), "forward", funcType);
   ::mlir::Block *entryBlock = func.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
+
+  mlir::IRRewriter rewriter(builder);
+  Value device = ttnn::utils::getOrInsertDevice(rewriter, func).getResult();
 
   std::unordered_map<int, Value> indexToResultMap;
 
@@ -268,12 +281,15 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           shapeAttr = createShapeAttr(shapeVec, builder);
           dataTypeAttr = parseDataType(dtypeObj.getAsString()->str(), context);
-          LayoutAttr layoutTypeAttr =
+          std::optional<LayoutAttr> layoutTypeAttrOpt =
               parseLayout(layoutType.getAsString()->str(), context);
+
+          LayoutAttr layoutTypeAttr =
+              layoutTypeAttrOpt ? layoutTypeAttrOpt.value() : nullptr;
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shapeVec, builder.getF32Type()));
+              RankedTensorType::get(shapeVec, builder.getBF16Type()));
 
           // Create ones operation
           auto onesOp = builder.create<ttnn::OnesOp>(
@@ -285,10 +301,250 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               // /*optional*/::mlir::Value device,
               // /*optional*/::mlir::tt::ttnn::MemoryConfigAttr memory_config);
               loc,
-              RankedTensorType::get(shapeVec, builder.getF32Type(), layoutAttr),
+              RankedTensorType::get(shapeVec, builder.getBF16Type(),
+                                    layoutAttr),
               shapeAttr, dataTypeAttr, layoutTypeAttr, nullptr, nullptr);
           onesOp->setAttr("shape", shapeAttr);
           result = onesOp.getResult();
+        } else if (name == "ttnn::conv2d") {
+          // static ResultWithOptions invoke(
+          //   QueueId queue_id,
+          //   const ttnn::Tensor& input_tensor,
+          //   const ttnn::Tensor& weight_tensor,
+          //   MeshDevice* device,
+          //   uint32_t in_channels,
+          //   uint32_t out_channels,
+          //   uint32_t batch_size,
+          //   uint32_t input_height,
+          //   uint32_t input_width,
+          //   std::array<uint32_t, 2> kernel_size,
+          //   std::array<uint32_t, 2> stride = std::array<uint32_t, 2>{1, 1},
+          //   std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>
+          //   padding = std::array<uint32_t, 2>{0, 0}, std::array<uint32_t, 2>
+          //   dilation = std::array<uint32_t, 2>{1, 1}, uint32_t groups = 1,
+          //   const std::optional<const ttnn::Tensor>& bias_tensor =
+          //   std::nullopt, const std::optional<const Conv2dConfig>&
+          //   conv_config_ = std::nullopt, const std::optional<const
+          //   DeviceComputeKernelConfig>& compute_config_ = std::nullopt, const
+          //   std::optional<const MemoryConfig>& memory_config_ = std::nullopt,
+          //   const std::optional<const Conv2dSliceConfig>& dram_slice_config_
+          //   = std::nullopt, bool return_output_dim = false, bool
+          //   return_weights_and_bias = false);
+
+          // note: QueueId is first arg, skip it
+          std::string inputStr = (*argsObj)[1].getAsString()->str();
+          std::string weightsStr = (*argsObj)[2].getAsString()->str();
+          // device = (*argsObj)[3].getAsString()->str();
+          uint32_t in_channels = std::stoul((*argsObj)[4].getAsString()->str());
+          uint32_t out_channels =
+              std::stoul((*argsObj)[5].getAsString()->str());
+          uint32_t batch_size = std::stoul((*argsObj)[6].getAsString()->str());
+          uint32_t input_height =
+              std::stoul((*argsObj)[7].getAsString()->str());
+          uint32_t input_width = std::stoul((*argsObj)[8].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> kernel_size = {1,
+                                                       1}; // TODO: kernel_size
+          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride`
+          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
+          llvm::SmallVector<int32_t, 2> dilation = {1, 1}; // TODO: dilation
+          uint32_t groups = std::stoul((*argsObj)[13].getAsString()->str());
+          // bias
+          // conv_config
+          // compute_config
+          // memory_config
+          // dram_slice_config
+          // return_output_dim
+          // return_weights_and_bias
+
+          int inputIndex = std::stoi(inputStr.substr(inputStr.find(":") + 1));
+          int weightsIndex =
+              std::stoi(weightsStr.substr(weightsStr.find(":") + 1));
+
+          Value input = indexToResultMap[inputIndex];
+          Value weights = indexToResultMap[weightsIndex];
+
+          // TODO: calculate conv output shape
+          // For now, read input shape
+          ::llvm::ArrayRef<int64_t> shape =
+              mlir::cast<RankedTensorType>(input.getType()).getShape();
+
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, ttcore::GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getBF16Type()));
+
+          //   static void build(::mlir::OpBuilder &odsBuilder,
+          //   ::mlir::OperationState &odsState, ::mlir::Type result,
+          //   ::mlir::Value input, ::mlir::Value weight,
+          //   /*optional*/::mlir::Value bias, ::mlir::Value device, uint32_t
+          //   in_channels, uint32_t out_channels, uint32_t batch_size, uint32_t
+          //   input_height, uint32_t input_width, ::llvm::ArrayRef<int32_t>
+          //   kernel_size, ::llvm::ArrayRef<int32_t> stride,
+          //   ::llvm::ArrayRef<int32_t> padding, ::llvm::ArrayRef<int32_t>
+          //   dilation, uint32_t groups,
+          //   /*optional*/::mlir::tt::ttnn::Conv2dConfigAttr conv2d_config,
+          //   /*optional*/::mlir::tt::ttnn::DeviceComputeKernelConfigAttr
+          //   compute_config);
+
+          auto conv2dOp = builder.create<ttnn::Conv2dOp>(
+              loc,
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              input, weights, /*bias=*/nullptr, device, in_channels,
+              out_channels, batch_size, input_height, input_width, kernel_size,
+              stride, padding, dilation, groups, nullptr, nullptr);
+          result = conv2dOp.getResult();
+        } else if (name == "ttnn::max_pool2d") {
+          // "\u0000",
+          // "tensor: 3",
+          // "8",
+          // "112",
+          // "112",
+          // "64",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]", "0",
+          // "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+          // "[ unsupported type ,
+          // std::reference_wrapper<std::optional<tt::tt_metal::TensorMemoryLayout
+          // const> const>]", "0"
+
+          // static Tensor invoke(
+          //   QueueId queue_id,
+          //   const Tensor& input_tensor,
+          //   uint32_t batch_size,
+          //   uint32_t input_h,
+          //   uint32_t input_w,
+          //   uint32_t channels,
+          //   std::array<uint32_t, 2> kernel_size,
+          //   std::array<uint32_t, 2> stride,
+          //   std::array<uint32_t, 2> padding,
+          //   std::array<uint32_t, 2> dilation,
+          //   bool ceil_mode = false,
+          //   const std::optional<const MemoryConfig>& memory_config =
+          //   std::nullopt, std::optional<const TensorMemoryLayout>
+          //   applied_shard_scheme = std::nullopt, bool in_place_halo = false);
+
+          // note: QueueId is first arg, skip it
+          Value input = indexToResultMap[std::stoi(
+              (*argsObj)[1].getAsString()->str().substr(
+                  (*argsObj)[1].getAsString()->str().find(":") + 1))];
+          uint32_t batch_size = std::stoul((*argsObj)[2].getAsString()->str());
+          uint32_t input_h = std::stoul((*argsObj)[3].getAsString()->str());
+          uint32_t input_w = std::stoul((*argsObj)[4].getAsString()->str());
+          uint32_t channels = std::stoul((*argsObj)[5].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> kernel_size = {1,
+                                                       1}; // TODO: kernel_size
+          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride
+          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
+          llvm::SmallVector<int32_t, 2> dilation = {1, 1}; // TODO: dilation
+          bool ceil_mode = false;
+
+          // TODO: calculate maxpool output shape
+          // For now, read input shape
+          ::llvm::ArrayRef<int64_t> shape =
+              mlir::cast<RankedTensorType>(input.getType()).getShape();
+
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, ttcore::GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getBF16Type()));
+
+          //   static void build(::mlir::OpBuilder &odsBuilder,
+          //   ::mlir::OperationState &odsState, ::mlir::TypeRange resultTypes,
+          //   ::mlir::Value input, int32_t batch_size, int32_t input_height,
+          //   int32_t input_width, int32_t channels, ::llvm::ArrayRef<int32_t>
+          //   kernel_size, ::llvm::ArrayRef<int32_t> stride,
+          //   ::llvm::ArrayRef<int32_t> padding, ::llvm::ArrayRef<int32_t>
+          //   dilation, /*optional*/::mlir::tt::ttnn::MemoryConfigAttr
+          //   memory_config,
+          //   /*optional*/::mlir::tt::ttnn::TensorMemoryLayoutAttr
+          //   applied_shard_scheme, bool ceil_mode, bool in_place_halo);
+          auto maxpool2dOp = builder.create<ttnn::MaxPool2dOp>(
+              loc,
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              input, batch_size, input_h, input_w, channels, kernel_size,
+              stride, padding, dilation, /*memory_config=*/nullptr,
+              /*applied_shard_scheme=*/nullptr, ceil_mode,
+              /*in_place_halo=*/false);
+          result = maxpool2dOp.getResult();
+        } else if (name == "ttnn::avg_pool2d") {
+          // static Tensor invoke(
+          //   QueueId queue_id,
+          //   const Tensor& input_tensor,
+          //   uint32_t batch_size,
+          //   uint32_t input_h,
+          //   uint32_t input_w,
+          //   uint32_t channels,
+          //   std::array<uint32_t, 2> kernel_size,
+          //   std::array<uint32_t, 2> stride,
+          //   std::array<uint32_t, 2> padding,
+          //   bool ceil_mode = false,
+          //   bool count_include_pad = true,
+          //   std::optional<int32_t> divisor_override = std::nullopt,
+          //   const std::optional<const MemoryConfig>& memory_config =
+          //   std::nullopt, std::optional<const TensorMemoryLayout>
+          //   applied_shard_scheme = std::nullopt, bool in_place_halo = false);
+
+          // "\u0000",
+          // "tensor: 172",
+          // "8",
+          // "7",
+          // "7",
+          // "2048",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]",
+          // "[ unsupported type , std::reference_wrapper<std::array<unsigned
+          // int, 2ul> >]", "0", "1", "nullopt",
+          // "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+          // "[ unsupported type ,
+          // std::reference_wrapper<std::optional<tt::tt_metal::TensorMemoryLayout
+          // const> const>]", "0"
+
+          // note: QueueId is first arg, skip it
+          Value input = indexToResultMap[std::stoi(
+              (*argsObj)[1].getAsString()->str().substr(
+                  (*argsObj)[1].getAsString()->str().find(":") + 1))];
+          uint32_t batch_size = std::stoul((*argsObj)[2].getAsString()->str());
+          uint32_t input_h = std::stoul((*argsObj)[3].getAsString()->str());
+          uint32_t input_w = std::stoul((*argsObj)[4].getAsString()->str());
+          uint32_t channels = std::stoul((*argsObj)[5].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> kernel_size = {1,
+                                                       1}; // TODO: kernel_size
+          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride
+          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
+          bool ceil_mode = false;
+
+          // TODO: calculate avgpool output shape
+          ::llvm::ArrayRef<int64_t> shape =
+              mlir::cast<RankedTensorType>(input.getType()).getShape();
+
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, ttcore::GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getBF16Type()));
+
+          //   static void build(::mlir::OpBuilder &odsBuilder,
+          //   ::mlir::OperationState &odsState, ::mlir::Type result,
+          //   ::mlir::Value input, int32_t batch_size, int32_t input_height,
+          //   int32_t input_width, int32_t channels, ::llvm::ArrayRef<int32_t>
+          //   kernel_size, ::llvm::ArrayRef<int32_t> stride,
+          //   ::llvm::ArrayRef<int32_t> padding, ::llvm::ArrayRef<int32_t>
+          //   dilation, /*optional*/::mlir::tt::ttnn::MemoryConfigAttr
+          //   memory_config,
+          //   /*optional*/::mlir::tt::ttnn::TensorMemoryLayoutAttr
+          //   applied_shard_scheme, bool ceil_mode, bool in_place_halo);
+          auto avgpool2dOp = builder.create<ttnn::AvgPool2dOp>(
+              loc,
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              input, batch_size, input_h, input_w, channels, kernel_size,
+              stride, padding, /*dilation=*/false, /*memory_config=*/nullptr,
+              /*applied_shard_scheme=*/nullptr, ceil_mode,
+              /*in_place_halo=*/false);
+          result = avgpool2dOp.getResult();
         } else if (name == "ttnn::matmul") {
           std::string lhsStr = (*argsObj)[0].getAsString()->str();
           std::string rhsStr = (*argsObj)[1].getAsString()->str();
@@ -324,7 +580,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getF32Type()));
+              RankedTensorType::get(shape, builder.getBF16Type()));
 
           auto matmulOp = builder.create<ttnn::MatmulOp>(
               // static void build(::mlir::OpBuilder &odsBuilder,
@@ -333,7 +589,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               // ::mlir::BoolAttr transpose_b, /*optional*/::mlir::Attribute
               // matmul_program_config);
               loc,
-              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
               lhs, rhs, transposeA, transposeB, nullptr);
           result = matmulOp.getResult();
         } else if (name == "ttnn::add") {
@@ -361,11 +617,11 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getF32Type()));
+              RankedTensorType::get(shape, builder.getBF16Type()));
 
           auto addOp = builder.create<ttnn::AddOp>(
               loc,
-              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
               lhs, rhs);
           result = addOp.getResult();
         } else if (name == "ttnn::relu") {
@@ -384,11 +640,11 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getF32Type()));
+              RankedTensorType::get(shape, builder.getBF16Type()));
 
           auto reluOp = builder.create<ttnn::ReluOp>(
               loc,
-              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
               input);
           result = reluOp.getResult();
         } else if (name == "ttnn::softmax") {
@@ -404,7 +660,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getF32Type()));
+              RankedTensorType::get(shape, builder.getBF16Type()));
 
           // int dim = (*argsObj)[1].getAsNumber(); // not proprely traced, hack
           // for now
@@ -413,7 +669,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           auto softmaxOp = builder.create<ttnn::SoftmaxOp>(
               loc,
-              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
               input, dimAttr);
           result = softmaxOp.getResult();
         } else {
@@ -458,6 +714,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
   // Create return operation
   builder.create<func::ReturnOp>(builder.getUnknownLoc(), returnValues);
+
+  module->dump();
 
   return module;
 }
