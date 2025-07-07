@@ -117,9 +117,8 @@ jobs:
     - name: Set metal override
       if: ${{ inputs.metal_override }}
       run: |
-          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
-          echo "Updating tt-metal to SHA: $LATEST_TT_METAL_VERSION"
-          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"$LATEST_TT_METAL_VERSION\")/" third_party/CMakeLists.txt
+        echo "Updating tt-metal to SHA: ${{ inputs.metal_override }}"
+        sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ inputs.metal_override }}\")/" third_party/CMakeLists.txt
 
     - name: Fetch job id
       id: fetch-job-id
