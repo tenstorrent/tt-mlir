@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
 
@@ -117,6 +118,13 @@ struct ModuleAnalysisData {
 
   MemorySpaces memSpaces;
   DenseMap<func::FuncOp, FuncAnalysisData> funcAnalysis;
+};
+
+struct FuncAnalysisData2 final : public AllocationPlanner::Context {};
+
+struct ModuleAnalysisData2 {
+
+  DenseMap<func::FuncOp, FuncAnalysisData2> funcAnalysis;
 };
 
 } // namespace
@@ -236,6 +244,12 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
+    // // (0)
+    // if (failed(runAnalyzeOperands(moduleOp))) {
+    //   signalPassFailure();
+    //   return;
+    // }
+
     // (1) Create streams (with their backing buffers) where needed.
     if (failed(runAllocateStreams(moduleOp))) {
       signalPassFailure();
@@ -256,6 +270,80 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     }
   }
 
+  // ----------------------
+
+  // Create/allocate streams within a module.
+  FailureOr<ModuleAnalysisData2> runAnalyzeOperands(ModuleOp moduleOp) {
+    ModuleAnalysisData2 moduleAnalysis;
+    if (moduleOp
+            ->walk([&](func::FuncOp funcOp) {
+              if (funcOp.isDeclaration()) {
+                return WalkResult::skip();
+              }
+
+              FailureOr<FuncAnalysisData2> funcAnalysis =
+                  runAnalyzeOperands(funcOp);
+              if (failed(funcAnalysis)) {
+                return WalkResult::interrupt();
+              }
+
+              moduleAnalysis.funcAnalysis[funcOp] = std::move(*funcAnalysis);
+              return WalkResult::advance();
+            })
+            .wasInterrupted()) {
+      return failure();
+    }
+
+    return moduleAnalysis;
+  }
+
+  FailureOr<FuncAnalysisData2> runAnalyzeOperands(func::FuncOp funcOp) {
+    Block &funcBody = funcOp.getBody().front();
+
+    FuncAnalysisData2 analysis;
+
+    // Collect decision vars for memspace re-mapping. Visit generic ops and
+    // their operands with memref.alloc sources. If such an operand
+    // has multiple users and any of those are not in the set of visited generic
+    // ops we will allocate the operand but it will not be eligible for spilling
+    // into a different memspace (e.g. L1 -> DRAM).
+
+    llvm::DenseSet<memref::AllocOp> allocOps;
+    llvm::DenseSet<ttir::GenericOp> genericOps;
+
+    funcBody.walk([&](Operation *op) {
+      llvm::TypeSwitch<Operation *, void>(op)
+          .Case([&](memref::AllocOp op) { allocOps.insert(op); })
+          .Case([&](ttir::GenericOp op) { genericOps.insert(op); });
+    });
+    llvm::outs() << "found " << allocOps.size() << " alloc(s), "
+                 << genericOps.size() << " generic(s)\n";
+
+    // TODO modify test to include a non-generic user
+
+    for (ttir::GenericOp genericOp : genericOps) {
+      // Note: this covers the results (outs).
+      for (Value operand : genericOp->getOperands()) {
+        Operation *srcAllocOP = walkUseDef(operand);
+        llvm::outs() << genericOp->getName() << " operand <- "
+                     << srcAllocOP->getLoc() << "\n";
+      }
+    }
+
+    return analysis;
+  }
+
+  static Operation *walkUseDef(Value v) {
+    // A canonicalizer pass should collapse all view_layout chains but don't
+    // rely on that here.
+    return llvm::TypeSwitch<Operation *, Operation *>(v.getDefiningOp())
+        .Case([&](memref::AllocOp op) { return op.getOperation(); })
+        .Case([&](ttir::ViewLayoutOp op) { return walkUseDef(op.getInput()); })
+        .Default([&](Operation *op) { return nullptr; });
+  }
+
+  // ----------------------
+
   // Create/allocate streams within a module.
   LogicalResult runAllocateStreams(ModuleOp moduleOp) {
     RewritePatternSet patterns(&getContext());
@@ -273,22 +361,22 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     MemorySpaces memSpaces = getMemorySpaces(chipDesc);
     ModuleAnalysisData moduleAnalysis(memSpaces);
 
-    WalkResult analysisWalk = moduleOp->walk([&](func::FuncOp func) {
-      if (func.isDeclaration()) {
-        return WalkResult::skip();
-      }
+    if (moduleOp
+            ->walk([&](func::FuncOp funcOp) {
+              if (funcOp.isDeclaration()) {
+                return WalkResult::skip();
+              }
 
-      FailureOr<FuncAnalysisData> funcAnalysis =
-          runAnalyzeBuffers(func, memSpaces);
-      if (failed(funcAnalysis)) {
-        return WalkResult::interrupt();
-      }
+              FailureOr<FuncAnalysisData> funcAnalysis =
+                  runAnalyzeBuffers(funcOp, memSpaces);
+              if (failed(funcAnalysis)) {
+                return WalkResult::interrupt();
+              }
 
-      moduleAnalysis.funcAnalysis[func] = std::move(*funcAnalysis);
-      return WalkResult::advance();
-    });
-
-    if (analysisWalk.wasInterrupted()) {
+              moduleAnalysis.funcAnalysis[funcOp] = std::move(*funcAnalysis);
+              return WalkResult::advance();
+            })
+            .wasInterrupted()) {
       return failure();
     }
 
@@ -302,20 +390,20 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   };
 
   // Analyze and plan buffer allocation for a func.
-  FailureOr<FuncAnalysisData> runAnalyzeBuffers(func::FuncOp func,
+  FailureOr<FuncAnalysisData> runAnalyzeBuffers(func::FuncOp funcOp,
                                                 const MemorySpaces &memSpaces) {
-    ttcore::DeviceAttr device = ttcore::lookupDevice(func);
-    Block &funcBody = func.getBody().front();
+    ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
+    Block &funcBody = funcOp.getBody().front();
 
-    // Start with SSA liveness for `func`.
+    // Start with SSA liveness for `funcOp`.
 
-    Liveness liveness(func.getOperation());
+    Liveness liveness(funcOp.getOperation());
     const LivenessBlockInfo *li = liveness.getLiveness(&funcBody);
 
     FuncAnalysisData analysis;
 
-    //  (a) Build `Operation` <-> preorder position mappings for all `func` ops.
-    //  (b) Collect a separate set of "ops of interest", which are
+    //  (a) Build `Operation` <-> preorder position mappings for all `funcOp`
+    //  ops. (b) Collect a separate set of "ops of interest", which are
     //  `memref.alloc`s as well as certain ops that we imbue with semantics
     //   of extending liveness of their memref operands.
 
@@ -399,7 +487,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
       const auto memCapacity = info.maxAddress - info.baseAddress;
       if (stats.memUsage > memCapacity) {
-        return func.emitOpError()
+        return funcOp.emitOpError()
                << "required " << stringifyEnum(memorySpace) << " memory usage "
                << stats.memUsage << " exceeds memory capacity " << memCapacity
                << " (usable space is [" << info.baseAddress << ", "
@@ -413,13 +501,13 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Apply buffer allocation `analysis` to `moduleOp`.
   LogicalResult runAllocateBuffers(ModuleOp moduleOp,
                                    const ModuleAnalysisData &analysis) {
-    auto result = moduleOp->walk([&](func::FuncOp func) {
-      auto funcAnalysis = analysis.funcAnalysis.find(func);
+    auto result = moduleOp->walk([&](func::FuncOp funcOp) {
+      auto funcAnalysis = analysis.funcAnalysis.find(funcOp);
       if (funcAnalysis == analysis.funcAnalysis.end()) {
         return WalkResult::skip();
       }
 
-      if (failed(runAllocateBuffers(func, funcAnalysis->second,
+      if (failed(runAllocateBuffers(funcOp, funcAnalysis->second,
                                     analysis.memSpaces))) {
         return WalkResult::interrupt();
       }
@@ -430,11 +518,11 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success(!result.wasInterrupted());
   }
 
-  // Apply buffer allocation `analysis` to `func`.
-  LogicalResult runAllocateBuffers(func::FuncOp func,
+  // Apply buffer allocation `analysis` to `funcOp`.
+  LogicalResult runAllocateBuffers(func::FuncOp funcOp,
                                    const FuncAnalysisData &analysis,
                                    const MemorySpaces &memSpaces) {
-    TT_assert(func.getBody().hasOneBlock());
+    TT_assert(funcOp.getBody().hasOneBlock());
 
     // Augment all 'memref.alloc's in device memory with allocated addresses and
     // correct alignments.
@@ -474,7 +562,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success();
   }
 
-  // Recursive helper for `runAnalyzeBuffers(func::FuncOp func...)`.
+  // Recursive helper for `runAnalyzeBuffers(func::FuncOp funcOp...)`.
   // Note: the overall traversal cost can be reduced by memoizing
   // final maxLast values and/or visiting Values in a reverse topological
   // sort order. This is not done at the moment.
