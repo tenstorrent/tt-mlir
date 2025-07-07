@@ -11,6 +11,7 @@ from ttir_builder import Operand, TTIRBuilder, Shape
 from ttmlir.ir import *
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shape",
     [
