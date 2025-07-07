@@ -184,9 +184,12 @@ std::string getOpLocName(Operation *op) {
 
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
   llvm::SmallVector<int64_t, 4> tiledShape(shape);
-  tiledShape[shape.size() - 1] =
-      ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
-  if (shape.size() > 1) {
+  const size_t rank = shape.size();
+  if (rank > 0) {
+    tiledShape[shape.size() - 1] =
+        ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
+  }
+  if (rank > 1) {
     tiledShape[shape.size() - 2] =
         ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 2], TILE_HEIGHT);
   }

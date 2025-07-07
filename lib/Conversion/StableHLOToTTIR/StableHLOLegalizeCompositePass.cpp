@@ -35,11 +35,9 @@ class StableHLOToTTIRCompositeOpConversionPattern
   using OpConversionPattern<mlir::stablehlo::CompositeOp>::OpConversionPattern;
 
 public:
-  StableHLOToTTIRCompositeOpConversionPattern(TypeConverter &typeConverter,
-                                              MLIRContext *context,
+  StableHLOToTTIRCompositeOpConversionPattern(MLIRContext *context,
                                               llvm::StringRef opName)
-      : OpConversionPattern<mlir::stablehlo::CompositeOp>(typeConverter,
-                                                          context),
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context),
         opName(opName) {}
 
   LogicalResult
@@ -55,9 +53,8 @@ public:
           srcOp, "CompositeOp must have exactly one result.");
     }
 
-    auto convertedType =
-        getTypeConverter()->convertType(srcOp.getResult(0).getType());
-    auto outputType = mlir::cast<RankedTensorType>(convertedType);
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
     auto compositeAttrs = srcOp.getCompositeAttributes();
     SmallVector<NamedAttribute> namedAttrs;
@@ -86,10 +83,8 @@ struct LegalizeStableHLOCompositeToTTIR
     target.addLegalDialect<ttir::TTIRDialect>();
     // StableHLO is intentionally not marked as either legal or illegal.
 
-    StablehloTypeConverter typeConverter(context);
     RewritePatternSet patterns(context);
-    populateStableHLOCompositeLegalizationPatterns(context, patterns,
-                                                   typeConverter);
+    populateStableHLOCompositeLegalizationPatterns(context, patterns);
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
@@ -107,11 +102,10 @@ createLegalizeStableHLOCompositeToTTIRPass() {
 }
 
 void populateStableHLOCompositeLegalizationPatterns(
-    MLIRContext *context, RewritePatternSet &patterns,
-    TypeConverter &typeConverter) {
+    MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
-      typeConverter, context, "tenstorrent.gelu");
+      context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
-      typeConverter, context, "tenstorrent.gelu_tanh");
+      context, "tenstorrent.gelu_tanh");
 }
 } // namespace mlir::tt

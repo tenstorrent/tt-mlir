@@ -13,6 +13,16 @@ module attributes {} {
     return %1 : tensor<64x128xf32>
   }
 
+  func.func @logical_and_scalars(%arg0: tensor<f32>, %arg1: tensor<f32>) -> tensor<f32> {
+    %0 = ttir.empty() : tensor<f32>
+    %1 = "ttir.logical_and"(%arg0, %arg1, %0) : (tensor<f32>, tensor<f32>, tensor<f32>) -> tensor<f32>
+    // CHECK: "ttnn.logical_and"
+    // CHECK-SAME: tensor<f32
+    // CHECK-SAME: tensor<f32
+    // CHECK-SAME: -> tensor<f32
+    return %1 : tensor<f32>
+  }
+
   func.func @logical_or(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %0 = ttir.empty() : tensor<64x128xf32>
     %1 = "ttir.logical_or"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>

@@ -186,8 +186,6 @@ Tensor createBorrowedHostTensor(void *data,
              "Cannot create borrowed tensor with unsupported data type: " +
                  std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
