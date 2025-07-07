@@ -30,7 +30,6 @@ tt-mlir documentation contains more detailed information on `ttir-builder` [APIs
 `build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
 
 ```bash
-
 def build_mlir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
