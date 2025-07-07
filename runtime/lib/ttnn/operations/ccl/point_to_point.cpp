@@ -30,12 +30,12 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
   std::vector<::ttnn::Tensor> inputTensorsHost =
       extractShardsToHost(inputTensor);
 
-  std::vector<::ttnn::Tensor> outputTensorsHost bool
-      hasUserProvidedOutputTensor = op->output_tensor();
+  std::vector<::ttnn::Tensor> outputTensorsHost;
+  bool hasUserProvidedAccumTensor = op->accum_tensor();
 
-  if (hasUserProvidedOutputTensor) {
+  if (hasUserProvidedAccumTensor) {
     outputTensorsHost = extractShardsToHost(
-        tensorPool.getTTNNTensorAndValidate(op->output_tensor()));
+        tensorPool.getTTNNTensorAndValidate(op->accum_tensor()));
   } else {
     outputTensorsHost = inputTensorsHost;
   }

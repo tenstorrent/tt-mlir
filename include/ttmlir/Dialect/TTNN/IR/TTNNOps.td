@@ -2194,8 +2194,8 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
     distributed tensor computations, where a specific device (sender_id) sends its local tensor
     data to a target device (receiver_id).
 
-    If `output_tensor` is not provided, a new output tensor will be allocated automatically
-    at the receiver. If provided, the data will be written into the specified output tensor.
+    If `accum_tensor` is not provided, a new output tensor will be allocated automatically
+    at the receiver. If provided, the data will be written into the specified accum tensor.
 
     The operation returns a multi-device tensor whose buffer layout follows the mesh configuration.
   }];
@@ -2203,7 +2203,7 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let arguments = (ins AnyRankedTensor:$input,
                          UI32Attr:$sender_id,
                          UI32Attr:$receiver_id,
-                         Optional<AnyRankedTensor>:$output_tensor);
+                         Optional<AnyRankedTensor>:$accum_tensor);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }

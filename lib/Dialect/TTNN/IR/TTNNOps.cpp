@@ -2683,15 +2683,15 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
 
 // PointToPointOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::PointToPointOp::verify() {
-  if (getOutputTensor()) { // output_tensor is optional
+  if (getAccumTensor()) { // accum_tensor is optional
     auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
     auto outputType =
-        llvm::dyn_cast<RankedTensorType>(getOutputTensor().getType());
+        llvm::dyn_cast<RankedTensorType>(getAccumTensor().getType());
 
     if (inputType.getElementType() != outputType.getElementType() ||
         inputType.getShape() != outputType.getShape()) {
       return emitOpError(
-          "Output tensor must match input tensor in shape and element type.");
+          "Accum tensor must match input tensor in shape and element type.");
     }
   }
   return success();

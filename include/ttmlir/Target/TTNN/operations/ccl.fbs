@@ -47,5 +47,5 @@ table PointToPointOp {
   out: tt.target.ttnn.TensorRef;
   sender_id: int32;
   receiver_id: int32;
-  output_tensor: tt.target.ttnn.TensorRef (optional);
+  accum_tensor: tt.target.ttnn.TensorRef (optional);
 }

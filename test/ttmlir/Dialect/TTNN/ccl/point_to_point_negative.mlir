@@ -12,7 +12,7 @@ module @point_to_point_provided_output_tensor_different_shape attributes {} {
     return %2 : tensor<4096x8192xf32, #ttnn_layout2>
   }
 }
-// CHECK: error: 'ttnn.point_to_point' op Output tensor must match input tensor in shape and element type.
+// CHECK: error: 'ttnn.point_to_point' op Accum tensor must match input tensor in shape and element type.
 
 
 // -----
@@ -28,4 +28,4 @@ module @point_to_point_provided_output_tensor_different_element_type attributes 
     return %2 : tensor<4096x16384xf16, #ttnn_layout2>
   }
 }
-// CHECK: error: 'ttnn.point_to_point' op Output tensor must match input tensor in shape and element type.
+// CHECK: error: 'ttnn.point_to_point' op Accum tensor must match input tensor in shape and element type.

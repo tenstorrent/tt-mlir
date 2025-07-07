@@ -124,7 +124,7 @@ namespace tt::runtime::ttnn::operations::ccl::point_to_point {
 inline ::ttnn::Tensor
 point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
                const uint32_t receiverId,
-               const std::optional<::ttnn::Tensor> &output) {
+               const std::optional<::ttnn::Tensor> &accumTensor) {
 
   auto extractShardsToHost = [](const ::ttnn::Tensor &deviceTensor) {
     return ::ttnn::distributed::get_device_tensors(
@@ -133,14 +133,13 @@ point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
   std::vector<::ttnn::Tensor> inputTensorsHost =
       extractShardsToHost(inputTensor);
 
-  ::ttnn::Tensor outputTensor;
-  bool hasUserProvidedOutputTensor = output.has_value();
+  std::vector<::ttnn::Tensor> outputTensorsHost;
+  bool hasUserProvidedAccumTensor = accumTensor.has_value();
 
-  if (hasUserProvidedOutputTensor) {
-    outputTensor = output.value();
+  if (hasUserProvidedAccumTensor) {
+    outputTensorsHost = extractShardsToHost(accumTensor.value());
   } else {
-    outputTensor = ::tt::tt_metal::create_device_tensor(
-        inputTensor.tensor_spec(), inputTensor.mesh_device());
+    outputTensorsHost = inputTensorsHost;
   }
 
   std::vector<::ttnn::Tensor> outputTensorsHost =

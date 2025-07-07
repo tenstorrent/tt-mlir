@@ -884,14 +884,14 @@ createOp(FlatbufferObjectCache &cache, PointToPointOp op) {
   auto senderId = op.getSenderId();
   auto receiverId = op.getReceiverId();
 
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> outputTensor = 0;
-  if (op.getOutputTensor()) {
-    outputTensor = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getOutputTensor()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> accumTensor = 0;
+  if (op.getAccumTensor()) {
+    accumTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAccumTensor()));
   }
 
   return ::tt::target::ttnn::CreatePointToPointOp(
-      *cache.fbb, input, output, senderId, receiverId, outputTensor);
+      *cache.fbb, input, output, senderId, receiverId, accumTensor);
 }
 
 template <typename EltwiseBinaryOp>
