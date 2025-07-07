@@ -122,7 +122,7 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::SubUnarySfpu, TTNNUnaryOpType::SUB_UNARY_SFPU},
       {FbUnaryOpType::MulUnarySfpu, TTNNUnaryOpType::MUL_UNARY_SFPU},
       {FbUnaryOpType::DivUnarySfpu, TTNNUnaryOpType::DIV_UNARY_SFPU},
-      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY_UINT32},
+      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY},
       {FbUnaryOpType::UnaryNe, TTNNUnaryOpType::UNARY_NE},
       {FbUnaryOpType::UnaryGt, TTNNUnaryOpType::UNARY_GT},
       {FbUnaryOpType::UnaryLt, TTNNUnaryOpType::UNARY_LT},
