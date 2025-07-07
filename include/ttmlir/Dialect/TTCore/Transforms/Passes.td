@@ -70,6 +70,7 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
     ];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 #endif
