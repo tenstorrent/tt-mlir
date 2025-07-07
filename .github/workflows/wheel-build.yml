@@ -8,7 +8,7 @@ jobs:
   build-ttmlir-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
-    runs-on: builder
+    runs-on: ubuntu-latest
 
     steps:
       - name: Maximize space
@@ -54,7 +54,7 @@ jobs:
   build-pykernel-wheel:
     timeout-minutes: 60
     name: Build pykernel Python Wheel
-    runs-on: builder
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
