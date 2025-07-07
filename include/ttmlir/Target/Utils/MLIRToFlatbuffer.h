@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/utils.h"
@@ -787,8 +786,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getCoreGrid()),
       toFlatbuffer(cache, config.getTransposeShards()),
       toFlatbuffer(cache, config.getOutputLayout()),
-      toFlatbuffer(cache, config.getPreprocessWeightsOnDevice()),
-      toFlatbuffer(cache, config.getAlwaysPreprocessWeights()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
@@ -916,28 +913,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       assert(shape.size() == 2);
       shape[0] *= tileShape.y();
       shape[1] *= tileShape.x();
-
-      auto coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-          ctx, llvm::map_to_vector(
-                   ttcore::utils::toCoreRangeSet(
-                       shardGrid.getShape(),
-                       ttnn::optimizer_utils::
-                           createSingleDeviceVirtualToPhysicalAffineMap(
-                               ctx, memLayoutAttr.getValue(),
-                               deviceGrid.getShape())),
-                   [ctx](const auto &range) {
-                     const auto [loc, size] = range;
-                     return ttnn::CoreRangeAttr::get(
-                         ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                         ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                                  loc[1] + size[1] - 1));
-                   }));
       shardSpecAttr = ttnn::ShardSpecAttr::get(
-          ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
-          ttnn::ShardOrientationAttr::get(ctx,
-                                          ttnn::ShardOrientation::RowMajor),
-          ttnn::ShardModeAttr::get(ctx, ttnn::ShardMode::Physical),
-          /*physical_shard_shape=*/nullptr);
+          ctx, ttnn::ShapeAttr::get(ctx, shape), shardGrid, deviceGrid);
     }
     auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
         ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);

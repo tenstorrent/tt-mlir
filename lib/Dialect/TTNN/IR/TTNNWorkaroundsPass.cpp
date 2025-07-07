@@ -162,7 +162,7 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
-// Factory method to create a set of workarounds for UpsampleOp. The UpsampleOp
+// Factory method to create a set of workarounds for UpsampleO. The UpsampleOp
 // expects the input to be in row-major layout and to use the bf16 data type.
 // Since the output of the UpsampleOp follows the same format as the input
 // operand, the same workaround is applied to the output operand.
@@ -347,12 +347,12 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 // tt-metal uses predicate type for where op operation. If the predicate data
 // type does not match with inputs/output data type; tt-metal can generate
 // incorrect results or other failures. Add a data type workaround if predicate
-// type does not match with input.
-// tt-metal issue to track mixed data types ops bug.
+// type does not match with input. Also, if predicate is integer, force it to
+// match input data type, unless both are integers, then force both to
+// float32.
+// tt-metal issues to track mixed data types ops bug.
 // https://github.com/tenstorrent/tt-metal/issues/17998
-// Where also does not work with int32
-// so we also force everything to float32 in that case
-// https://github.com/tenstorrent/tt-mlir/issues/3154
+// https://github.com/tenstorrent/tt-metal/issues/24511
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
     mlir::Operation::operand_range inputs) {
@@ -364,19 +364,31 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::RankedTensorType inputType =
       mlir::cast<RankedTensorType>(inputs.back().getType());
   mlir::Type inputElementType = inputType.getElementType();
-  TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
-  if (predicateElementType.isInteger() || inputElementType.isInteger()) {
-    typeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
-  } else if (predicateElementType != inputElementType) {
-    typeWorkaround =
-        TTNNOperandWorkarounds(ttcore::elementTypeToDataType(inputElementType));
+  TTNNOperandWorkarounds predicateTypeWorkaround = TTNNOperandWorkarounds();
+  TTNNOperandWorkarounds inputTypeWorkaround;
+
+  if (predicateElementType.isInteger() ||
+      predicateElementType != inputElementType) {
+    if (inputElementType.isInteger()) {
+      // In an unlikely scenario, we could potentially upcast to float32, if
+      // input is integer and predicate is for example bf16.
+      // More importantly, if both are integers, we force both to float32.
+      predicateTypeWorkaround =
+          TTNNOperandWorkarounds(ttcore::DataType::Float32);
+      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
+    } else {
+      // Otherwise, we just force the predicate type to match the input type.
+      predicateTypeWorkaround = TTNNOperandWorkarounds(
+          ttcore::elementTypeToDataType(inputElementType));
+    }
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(typeWorkaround)
-      .addInputOperandWorkaround(typeWorkaround)
-      .addInputOperandWorkaround(typeWorkaround)
-      .addOutputOperandWorkaround(typeWorkaround);
+      .addInputOperandWorkaround(predicateTypeWorkaround)
+      .addInputOperandWorkaround(inputTypeWorkaround)
+      .addInputOperandWorkaround(inputTypeWorkaround)
+      .addOutputOperandWorkaround(
+          TTNNOperandWorkarounds::createEmptyTTNNOperandWorkarounds());
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.

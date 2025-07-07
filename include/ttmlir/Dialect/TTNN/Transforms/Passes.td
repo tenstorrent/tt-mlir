@@ -48,6 +48,10 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-repeat-folding-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Repeat Folding Workaround Pass">,
+      Option<"optimizerEnabled",
+             "ttnn-is-optimizer-enabled",
+             "bool", /*default=*/"false",
+             "flag specifying if optimizer is enabled">,
   ];
 }
 

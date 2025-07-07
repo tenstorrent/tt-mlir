@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="enable-commute-downwards=false" %s | FileCheck %s
 module {
     func.func @test_commute_identical_users(%arg0: tensor<32x64xbf16>) -> (tensor<64x32xbf16>, tensor<64x32xbf16>) {
         // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"
