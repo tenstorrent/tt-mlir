@@ -92,6 +92,7 @@ def test_matmul_blocking(
     options = [
         f"max-dst-register-size-tiles={dst_register_size_tiles}",
         f"override-device-shape={grid_m},{grid_n}",
+        f"matmul-interchange=2,0,1",
     ]
     compile_to_flatbuffer(
         matmul_blocking,

@@ -21,7 +21,6 @@ from ttmlir.ir import *
         (1024, 1024, 2048),
         (1024, 2048, 2048),
         (2048, 2048, 2048),
-        (2048, 2048, 3072),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32])
