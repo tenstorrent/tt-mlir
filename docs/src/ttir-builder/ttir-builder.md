@@ -23,7 +23,7 @@ from ttir_builder import TTIRBuilder
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
-For more detailed information on `ttir-builder` APIs, utility functions, and supported TTIR operations, see the full set of [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir_builder.ops.html).
+tt-mlir documentation contains more detailed information on `ttir-builder` [APIs](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/apis.html), [utility functions](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/utils.html), and supported TTIR [operations]()https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ops.html.
 
 ## Creating a TTIR module
 
