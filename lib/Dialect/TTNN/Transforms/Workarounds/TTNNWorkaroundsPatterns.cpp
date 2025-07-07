@@ -755,12 +755,12 @@ public:
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
-    if (repeatFoldingWorkaroundEnabled) {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
-          &getContext());
-      runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
-    }
+    // if (repeatFoldingWorkaroundEnabled) {
+    //   RewritePatternSet patterns(&getContext());
+    //   patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
+    //       &getContext());
+    //   runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
+    // }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
 
