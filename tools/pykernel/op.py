@@ -71,14 +71,14 @@ class PyKernelOp:
             case _:
                 return "Invalid"
 
-    def _get_core_ranges(self, tensors, options):
-        res = self.define_core_ranges(tensors, options)
-        if res is None:
-            raise ValueError(
-                "Please use define_core_ranges, can't automatically resolve"
-            )
-        self._defined_core_ranges = res
-        return res
+    def get_core_ranges(self, core_ranges=None):
+        if core_ranges is None:
+            if not hasattr(self, "defined_core_ranges"):
+                raise ValueError(
+                    "Trying to retrieve core ranges before function initialization"
+                )
+            return self.defined_core_ranges
+        return core_ranges
 
     def define_core_ranges(self, tensors, options):
         """Define Core Ranges from tensors and options."""
@@ -123,12 +123,15 @@ class PyKernelOp:
     def get_buffer_addr(self, tensor):
         return tensor.buffer_address()
 
-    def create_cb(self, tensor, buffer_index, **options):
+    def create_cb(self, tensor, buffer_index, core_ranges=None, **options):
         # Utility function to create CB given tensor. Returns an OpCircularBuffer Object
         dtype = tensor.dtype
         page_size = self._tile_bytes_from_ttnn_dtype(int(dtype))
         num_tiles = math.ceil(tensor.volume() / 1024)
         total_size = num_tiles * page_size
+
+        # Define core_ranges
+        core_ranges = self.get_core_ranges(core_ranges)
 
         cb_format = self.ttnn.CBFormatDescriptor(
             buffer_index=buffer_index, data_format=dtype, page_size=page_size
@@ -136,7 +139,7 @@ class PyKernelOp:
 
         cb_desc = self.ttnn.CBDescriptor(
             total_size=total_size,
-            core_ranges=self._defined_core_ranges,
+            core_ranges=core_ranges,
             format_descriptors=[cb_format],
         )
 
@@ -148,15 +151,85 @@ class PyKernelOp:
 
         return OpCircularBuffer(cb_type, cb_format, cb_desc)
 
-    def create_kernel(self, kernel, *args, **kwargs):
-        # Convert the ct_args
-        ct_args = self.make_ct_args(**kwargs)
+    def set_args(self, arguments: Arguments, core, *args):
+        if not (
+            all(isinstance(x, int) for x in args)
+            or all(isinstance(x, CompiledValue) for x in args)
+        ):
+            raise TypeError("Arguments must be a list of integers")
+
+        args = list(args)
+
+        if isinstance(core, ttnn.CoreCoord):
+            arguments.set_args_at_core(core.x, core.y, args)
+        elif isinstance(core, ttnn.CoreRange):
+            for x in range(core.start.x, core.end.x):
+                for y in range(core.start.y, core.end.y):
+                    arguments.set_args_at_core(x, y, args)
+        elif isinstance(core, ttnn.CoreRangeSet):
+            for rng in core.ranges():
+                for x in range(rng.start.x, rng.end.x):
+                    for y in range(rng.start.y, rng.end.y):
+                        arguments.set_args_at_core(x, y, args)
+
+    def create_rt_args(self, arguments: dict = {}, core_ranges=None):
+        # Argument_dict is a dict with keys of Core types, and values of list[int]
+
+        # Check for various instances of core types
+        # Get the core grid size from the define_core_ranges function
+        core_grid = self.get_core_ranges(core_ranges)
+        grid_size = core_grid.bounding_box().grid_size()
+
+        result = Arguments(grid_size.x, grid_size.y)
+
+        # Define for each of the cores specifically
+        for core, args in arguments.items():
+            self.set_args(result, core, *args)
+
+        return result
+
+    def create_ct_args(self, arguments: dict = {}, core_ranges=None):
+        core_grid = self.get_core_ranges(core_ranges)
+        grid_size = core_grid.bounding_box().grid_size()
+
+        result = Arguments(grid_size.x, grid_size.y)
+
+        # Specific core definitions
+        for core, _args in arguments.items():
+            args = [CompiledValue(k, v) for k, v in _args.items()]
+            self.set_args(result, core, *args)
+
+        return result
+
+    # Who knew function signature theory and resolution order would be relevant one day
+    def create_kernel(
+        self, kernel, *args, rt_args=None, ct_args=None, core_ranges=None, **kwargs
+    ):
+        # Resolve core_ranges
+        core_ranges = self.get_core_ranges(core_ranges)
+
+        # Resolve arguments
+        _rt_args = [x for x in args if not isinstance(x, OpCircularBuffer)]
+        if rt_args is not None and _rt_args:
+            raise TypeError("Can't define both rt_args and positional rt_args")
+        elif _rt_args:
+            # If positional arguments are defined we will override the value of rt_args
+            rt_args = self.create_rt_args({core_ranges: _rt_args})
+        elif rt_args is None and not _rt_args:
+            rt_args = self.create_rt_args()
+
+        if ct_args is not None and kwargs:
+            raise TypeError("Can't define both ct_args and keyword ct_args")
+        elif kwargs:
+            # If kwargs are defined, we will override the value of ct_args
+            ct_args = self.create_ct_args({core_ranges: kwargs})
+        elif ct_args is None and not kwargs:
+            ct_args = self.create_ct_args()
 
         # Get the PyKernel type for cb_args
         cb_args = [x.cb_type for x in args if isinstance(x, OpCircularBuffer)]
-        rt_args = [x for x in args if not isinstance(x, OpCircularBuffer)]
 
-        kernel_string = kernel(*cb_args, *rt_args, *ct_args)
+        kernel_string = kernel(*cb_args, *rt_args.get_args(), *ct_args.get_args())
         kernel_t = Kernel(kernel.__name__, kernel_string)
         kernel_path = kernel_t.dump_to_file()
 
@@ -164,9 +237,9 @@ class PyKernelOp:
 
         kernel_desc_args = {
             "kernel_source": kernel_path,
-            "core_ranges": self._defined_core_ranges,
+            "core_ranges": self.get_core_ranges(core_ranges),
             "compile_time_args": [cb.cb_id for cb in cb_args],
-            "runtime_args": [[rt_args]],
+            "runtime_args": rt_args.get_all_args(),
             "config": config(),
         }
 
@@ -197,8 +270,9 @@ class PyKernelOp:
         Returns:
             Result tensor(s) from the operation
         """
-        # Get the core_ranges, make sure user defines them otherwise.
-        self._get_core_ranges(tensors, options)
+
+        # Invoked at "runtime", set the defined_core_ranges from the define_core_ranges function
+        self.defined_core_ranges = self.define_core_ranges(tensors, options)
 
         # Compute hash for kernel selection and caching
         input_hash = self._compute_input_hash(tensors, options)

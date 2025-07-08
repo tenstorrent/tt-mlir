@@ -144,31 +144,64 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
             max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024
         )
 
+        num_cores = self.get_core_ranges().num_cores()
+        num_tiles_per_core = num_tiles / num_cores
+
+        if num_tiles_per_core % 1 != 0:
+            # uneven distro of work, just break down and cry.
+            raise Exception(":sad_hamster:")
+
+        num_tiles_per_core = int(num_tiles_per_core)
+
+        # Define the multicore runtime arguments
+        writer_rt_args = self.create_rt_args()
+        reader_rt_args = self.create_rt_args()
+        compute_rt_args = self.create_rt_args()
+
+        # Go row-wise
+        bb = self.get_core_ranges().bounding_box()
+        for i in range(bb.start.x, bb.end.x + 1):
+            for j in range(bb.start.y, bb.end.y + 1):
+                # Set for each core
+                core = ttnn.CoreCoord(i, j)
+                # Set Compute rt_args
+                self.set_args(compute_rt_args, core, num_tiles_per_core, start_id)
+                self.set_args(
+                    writer_rt_args,
+                    core,
+                    out_tensor.buffer_address(),
+                    num_tiles_per_core,
+                    start_id,
+                )
+                self.set_args(
+                    reader_rt_args,
+                    core,
+                    a_tensor.buffer_address(),
+                    b_tensor.buffer_address(),
+                    num_tiles_per_core,
+                    start_id,
+                )
+                start_id += 1
+
         kernels = [
             self.create_kernel(
                 VecAddMulticorePyKernelOp.add_multicore,
                 cb_in0,
                 cb_in1,
                 cb_out,
-                num_tiles,
-                start_id,
+                rt_args=compute_rt_args,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.writer_multicore,
                 cb_out,
-                out_tensor.buffer_address(),
-                num_tiles,
-                start_id,
+                rt_args=writer_rt_args,
                 dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.reader_binary_interleaved,
                 cb_in0,
                 cb_in1,
-                a_tensor.buffer_address(),
-                b_tensor.buffer_address(),
-                num_tiles,
-                start_id,
+                rt_args=reader_rt_args,
                 src0_is_dram=is_a_dram,
                 src1_is_dram=is_b_dram,
             ),

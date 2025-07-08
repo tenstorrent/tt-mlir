@@ -43,3 +43,20 @@ class CompiledValue:
     def __init__(self, key, value):
         self.key = key
         self.value = value
+
+
+class Arguments:
+    def __init__(self, x=1, y=1):
+        self.args = [[[] for i in range(x)] for j in range(y)]
+
+    def set_args_at_core(self, i, j, args):
+        self.args[i][j] = args
+
+    def add_args_at_core(self, i, j, args):
+        self.args[i][j].extend(args)
+
+    def get_args(self, x=0, y=0):
+        return self.args[x][y]
+
+    def get_all_args(self):
+        return self.args
