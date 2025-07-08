@@ -1450,12 +1450,10 @@ void updateTensorInPool(CallbackContext programContextHandle,
     return;
   }
 
-  ::ttnn::Tensor &srcTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+  ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (dstTensor.mesh_device()) {
+  if (utils::isOnDevice(dstTensor.storage_type())) {
     srcTensor = ::ttnn::to_device(srcTensor, dstTensor.mesh_device(),
                                   dstTensor.memory_config());
   }
