@@ -1,5 +1,5 @@
 ttir\_builder.ops
 =================
 
-.. autoclass:: ttir_builder.ops.TTIRBuilderOps
+.. autoclass:: ttir_builder.TTIRBuilderOps
    :members:

@@ -5,14 +5,6 @@ add_custom_target(copy-docs-dir
     cp -r ${CMAKE_CURRENT_SOURCE_DIR}/* ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-execute_process(
-    COMMAND ${Python_EXECUTABLE} -m pip install sphinx sphinx-markdown-builder
-    # Optional arguments for pip install, like --upgrade, -e for editable install, etc.
-    # ARGS ${_pip_args}
-    # Specify the working directory if needed
-    # WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-)
-
 # Find Sphinx executables
 find_program(SPHINX_EXECUTABLE
     NAMES sphinx-build
