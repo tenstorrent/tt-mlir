@@ -40,6 +40,34 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   return deviceOp;
 }
 
+GetDeviceOp getOrInsertDeviceInsideBlock(RewriterBase &rewriter, Block *block) {
+  for (auto &op : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
+      return deviceOp;
+    }
+  }
+
+  // ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(block->getParentOp());
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(block, block->begin());
+  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
+  if (meshShape.empty()) {
+    meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
+  }
+  // TODO (jnie): Currently hardcoding the mesh offset to 0x0
+  // Need a proper plan to dynamically determine this.
+  llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
+  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
+      block->getParentOp()->getLoc(), rewriter.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(rewriter.getContext(), meshShape[0],
+                               meshShape[1]),
+      ttnn::MeshOffsetAttr::get(rewriter.getContext(), meshOffset[0],
+                                meshOffset[1]));
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return deviceOp;
+}
+
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp

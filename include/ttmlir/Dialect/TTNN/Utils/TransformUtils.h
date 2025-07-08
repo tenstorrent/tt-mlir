@@ -16,6 +16,8 @@ namespace mlir::tt::ttnn::utils {
 GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter,
                               mlir::Operation *op);
 
+GetDeviceOp getOrInsertDeviceInsideBlock(RewriterBase &rewriter, Block *block);
+
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp createToLayoutOp(

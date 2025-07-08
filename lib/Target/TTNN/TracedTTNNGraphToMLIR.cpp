@@ -286,16 +286,25 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
   ::mlir::Block *entryBlock = func.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
 
+  // Register device
   ttcore::registerDevice(module);
 
   mlir::IRRewriter rewriter(builder);
-  Value device = ttnn::utils::getOrInsertDevice(rewriter, func).getResult();
+  rewriter.setInsertionPointToStart(entryBlock);
+  // Value device = ttnn::utils::getOrInsertDevice(rewriter, func).getResult();
+  Value device = ttnn::utils::getOrInsertDeviceInsideBlock(rewriter, entryBlock)
+                     .getResult();
 
   std::unordered_map<int, Value> indexToResultMap;
 
   // First pass: create all operations
   if (auto *nodesArray = json.getAsArray()) {
     for (const auto &node : *nodesArray) {
+      static int counter = 0;
+      counter++;
+      if (counter > 99999) {
+        break;
+      }
       if (const llvm::json::Object *nodeObj = node.getAsObject()) {
         // Get node properties
         int index = -1;
