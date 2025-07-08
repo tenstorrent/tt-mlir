@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_TYPES_H
-#define TT_RUNTIME_DETAIL_TTNN_TYPES_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_TYPES_TYPES_H
+#define TT_RUNTIME_DETAIL_TTNN_TYPES_TYPES_H
 
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"

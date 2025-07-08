@@ -2155,67 +2155,6 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_TraceOp : TTNN_Op<"trace"> {
-    let summary = "Trace capture and execute operation.";
-    let description = [{
-      Executes metal trace for the called function within the trace op. The called function will be a collection
-      of hoisted operations from the original graph. For now, all ttnn operations that come after getDevice and const-eval
-      will be hoisted.
-
-      Inputs:
-        - `device` TTNN_Device: The device to capture and execute the trace on.
-        - `cq_id` i32: The command queue to capture the trace with. Must be 0 or 1.
-        - `blocking` bool: Whether the trace should be executed synchronously.
-        - `callee` FlatSymbolRefAttr: The symbol of the function to trace.
-        - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace.
-
-      Outputs:
-        - `results` Variadic<AnyRankedTensor>: The output tensors from the trace.
-
-      Example:
-
-      ```mlir
-      %0 = ttir.empty() : tensor<32x32xbf16>
-      %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      return %1 : tensor<32x32xbf16>
-      ```
-
-      will generate the following trace function (arbitrarily naming it as `single_add_trace_0`):
-
-      ```mlir
-      func.func @single_add_trace_0(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
-        %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-        return %0 : tensor<32x32xbf16, #ttnn_layout>
-      }
-      ```
-
-      The main function call will get transformed to a ttnn.trace call that traces the `single_add_trace_0` function:
-
-      ```mlir
-      %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = ttnn.trace(%0, 0, false, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-      ```
-    }];
-
-    let arguments = (ins
-      TTNN_Device:$device,
-      I32Attr:$cq_id,
-      BoolAttr:$blocking,
-      FlatSymbolRefAttr:$callee,
-      Variadic<AnyRankedTensor>:$inputs
-    );
-
-    let results = (outs
-      Variadic<AnyRankedTensor>:$results
-    );
-
-    let assemblyFormat = [{
-      `(` $device `,` $cq_id `,` $blocking `,` $callee `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $results)
-    }];
-
-    let hasVerifier = 1;
-}
-
 def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let summary = "Point To Point operation.";
   let description = [{
@@ -2237,4 +2176,111 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
+
+def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor"> {
+  let summary = "Copy host to device tensor op.";
+  let description = [{
+    Copies host_tensor data into device_tensor through cq_id.
+    Memory copy is done in place, thus no output is returned.
+    Inputs:
+      - `host_tensor` AnyRankedTensor: The host tensor to copy.
+      - `device_tensor` AnyRankedTensor: The device tensor to copy into.
+      - `blocking` bool: Whether the copy should be executed synchronously.
+      - `cq_id` i32: The command queue to copy the tensor with. Must be 0 or 1.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$host_tensor,
+                       Arg<AnyRankedTensor, "device tensor", [MemWrite]>:$device_tensor,
+                       DefaultValuedAttr<BoolAttr, "false">:$blocking,
+                       DefaultValuedAttr<UI32Attr, "0">:$cq_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
+  let summary = "Begin trace capture.";
+  let description = [{
+    Begins trace capture. Returns a scalar tensor containing the trace id.
+    Inputs:
+      - `device` TTNN_Device: The device to capture the trace on.
+      - `cq_id` ui32: The command queue to capture the trace with. Must be 0 or 1.
+    Outputs:
+      - `trace_id` AnyRankedTensor: The scalar trace id tensor containing the trace id.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       DefaultValuedAttr<UI32Attr, "0">:$cq_id);
+
+  let results = (outs AnyRankedTensor:$trace_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
+  let summary = "End trace capture.";
+  let description = [{
+    Ends trace capture for the given trace id. Consumes a scalar tensor containing the trace id.
+    Has no output, but will have memory effects on the trace region of the device, modelled by
+    trace resource in the compiler.
+    Inputs:
+      - `device` TTNN_Device: The device to end the trace capture on.
+      - `trace_id` AnyRankedTensor: The trace id tensor to end the capture for. Must be a scalar.
+      - `cq_id` ui32: The command queue to end the capture with. Must be 0 or 1.
+  }];
+
+
+  let arguments = (ins TTNN_Device:$device,
+                       AnyRankedTensor:$trace_id,
+                       DefaultValuedAttr<UI32Attr, "0">:$cq_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
+  let summary = "Execute trace.";
+  let description = [{
+    Executes the captured trace. Consumes a scalar tensor containing the trace id.
+    Has no output, but will have read/write memory effects on the cached trace input/output tensors
+    created when capturing the trace.
+    Inputs:
+      - `device` TTNN_Device: The device where the trace was captured.
+      - `trace_id` AnyRankedTensor: The trace id tensor to execute. Must be a scalar.
+      - `cq_id` ui32: The command queue to execute the trace with. Must be 0 or 1.
+      - `blocking` bool: Whether the trace should be executed synchronously.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       AnyRankedTensor:$trace_id,
+                       DefaultValuedAttr<UI32Attr, "0">:$cq_id,
+                       DefaultValuedAttr<BoolAttr, "false">:$blocking);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace"> {
+  let summary = "Capture or execute trace.";
+  let description = [{
+    Captures or executes the trace. Will have read/write memory effects on the cached trace data.
+    If the trace data exists (meaning the trace was captured previously), it will be executed with
+    the execute_callee function. Otherwise, the trace will be captured with the capture_callee function.
+
+    Inputs:
+      - `device` TTNN_Device: The device where the trace was captured.
+      - `capture_callee` FlatSymbolRefAttr: The symbol of the capture trace function.
+      - `execute_callee` FlatSymbolRefAttr: The symbol of the execute trace function.
+      - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace function.
+    Outputs:
+      - `results` Variadic<AnyRankedTensor>: The output tensors from the trace function.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       FlatSymbolRefAttr:$capture_callee,
+                       FlatSymbolRefAttr:$execute_callee,
+                       Variadic<AnyRankedTensor>:$inputs);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let hasVerifier = 1;
+}
+
 #endif

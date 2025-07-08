@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
+#include <atomic>
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {

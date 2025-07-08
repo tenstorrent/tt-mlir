@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -15,6 +16,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <cstdint>
 #include <numeric>
@@ -57,6 +59,14 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   rewriter.eraseOp(op);
 
   return ::mlir::success();
+}
+
+static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
+  auto ttnnLayoutAttr =
+      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  bool isOnDevice =
+      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+  return isOnDevice;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2557,77 +2567,174 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
-// TraceOp
+// WriteTensorOp
 //===----------------------------------------------------------------------===//
 
-static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
-                                              ::mlir::ValueRange opValues,
-                                              ::mlir::TypeRange fnTypes,
-                                              bool isInput) {
-  // Verify count
-  if (opValues.size() != fnTypes.size()) {
-    return op->emitOpError("Incorrect number of ")
-           << (isInput ? "operands" : "results") << " for callee"
-           << " -- expected " << fnTypes.size()
-           << " but got: " << opValues.size();
+::mlir::LogicalResult WriteTensorOp::verify() {
+  auto hostTensorType =
+      ::mlir::cast<RankedTensorType>(this->getHostTensor().getType());
+  if (!hostTensorType) {
+    return emitOpError() << "Host tensor must be RankedTensorType";
+  }
+  if (isTensorOnDevice(hostTensorType)) {
+    return emitOpError() << "Host tensor must be on system memory";
   }
 
-  // Verify types
-  for (unsigned i = 0; i < fnTypes.size(); ++i) {
-    if (opValues[i].getType() != fnTypes[i]) {
-      return op->emitOpError() << (isInput ? "Operand" : "Result")
-                               << " type mismatch at index " << i;
-    }
+  auto deviceTensorType =
+      ::mlir::cast<RankedTensorType>(this->getDeviceTensor().getType());
+  if (!deviceTensorType) {
+    return emitOpError() << "Device tensor must be RankedTensorType";
+  }
+  if (!isTensorOnDevice(deviceTensorType)) {
+    return emitOpError() << "Device tensor must be on device memory";
+  }
+
+  uint32_t cqId = this->getCqId();
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
   }
 
   return ::mlir::success();
 }
 
-static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
-  auto ttnnLayoutAttr =
-      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  bool isOnDevice =
-      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
-  return isOnDevice;
+//===----------------------------------------------------------------------===//
+// TraceOps
+//===----------------------------------------------------------------------===//
+
+static ::mlir::LogicalResult verifyTraceIdTensor(Operation *op, Value traceId) {
+  if (!traceId) {
+    return op->emitError() << "Trace ID must be set";
+  }
+  if (!mlir::isa<mlir::RankedTensorType>(traceId.getType())) {
+    return op->emitError() << "Trace ID must be a ranked tensor type";
+  }
+  auto traceIdTensor = mlir::cast<mlir::RankedTensorType>(traceId.getType());
+  if (traceIdTensor.getRank() != 0) {
+    return op->emitError() << "Trace ID must be a scalar";
+  }
+  auto intType =
+      mlir::dyn_cast<mlir::IntegerType>(traceIdTensor.getElementType());
+  if (!intType) {
+    return op->emitError() << "Trace ID must be an integer";
+  }
+  if (!intType.isUnsigned()) {
+    return op->emitError() << "Trace ID must be unsigned";
+  }
+  if (intType.getWidth() != 32) {
+    return op->emitError() << "Trace ID must be 32-bit";
+  }
+  if (isTensorOnDevice(traceIdTensor)) {
+    return op->emitError() << "Trace ID must be on system memory";
+  }
+  return ::mlir::success();
 }
 
-::mlir::LogicalResult TraceOp::verify() {
-  auto device = this->getDevice();
-  if (!device) {
-    return emitOpError() << "Device must be set for trace op";
-  }
+void BeginTraceCaptureOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
 
+::mlir::LogicalResult BeginTraceCaptureOp::verify() {
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError() << "CQ ID must be 0 or 1 for trace op, got: " << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
   }
 
-  // Verify that the callee exists and has the right type.
-  FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
-  func::FuncOp funcOp =
-      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
-  if (!funcOp) {
-    return emitOpError() << "'" << calleeAttr.getValue()
+  ::mlir::LogicalResult traceIdResult =
+      verifyTraceIdTensor(this->getOperation(), this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
+  }
+
+  return ::mlir::success();
+}
+
+void EndTraceCaptureOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult EndTraceCaptureOp::verify() {
+  uint32_t cqId = this->getCqId();
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
+  }
+
+  ::mlir::LogicalResult traceIdResult =
+      verifyTraceIdTensor(this->getOperation(), this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
+  }
+
+  return ::mlir::success();
+}
+
+void ExecuteTraceOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult ExecuteTraceOp::verify() {
+  uint32_t cqId = this->getCqId();
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
+  }
+
+  ::mlir::LogicalResult traceIdResult =
+      verifyTraceIdTensor(this->getOperation(), this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
+  }
+
+  return ::mlir::success();
+}
+
+void CaptureOrExecuteTraceOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult CaptureOrExecuteTraceOp::verify() {
+  // Verify that the callee exists
+  FlatSymbolRefAttr captureCalleeAttr = this->getCaptureCalleeAttr();
+  func::FuncOp captureFuncOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this,
+                                                         captureCalleeAttr);
+  if (!captureFuncOp) {
+    return emitOpError() << "'" << captureCalleeAttr.getValue()
                          << "' does not reference a function";
   }
 
-  FunctionType fnType = funcOp.getFunctionType();
+  FlatSymbolRefAttr traceFuncCalleeAttr;
+  captureFuncOp.walk([&](func::CallOp callOp) {
+    traceFuncCalleeAttr = callOp.getCalleeAttr();
+    return WalkResult::interrupt();
+  });
 
-  LogicalResult inputVerificationResult =
-      verifyTensorList(this, this->getInputs(), fnType.getInputs(),
-                       /*isInput=*/true);
-  if (failed(inputVerificationResult)) {
-    return inputVerificationResult;
+  if (!traceFuncCalleeAttr) {
+    return emitOpError() << "No trace function found in capture function";
   }
 
-  LogicalResult outputVerificationResult =
-      verifyTensorList(this, this->getResults(), fnType.getResults(),
-                       /*isInput=*/false);
-  if (failed(outputVerificationResult)) {
-    return outputVerificationResult;
+  func::FuncOp traceFuncOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+      *this, traceFuncCalleeAttr);
+  if (!traceFuncOp) {
+    return emitOpError() << "'" << traceFuncCalleeAttr.getValue()
+                         << "' does not reference a function";
   }
 
-  for (BlockArgument arg : funcOp.getArguments()) {
+  for (BlockArgument arg : traceFuncOp.getArguments()) {
     if (!::mlir::isa<RankedTensorType>(arg.getType())) {
       return emitOpError() << "All input arguments of trace function must be "
                            << "ranked tensors";
@@ -2641,17 +2748,17 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
   }
 
   ::mlir::WalkResult walkResult =
-      funcOp.walk(
+      traceFuncOp.walk(
           [&](Operation *op) -> ::mlir::WalkResult {
-            if (::mlir::isa<TraceOp>(op)) {
-              emitOpError()
-                  << "Trace op must not be nested within another trace op";
+            if (::mlir::isa<ttnn::CaptureOrExecuteTraceOp>(op)) {
+              emitOpError() << "CaptureOrExecuteTraceOp op must not be nested "
+                               "within trace function";
               return ::mlir::WalkResult::interrupt();
             }
 
             if (::mlir::isa<::mlir::tt::ttcore::LoadCachedOp>(op)) {
               emitOpError()
-                  << "LoadCached op must not be nested within trace op";
+                  << "LoadCached op must not be nested within trace function";
               return ::mlir::WalkResult::interrupt();
             }
 
@@ -2707,7 +2814,20 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
             return ::mlir::WalkResult::advance();
           });
 
-  return walkResult.wasInterrupted() ? ::mlir::failure() : ::mlir::success();
+  if (walkResult.wasInterrupted()) {
+    return ::mlir::failure();
+  }
+
+  FlatSymbolRefAttr executeCalleeAttr = this->getExecuteCalleeAttr();
+  func::FuncOp executeFuncOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this,
+                                                         executeCalleeAttr);
+  if (!executeFuncOp) {
+    return emitOpError() << "'" << executeCalleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  return ::mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
