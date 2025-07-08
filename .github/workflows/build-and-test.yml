@@ -44,7 +44,7 @@ jobs:
 
   build-image:
     needs: ignore-files
-    if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
+    if: ${{ needs.ignore-files.outputs.other_changed_files }}
     runs-on:
       - builder
     outputs:
