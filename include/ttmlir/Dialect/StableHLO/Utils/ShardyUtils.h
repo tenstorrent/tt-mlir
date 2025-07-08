@@ -1,0 +1,111 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
+#define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
+
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
+#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdefaulted-function-deleted"
+#include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
+#pragma clang diagnostic pop
+
+namespace mlir::tt::shardy_utils {
+
+#ifdef TTMLIR_ENABLE_STABLEHLO
+
+// We used MapVector because we want the order to be preserved when inserting
+// axes into the meshMap.
+using MeshMap =
+    llvm::MapVector</*axis_name*/ std::string, /*axis_size*/ int64_t,
+                    std::map<std::string, unsigned>,
+                    std::vector<std::pair<std::string, int64_t>>>;
+
+// Get all the meshOps from the module.
+llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module);
+
+// Remove all meshOps from the module.
+void removeMeshOps(mlir::ModuleOp &module);
+
+// Create a meshAttr from a meshMap helper function.
+mlir::sdy::MeshAttr createMeshAttrFromMeshMap(MLIRContext *context,
+                                              MeshMap &meshMap);
+
+// Create a meshMap from a meshAttr helper function.
+MeshMap createMeshMapFromMeshAttr(mlir::sdy::MeshAttr meshAttr);
+
+// Get mesh shape from meshAttr.
+llvm::SmallVector<int64_t>
+getMeshShapeFromMeshAttr(mlir::sdy::MeshAttr meshAttr);
+
+// Insert a mesh into the module.
+void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
+                     std::string firstAxisName, std::string secondAxisName,
+                     int64_t firstAxisSize, int64_t secondAxisSize);
+
+// Check if the module has any sdy tensor sharding annotations.
+bool sdyAnnotationsExist(mlir::ModuleOp &module);
+
+// Check if the graph is solved.
+bool isGraphSolved(mlir::ModuleOp &module);
+
+// Create a new DictionaryAttr from an old DictionaryAttr with all sdy.sharding
+// annotations removed.
+mlir::DictionaryAttr
+removeDictionaryAttrSdyShardingAnnotations(MLIRContext *context,
+                                           mlir::DictionaryAttr dictAttr);
+
+// Remove all sdy tensor shardings from the module.
+void removeSdyTensorShardings(MLIRContext *context, func::FuncOp &funcOp);
+
+// Create a new DictionaryAttr (from an old DictionaryAttr if provided) and add
+// a sdy.sharding annotation to it.
+mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
+    MLIRContext *context, mlir::sdy::TensorShardingAttr shardingAttr,
+    std::optional<mlir::DictionaryAttr> dictAttr = std::nullopt);
+
+// Get a default sdy.sharding annotation (ie all dimensions are open and
+// replicated).
+mlir::sdy::TensorShardingAttr
+getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
+                                mlir::Type type);
+
+// Get the argument sharding attributes.
+llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
+                   mlir::sdy::MeshOp &globalMeshOp);
+
+// Get the result sharding attributes.
+llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
+                    mlir::sdy::MeshOp &globalMeshOp);
+
+// Calculate the updated shape based on the tensor sharding annotation.
+FailureOr<int64_t>
+calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
+                    mlir::sdy::DimensionShardingAttr dimShardingAttr,
+                    int64_t oldShapeDim);
+
+// Calculate the new sharded output based on the sdy tensor sharding attribute.
+FailureOr<mlir::RankedTensorType>
+populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
+                          mlir::RankedTensorType oldType,
+                          mlir::sdy::TensorShardingAttr tensorShardingAttr);
+
+// Loop through all the tensorShardings and apply them to each output.
+FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
+    mlir::Operation *op, mlir::sdy::MeshOp &globalMeshOp,
+    llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings);
+
+// Copy nested regions between srcOp and destOp
+void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
+                       mlir::Operation *destOp);
+
+#endif // #ifdef TTMLIR_ENABLE_STABLEHLO
+
+} // namespace mlir::tt::shardy_utils
+
+#endif // TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
