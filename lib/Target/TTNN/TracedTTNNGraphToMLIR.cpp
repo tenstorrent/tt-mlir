@@ -196,6 +196,64 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
                              tensorMeshShardingAttr, collapseDimsRef);
 }
 
+llvm::SmallVector<int32_t> parseArray(StringRef arrayStr) {
+  std::string str = arrayStr.str();
+
+  // Parse each value from string
+  llvm::SmallVector<int32_t, 2> result;
+  size_t pos = 0;
+  std::string token;
+  while ((pos = str.find(',')) != std::string::npos) {
+    token = str.substr(0, pos);
+    result.push_back(std::stoi(token));
+    str.erase(0, pos + 1);
+  }
+  if (!str.empty()) {
+    result.push_back(std::stoi(str));
+  }
+  return result;
+}
+
+inline std::pair<int, int>
+calculateOutputDims(int inputY, int inputX,
+                    std::pair<int, int> kernelSize,    // (kh, kw)
+                    std::pair<int, int> stride,        // (sh, sw)
+                    const std::array<int, 4> &padding, // [l, r, t, b]
+                    int dilation = 1, bool ceilMode = false) {
+  for (int p : padding) {
+    assert(p >= 0);
+  }
+
+  auto computeDim = [&](int in, int padBefore, int padAfter, int k,
+                        int s) -> int {
+    const int effectiveFilter = dilation * (k - 1) + 1;
+    const int numerator = in + padBefore + padAfter - effectiveFilter;
+    if (ceilMode) {
+      return static_cast<int>(
+                 std::ceil(static_cast<double>(numerator + 1) / s)) +
+             1;
+    }
+    return numerator / s + 1; // integer floor division
+  };
+
+  int outY = computeDim(inputY, padding[2], padding[3], kernelSize.first,
+                        stride.first);
+  int outX = computeDim(inputX, padding[0], padding[1], kernelSize.second,
+                        stride.second);
+
+  return {outY, outX};
+}
+
+/* Convenience overload: one integer for kernel & stride (e.g. k=3, s=2). */
+inline std::pair<int, int> calculateOutputDims(int inputY, int inputX,
+                                               int kernelSize, int stride,
+                                               int padding, int dilation = 1,
+                                               bool ceilMode = false) {
+  return calculateOutputDims(
+      inputY, inputX, {kernelSize, kernelSize}, {stride, stride},
+      {padding, padding, padding, padding}, dilation, ceilMode);
+}
+
 OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
                                                      MLIRContext *context) {
 
@@ -221,14 +279,14 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
   builder.setInsertionPoint(module.getBody(), module.getBody()->begin());
 
-  ttcore::registerDevice(module);
-
   FunctionType funcType = builder.getFunctionType({}, {});
   // FunctionType::get(builder.getContext(), {}, {});
   auto func =
       builder.create<func::FuncOp>(module.getLoc(), "forward", funcType);
   ::mlir::Block *entryBlock = func.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
+
+  ttcore::registerDevice(module);
 
   mlir::IRRewriter rewriter(builder);
   Value device = ttnn::utils::getOrInsertDevice(rewriter, func).getResult();
@@ -342,11 +400,14 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           uint32_t input_height =
               std::stoul((*argsObj)[7].getAsString()->str());
           uint32_t input_width = std::stoul((*argsObj)[8].getAsString()->str());
-          llvm::SmallVector<int32_t, 2> kernel_size = {1,
-                                                       1}; // TODO: kernel_size
-          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride`
-          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
-          llvm::SmallVector<int32_t, 2> dilation = {1, 1}; // TODO: dilation
+          llvm::SmallVector<int32_t, 2> kernel_size =
+              parseArray((*argsObj)[9].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> stride =
+              parseArray((*argsObj)[10].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> padding =
+              parseArray((*argsObj)[11].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> dilation =
+              parseArray((*argsObj)[12].getAsString()->str());
           uint32_t groups = std::stoul((*argsObj)[13].getAsString()->str());
           // bias
           // conv_config
@@ -363,14 +424,20 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           Value input = indexToResultMap[inputIndex];
           Value weights = indexToResultMap[weightsIndex];
 
-          // TODO: calculate conv output shape
-          // For now, read input shape
-          ::llvm::ArrayRef<int64_t> shape =
-              mlir::cast<RankedTensorType>(input.getType()).getShape();
+          // Calculate output shape
+          std::pair<int, int> outputDims = calculateOutputDims(
+              /*inputY=*/input_height, /*inputX=*/input_width,
+              /*kernelSize=*/kernel_size[0], /*stride=*/stride[0],
+              /*padding=*/padding[0], /*dilation=*/dilation[0],
+              /*ceilMode=*/false);
+
+          llvm::SmallVector<int64_t, 4> outputShape = {
+              1, 1, batch_size * outputDims.first * outputDims.second,
+              out_channels};
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getBF16Type()));
+              RankedTensorType::get(outputShape, builder.getBF16Type()));
 
           //   static void build(::mlir::OpBuilder &odsBuilder,
           //   ::mlir::OperationState &odsState, ::mlir::Type result,
@@ -387,7 +454,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           auto conv2dOp = builder.create<ttnn::Conv2dOp>(
               loc,
-              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              RankedTensorType::get(outputShape, builder.getBF16Type(),
+                                    layoutAttr),
               input, weights, /*bias=*/nullptr, device, in_channels,
               out_channels, batch_size, input_height, input_width, kernel_size,
               stride, padding, dilation, groups, nullptr, nullptr);
@@ -436,21 +504,30 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           uint32_t input_h = std::stoul((*argsObj)[3].getAsString()->str());
           uint32_t input_w = std::stoul((*argsObj)[4].getAsString()->str());
           uint32_t channels = std::stoul((*argsObj)[5].getAsString()->str());
-          llvm::SmallVector<int32_t, 2> kernel_size = {1,
-                                                       1}; // TODO: kernel_size
-          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride
-          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
-          llvm::SmallVector<int32_t, 2> dilation = {1, 1}; // TODO: dilation
+          llvm::SmallVector<int32_t, 2> kernel_size =
+              mlir::tt::ttnn::parseArray((*argsObj)[6].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> stride =
+              mlir::tt::ttnn::parseArray((*argsObj)[7].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> padding =
+              mlir::tt::ttnn::parseArray((*argsObj)[8].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> dilation =
+              mlir::tt::ttnn::parseArray((*argsObj)[9].getAsString()->str());
           bool ceil_mode = false;
 
-          // TODO: calculate maxpool output shape
-          // For now, read input shape
-          ::llvm::ArrayRef<int64_t> shape =
-              mlir::cast<RankedTensorType>(input.getType()).getShape();
+          // Calculate output shape
+          std::pair<int, int> outputDims = calculateOutputDims(
+              /*inputY=*/input_h, /*inputX=*/input_w,
+              /*kernelSize=*/kernel_size[0], /*stride=*/stride[0],
+              /*padding=*/padding[0], /*dilation=*/dilation[0],
+              /*ceilMode=*/false);
+
+          llvm::SmallVector<int64_t, 4> outputShape = {
+              1, 1, batch_size * outputDims.first * outputDims.second,
+              channels};
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getBF16Type()));
+              RankedTensorType::get(outputShape, builder.getBF16Type()));
 
           //   static void build(::mlir::OpBuilder &odsBuilder,
           //   ::mlir::OperationState &odsState, ::mlir::TypeRange resultTypes,
@@ -464,7 +541,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           //   applied_shard_scheme, bool ceil_mode, bool in_place_halo);
           auto maxpool2dOp = builder.create<ttnn::MaxPool2dOp>(
               loc,
-              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              RankedTensorType::get(outputShape, builder.getBF16Type(),
+                                    layoutAttr),
               input, batch_size, input_h, input_w, channels, kernel_size,
               stride, padding, dilation, /*memory_config=*/nullptr,
               /*applied_shard_scheme=*/nullptr, ceil_mode,
@@ -513,19 +591,28 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           uint32_t input_h = std::stoul((*argsObj)[3].getAsString()->str());
           uint32_t input_w = std::stoul((*argsObj)[4].getAsString()->str());
           uint32_t channels = std::stoul((*argsObj)[5].getAsString()->str());
-          llvm::SmallVector<int32_t, 2> kernel_size = {1,
-                                                       1}; // TODO: kernel_size
-          llvm::SmallVector<int32_t, 2> stride = {1, 1};   // TODO: stride
-          llvm::SmallVector<int32_t, 2> padding = {0, 0};  // TODO: padding
+          llvm::SmallVector<int32_t, 2> kernel_size =
+              mlir::tt::ttnn::parseArray((*argsObj)[6].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> stride =
+              mlir::tt::ttnn::parseArray((*argsObj)[7].getAsString()->str());
+          llvm::SmallVector<int32_t, 2> padding =
+              mlir::tt::ttnn::parseArray((*argsObj)[8].getAsString()->str());
           bool ceil_mode = false;
 
-          // TODO: calculate avgpool output shape
-          ::llvm::ArrayRef<int64_t> shape =
-              mlir::cast<RankedTensorType>(input.getType()).getShape();
+          // Calculate output shape
+          std::pair<int, int> outputDims = calculateOutputDims(
+              /*inputY=*/input_h, /*inputX=*/input_w,
+              /*kernelSize=*/kernel_size[0], /*stride=*/stride[0],
+              /*padding=*/padding[0], /*dilation=*/1,
+              /*ceilMode=*/false);
+
+          llvm::SmallVector<int64_t, 4> outputShape = {
+              1, 1, batch_size * outputDims.first * outputDims.second,
+              channels};
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, ttcore::GridAttr::get(context),
-              RankedTensorType::get(shape, builder.getBF16Type()));
+              RankedTensorType::get(outputShape, builder.getBF16Type()));
 
           //   static void build(::mlir::OpBuilder &odsBuilder,
           //   ::mlir::OperationState &odsState, ::mlir::Type result,
@@ -539,9 +626,10 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           //   applied_shard_scheme, bool ceil_mode, bool in_place_halo);
           auto avgpool2dOp = builder.create<ttnn::AvgPool2dOp>(
               loc,
-              RankedTensorType::get(shape, builder.getBF16Type(), layoutAttr),
+              RankedTensorType::get(outputShape, builder.getBF16Type(),
+                                    layoutAttr),
               input, batch_size, input_h, input_w, channels, kernel_size,
-              stride, padding, /*dilation=*/false, /*memory_config=*/nullptr,
+              stride, padding, /*dilation=*/1, /*memory_config=*/nullptr,
               /*applied_shard_scheme=*/nullptr, ceil_mode,
               /*in_place_halo=*/false);
           result = avgpool2dOp.getResult();
@@ -715,7 +803,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
   // Create return operation
   builder.create<func::ReturnOp>(builder.getUnknownLoc(), returnValues);
 
-  module->dump();
+  // module->dump();
 
   return module;
 }

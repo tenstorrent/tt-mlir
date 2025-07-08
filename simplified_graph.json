@@ -1,0 +1,3350 @@
+[
+  {
+    "index": 0,
+    "name": "ttnn::ones",
+    "children": [
+      2
+    ],
+    "arguments": [
+      "Shape([1, 1, 401408, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 1,
+    "name": "ttnn::ones",
+    "children": [
+      2
+    ],
+    "arguments": [
+      "Shape([64, 3, 7, 7])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 2,
+    "name": "ttnn::conv2d",
+    "children": [
+      3
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 0",
+      "tensor: 1",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "3",
+      "64",
+      "8",
+      "224",
+      "224",
+      "7, 7",
+      "2, 2",
+      "3, 3",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 3,
+    "name": "ttnn::relu",
+    "children": [
+      4
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 2",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 4,
+    "name": "ttnn::max_pool2d",
+    "children": [
+      6,
+      14
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 3",
+      "8",
+      "112",
+      "112",
+      "64",
+      "3, 3",
+      "2, 2",
+      "1, 1",
+      "1, 1",
+      "0",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<tt::tt_metal::TensorMemoryLayout const> const>]",
+      "0"
+    ]
+  },
+  {
+    "index": 5,
+    "name": "ttnn::ones",
+    "children": [
+      6
+    ],
+    "arguments": [
+      "Shape([64, 64, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 6,
+    "name": "ttnn::conv2d",
+    "children": [
+      7
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 4",
+      "tensor: 5",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "64",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 7,
+    "name": "ttnn::relu",
+    "children": [
+      9
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 6",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 8,
+    "name": "ttnn::ones",
+    "children": [
+      9
+    ],
+    "arguments": [
+      "Shape([64, 64, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 9,
+    "name": "ttnn::conv2d",
+    "children": [
+      10
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 7",
+      "tensor: 8",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "64",
+      "8",
+      "56",
+      "56",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 10,
+    "name": "ttnn::relu",
+    "children": [
+      12
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 9",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 11,
+    "name": "ttnn::ones",
+    "children": [
+      12
+    ],
+    "arguments": [
+      "Shape([256, 64, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 12,
+    "name": "ttnn::conv2d",
+    "children": [
+      15
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 10",
+      "tensor: 11",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "256",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 13,
+    "name": "ttnn::ones",
+    "children": [
+      14
+    ],
+    "arguments": [
+      "Shape([256, 64, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 14,
+    "name": "ttnn::conv2d",
+    "children": [
+      15
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 4",
+      "tensor: 13",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "256",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 15,
+    "name": "ttnn::add",
+    "children": [
+      16
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 12",
+      "tensor: 14",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 16,
+    "name": "ttnn::relu",
+    "children": [
+      18,
+      25
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 15",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 17,
+    "name": "ttnn::ones",
+    "children": [
+      18
+    ],
+    "arguments": [
+      "Shape([64, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 18,
+    "name": "ttnn::conv2d",
+    "children": [
+      19
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 16",
+      "tensor: 17",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "64",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 19,
+    "name": "ttnn::relu",
+    "children": [
+      21
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 18",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 20,
+    "name": "ttnn::ones",
+    "children": [
+      21
+    ],
+    "arguments": [
+      "Shape([64, 64, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 21,
+    "name": "ttnn::conv2d",
+    "children": [
+      22
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 19",
+      "tensor: 20",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "64",
+      "8",
+      "56",
+      "56",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 22,
+    "name": "ttnn::relu",
+    "children": [
+      24
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 21",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 23,
+    "name": "ttnn::ones",
+    "children": [
+      24
+    ],
+    "arguments": [
+      "Shape([256, 64, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 24,
+    "name": "ttnn::conv2d",
+    "children": [
+      25
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 22",
+      "tensor: 23",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "256",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 25,
+    "name": "ttnn::add",
+    "children": [
+      26
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 16",
+      "tensor: 24",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 26,
+    "name": "ttnn::relu",
+    "children": [
+      28,
+      35
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 25",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 27,
+    "name": "ttnn::ones",
+    "children": [
+      28
+    ],
+    "arguments": [
+      "Shape([64, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 28,
+    "name": "ttnn::conv2d",
+    "children": [
+      29
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 26",
+      "tensor: 27",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "64",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 29,
+    "name": "ttnn::relu",
+    "children": [
+      31
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 28",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 30,
+    "name": "ttnn::ones",
+    "children": [
+      31
+    ],
+    "arguments": [
+      "Shape([64, 64, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 31,
+    "name": "ttnn::conv2d",
+    "children": [
+      32
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 29",
+      "tensor: 30",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "64",
+      "8",
+      "56",
+      "56",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 32,
+    "name": "ttnn::relu",
+    "children": [
+      34
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 31",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 33,
+    "name": "ttnn::ones",
+    "children": [
+      34
+    ],
+    "arguments": [
+      "Shape([256, 64, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 34,
+    "name": "ttnn::conv2d",
+    "children": [
+      35
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 32",
+      "tensor: 33",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "64",
+      "256",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 35,
+    "name": "ttnn::add",
+    "children": [
+      36
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 26",
+      "tensor: 34",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 36,
+    "name": "ttnn::relu",
+    "children": [
+      38,
+      46
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 35",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 37,
+    "name": "ttnn::ones",
+    "children": [
+      38
+    ],
+    "arguments": [
+      "Shape([128, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 38,
+    "name": "ttnn::conv2d",
+    "children": [
+      39
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 36",
+      "tensor: 37",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "128",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 39,
+    "name": "ttnn::relu",
+    "children": [
+      41
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 38",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 40,
+    "name": "ttnn::ones",
+    "children": [
+      41
+    ],
+    "arguments": [
+      "Shape([128, 128, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 41,
+    "name": "ttnn::conv2d",
+    "children": [
+      42
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 39",
+      "tensor: 40",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "128",
+      "8",
+      "56",
+      "56",
+      "3, 3",
+      "2, 2",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 42,
+    "name": "ttnn::relu",
+    "children": [
+      44
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 41",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 43,
+    "name": "ttnn::ones",
+    "children": [
+      44
+    ],
+    "arguments": [
+      "Shape([512, 128, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 44,
+    "name": "ttnn::conv2d",
+    "children": [
+      47
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 42",
+      "tensor: 43",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "512",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 45,
+    "name": "ttnn::ones",
+    "children": [
+      46
+    ],
+    "arguments": [
+      "Shape([512, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 46,
+    "name": "ttnn::conv2d",
+    "children": [
+      47
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 36",
+      "tensor: 45",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "512",
+      "8",
+      "56",
+      "56",
+      "1, 1",
+      "2, 2",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 47,
+    "name": "ttnn::add",
+    "children": [
+      48
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 44",
+      "tensor: 46",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 48,
+    "name": "ttnn::relu",
+    "children": [
+      50,
+      57
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 47",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 49,
+    "name": "ttnn::ones",
+    "children": [
+      50
+    ],
+    "arguments": [
+      "Shape([128, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 50,
+    "name": "ttnn::conv2d",
+    "children": [
+      51
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 48",
+      "tensor: 49",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "128",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 51,
+    "name": "ttnn::relu",
+    "children": [
+      53
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 50",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 52,
+    "name": "ttnn::ones",
+    "children": [
+      53
+    ],
+    "arguments": [
+      "Shape([128, 128, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 53,
+    "name": "ttnn::conv2d",
+    "children": [
+      54
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 51",
+      "tensor: 52",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "128",
+      "8",
+      "28",
+      "28",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 54,
+    "name": "ttnn::relu",
+    "children": [
+      56
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 53",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 55,
+    "name": "ttnn::ones",
+    "children": [
+      56
+    ],
+    "arguments": [
+      "Shape([512, 128, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 56,
+    "name": "ttnn::conv2d",
+    "children": [
+      57
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 54",
+      "tensor: 55",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "512",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 57,
+    "name": "ttnn::add",
+    "children": [
+      58
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 48",
+      "tensor: 56",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 58,
+    "name": "ttnn::relu",
+    "children": [
+      60,
+      67
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 57",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 59,
+    "name": "ttnn::ones",
+    "children": [
+      60
+    ],
+    "arguments": [
+      "Shape([128, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 60,
+    "name": "ttnn::conv2d",
+    "children": [
+      61
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 58",
+      "tensor: 59",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "128",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 61,
+    "name": "ttnn::relu",
+    "children": [
+      63
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 60",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 62,
+    "name": "ttnn::ones",
+    "children": [
+      63
+    ],
+    "arguments": [
+      "Shape([128, 128, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 63,
+    "name": "ttnn::conv2d",
+    "children": [
+      64
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 61",
+      "tensor: 62",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "128",
+      "8",
+      "28",
+      "28",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 64,
+    "name": "ttnn::relu",
+    "children": [
+      66
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 63",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 65,
+    "name": "ttnn::ones",
+    "children": [
+      66
+    ],
+    "arguments": [
+      "Shape([512, 128, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 66,
+    "name": "ttnn::conv2d",
+    "children": [
+      67
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 64",
+      "tensor: 65",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "512",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 67,
+    "name": "ttnn::add",
+    "children": [
+      68
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 58",
+      "tensor: 66",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 68,
+    "name": "ttnn::relu",
+    "children": [
+      70,
+      77
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 67",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 69,
+    "name": "ttnn::ones",
+    "children": [
+      70
+    ],
+    "arguments": [
+      "Shape([128, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 70,
+    "name": "ttnn::conv2d",
+    "children": [
+      71
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 68",
+      "tensor: 69",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "128",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 71,
+    "name": "ttnn::relu",
+    "children": [
+      73
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 70",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 72,
+    "name": "ttnn::ones",
+    "children": [
+      73
+    ],
+    "arguments": [
+      "Shape([128, 128, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 73,
+    "name": "ttnn::conv2d",
+    "children": [
+      74
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 71",
+      "tensor: 72",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "128",
+      "8",
+      "28",
+      "28",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 74,
+    "name": "ttnn::relu",
+    "children": [
+      76
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 73",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 75,
+    "name": "ttnn::ones",
+    "children": [
+      76
+    ],
+    "arguments": [
+      "Shape([512, 128, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 76,
+    "name": "ttnn::conv2d",
+    "children": [
+      77
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 74",
+      "tensor: 75",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "128",
+      "512",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 77,
+    "name": "ttnn::add",
+    "children": [
+      78
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 68",
+      "tensor: 76",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 78,
+    "name": "ttnn::relu",
+    "children": [
+      80,
+      88
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 77",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 79,
+    "name": "ttnn::ones",
+    "children": [
+      80
+    ],
+    "arguments": [
+      "Shape([256, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 80,
+    "name": "ttnn::conv2d",
+    "children": [
+      81
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 78",
+      "tensor: 79",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "256",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 81,
+    "name": "ttnn::relu",
+    "children": [
+      83
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 80",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 82,
+    "name": "ttnn::ones",
+    "children": [
+      83
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 83,
+    "name": "ttnn::conv2d",
+    "children": [
+      84
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 81",
+      "tensor: 82",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "28",
+      "28",
+      "3, 3",
+      "2, 2",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 84,
+    "name": "ttnn::relu",
+    "children": [
+      86
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 83",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 85,
+    "name": "ttnn::ones",
+    "children": [
+      86
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 86,
+    "name": "ttnn::conv2d",
+    "children": [
+      89
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 84",
+      "tensor: 85",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 87,
+    "name": "ttnn::ones",
+    "children": [
+      88
+    ],
+    "arguments": [
+      "Shape([1024, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 88,
+    "name": "ttnn::conv2d",
+    "children": [
+      89
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 78",
+      "tensor: 87",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "1024",
+      "8",
+      "28",
+      "28",
+      "1, 1",
+      "2, 2",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 89,
+    "name": "ttnn::add",
+    "children": [
+      90
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 86",
+      "tensor: 88",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 90,
+    "name": "ttnn::relu",
+    "children": [
+      92,
+      99
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 89",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 91,
+    "name": "ttnn::ones",
+    "children": [
+      92
+    ],
+    "arguments": [
+      "Shape([256, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 92,
+    "name": "ttnn::conv2d",
+    "children": [
+      93
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 90",
+      "tensor: 91",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "256",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 93,
+    "name": "ttnn::relu",
+    "children": [
+      95
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 92",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 94,
+    "name": "ttnn::ones",
+    "children": [
+      95
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 95,
+    "name": "ttnn::conv2d",
+    "children": [
+      96
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 93",
+      "tensor: 94",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 96,
+    "name": "ttnn::relu",
+    "children": [
+      98
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 95",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 97,
+    "name": "ttnn::ones",
+    "children": [
+      98
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 98,
+    "name": "ttnn::conv2d",
+    "children": [
+      99
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 96",
+      "tensor: 97",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 99,
+    "name": "ttnn::add",
+    "children": [
+      100
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 90",
+      "tensor: 98",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 100,
+    "name": "ttnn::relu",
+    "children": [
+      102,
+      109
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 99",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 101,
+    "name": "ttnn::ones",
+    "children": [
+      102
+    ],
+    "arguments": [
+      "Shape([256, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 102,
+    "name": "ttnn::conv2d",
+    "children": [
+      103
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 100",
+      "tensor: 101",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "256",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 103,
+    "name": "ttnn::relu",
+    "children": [
+      105
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 102",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 104,
+    "name": "ttnn::ones",
+    "children": [
+      105
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 105,
+    "name": "ttnn::conv2d",
+    "children": [
+      106
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 103",
+      "tensor: 104",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 106,
+    "name": "ttnn::relu",
+    "children": [
+      108
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 105",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 107,
+    "name": "ttnn::ones",
+    "children": [
+      108
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 108,
+    "name": "ttnn::conv2d",
+    "children": [
+      109
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 106",
+      "tensor: 107",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 109,
+    "name": "ttnn::add",
+    "children": [
+      110
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 100",
+      "tensor: 108",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 110,
+    "name": "ttnn::relu",
+    "children": [
+      112,
+      119
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 109",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 111,
+    "name": "ttnn::ones",
+    "children": [
+      112
+    ],
+    "arguments": [
+      "Shape([256, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 112,
+    "name": "ttnn::conv2d",
+    "children": [
+      113
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 110",
+      "tensor: 111",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "256",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 113,
+    "name": "ttnn::relu",
+    "children": [
+      115
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 112",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 114,
+    "name": "ttnn::ones",
+    "children": [
+      115
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 115,
+    "name": "ttnn::conv2d",
+    "children": [
+      116
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 113",
+      "tensor: 114",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 116,
+    "name": "ttnn::relu",
+    "children": [
+      118
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 115",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 117,
+    "name": "ttnn::ones",
+    "children": [
+      118
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 118,
+    "name": "ttnn::conv2d",
+    "children": [
+      119
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 116",
+      "tensor: 117",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 119,
+    "name": "ttnn::add",
+    "children": [
+      120
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 110",
+      "tensor: 118",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 120,
+    "name": "ttnn::relu",
+    "children": [
+      122,
+      129
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 119",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 121,
+    "name": "ttnn::ones",
+    "children": [
+      122
+    ],
+    "arguments": [
+      "Shape([256, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 122,
+    "name": "ttnn::conv2d",
+    "children": [
+      123
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 120",
+      "tensor: 121",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "256",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 123,
+    "name": "ttnn::relu",
+    "children": [
+      125
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 122",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 124,
+    "name": "ttnn::ones",
+    "children": [
+      125
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 125,
+    "name": "ttnn::conv2d",
+    "children": [
+      126
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 123",
+      "tensor: 124",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 126,
+    "name": "ttnn::relu",
+    "children": [
+      128
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 125",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 127,
+    "name": "ttnn::ones",
+    "children": [
+      128
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 128,
+    "name": "ttnn::conv2d",
+    "children": [
+      129
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 126",
+      "tensor: 127",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 129,
+    "name": "ttnn::add",
+    "children": [
+      130
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 120",
+      "tensor: 128",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 130,
+    "name": "ttnn::relu",
+    "children": [
+      132,
+      139
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 129",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 131,
+    "name": "ttnn::ones",
+    "children": [
+      132
+    ],
+    "arguments": [
+      "Shape([256, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 132,
+    "name": "ttnn::conv2d",
+    "children": [
+      133
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 130",
+      "tensor: 131",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "256",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 133,
+    "name": "ttnn::relu",
+    "children": [
+      135
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 132",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 134,
+    "name": "ttnn::ones",
+    "children": [
+      135
+    ],
+    "arguments": [
+      "Shape([256, 256, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 135,
+    "name": "ttnn::conv2d",
+    "children": [
+      136
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 133",
+      "tensor: 134",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "256",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 136,
+    "name": "ttnn::relu",
+    "children": [
+      138
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 135",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 137,
+    "name": "ttnn::ones",
+    "children": [
+      138
+    ],
+    "arguments": [
+      "Shape([1024, 256, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 138,
+    "name": "ttnn::conv2d",
+    "children": [
+      139
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 136",
+      "tensor: 137",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "256",
+      "1024",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 139,
+    "name": "ttnn::add",
+    "children": [
+      140
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 130",
+      "tensor: 138",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 140,
+    "name": "ttnn::relu",
+    "children": [
+      142,
+      150
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 139",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 141,
+    "name": "ttnn::ones",
+    "children": [
+      142
+    ],
+    "arguments": [
+      "Shape([512, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 142,
+    "name": "ttnn::conv2d",
+    "children": [
+      143
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 140",
+      "tensor: 141",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "512",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 143,
+    "name": "ttnn::relu",
+    "children": [
+      145
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 142",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 144,
+    "name": "ttnn::ones",
+    "children": [
+      145
+    ],
+    "arguments": [
+      "Shape([512, 512, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 145,
+    "name": "ttnn::conv2d",
+    "children": [
+      146
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 143",
+      "tensor: 144",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "512",
+      "8",
+      "14",
+      "14",
+      "3, 3",
+      "2, 2",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 146,
+    "name": "ttnn::relu",
+    "children": [
+      148
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 145",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 147,
+    "name": "ttnn::ones",
+    "children": [
+      148
+    ],
+    "arguments": [
+      "Shape([2048, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 148,
+    "name": "ttnn::conv2d",
+    "children": [
+      151
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 146",
+      "tensor: 147",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "2048",
+      "8",
+      "7",
+      "7",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 149,
+    "name": "ttnn::ones",
+    "children": [
+      150
+    ],
+    "arguments": [
+      "Shape([2048, 1024, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 150,
+    "name": "ttnn::conv2d",
+    "children": [
+      151
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 140",
+      "tensor: 149",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "1024",
+      "2048",
+      "8",
+      "14",
+      "14",
+      "1, 1",
+      "2, 2",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 151,
+    "name": "ttnn::add",
+    "children": [
+      152
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 148",
+      "tensor: 150",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 152,
+    "name": "ttnn::relu",
+    "children": [
+      154,
+      161
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 151",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 153,
+    "name": "ttnn::ones",
+    "children": [
+      154
+    ],
+    "arguments": [
+      "Shape([512, 2048, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 154,
+    "name": "ttnn::conv2d",
+    "children": [
+      155
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 152",
+      "tensor: 153",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "2048",
+      "512",
+      "8",
+      "7",
+      "7",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 155,
+    "name": "ttnn::relu",
+    "children": [
+      157
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 154",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 156,
+    "name": "ttnn::ones",
+    "children": [
+      157
+    ],
+    "arguments": [
+      "Shape([512, 512, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 157,
+    "name": "ttnn::conv2d",
+    "children": [
+      158
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 155",
+      "tensor: 156",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "512",
+      "8",
+      "7",
+      "7",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 158,
+    "name": "ttnn::relu",
+    "children": [
+      160
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 157",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 159,
+    "name": "ttnn::ones",
+    "children": [
+      160
+    ],
+    "arguments": [
+      "Shape([2048, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 160,
+    "name": "ttnn::conv2d",
+    "children": [
+      161
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 158",
+      "tensor: 159",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "2048",
+      "8",
+      "7",
+      "7",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 161,
+    "name": "ttnn::add",
+    "children": [
+      162
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 152",
+      "tensor: 160",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 162,
+    "name": "ttnn::relu",
+    "children": [
+      164,
+      171
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 161",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 163,
+    "name": "ttnn::ones",
+    "children": [
+      164
+    ],
+    "arguments": [
+      "Shape([512, 2048, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 164,
+    "name": "ttnn::conv2d",
+    "children": [
+      165
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 162",
+      "tensor: 163",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "2048",
+      "512",
+      "8",
+      "7",
+      "7",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 165,
+    "name": "ttnn::relu",
+    "children": [
+      167
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 164",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 166,
+    "name": "ttnn::ones",
+    "children": [
+      167
+    ],
+    "arguments": [
+      "Shape([512, 512, 3, 3])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 167,
+    "name": "ttnn::conv2d",
+    "children": [
+      168
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 165",
+      "tensor: 166",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "512",
+      "8",
+      "7",
+      "7",
+      "3, 3",
+      "1, 1",
+      "1, 1",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 168,
+    "name": "ttnn::relu",
+    "children": [
+      170
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 167",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 169,
+    "name": "ttnn::ones",
+    "children": [
+      170
+    ],
+    "arguments": [
+      "Shape([2048, 512, 1, 1])",
+      "DataType::BFLOAT16",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<std::reference_wrapper<tt::tt_metal::distributed::MeshDevice> > const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 170,
+    "name": "ttnn::conv2d",
+    "children": [
+      171
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 168",
+      "tensor: 169",
+      "[ unsupported type , std::reference_wrapper<tt::tt_metal::distributed::MeshDevice*>]",
+      "512",
+      "2048",
+      "8",
+      "7",
+      "7",
+      "1, 1",
+      "1, 1",
+      "0, 0",
+      "1, 1",
+      "1",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dConfig const> const>]",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<ttnn::operations::conv::conv2d::Conv2dSliceConfig const> const>]",
+      "0",
+      "0"
+    ]
+  },
+  {
+    "index": 171,
+    "name": "ttnn::add",
+    "children": [
+      172
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 162",
+      "tensor: 170",
+      "nullopt",
+      "nullopt",
+      "nullopt",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "[ unsupported type , std::reference_wrapper<ttsl::SmallVector<ttnn::operations::unary::UnaryWithParam, 8ul> const>]",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 172,
+    "name": "ttnn::relu",
+    "children": [
+      173
+    ],
+    "arguments": [
+      "\u0000",
+      "tensor: 171",
+      "nullopt",
+      "nullopt"
+    ]
+  },
+  {
+    "index": 173,
+    "name": "ttnn::avg_pool2d",
+    "children": [],
+    "arguments": [
+      "\u0000",
+      "tensor: 172",
+      "8",
+      "7",
+      "7",
+      "2048",
+      "7, 7",
+      "1, 1",
+      "0, 0",
+      "0",
+      "1",
+      "nullopt",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+      "[ unsupported type , std::reference_wrapper<std::optional<tt::tt_metal::TensorMemoryLayout const> const>]",
+      "0"
+    ]
+  }
+]
