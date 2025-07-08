@@ -1630,12 +1630,6 @@ hoisted_unary_ops = [
         create_hoisted_unary_op(reshape, "reshape"),
         marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
     ),
-    # pytest.param(
-    #    create_hoisted_unary_op(max, "max"),
-    #    marks=pytest.mark.skip(
-    #        reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
-    #    ),
-    # ),
     create_hoisted_unary_op(transpose, "transpose"),
 ]
 

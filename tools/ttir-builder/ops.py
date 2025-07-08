@@ -1891,11 +1891,16 @@ class TTIRBuilderOps:
         if dim_arg:
             golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
             ttir_kwargs["dim_arg"] = [dim_arg]
-        if not keep_dim:
-            output_shape = torch.Size([1])
+
+            if not keep_dim:
+                input_shape = self.get_shape(in0)
+                output_shape = list(input_shape[:dim_arg] + input_shape[dim_arg + 1 :])
+            golden_fn = torch.max
+        else:
+            golden_fn = lambda x: torch.max(x).reshape(1, 1)
 
         return self.op_proxy(
-            torch.max,
+            golden_fn,
             ttir.MaxOp,
             [in0],
             golden_kwargs=golden_kwargs,
