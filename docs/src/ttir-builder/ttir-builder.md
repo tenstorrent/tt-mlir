@@ -23,14 +23,13 @@ from ttir_builder import TTIRBuilder
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
-For more detailed information on `ttir-builder` APIs, utility functions, and supported TTIR operations, see the full set of [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir_builder.ops.html).
+tt-mlir documentation contains more detailed information on `ttir-builder` [APIs](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/apis.html), [utility functions](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/utils.html), and supported TTIR [operations](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/ops.html).
 
 ## Creating a TTIR module
 
 `build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
 
 ```bash
-
 def build_mlir_module(
     fn: Callable,
     inputs_shapes: List[Shape],

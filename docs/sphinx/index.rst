@@ -2,6 +2,7 @@
    sphinx-quickstart on Wed Jun 18 13:55:09 2025.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
+
 Welcome to the ttir-builder documentation!
 ==========================================
 
@@ -25,6 +26,6 @@ Contents
 .. toctree::
    :maxdepth: 2
 
-   apis
-   utils
-   ops
+   ttir-builder/apis
+   ttir-builder/utils
+   ttir-builder/ops
