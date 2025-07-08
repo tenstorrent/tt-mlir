@@ -1118,7 +1118,6 @@ getOpOutputRef(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
-    tensorRef = {};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp:
@@ -1153,23 +1152,18 @@ getOpInputRefs(OpContext opContextHandle,
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::ArangeOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -1366,11 +1360,9 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
-    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
