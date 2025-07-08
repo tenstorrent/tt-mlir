@@ -327,6 +327,7 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         echo "Running TTNN Runtime Unit Tests"
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
 
     - name: Run TTNN-Standalone test
