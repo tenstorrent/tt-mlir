@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       other_changed_files: ${{ steps.ignore-files.outputs.other_changed_files }}
+      other_deleted_files: ${{ steps.ignore-files.outputs.other_deleted_files }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,10 +40,11 @@ jobs:
           echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
           echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
           echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
 
   build-image:
     needs: ignore-files
-    if: ${{ needs.ignore-files.outputs.other_changed_files }}
+    if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
     runs-on:
       - builder
     outputs:
