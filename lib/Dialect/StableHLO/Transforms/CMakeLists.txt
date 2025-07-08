@@ -1,12 +1,16 @@
 add_mlir_dialect_library(MLIRSTABLEHLOTransforms
-  ShardyAutomaticParallelization.cpp
+  AnalyzeMesh.cpp
+  ApplyArgumentShardStatus.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
+  UpdateGlobalToLocalShapes.cpp
+  WrapUnderManualComputation.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir
   ${TTMLIR_TOOLCHAIN_DIR}/src/shardy
 
   LINK_LIBS PUBLIC
+  TTMLIRSTABLEHLOUtils
   SdyDialect
   SdyRegister
   SdyTransformsPropagationOpShardingRuleBuilder
