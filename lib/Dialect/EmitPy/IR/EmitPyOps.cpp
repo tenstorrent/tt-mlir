@@ -71,6 +71,29 @@ parseFormatString(StringRef toParse, ArgType fmtArgs,
   return items;
 }
 
+/// Check that the type of the initial value is compatible with the operations
+/// result type.
+static LogicalResult verifyInitializationAttribute(Operation *op,
+                                                   Attribute value) {
+  assert(op->getNumResults() == 1 && "operation must have 1 result");
+
+  if (llvm::isa<mlir::tt::emitpy::OpaqueAttr>(value)) {
+    return success();
+  }
+
+  Type resultType = op->getResult(0).getType();
+  Type attrType = cast<TypedAttr>(value).getType();
+  if (resultType != attrType) {
+    return op->emitOpError()
+           << "requires attribute to either be an #emitpy.opaque attribute or "
+              "it's type ("
+           << attrType << ") to match the op's result type (" << resultType
+           << ")";
+  }
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // CallOpaqueOp
 //===----------------------------------------------------------------------===//
@@ -340,4 +363,21 @@ LogicalResult VerbatimOp::verify() {
 FailureOr<SmallVector<ReplacementItem>> VerbatimOp::parseFormatString() {
   // Error checking is done in verify.
   return ::parseFormatString(getValue(), getFmtArgs());
+}
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ConstantOp::verify() {
+  Attribute value = getValueAttr();
+  if (failed(verifyInitializationAttribute(getOperation(), value))) {
+    return failure();
+  }
+  if (auto opaqueValue = llvm::dyn_cast<emitpy::OpaqueAttr>(value)) {
+    if (opaqueValue.getValue().empty()) {
+      return emitOpError() << "value must not be empty";
+    }
+  }
+  return success();
 }

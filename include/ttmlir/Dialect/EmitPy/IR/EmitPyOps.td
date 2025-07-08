@@ -192,7 +192,7 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
   let arguments = (ins EmitPy_OpaqueOrTypedAttr:$value);
   let results = (outs AnyType:$result);
 
-  //let hasVerifier = 1;
+  let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
