@@ -118,7 +118,7 @@ void mlir::tt::registerAllPasses() {
   mlir::sdy::registerAllSdyRoundTripImportPassesAndPipeline();
 
   // Register automatic sharding pipeline.
-  mlir::tt::stablehlo::registerAutomaticShardingPipeline();
+  mlir::tt::stablehlo::registerStableHLOPipeline();
 #endif
 }
 
