@@ -25,6 +25,7 @@ FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/tensor_manipulation/Output"
 )
 
+
 def get_torch_tensor(tensor: ttrt.runtime.Tensor):
     rt_data_ptr = tensor.get_data_buffer()
     rt_dtype = tensor.get_dtype()
@@ -46,8 +47,10 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     tensor = ttrt.runtime.create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
     ttrt.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
 
+
 def preop(binary, programContext, opContext):
     return
+
 
 def postop(binary, programContext, opContext):
     debug_op_str = ttrt.runtime.get_op_debug_str(opContext)
@@ -55,20 +58,26 @@ def postop(binary, programContext, opContext):
     if "ttnn.matmul" not in debug_op_str:
         return
 
-    tensor_ref: ttrt.runtime.TensorRef = ttrt.runtime.get_op_output_ref(opContext, programContext)
+    tensor_ref: ttrt.runtime.TensorRef = ttrt.runtime.get_op_output_ref(
+        opContext, programContext
+    )
     if tensor_ref is None:
         return
-    
-    tensor: ttrt.runtime.Tensor = ttrt.runtime.retrieve_tensor_from_pool(programContext, tensor_ref)
+
+    tensor: ttrt.runtime.Tensor = ttrt.runtime.retrieve_tensor_from_pool(
+        programContext, tensor_ref
+    )
     if tensor is None:
         return
-    
+
     torch_tensor = get_torch_tensor(tensor)
 
     print(torch_tensor)
     assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 10)
 
-    update_device_tensor(programContext, tensor_ref, tensor, torch.ones_like(torch_tensor))
+    update_device_tensor(
+        programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
+    )
 
 
 def test_intermidate_tensor_manipulation(helper: Helper, request):
@@ -78,9 +87,7 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     helper.check_constraints()
 
     test_config = ProgramTestConfig(
-        name="linear",
-        expected_num_inputs=3,
-        compute_golden=None
+        name="linear", expected_num_inputs=3, compute_golden=None
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
@@ -90,8 +97,12 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     hooks = ttrt.runtime.DebugHooks.get(preop, postop)
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        runtime_inputs = [get_runtime_tensor_from_torch(input) for input in inputs_torch]
-        inputs_runtime_with_layout = get_to_layout_inputs(device, runtime_inputs, helper.binary, 0)
+        runtime_inputs = [
+            get_runtime_tensor_from_torch(input) for input in inputs_torch
+        ]
+        inputs_runtime_with_layout = get_to_layout_inputs(
+            device, runtime_inputs, helper.binary, 0
+        )
         output_torch = get_torch_output_container(test_runner.program)
         output = test_runner.run_program(device, inputs_runtime_with_layout)
         ttrt.runtime.memcpy(output_torch.data_ptr(), output)
