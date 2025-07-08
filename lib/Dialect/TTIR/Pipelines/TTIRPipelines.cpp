@@ -41,6 +41,7 @@ void createStableHLOToTTIRPipeline(
   if (options.arithDialectConversionsEnabled) {
     pm.addPass(createConvertArithToStableHLOPass());
   }
+  pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
