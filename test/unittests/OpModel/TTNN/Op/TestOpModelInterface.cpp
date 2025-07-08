@@ -4,6 +4,7 @@
 
 #include "OpModelFixture.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -821,6 +822,9 @@ TEST_F(OpModelBase, Conv2dInterface) {
       ttcore::GridAttr::get(&context));
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
@@ -844,6 +848,7 @@ TEST_F(OpModelBase, Conv2dInterface) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
+      outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
       nullptr                          // ComputeKernelConfig (optional)
   );
@@ -888,6 +893,9 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       ttcore::GridAttr::get(&context));
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
@@ -911,6 +919,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
+      outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
       nullptr                          // ComputeKernelConfig (optional)
   );
@@ -957,6 +966,9 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
@@ -967,7 +979,7 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
   auto preparedWeightOutput =
       mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2d);
@@ -1004,6 +1016,9 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
@@ -1014,7 +1029,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -1122,6 +1137,9 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
@@ -1133,7 +1151,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
-      nullptr, nullptr);
+      outputDtype, nullptr, nullptr);
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();

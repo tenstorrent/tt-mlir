@@ -277,10 +277,6 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
 
   ::ttnn::operations::conv::conv2d::Conv2dConfig config;
 
-  if (conv2dConfig->getDtype()) {
-    config.dtype = getDataType(*conv2dConfig->getDtype());
-  }
-
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
   }

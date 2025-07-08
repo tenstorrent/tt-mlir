@@ -988,6 +988,8 @@ public:
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
             srcOp.getConv2dConfig()),
@@ -1036,11 +1038,11 @@ public:
             srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()) |
-            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1086,11 +1088,11 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()) |
-            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };

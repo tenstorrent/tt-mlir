@@ -569,6 +569,15 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
       toFlatbuffer(cache, op.getDilation());
   auto device = getOperandThroughDPSOps(op.getDevice());
 
+  ::tt::target::DataType inputDtype =
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getInputDtype());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
+
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
@@ -577,7 +586,8 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
       weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getHasBias(), op.getGroups(),
-      cache.at<::tt::target::DeviceRef>(device), conv2dConfig.value_or(0));
+      cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
+      conv2dConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -604,6 +614,12 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
+
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
@@ -616,7 +632,7 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, dilation, op.getGroups(),
-      conv2dConfig.value_or(0), computeConfig.value_or(0));
+      outputDtype, conv2dConfig.value_or(0), computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
@@ -645,6 +661,12 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
+
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
@@ -655,7 +677,7 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, outputPadding, dilation,
-      op.getGroups(), conv2dConfig.value_or(0), memoryConfig);
+      op.getGroups(), outputDtype, conv2dConfig.value_or(0), memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>

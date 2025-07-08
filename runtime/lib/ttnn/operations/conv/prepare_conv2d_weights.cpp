@@ -60,7 +60,9 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
       op->weights_format()->str(), op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
-      conv2dConfig, std::nullopt, std::nullopt);
+      /*input_dtype=*/weightTensor.dtype(),
+      /*output_dtype=*/weightTensor.dtype(), conv2dConfig, std::nullopt,
+      std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
