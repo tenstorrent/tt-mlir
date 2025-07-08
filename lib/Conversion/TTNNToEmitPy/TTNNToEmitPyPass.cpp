@@ -82,7 +82,7 @@ struct ConvertTTNNToEmitPyPass
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
+      pm.addPass(tt::ttcore::createTTCoreUnwrapDeviceModulePass());
 
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();
