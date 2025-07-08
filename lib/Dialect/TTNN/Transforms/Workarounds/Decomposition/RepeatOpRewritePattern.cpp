@@ -25,8 +25,8 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
   auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
   auto shapeAttr =
       ttnn::ShapeAttr::get(rewriter.getContext(), resultType.getShape());
-  auto dTypeAttr =
-      DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+  auto dTypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                             layoutAttr.getDataType());
   auto layout = ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
 
   // Create a ZerosOp to be used with AddOp
@@ -34,13 +34,9 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
       ttmlir::utils::appendLocationSuffix(op->getLoc(), "_zeros"), resultType,
       shapeAttr, dTypeAttr, layout, device, ttnn::MemoryConfigAttr());
 
-  SmallVector<Value> addInputs;
-  addInputs.push_back(op.getOperand());
-  addInputs.push_back(zerosOp.getResult());
-
   // Replace the RepeatOp with an AddOp to perform implicit repeat.
-  rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
-                                           addInputs);
+  rewriter.replaceOpWithNewOp<ttnn::AddOp>(
+      op, op.getResult().getType(), op.getOperand(), zerosOp.getResult());
 
   return success();
 }

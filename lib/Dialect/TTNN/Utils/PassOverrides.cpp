@@ -48,7 +48,7 @@ bool parseBool(StringRef param, bool &result) {
 } // namespace
 
 // Full Example:
-// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
 // Partial Example:
 // conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16
 bool Conv2dConfigOverrideParser::parse(
@@ -82,7 +82,7 @@ bool Conv2dConfigOverrideParser::parse(
       auto [paramName, paramValue] = param.split(paramNameValueSeparator);
 
       if (paramName == "dtype") {
-        auto dtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto dtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!dtype) {
           opt.error("Invalid dtype: " + paramValue);
           return true;
@@ -93,7 +93,7 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.dtype = dtype;
       } else if (paramName == "weights_dtype") {
-        auto weightsDtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto weightsDtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!weightsDtype) {
           opt.error("Invalid weights_dtype: " + paramValue);
           return true;
@@ -220,28 +220,6 @@ bool Conv2dConfigOverrideParser::parse(
           return true;
         }
         params.outputLayout = outputLayout;
-      } else if (paramName == "preprocess_weights_on_device") {
-        bool preprocessWeightsOnDevice;
-        if (parseBool(paramValue, preprocessWeightsOnDevice)) {
-          opt.error("Invalid preprocess_weights_on_device: " + paramValue);
-          return true;
-        }
-        if (params.preprocessWeightsOnDevice.has_value()) {
-          opt.error("Duplicate preprocess_weights_on_device: " + paramValue);
-          return true;
-        }
-        params.preprocessWeightsOnDevice = preprocessWeightsOnDevice;
-      } else if (paramName == "always_preprocess_weights") {
-        bool alwaysPreprocessWeights;
-        if (parseBool(paramValue, alwaysPreprocessWeights)) {
-          opt.error("Invalid always_preprocess_weights: " + paramValue);
-          return true;
-        }
-        if (params.alwaysPreprocessWeights.has_value()) {
-          opt.error("Duplicate always_preprocess_weights: " + paramValue);
-          return true;
-        }
-        params.alwaysPreprocessWeights = alwaysPreprocessWeights;
       } else if (paramName == "enable_act_double_buffer") {
         bool enableActDoubleBuffer;
         if (parseBool(paramValue, enableActDoubleBuffer)) {
@@ -349,15 +327,6 @@ std::string Conv2dConfigOverrideParser::toString(
       rso << "output_layout#" << stringifyLayout(params.outputLayout.value())
           << ":";
     }
-    if (params.preprocessWeightsOnDevice.has_value()) {
-      rso << "preprocess_weights_on_device#"
-          << (params.preprocessWeightsOnDevice.value() ? "true" : "false")
-          << ":";
-    }
-    if (params.alwaysPreprocessWeights.has_value()) {
-      rso << "always_preprocess_weights#"
-          << (params.alwaysPreprocessWeights.value() ? "true" : "false") << ":";
-    }
     if (params.enableActDoubleBuffer.has_value()) {
       rso << "enable_act_double_buffer#"
           << (params.enableActDoubleBuffer.value() ? "true" : "false") << ":";
@@ -450,7 +419,8 @@ bool OutputLayoutOverrideParser::parse(
           return true;
         }
         params.memoryLayout = memoryLayout;
-      } else if (auto dataType = mlir::tt::DataTypeStringToEnum(param)) {
+      } else if (auto dataType =
+                     mlir::tt::ttcore::DataTypeStringToEnum(param)) {
         if (params.dataType.has_value()) {
           opt.error("Multiple data type parameters provided: " + param);
           return true;
@@ -502,8 +472,8 @@ std::string OutputLayoutOverrideParser::toString(
           mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value())));
     }
     if (params.dataType.has_value()) {
-      parts.push_back(
-          std::string(mlir::tt::DataTypeEnumToString(params.dataType.value())));
+      parts.push_back(std::string(
+          mlir::tt::ttcore::DataTypeEnumToString(params.dataType.value())));
     }
 
     // Join parts with ":"

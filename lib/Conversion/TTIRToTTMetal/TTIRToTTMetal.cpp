@@ -43,8 +43,8 @@ public:
   }
 
   static ArrayAttr
-  convertThreadsToKernelConfigs(Builder &builder, ArrayAttr threads,
-                                GridAttr opGrid,
+  convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
+                                ArrayAttr threads, ttcore::GridAttr opGrid,
                                 const SymbolTable &symbolTable) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
@@ -56,8 +56,12 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
+        // TODO (wenbinlyuTT): enable f32 accum & unpack mode
+        constexpr bool fp32DestAccum = false;
+        std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs);
+            thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
+            unpackModes);
         break;
       }
       case ttir::ThreadType::Datamovement: {
@@ -108,10 +112,10 @@ public:
     }
 
     ArrayAttr threads = op.getThreads();
-    GridAttr opGrid = op.getGrid();
+    ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-    auto kernelConfigs =
-        convertThreadsToKernelConfigs(rewriter, threads, opGrid, symbolTable);
+    auto kernelConfigs = convertThreadsToKernelConfigs(
+        rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
@@ -131,7 +135,7 @@ public:
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
+    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
                                                          address);
 
@@ -180,11 +184,11 @@ public:
     }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
-    tt::MemorySpaceAttr inputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr inputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             inputTy.getMemorySpace());
-    tt::MemorySpaceAttr outputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr outputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             outputTy.getMemorySpace());
     bool inputMemorySpaceSet = inputMemorySpace != nullptr;
     bool outputMemorySpaceSet = outputMemorySpace != nullptr;

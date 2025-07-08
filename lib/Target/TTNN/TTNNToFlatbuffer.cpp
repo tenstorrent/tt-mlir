@@ -52,7 +52,8 @@ constexpr uint64_t kHostAllocatedSize = 0;
 
 static std::vector<::tt::target::Dim2dRange>
 getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
-  DeviceAttr deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
+  ttcore::DeviceAttr deviceAttr =
+      ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
   ttnn::TTNNLayoutAttr layoutAttr =
@@ -64,7 +65,7 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
 
 static ttnn::MemoryConfigAttr
 getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr,
-                    GridAttr deviceGrid) {
+                    ttcore::GridAttr deviceGrid) {
   MLIRContext *ctx = layoutAttr.getContext();
   ttnn::BufferTypeAttr bufferTypeAttr =
       ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
@@ -84,8 +85,8 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
   if (isDeviceBufferType(bufferType)) {
-    DeviceAttr deviceAttr =
-        lookupDevice(tensor.getParentBlock()->getParentOp());
+    ttcore::DeviceAttr deviceAttr =
+        ttcore::lookupDevice(tensor.getParentBlock()->getParentOp());
     auto memoryConfigAttr =
         getMemoryConfigAttr(layoutAttr, deviceAttr.getWorkerGrid());
     memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
@@ -109,14 +110,14 @@ getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
-  auto desc = lookupDevice(device.getParentBlock()->getParentOp());
+  auto desc = ttcore::lookupDevice(device.getParentBlock()->getParentOp());
   auto chipIds = desc.getChipIds();
   return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
 tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
-                       DeviceAttr deviceAttr) {
+                       ttcore::DeviceAttr deviceAttr) {
   auto tensorType = mlir::cast<RankedTensorType>(type);
   auto shapeInt64 = tensorType.getShape();
   std::vector<int32_t> shape;
@@ -142,7 +143,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t size) {
-  auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
+  auto deviceAttr = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   mlir::Type elementType = tensorType.getElementType();
@@ -172,7 +173,7 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 ::flatbuffers::Offset<::tt::target::ttnn::GetDeviceOp>
 createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
-  auto desc = lookupDevice(op);
+  auto desc = ttcore::lookupDevice(op);
   auto meshShape = desc.getMeshShape();
   auto meshVolume = ttmlir::utils::volume(meshShape);
   ::tt::target::Dim2d mesh;
@@ -222,14 +223,10 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       toFlatbuffer(cache, op.getDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
-  ::mlir::Value device = op.getDevice();
-  if (device) {
-    device = getOperandThroughDPSOps(device);
-  }
+
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout, dtype,
-      memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0,
-      device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
+      memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
@@ -328,7 +325,7 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
 
   auto deviceOp = mlir::cast<GetDeviceOp>(
       getOperandThroughDPSOps(deviceValue).getDefiningOp());
-  auto desc = lookupDevice(deviceOp);
+  auto desc = ttcore::lookupDevice(deviceOp);
   ::llvm::ArrayRef<int64_t> meshShape = desc.getMeshShape();
   numShards = ttmlir::utils::volume(meshShape);
 
@@ -708,16 +705,18 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
   auto device = getOperandThroughDPSOps(op.getDevice());
-  const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
-  const mlir::tt::MeshShardType shardType = op.getShardType();
+  const mlir::tt::ttcore::MeshShardDirection shardDirection =
+      op.getShardDirection();
+  const mlir::tt::ttcore::MeshShardType shardType = op.getShardType();
   llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
   llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
   ::tt::target::ttnn::MeshShardDirection meshShardDirection;
-  if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
+  if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
     meshShardDirection =
         ::tt::target::ttnn::MeshShardDirection::FullToShardShape;
-  } else if (shardDirection == mlir::tt::MeshShardDirection::ShardToFull) {
+  } else if (shardDirection ==
+             mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
     meshShardDirection =
         ::tt::target::ttnn::MeshShardDirection::ShardToFullShape;
   } else {
@@ -725,11 +724,11 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   }
 
   ::tt::target::ttnn::MeshShardType meshShardType;
-  if (shardType == mlir::tt::MeshShardType::Replicate) {
+  if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
-  } else if (shardType == mlir::tt::MeshShardType::Devices) {
+  } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
-  } else if (shardType == mlir::tt::MeshShardType::Identity) {
+  } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Identity;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
@@ -921,18 +920,17 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
 
-  // TODO (#2856): we should be getting output data type and memory config from
-  // the binary op directly instead of deriving from the output tensor.
-  // Requires compiler support.
-  auto outputType = mlir::cast<RankedTensorType>(result.getType());
-  DataType outputDtype = elementTypeToDataType(outputType.getElementType());
-  ::tt::target::DataType targetDtype =
-      ::mlir::tt::ttnn::utils::toTargetDataType(outputDtype);
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      ::flatbuffers::nullopt;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
 }
 
 template <typename EltwiseBinaryCompositeOp>
@@ -1007,6 +1005,30 @@ template <typename AttrType>
 static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                          const char *expectedTypeMsg) {
   mlir::Value firstInput = tensorVal;
+  // Recurse into the generated function for const-eval path.
+  if (mlir::tt::ttcore::LoadCachedOp loadCached =
+          firstInput.getDefiningOp<mlir::tt::ttcore::LoadCachedOp>()) {
+    mlir::FlatSymbolRefAttr symbolRef = loadCached.getCalleeAttr();
+    mlir::ModuleOp moduleOp = loadCached->getParentOfType<mlir::ModuleOp>();
+    mlir::func::FuncOp funcOp =
+        mlir::SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(
+            moduleOp, symbolRef.getAttr());
+    assert(funcOp && "Expected a non-null FuncOp.");
+    assert(funcOp.getNumArguments() == 0 &&
+           "Const-eval function should have no arguments.");
+    assert(!funcOp.getBody().empty() &&
+           "Const-eval function should have a body.");
+    mlir::Block &entryBlock = funcOp.getBody().front();
+    mlir::Operation *terminator = entryBlock.getTerminator();
+    if (mlir::func::ReturnOp returnOp =
+            mlir::dyn_cast<mlir::func::ReturnOp>(terminator)) {
+      assert(returnOp.getNumOperands() == 1 &&
+             "Expected one return value from const-eval func.");
+      // Recurse on the returned value.
+      return getAttrFromConstantChain<AttrType>(returnOp.getOperand(0),
+                                                expectedTypeMsg);
+    }
+  }
   if constexpr (std::is_same_v<AttrType, int32_t>) {
     // typecast first op for per-tensor zp
     if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
@@ -1018,28 +1040,20 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
   }
   ttnn::ToDeviceOp toDeviceOp =
       mlir::dyn_cast<ttnn::ToDeviceOp>(firstInput.getDefiningOp());
-  if (!toDeviceOp) {
-    llvm_unreachable(
-        "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
-  }
+  assert(toDeviceOp &&
+         "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
   ttnn::ToLayoutOp toLayoutOp =
       mlir::dyn_cast<ttnn::ToLayoutOp>(toDeviceOp.getInput().getDefiningOp());
-  if (!toLayoutOp) {
-    llvm_unreachable(
-        "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
-  }
+  assert(toLayoutOp &&
+         "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
   ttnn::FromDeviceOp fromDeviceOp =
       mlir::dyn_cast<ttnn::FromDeviceOp>(toLayoutOp.getInput().getDefiningOp());
-  if (!fromDeviceOp) {
-    llvm_unreachable(
-        "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
-  }
+  assert(fromDeviceOp &&
+         "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
   ttnn::FullOp fullOp =
       mlir::dyn_cast<ttnn::FullOp>(fromDeviceOp.getInput().getDefiningOp());
-  if (!fullOp) {
-    llvm_unreachable(
-        "Expected ttnn.full as defining op for per-tensor scale/zp.");
-  }
+  assert(fullOp &&
+         "Expected ttnn.full as defining op for per-tensor scale/zp.");
   if constexpr (std::is_same_v<AttrType, float>) {
     if (auto fillValueAttr =
             mlir::dyn_cast<mlir::FloatAttr>(fullOp.getFillValue())) {
@@ -1612,7 +1626,7 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
-createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
+createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
          const llvm::StringMap<uint32_t> &programIndexMap) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
@@ -2107,7 +2121,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
-  if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
+  if (auto loadCachedOp = dyn_cast<ttcore::LoadCachedOp>(op); loadCachedOp) {
     return createOperation(cache,
                            createOp(cache, loadCachedOp, programIndexMap),
                            debugString, locInfo);
@@ -2131,11 +2145,12 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
   if (auto deviceModule =
-          mlir::tt::utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+          mlir::tt::utils::findOpAtTopLevel<ttcore::DeviceModuleOp>(module)) {
     module = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
-    assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
-                     "mlir::ModuleOp!");
+    assert(module &&
+           "Found ttcore::DeviceModuleOp but it didn't contain a single "
+           "mlir::ModuleOp!");
   }
 
   ::flatbuffers::FlatBufferBuilder fbb;
@@ -2146,8 +2161,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
                                       ttmlirVersion.patch);
 
   auto systemDesc =
-      toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
-                              module->getAttr(tt::SystemDescAttr::name)));
+      toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
+                              module->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
       debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
@@ -2157,7 +2172,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // vector here in case in the future we support more complex arrangements.
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
   if (auto cpuModule =
-          mlir::tt::utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+          mlir::tt::utils::findOpAtTopLevel<ttcore::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
     mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
         cpuModule.getBodyRegion().front().front());
@@ -2213,7 +2228,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
               programIdxMap);
 
-      DeviceAttr deviceAttr = lookupDevice(func);
+      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 
       ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 

@@ -22,10 +22,12 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 #endif
 
 namespace mlir::tt::ttir {
@@ -39,10 +41,14 @@ void createStableHLOToTTIRPipeline(
   if (options.arithDialectConversionsEnabled) {
     pm.addPass(createConvertArithToStableHLOPass());
   }
+  pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
   pm.addPass(mlir::createInlinerPass());
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
+  }
   pm.addPass(createConvertStableHLOToTTIRPass());
   pm.addPass(createTTIRTensorAnnotationCleanupPass());
 }
@@ -108,8 +114,33 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  OpPassManager &cpuPm =
+      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+  // Decomp TTIR to reduce number of conversions we need to support in
+  // Linalg/Tosa.
+  mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
+  // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
+  // to linalg), and Tensor dialect ops.
   cpuPm.addPass(createConvertTTIRToLinalgPass());
+
+  // Lower Tosa to linalg/tensor/arith, which we can lower to LLVM.
+  TosaToLinalgOptions tosaToLinalgOptions;
+  tosaToLinalgOptions.aggressiveReduceConstant = true;
+  tosa::addTosaToLinalgPasses(cpuPm, tosaToLinalgOptions, {}, {});
+  // Add tosa-to-tensor/arith passes to handle tosa.const operations
+  cpuPm.addPass(createTosaToTensorPass());
+  cpuPm.addPass(createTosaToArithPass());
+
+  // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
+  // TTIRToTosa + TosaToLinalg decomp.
+  cpuPm.addPass(transforms::createReenableLostDPS());
+
+  // Cleanup the funcs s.t. they don't return values.
+  cpuPm.addPass(transforms::createRemoveReturnValues());
+
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }

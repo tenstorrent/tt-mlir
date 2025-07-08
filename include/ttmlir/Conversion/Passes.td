@@ -18,6 +18,17 @@ let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::arith::ArithDialect"];
 }
+def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Legalize StableHLO composite operations directly to TTIR.";
+  let constructor = "createLegalizeStableHLOCompositeToTTIRPass()";
+  let description = [{
+    This pass legalizes StableHLO composite operations based on the name attribute
+    directly to the corresponding TTIR operations.
+    This allows us to avoid the need for brittle fusion patterns.
+  }];
+
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
+}
 #endif
 
 def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
@@ -94,15 +105,15 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   let constructor = "createTTIRToTTIRGenericPass()";
   let options = [
       Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
-      Option<"defaultInputMemSpace", "default-input-memspace", "MemorySpace", /*default=*/"MemorySpace::DeviceL1", "Set default memspace for input tensors",
+      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
           [{::llvm::cl::values(
-            clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
-            clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
           )}]>,
-      Option<"defaultOutputMemSpace", "default-output-memspace", "MemorySpace", /*default=*/"MemorySpace::DeviceL1", "Set default memspace for output tensors",
+      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for output tensors",
           [{::llvm::cl::values(
-            clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
-            clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
           )}]>
   ];
 }

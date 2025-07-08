@@ -320,7 +320,25 @@ private:
       return false;
     }
 
-    return isa<stablehlo::IotaOp>(inputs.back().getDefiningOp()) ? true : false;
+    mlir::Value val = inputs.back();
+    auto *op = val.getDefiningOp();
+
+    // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
+    while (op) {
+      if (isa<stablehlo::IotaOp>(op)) {
+        return true;
+      }
+
+      if (isa<stablehlo::BroadcastInDimOp, stablehlo::ReshapeOp>(op)) {
+        val = op->getOperand(0);
+        op = val.getDefiningOp();
+        continue;
+      }
+
+      return false;
+    }
+
+    return false;
   }
 
   // Validate the outputs.
@@ -361,20 +379,32 @@ private:
     }
 
     auto &operations = blocks.front().getOperations();
-    if (operations.size() == 7) {
-      if (verifyTorchOpArgMaxPattern(operations.front())) {
-        return true;
-      }
-    } else if (operations.size() == 10) {
-      if (verifyJaxOpArgMaxPattern(operations.front())) {
-        return true;
-      }
+    if (operations.empty()) {
+      return false;
+    }
+
+    mlir::Operation &firstOp = operations.front();
+
+    // Torch and Jax ArgMax patterns are different.
+    if (verifyTorchOpArgMaxPattern(firstOp)) {
+      return true;
+    }
+    if (verifyJaxOpArgMaxPattern(firstOp)) {
+      return true;
     }
 
     return false;
   }
 
   // Pattern match the ops for tt-torch ArgMax op.
+  // The pattern is as follows:
+  //  stablehlo.compare (GE)
+  //  stablehlo.select / stablehlo.maximum
+  //  stablehlo.compare
+  //  stablehlo.min
+  //  stablehlo.select
+  //  stablehlo.select
+  //  stablehlo.return
   bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
@@ -387,32 +417,32 @@ private:
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::SelectOp, stablehlo::MaxOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::MinOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::MinOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::ReturnOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
       return false;
     }
 
@@ -420,13 +450,34 @@ private:
   }
 
   // Pattern match the ops for tt-xla ArgMax op.
+  // There are two potential patterns, one is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare
+  // stablehlo.or
+  // stablehlo.compare
+  // stablehlo.compare
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select
+  // stablehlo.select
+  // stablehlo.return
+  //
+  // The other pattern is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare (EQ)
+  // stablehlo.compare (LT)
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select / stablehlo.maximum
+  // stablehlo.select
+  // stablehlo.return
   bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
       return false;
     }
-    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
-    if (compareOp.getComparisonDirection() !=
+    stablehlo::CompareOp compareOp0 = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp0.getComparisonDirection() !=
         mlir::stablehlo::ComparisonDirection::GT) {
       return false;
     }
@@ -435,48 +486,90 @@ private:
     if (!isa<stablehlo::CompareOp>(op)) {
       return false;
     }
-
+    stablehlo::CompareOp compareOp1 = mlir::cast<stablehlo::CompareOp>(op);
     op = op->getNextNode();
-    if (!isa<stablehlo::OrOp>(op)) {
+    if (!op) {
       return false;
     }
+    if (isa<stablehlo::OrOp>(op)) {
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
+        return false;
+      }
 
-    op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
-      return false;
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
+    }
+    if (isa<stablehlo::CompareOp>(op)) {
+      if (compareOp1.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::EQ) {
+        return false;
+      }
+      stablehlo::CompareOp compareOp2 = mlir::cast<stablehlo::CompareOp>(op);
+      if (compareOp2.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::LT) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op) &&
+          !isa_and_nonnull<stablehlo::MaxOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
     }
 
-    op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::AndOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::OrOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::ReturnOp>(op)) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   // Verify that the init value is defined by a constant op and initialize with
@@ -1546,11 +1639,11 @@ private:
 } // namespace
 
 template <typename SrcOpT>
-static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
+static llvm::ErrorOr<ttcore::ReduceType> getReduceType(SrcOpT srcOp) {
   if constexpr (!std::is_same<SrcOpT, mlir::stablehlo::AllReduceOp>::value &&
                 !std::is_same<SrcOpT,
                               mlir::stablehlo::ReduceScatterOp>::value) {
-    return llvm::ErrorOr<ReduceType>(
+    return llvm::ErrorOr<ttcore::ReduceType>(
         std::make_error_code(std::errc::operation_not_supported));
   }
   // Check operations in the first block and determine reduce type for now
@@ -1559,17 +1652,17 @@ static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
   auto &block = srcOp.getRegion().front();
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
-      return ReduceType::Sum;
+      return ttcore::ReduceType::Sum;
     }
     if (isa<mlir::stablehlo::MaxOp>(op)) {
-      return ReduceType::Max;
+      return ttcore::ReduceType::Max;
     }
     if (isa<mlir::stablehlo::MinOp>(op)) {
-      return ReduceType::Min;
+      return ttcore::ReduceType::Min;
     }
   }
   // Other reduce types are currently not supported
-  return llvm::ErrorOr<ReduceType>(
+  return llvm::ErrorOr<ttcore::ReduceType>(
       std::make_error_code(std::errc::operation_not_supported));
 }
 
@@ -1682,7 +1775,7 @@ public:
     }
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
@@ -1757,7 +1850,7 @@ public:
     }
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "ReduceScatterOp cannot specify reduce type.");
@@ -1911,7 +2004,7 @@ public:
       if (!module) {
         llvm_unreachable("Require module as one of parent ops.");
       }
-      mlir::tt::utils::addMeshToModuleAttribute(
+      mlir::tt::ttcore::utils::addMeshToModuleAttribute(
           rewriter, module, StringAttr::get(getContext(), "mesh_gspmd"),
           meshShape);
     }
@@ -1949,7 +2042,7 @@ public:
         ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
             rewriter, srcOp, outputType, inputOperand,
             meshSharding.getShardType(),
-            mlir::tt::MeshShardDirection::ShardToFull,
+            mlir::tt::ttcore::MeshShardDirection::ShardToFull,
             meshSharding.getShardShape(), meshSharding.getShardDims());
       } else {
         // Do not create mesh shard op if input and output shapes are identical:
@@ -1958,7 +2051,8 @@ public:
       }
     } else if (callTargetName ==
                mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
-      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Identity) {
+      if (meshSharding.getShardType() ==
+          mlir::tt::ttcore::MeshShardType::Identity) {
         // @Sharding => @SPMDShardToFullShape pattern
         // "identity" sharding indicates no sharding is required.
         rewriter.replaceOp(srcOp, srcOp->getOperand(0));
@@ -1988,7 +2082,7 @@ public:
           ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
               rewriter, srcOp, outputType, inputOperand,
               meshSharding.getShardType(),
-              mlir::tt::MeshShardDirection::FullToShard,
+              mlir::tt::ttcore::MeshShardDirection::FullToShard,
               meshSharding.getShardShape(), meshSharding.getShardDims());
         } else {
           // Do not create mesh shard op if input and output shapes are

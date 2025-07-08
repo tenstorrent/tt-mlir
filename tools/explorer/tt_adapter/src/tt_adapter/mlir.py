@@ -667,30 +667,6 @@ def parse_conv2d_config(attr):
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
-                key="preprocess_weights_on_device",
-                value=str(conv2d_config.preprocess_weights_on_device),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": ["True", "False"],
-            },
-        )
-    )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
-                key="always_preprocess_weights",
-                value=str(conv2d_config.always_preprocess_weights),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": ["True", "False"],
-            },
-        )
-    )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
                 key="enable_weights_double_buffer",
                 value=str(conv2d_config.enable_weights_double_buffer),
             ),

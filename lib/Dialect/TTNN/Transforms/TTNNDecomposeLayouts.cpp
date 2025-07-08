@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -55,10 +56,10 @@ private:
   struct LayoutInfo {
     ttnn::BufferType bufferType;
     ttnn::Layout layoutEnum;
-    DataType dataType;
+    ttcore::DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
-    GridAttr deviceGrid;
-    GridAttr shardGrid;
+    ttcore::GridAttr deviceGrid;
+    ttcore::GridAttr shardGrid;
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
@@ -110,15 +111,13 @@ private:
   };
 
   struct OpCreationInfo {
-    mlir::Value device;
     LayoutInfo input;
     LayoutInfo output;
     OpsToCreate opsToCreate;
 
-    OpCreationInfo(mlir::Value device, const LayoutInfo &input,
-                   const LayoutInfo &output, const OpsToCreate &opsToCreate)
-        : device(device), input(input), output(output),
-          opsToCreate(opsToCreate) {}
+    OpCreationInfo(const LayoutInfo &input, const LayoutInfo &output,
+                   const OpsToCreate &opsToCreate)
+        : input(input), output(output), opsToCreate(opsToCreate) {}
 
     bool shouldUntilize() const {
       return opsToCreate.createToLayoutOp && !output.isTilized();
@@ -132,12 +131,12 @@ private:
   // TODO (jnie): Add support for fp32, currently there's some precision loss
   // which causes some FE tests to fail.
   // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
-  bool canTilizeDataTypeOnDevice(const DataType &dataType) const {
-    return dataType == DataType::BFloat16;
+  bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
+    return dataType == ttcore::DataType::BFloat16;
   }
 
-  bool canUntilizeDataTypeOnDevice(const DataType &dataType) const {
-    return dataType == DataType::BFloat16;
+  bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
+    return dataType == ttcore::DataType::BFloat16;
   }
 
   std::pair<LayoutInfo, LayoutInfo>
@@ -172,8 +171,8 @@ private:
     input.shardShape = inputLayoutAttr.getScalarShardShape();
     output.shardShape = outputLayoutAttr.getScalarShardShape();
 
-    DeviceAttr deviceAttr =
-        lookupDevice(op.getResult().getParentBlock()->getParentOp());
+    ttcore::DeviceAttr deviceAttr =
+        ttcore::lookupDevice(op.getResult().getParentBlock()->getParentOp());
     input.deviceGrid = deviceAttr.getWorkerGrid();
     output.deviceGrid = deviceAttr.getWorkerGrid();
 
@@ -295,10 +294,11 @@ private:
     newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.shardGrid);
 
+    mlir::Value device = utils::getOrInsertDevice(rewriter, op);
+
     // Create new ranked tensor type with host memory buffer type
-    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
-                                            currentInput, info.device,
-                                            memoryConfigAttr);
+    return this->createOp<ttnn::ToDeviceOp>(
+        rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
   }
 
   // FromDeviceOp
@@ -330,23 +330,19 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.layoutEnum);
-    BufferType bufferType =
-        mlir::cast<TTNNLayoutAttr>(newResultType.getEncoding()).getBufferType();
-    mlir::Value device =
-        bufferType == ttnn::BufferType::SystemMemory ? nullptr : info.device;
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
                                             currentInput, layoutAttr,
                                             /*dtype*/ nullptr,
-                                            /*memory_config*/ nullptr, device);
+                                            /*memory_config*/ nullptr);
   }
 
   template <typename OpType>
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
-    DataTypeAttr dtypeAttr =
-        DataTypeAttr::get(op.getContext(), info.output.dataType);
+    ttcore::DataTypeAttr dtypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), info.output.dataType);
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
@@ -976,13 +972,7 @@ private:
       return failure();
     }
 
-    auto device = op.getDevice();
-    if (!device && !output.isOnHost()) {
-      op->emitError("Device not specified for device tensor");
-      return failure();
-    }
-
-    OpCreationInfo info(device, input, output, opsToCreate);
+    OpCreationInfo info(input, output, opsToCreate);
 
     Value currentInput = op.getInput();
 

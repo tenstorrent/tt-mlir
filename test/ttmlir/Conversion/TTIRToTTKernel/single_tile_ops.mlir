@@ -113,6 +113,42 @@ module {
     return
   }
 
+  // CHECK-LABEL: func.func @test_recip_lowering
+  func.func @test_recip_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_recip
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.recip_tile_init
+    // CHECK: ttkernel.recip_tile
+    %1 = "ttir.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_pow_lowering
+  func.func @test_pow_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    %1 = affine.load %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_pow
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB1:.+]]) :
+    // CHECK-NOT: "ttkernel.copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB1]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.power_binary_tile_init
+    // CHECK: ttkernel.power_binary_tile
+    %2 = "ttir.tile_pow"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
   // CHECK-LABEL: func.func @test_exp_lowering
   func.func @test_exp_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
@@ -124,6 +160,22 @@ module {
     // CHECK: ttkernel.exp_tile_init
     // CHECK: ttkernel.exp_tile
     %1 = "ttir.tile_exp"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_log_lowering
+  func.func @test_log_lowering(%arg0 : memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_log
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.log_tile_init
+    // CHECK: ttkernel.log_tile
+    %1 = "ttir.tile_log"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     return
@@ -145,6 +197,22 @@ module {
     return
   }
 
+  // CHECK-LABEL: func.func @test_tan_lowering
+  func.func @test_tan_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_tan
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.tan_tile_init
+    // CHECK: ttkernel.tan_tile
+    %1 = "ttir.tile_tan"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
   // CHECK-LABEL: func.func @test_negative_lowering
   func.func @test_negative_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
@@ -156,6 +224,22 @@ module {
     // CHECK: ttkernel.negative_tile_init
     // CHECK: ttkernel.negative_tile
     %1 = "ttir.tile_negative"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_sqrt_lowering
+  func.func @test_sqrt_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_sqrt
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.sqrt_tile_init
+    // CHECK: ttkernel.sqrt_tile
+    %1 = "ttir.tile_sqrt"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     return
@@ -238,6 +322,102 @@ module {
     %1 = "ttir.tile_ceil"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_floor_lowering
+  func.func @test_floor_lowering(%arg0: memref<1x!ttcore.tile<32x32, bf16>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, bf16>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    // CHECK-NOT: ttir.tile_floor
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.rounding_op_tile_init
+    // CHECK: ttkernel.floor_tile
+    %1 = "ttir.tile_floor"(%0) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_floor_lowering_f32
+  func.func @test_floor_lowering_f32(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_floor
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.rounding_op_tile_init
+    // CHECK: ttkernel.floor_tile_float32
+    %1 = "ttir.tile_floor"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_abs_lowering
+  func.func @test_abs_lowering(%arg0: memref<1x!ttcore.tile<32x32, bf16>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, bf16>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    // CHECK-NOT: ttir.tile_abs
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.abs_tile_init
+    // CHECK: ttkernel.abs_tile
+    %1 = "ttir.tile_abs"(%0) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_abs_i32_lowering
+  func.func @test_abs_i32_lowering(%arg0: memref<1x!ttcore.tile<32x32, si32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, si32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, si32>, #l1_>
+    // CHECK-NOT: ttir.tile_abs
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.abs_tile_init
+    // CHECK: ttkernel.abs_tile_int32
+    %1 = "ttir.tile_abs"(%0) : (!ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, si32>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_logical_not_lowering
+  func.func @test_logical_not_lowering(%arg0: memref<1x!ttcore.tile<32x32, bf16>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, bf16>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    // CHECK-NOT: ttir.tile_logical_not
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.logical_not_unary_tile_init
+    // CHECK: ttkernel.logical_not_unary_tile
+    %1 = "ttir.tile_logical_not"(%0) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1_>
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_logical_not_i32_lowering
+  func.func @test_logical_not_i32_lowering(%arg0: memref<1x!ttcore.tile<32x32, si32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, si32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, si32>, #l1_>
+    // CHECK-NOT: ttir.tile_logical_not
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: "ttkernel.copy_tile_init"(%[[CB0:.+]]) :
+    // CHECK-NEXT: "ttkernel.copy_tile"(%[[CB0]], %{{.+}}, %{{.+}}) :
+    // CHECK: ttkernel.logical_not_unary_tile_init
+    // CHECK: ttkernel.logical_not_unary_tile_int32
+    %1 = "ttir.tile_logical_not"(%0) : (!ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %1, %arg1[%c0] : memref<1x!ttcore.tile<32x32, si32>, #l1_>
     return
   }
 }

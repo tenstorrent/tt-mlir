@@ -109,21 +109,21 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
-             std::optional<tt::TensorMeshShardingAttr> tensorMeshSharding =
-                 std::nullopt) {
+             std::optional<tt::ttcore::TensorMeshShardingAttr>
+                 tensorMeshSharding = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+            tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
             if (tensorMeshSharding.has_value()) {
               tensorMeshShardingAttr = tensorMeshSharding.value();
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
-                mlir::cast<tt::GridAttr>(unwrap(grid)),
+                mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
                 tensorMeshShardingAttr));
           },
@@ -166,29 +166,27 @@ void populateTTNNModule(nb::module_ &m) {
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(
           "get",
-          [](MlirContext ctx, std::optional<tt::DataType> dtype,
-             std::optional<tt::DataType> weightsDtype, StringAttr activation,
-             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
+          [](MlirContext ctx, std::optional<tt::ttcore::DataType> dtype,
+             std::optional<tt::ttcore::DataType> weightsDtype,
+             StringAttr activation, BoolAttr deallocateActivation,
+             BoolAttr reallocateHaloOutput,
              std::optional<uint32_t> actBlockHOverride,
              std::optional<uint32_t> actBlockWDiv, BoolAttr reshardIfNotOptimal,
              BoolAttr overrideShardingConfig,
              std::optional<tt::ttnn::TensorMemoryLayout> shardLayout,
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
-             BoolAttr preprocessWeightsOnDevice,
-             BoolAttr alwaysPreprocessWeights, BoolAttr enableActDoubleBuffer,
-             BoolAttr enableWeightsDoubleBuffer, BoolAttr enableSplitReader,
-             BoolAttr enableSubblockPadding) {
+             BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
                 context, dtype, weightsDtype, activation, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-                coreGrid, transposeShards, outputLayout,
-                preprocessWeightsOnDevice, alwaysPreprocessWeights,
-                enableActDoubleBuffer, enableWeightsDoubleBuffer,
-                enableSplitReader, enableSubblockPadding));
+                coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
+                enableWeightsDoubleBuffer, enableSplitReader,
+                enableSubblockPadding));
           })
       .def_prop_ro("dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -288,22 +286,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return static_cast<uint32_t>(*self.getOutputLayout());
-                   })
-      .def_prop_ro("preprocess_weights_on_device",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getPreprocessWeightsOnDevice()) {
-                       return nb::none();
-                     }
-                     return self.getPreprocessWeightsOnDevice().getValue();
-                   })
-      .def_prop_ro("always_preprocess_weights",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getAlwaysPreprocessWeights()) {
-                       return nb::none();
-                     }
-                     return self.getAlwaysPreprocessWeights().getValue();
                    })
       .def_prop_ro("enable_act_double_buffer",
                    [](tt::ttnn::Conv2dConfigAttr self)

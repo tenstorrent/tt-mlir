@@ -31,7 +31,7 @@ def TTKernel_Dialect : Dialect {
       "::mlir::memref::MemRefDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTCoreDialect"
+      "::mlir::tt::ttcore::TTCoreDialect"
     ];
 }
 

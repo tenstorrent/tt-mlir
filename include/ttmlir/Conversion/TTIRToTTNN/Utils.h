@@ -25,7 +25,6 @@ mlir::tt::ttnn::ReshapeOp
 generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                    mlir::PatternRewriter &rewriter,
                    llvm::StringRef locSuffix = "_flatten");
-
 } // namespace mlir::tt::ttir_to_ttnn::utils
 
 #endif

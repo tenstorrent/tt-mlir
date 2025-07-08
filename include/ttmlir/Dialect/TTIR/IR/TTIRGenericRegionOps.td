@@ -20,13 +20,13 @@ include "mlir/Interfaces/InferIntRangeInterface.td"
 // Generic Region Op Traits and Classes
 //===----------------------------------------------------------------------===//
 
-def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceL1">;
+def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceL1">;
 
-def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceDRAM">;
+def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceDRAM">;
 
 def IsDeviceMemorySpace : Or<[IsDeviceL1MemorySpace, IsDeviceDRAMMemorySpace]>;
 
-def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::RegisterDst">;
+def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::RegisterDst">;
 
 def DeviceL1MemRef : Type<
   And<[IsDeviceL1MemorySpace, HasRankGreaterOrEqualPred<1>]>,
@@ -132,6 +132,17 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TilePowOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_pow"> {
+    let summary = "TTIR Tile Pow Op";
+    let description = [{
+        The `tile_pow` operation raises two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
     let summary = "TTIR Tile Exp Op";
     let description = [{
@@ -172,6 +183,26 @@ def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileTanOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_tan"> {
+    let summary = "TTIR Tile Tan Op";
+    let description = [{
+        The `tile_tan` operation computes the tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileSqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sqrt"> {
+    let summary = "TTIR Tile Sqrt Op";
+    let description = [{
+        The `tile_sqrt` operation computes the sqrt function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
     let summary = "TTIR Tile Rsqrt Op";
     let description = [{
@@ -206,6 +237,36 @@ def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let summary = "TTIR Tile Ceil Op";
     let description = [{
         The `tile_ceil` operation computes the ceiling function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileFloorOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_floor"> {
+    let summary = "TTIR Tile Floor Op";
+    let description = [{
+        The `tile_floor` operation computes the floor function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileAbsOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_abs"> {
+    let summary = "TTIR Tile Abs Op";
+    let description = [{
+        The `tile_abs` operation computes the absolute value of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_not"> {
+    let summary = "TTIR Tile Logical Not Op";
+    let description = [{
+        The `tile_logical_not` operation computes the logical negation of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);

@@ -46,7 +46,8 @@ struct GoldenTensor {
  * If no mesh shape is specified (i.e. the mesh
  * shape is an empty array), then the default value of 1x1 will be returned.
  */
-inline ::tt::target::Dim2d deviceToFlatbufferMeshShape(const DeviceAttr attr) {
+inline ::tt::target::Dim2d
+deviceToFlatbufferMeshShape(const ttcore::DeviceAttr attr) {
   assert(attr);
   ArrayRef<int64_t> meshShapeArr = attr.getMeshShape();
   ::tt::target::Dim2d meshShape;
@@ -110,35 +111,35 @@ inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
 }
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
-                                         OOBVal oobVal) {
+                                         ttcore::OOBVal oobVal) {
   switch (oobVal) {
-  case OOBVal::Undef:
+  case ttcore::OOBVal::Undef:
     return ::tt::target::OOBVal::Undef;
-  case OOBVal::Zero:
+  case ttcore::OOBVal::Zero:
     return ::tt::target::OOBVal::Zero;
-  case OOBVal::One:
+  case ttcore::OOBVal::One:
     return ::tt::target::OOBVal::One;
-  case OOBVal::Inf:
+  case ttcore::OOBVal::Inf:
     return ::tt::target::OOBVal::Inf;
-  case OOBVal::NegInf:
+  case ttcore::OOBVal::NegInf:
     return ::tt::target::OOBVal::NegInf;
   }
 }
 
-inline std::uint64_t getElementSizeBytes(DataType dtype) {
+inline std::uint64_t getElementSizeBytes(ttcore::DataType dtype) {
   switch (dtype) {
-  case DataType::Float32:
+  case ttcore::DataType::Float32:
     return 4;
-  case DataType::Float16:
+  case ttcore::DataType::Float16:
     return 2;
-  case DataType::BFloat16:
+  case ttcore::DataType::BFloat16:
     return 2;
-  case DataType::UInt32:
-  case DataType::Int32:
+  case ttcore::DataType::UInt32:
+  case ttcore::DataType::Int32:
     return 4;
-  case DataType::UInt16:
+  case ttcore::DataType::UInt16:
     return 2;
-  case DataType::UInt8:
+  case ttcore::DataType::UInt8:
     return 1;
   default:
     assert(false && "unsupported data type");
@@ -149,33 +150,33 @@ inline std::uint64_t getElementSizeBytes(DataType dtype) {
 }
 
 inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
-                                           DataType dtype) {
+                                           ttcore::DataType dtype) {
   switch (dtype) {
-  case DataType::Float32:
+  case ttcore::DataType::Float32:
     return ::tt::target::DataType::Float32;
-  case DataType::Float16:
+  case ttcore::DataType::Float16:
     return ::tt::target::DataType::Float16;
-  case DataType::BFloat16:
+  case ttcore::DataType::BFloat16:
     return ::tt::target::DataType::BFloat16;
-  case DataType::BFP_Float8:
+  case ttcore::DataType::BFP_Float8:
     return ::tt::target::DataType::BFP_Float8;
-  case DataType::BFP_BFloat8:
+  case ttcore::DataType::BFP_BFloat8:
     return ::tt::target::DataType::BFP_BFloat8;
-  case DataType::BFP_Float4:
+  case ttcore::DataType::BFP_Float4:
     return ::tt::target::DataType::BFP_Float4;
-  case DataType::BFP_BFloat4:
+  case ttcore::DataType::BFP_BFloat4:
     return ::tt::target::DataType::BFP_BFloat4;
-  case DataType::BFP_Float2:
+  case ttcore::DataType::BFP_Float2:
     return ::tt::target::DataType::BFP_Float2;
-  case DataType::BFP_BFloat2:
+  case ttcore::DataType::BFP_BFloat2:
     return ::tt::target::DataType::BFP_BFloat2;
-  case DataType::UInt32:
+  case ttcore::DataType::UInt32:
     return ::tt::target::DataType::UInt32;
-  case DataType::UInt16:
+  case ttcore::DataType::UInt16:
     return ::tt::target::DataType::UInt16;
-  case DataType::UInt8:
+  case ttcore::DataType::UInt8:
     return ::tt::target::DataType::UInt8;
-  case DataType::Int32:
+  case ttcore::DataType::Int32:
     return ::tt::target::DataType::Int32;
   }
 }
@@ -197,8 +198,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
 inline ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
   switch (memLayout) {
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
   case ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
   case ttnn::TensorMemoryLayout::HeightSharded:
@@ -243,17 +242,17 @@ inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                              MemorySpace memspace) {
+                                              ttcore::MemorySpace memspace) {
   switch (memspace) {
-  case MemorySpace::System:
+  case ttcore::MemorySpace::System:
     return ::tt::target::MemorySpace::System;
-  case MemorySpace::SystemMMIO:
+  case ttcore::MemorySpace::SystemMMIO:
     return ::tt::target::MemorySpace::SystemMMIO;
-  case MemorySpace::DeviceDRAM:
+  case ttcore::MemorySpace::DeviceDRAM:
     return ::tt::target::MemorySpace::DeviceDRAM;
-  case MemorySpace::DeviceL1:
+  case ttcore::MemorySpace::DeviceL1:
     return ::tt::target::MemorySpace::DeviceL1;
-  case MemorySpace::RegisterDst:
+  case ttcore::MemorySpace::RegisterDst:
     llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 }
@@ -278,34 +277,37 @@ inline ::tt::target::ttnn::ShardMode toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
-inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
+inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
+                                       ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
-  case Arch::Grayskull:
+  case ttcore::Arch::Grayskull:
     return ::tt::target::Arch::Grayskull;
-  case Arch::WormholeB0:
+  case ttcore::Arch::WormholeB0:
     return ::tt::target::Arch::Wormhole_b0;
-  case Arch::Blackhole:
+  case ttcore::Arch::Blackhole:
     return ::tt::target::Arch::Blackhole;
   }
 }
 
 // Overloaded function for DataTypeAttr
-inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &cache,
-                                           const DataTypeAttr &dtypeAttr) {
+inline ::tt::target::DataType
+toFlatbuffer(FlatbufferObjectCache &cache,
+             const ttcore::DataTypeAttr &dtypeAttr) {
   return toFlatbuffer(cache, dtypeAttr.getValue());
 }
 
 inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
-                                        TileSizeAttr tileSize) {
+                                        ttcore::TileSizeAttr tileSize) {
   return ::tt::target::Dim2d(tileSize.getY(), tileSize.getX());
 }
 
 inline ::tt::target::ChipCapability
-toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
+toFlatbuffer(FlatbufferObjectCache &,
+             ttcore::ChipCapabilityAttr capabilityAttr) {
   auto capabilities = capabilityAttr.getValue();
-  static_assert(llvm::to_underlying(ChipCapability::PCIE) ==
+  static_assert(llvm::to_underlying(ttcore::ChipCapability::PCIE) ==
                 llvm::to_underlying(::tt::target::ChipCapability::PCIE));
-  static_assert(llvm::to_underlying(ChipCapability::HostMMIO) ==
+  static_assert(llvm::to_underlying(ttcore::ChipCapability::HostMMIO) ==
                 llvm::to_underlying(::tt::target::ChipCapability::HostMMIO));
   assert((llvm::to_underlying(capabilities) & ~0b11) == 0 &&
          "unsupported chip capabilities");
@@ -313,13 +315,14 @@ toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
 }
 
 inline ::tt::target::ChipCoord toFlatbuffer(FlatbufferObjectCache &cache,
-                                            ChipCoordAttr chipCoord) {
+                                            ttcore::ChipCoordAttr chipCoord) {
   return ::tt::target::ChipCoord(chipCoord.getRack(), chipCoord.getShelf(),
                                  chipCoord.getY(), chipCoord.getX());
 }
 
-inline ::tt::target::ChipChannel toFlatbuffer(FlatbufferObjectCache &cache,
-                                              ChipChannelAttr chipChannel) {
+inline ::tt::target::ChipChannel
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttcore::ChipChannelAttr chipChannel) {
   return ::tt::target::ChipChannel(
       chipChannel.getDeviceId0(),
       ::tt::target::Dim2d(chipChannel.getEthernetCoreCoord0()[0],
@@ -330,14 +333,14 @@ inline ::tt::target::ChipChannel toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
-                                        GridAttr arch) {
+                                        ttcore::GridAttr arch) {
   assert(arch.getShape().size() == 2 && "expected a 2D grid");
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
 inline flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
 toFlatbuffer(FlatbufferObjectCache &cache,
-             ChipPhysicalHelperCoresAttr chipPhysicalHelperCores) {
+             ttcore::ChipPhysicalHelperCoresAttr chipPhysicalHelperCores) {
 
   // Create a Flatbuffer Dim2d struct for each type of core.
   std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
@@ -415,7 +418,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::StringRef str) {
 }
 
 inline flatbuffers::Offset<::tt::target::ChipDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
+toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
   assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
   auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
   auto coordTranslationOffsets =
@@ -437,24 +440,24 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
-                                          CPURole memLayout) {
+                                          ttcore::CPURole memLayout) {
   switch (memLayout) {
-  case CPURole::Host:
+  case ttcore::CPURole::Host:
     return ::tt::target::CPURole::Host;
-  case CPURole::Device:
+  case ttcore::CPURole::Device:
     return ::tt::target::CPURole::Device;
   }
 }
 
 inline flatbuffers::Offset<::tt::target::CPUDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
+toFlatbuffer(FlatbufferObjectCache &cache, ttcore::CPUDescAttr cpuDesc) {
   return ::tt::target::CreateCPUDesc(
       *cache.fbb, toFlatbuffer(cache, cpuDesc.getRole()),
       cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str()));
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
+toFlatbuffer(FlatbufferObjectCache &cache, ttcore::SystemDescAttr systemDesc) {
   auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs());
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
@@ -471,7 +474,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
              mlir::AffineMap mapping) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet;
 
-  for (const auto &locsize2d : utils::toCoreRangeSet(tensorGrid, mapping)) {
+  for (const auto &locsize2d :
+       ttcore::utils::toCoreRangeSet(tensorGrid, mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         ::tt::target::Dim2dRange(::tt::target::Dim2d(loc[1], loc[0]),
@@ -483,8 +487,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
 
 // Compatibility function for TTNN flatbuffer serialization.
 inline std::vector<::tt::target::Dim2dRange>
-toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
-             GridAttr deviceGrid) {
+toFlatbuffer(FlatbufferObjectCache &cache, ttcore::GridAttr tensorGrid,
+             ttcore::GridAttr deviceGrid) {
   auto mapping = tensorGrid.getMapping().isEmpty() ? deviceGrid.getMapping()
                                                    : tensorGrid.getMapping();
   return toFlatbuffer(cache, tensorGrid.getShape(), mapping);
@@ -782,8 +786,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getCoreGrid()),
       toFlatbuffer(cache, config.getTransposeShards()),
       toFlatbuffer(cache, config.getOutputLayout()),
-      toFlatbuffer(cache, config.getPreprocessWeightsOnDevice()),
-      toFlatbuffer(cache, config.getAlwaysPreprocessWeights()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
@@ -862,23 +864,23 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-             tt::TensorMeshShardingAttr tensorMeshSharding,
+             ttcore::TensorMeshShardingAttr tensorMeshSharding,
              ttnn::BufferType bufferType,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr, tt::GridAttr shardGrid,
-             tt::GridAttr deviceGrid) {
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr,
+             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
-  DataType dtype = DataType::Float32;
+  ttcore::DataType dtype = ttcore::DataType::Float32;
   ::tt::target::Dim2d tileShape(1, 1);
   mlir::Type elementType = memref.getElementType();
   std::uint64_t elementSize = 0;
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
+  if (mlir::isa<ttcore::TileType>(elementType)) {
+    auto tileType = mlir::cast<ttcore::TileType>(elementType);
     dtype = tileType.getDataType();
     tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
     elementSize = tileType.getSizeBytes();
   } else {
-    dtype = elementTypeToDataType(elementType);
+    dtype = ttcore::elementTypeToDataType(elementType);
     elementSize = getElementSizeBytes(dtype);
   }
 
@@ -928,7 +930,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
 ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
                            ttnn::TTNNLayoutAttr layoutAttr,
-                           DeviceAttr deviceAttr) {
+                           ttcore::DeviceAttr deviceAttr) {
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
   // references can produce different LayoutDesc objects.
@@ -937,7 +939,7 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // that guarantees identical memrefs will always produce identical
   // flatbuffer LayoutDescs.
   return ::tt::target::ttnn::CreateLayoutDesc(
-      *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
+      *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(),
                    layoutAttr.getTensorMeshSharding(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),

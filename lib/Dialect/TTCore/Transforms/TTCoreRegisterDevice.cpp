@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 #define GEN_PASS_DEF_TTCOREREGISTERDEVICEPASS
 #define GEN_PASS_DEF_TTIRDEPRECATEDLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
@@ -21,34 +22,34 @@ static LogicalResult registerDeviceInSymbolTable(ModuleOp moduleOp,
   MLIRContext *context = moduleOp.getContext();
 
   SymbolTable symbolTable(moduleOp);
-  if (!symbolTable.lookup(tt::getDefaultDeviceName())) {
+  if (!symbolTable.lookup(getDefaultDeviceName())) {
     auto systemDesc =
-        moduleOp->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
+        moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
     assert(systemDesc && "expected system desc to be present on the moduleOp");
-    auto finalMeshShape = tt::utils::determineMeshShape(moduleOp, meshShape);
+    auto finalMeshShape =
+        ttcore::utils::determineMeshShape(moduleOp, meshShape);
     if (auto err = finalMeshShape.takeError()) {
       emitError(moduleOp.getLoc()) << "Error determining mesh shape\n";
       assert(false && "Error determining mesh shape");
       return failure();
     }
     OpBuilder builder(moduleOp.getBodyRegion());
-    symbolTable.insert(builder.create<tt::DeviceOp>(
-        moduleOp.getLoc(), tt::getDefaultDeviceName(),
-        tt::DeviceAttr::get(context, systemDesc, *finalMeshShape)));
+    symbolTable.insert(builder.create<DeviceOp>(
+        moduleOp.getLoc(), getDefaultDeviceName(),
+        DeviceAttr::get(context, systemDesc, *finalMeshShape)));
   }
   return success();
 }
 
 LogicalResult registerDevice(ModuleOp moduleOp,
-                             tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
+                             Arch mockSystemDescArch = Arch::WormholeB0,
                              ArrayRef<int64_t> meshShape = {}) {
   MLIRContext *context = moduleOp.getContext();
 
-  if (!moduleOp->hasAttr(tt::SystemDescAttr::name)) {
-    moduleOp->setAttr(
-        tt::SystemDescAttr::name,
-        tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
-                                       llvm::to_vector(meshShape)));
+  if (!moduleOp->hasAttr(SystemDescAttr::name)) {
+    moduleOp->setAttr(SystemDescAttr::name,
+                      SystemDescAttr::getDefault(context, mockSystemDescArch,
+                                                 llvm::to_vector(meshShape)));
   }
 
   return registerDeviceInSymbolTable(moduleOp, meshShape);
@@ -59,13 +60,13 @@ LogicalResult registerDevice(ModuleOp moduleOp,
                              ArrayRef<int64_t> meshShape = {}) {
   MLIRContext *context = moduleOp.getContext();
   assert(!systemDescPath.empty() && "path must be set");
-  FailureOr<tt::SystemDescAttr> systemDesc = tt::SystemDescAttr::getFromPath(
+  FailureOr<SystemDescAttr> systemDesc = SystemDescAttr::getFromPath(
       context, systemDescPath,
       [&]() -> InFlightDiagnostic { return moduleOp->emitOpError(); });
   if (failed(systemDesc)) {
     return systemDesc;
   }
-  moduleOp->setAttr(tt::SystemDescAttr::name, *systemDesc);
+  moduleOp->setAttr(SystemDescAttr::name, *systemDesc);
   return registerDeviceInSymbolTable(moduleOp, meshShape);
 }
 
@@ -88,4 +89,4 @@ public:
 };
 } // namespace
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore

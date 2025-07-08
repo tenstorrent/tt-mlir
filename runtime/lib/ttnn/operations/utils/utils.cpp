@@ -122,7 +122,7 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::SubUnarySfpu, TTNNUnaryOpType::SUB_UNARY_SFPU},
       {FbUnaryOpType::MulUnarySfpu, TTNNUnaryOpType::MUL_UNARY_SFPU},
       {FbUnaryOpType::DivUnarySfpu, TTNNUnaryOpType::DIV_UNARY_SFPU},
-      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY_UINT32},
+      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY},
       {FbUnaryOpType::UnaryNe, TTNNUnaryOpType::UNARY_NE},
       {FbUnaryOpType::UnaryGt, TTNNUnaryOpType::UNARY_GT},
       {FbUnaryOpType::UnaryLt, TTNNUnaryOpType::UNARY_LT},
@@ -319,16 +319,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
   }
 
-  if (config->preprocess_weights_on_device()) {
-    conv2dConfig.preprocess_weights_on_device =
-        *config->preprocess_weights_on_device();
-  }
-
-  if (config->always_preprocess_weights()) {
-    conv2dConfig.always_preprocess_weights =
-        *config->always_preprocess_weights();
-  }
-
   if (config->enable_act_double_buffer()) {
     conv2dConfig.enable_act_double_buffer = *config->enable_act_double_buffer();
   }
@@ -415,6 +405,31 @@ toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
   default:
     LOG_FATAL("Unsupported data type");
   }
+}
+
+::ttnn::MeshShape
+getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
+                       const std::vector<::ttnn::Tensor> &tensorShards) {
+  // Extract mesh shape based on the active variant type in config
+  // See tt-metal/ttnn/core/tensor/serialization.cpp
+  if (auto *shard2d_strategy =
+          std::get_if<::tt::tt_metal::ShardTensor2D>(&config)) {
+    return ::ttnn::MeshShape(shard2d_strategy->shard_mesh.y,
+                             shard2d_strategy->shard_mesh.x);
+  }
+
+  if (auto *replicate_strategy =
+          std::get_if<::tt::tt_metal::ReplicateTensor>(&config)) {
+    return ::ttnn::MeshShape(replicate_strategy->replication_factor);
+  }
+
+  if (std::get_if<::tt::tt_metal::ShardTensor>(&config)) {
+    // For ShardTensor, use the number of tensor shards as the mesh size
+    return ::ttnn::MeshShape(tensorShards.size());
+  }
+
+  // For AllGatherTensor or any other case, use the number of tensor shards
+  return ::ttnn::MeshShape(tensorShards.size());
 }
 
 ::ttnn::Tensor

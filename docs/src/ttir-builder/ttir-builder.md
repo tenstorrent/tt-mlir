@@ -23,14 +23,14 @@ from ttir_builder import TTIRBuilder
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
-For the full set of supported TTIR ops, see `tools/ttir-builder/builder.py`.
-For more detailed information on available APIs, see `tools/ttir-builder/builder.py` and `tools/ttir-builder/utils.py`.
+For more detailed information on `ttir-builder` APIs, utility functions, and supported TTIR operations, see the full set of [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir_builder.ops.html).
 
 ## Creating a TTIR module
 
-`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`.
+`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
 
 ```bash
+
 def build_mlir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -60,7 +60,7 @@ module, builder = build_mlir_module(model, shapes)
 
 #### Returns
 
-An MLIR module containing an MLIR op graph defined by `test_fn` and the `TTIRBuilder` object used to create it
+An MLIR module containing an MLIR op graph defined by `fn` and the `TTIRBuilder` object used to create it
 
 ```bash
 module {
@@ -550,6 +550,23 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 
 Unless otherwise specified in the `GoldenCheckLevel`, all input and output tensors will generate and store a golden in `TTIRBuilder` as a `Golden` type. The `TTIRBuilder` class has an API to print stored goldens if you want access to the data they contain: `print_goldens(self)`.
 
+The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects.
+
+To get info from a `GoldenTensor` object, use the attributes supported by `ttmlir.passes`: `name`, `shape`, `strides`, `dtype`, `data`.
+
+```bash
+from ttmlir.passes import GoldenTensor
+from ttir_builder import TTIRBuilder
+
+shapes = [(32, 32), (32, 32), (32, 32)]
+
+def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    add_0 = builder.add(in0, in1)
+    builder.print_goldens()
+    print(builder.get_golden_map())
+    return add0
+```
+
 <details>
 
 ```bash
@@ -567,21 +584,10 @@ tensor([[ 4.0450e+00,  1.4274e+00,  5.9156e-01,  ..., -5.9834e-01,
           3.9376e-01,  7.3140e-01],
         [ 4.2420e+00,  1.7006e-01, -3.4861e-01,  ...,  1.1471e-01,
           1.6189e+00, -6.9106e-01]])
+{'input_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa0d0>, 'output_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9590>}
 ```
 
 </details>
-
-The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects. Printing that map will look something like this:
-
-```bash
-{'input_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa0d0>, 'input_1': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa160>, 'input_2': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9500>, 'output_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9590>}
-```
-
-To get info from a `GoldenTensor` object, use the attributes supported by `ttmlir.passes`: `name`, `shape`, `strides`, `dtype`, `data`.
-
-```bash
-from ttmlir.passes import GoldenTensor
-```
 
 ### Setting golden data
 
@@ -629,91 +635,3 @@ ttrt run ttnn/test_ttnn.mlir.ttnn --log-file ttrt.log --save-golden-tensors
 #### Golden callbacks
 
 The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) on the callback function feature. Callback functions run between each op execution during runtime and contain op level golden analysis. They are also customizable and provide the flexibility for you to get creative with your golden usage.
-
-## Adding a new op to `ttir-builder`
-
-`ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
-
-### TTIR op factories
-
-All ops are created when their relevant information is run through the `op_proxy` function which provides a general interface for proxy-ing and creating ops.
-
-```bash
-def op_proxy(
-    self,
-    op_golden_function: Callable,
-    op_ttir_function: Callable,
-    inputs: List[Operand],
-    unit_attrs: List[str] = None,
-    organize_ttir_args: Optional[Callable] = None,
-    organize_golden_args: Optional[Callable] = None,
-    output_shape: Optional[Shape] = None,
-    output_type: Optional[Type] = None,
-    output_create_fn: Optional[Callable] = None,
-    golden_kwargs: dict = {},
-    ttir_kwargs: dict = {},
-)
-```
-
-Start by finding the TTIR op you wish to replicate in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` or the TTIR dialect [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTIROp.html).
-
-All op attributes should be included as arguments in your function and passed into a proxy function as keyword arguments using `ttir_kwargs`.
-
-All input operands should be passed into a proxy function using the argument `inputs`. Output operands are considered inputs and can optionally be passed into `inputs` if their shape or datatype is relevant to the op's result operand. `organize_ttir_args` dictates what information gets passed into autogenerated file `build/python_packages/ttmlir/dialects/_ttir_ops_gen.py` and can be used if operand arguments require special handling.
-
-Before writing a golden function, you need to know exactly what the TTIR op does to its input data because you will have to replicate that exactly using Pytorch operations. This information is usually covered in TTIR documentation, but if not, you may have to take it upon yourself to do some detective work and trial and error.
-
-Writing a golden function is very straightforward if Pytorch has a function that performs exactly the same operation. If so, pass that function into a proxy function as `op_golden_function`, any keywords into `golden_kwargs`, and use `organize_golden_args` if input operands differ from those of the TTIR op.
-
-If Pytorch doesn't have an identical operation, your job is about to get a little harder. Get creative with keyword argument handling, using similar Pytorch operations, and maybe multiple operations. Google is your friend. If you have to figure out how to do something Pytorch doesn't, odds are someone online has encountered the same situation.
-
-Example implementation:
-
-```bash
-def softmax(
-    self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
-) -> OpView:
-    return self.op_proxy(
-        torch.nn.functional.softmax,
-        ttir.SoftmaxOp,
-        [in0],
-        golden_kwargs={"dim": dimension},
-        organize_ttir_args=lambda i, o, _: (
-            self._get_type(o),
-            i[0],
-            o,
-            dimension,
-        ),
-        unit_attrs=unit_attrs,
-    )
-```
-
-#### Eltwise operations
-
-Eltwise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
-
-```bash
-def eltwise_proxy(
-    self,
-    op_golden_function: Callable,
-    op_ttir_function: Callable,
-    inputs: List[Operand],
-    unit_attrs: List[str] = None,
-)
-```
-
-CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and integrate that into their own proxy function.
-
-```bash
-def ccl_proxy(
-    self,
-    op_golden_function: Callable,
-    op_ttir_function: Callable,
-    inputs: List[Operand],
-    kwargs: dict = {},
-)
-```
-
-### Golden functions
-
-Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.

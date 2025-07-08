@@ -64,7 +64,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
-  // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
+  // * tensor_memory_layout: none, interleaved, height_sharded,
   //   width_sharded or block_sharded
   // * memory_layout: row_major or tile
   // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
@@ -93,7 +93,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -108,12 +108,10 @@ struct TTIRToTTNNBackendPipelineOptions
   // * act_block_w_div: uint32_t
   // * reshard_if_not_optimal: [true, false]
   // * override_sharding_config: [true, false]
-  // * shard_layout: [block_sharded, interleaved, single_bank, height_sharded,
+  // * shard_layout: [block_sharded, interleaved, height_sharded,
   // width_sharded]
   // * core_grid:
   // * transpose_shards: [true, false]
-  // * preprocess_weights_on_device: [true, false]
-  // * always_preprocess_weights: [true, false]
   // * output_layout: [row_major, tile]
   // * enable_act_double_buffer: [true, false]
   // * enable_weights_double_buffer: [true, false]
@@ -163,16 +161,16 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to provide a fallback mock system descriptor arch to compile
   // against.
   //
-  Option<tt::Arch> mockSystemDescArch{
+  Option<ttcore::Arch> mockSystemDescArch{
       *this, OptionNames::mockSystemDescArch,
       llvm::cl::desc(
           "Arch name for constructing a mock system descriptor in lieu of "
           "system-desc-path."),
-      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+      llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
-                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                       clEnumValN(ttcore::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
-      llvm::cl::init(tt::Arch::WormholeB0)};
+      llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated
   // in legal layout analysis.
@@ -224,21 +222,24 @@ struct TTIRToTTNNBackendPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(false)};
 
-  Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
-      *this, tt::OptionNames::argumentTypes,
-      llvm::cl::desc(
-          "Map of function name to argument types. To use this option in the "
-          "command line, you must provide a whitespace-free string\n\t"
-          " which is a sequence of phrases in the form "
-          "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
-          "<FUNC_NAME_STR>\n\t"
-          " is the name of a function and <ARG_TYPES> is a sequence of "
-          "argument types separated by commas. Each of which must be one\n\t"
-          " of \"input\", \"parameter\" or \"constant\". \n\t"
-          " Example: "
-          "\"argument-types=forward=input,parameter,parameter,constant\""
-          "\n\n"),
-      llvm::cl::init(TTArgumentTypeMap())};
+  Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
+      argumentTypeMap{
+          *this, ttcore::OptionNames::argumentTypes,
+          llvm::cl::desc(
+              "Map of function name to argument types. To use this option in "
+              "the "
+              "command line, you must provide a whitespace-free string\n\t"
+              " which is a sequence of phrases in the form "
+              "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
+              "<FUNC_NAME_STR>\n\t"
+              " is the name of a function and <ARG_TYPES> is a sequence of "
+              "argument types separated by commas. Each of which must be "
+              "one\n\t"
+              " of \"input\", \"parameter\" or \"constant\". \n\t"
+              " Example: "
+              "\"argument-types=forward=input,parameter,parameter,constant\""
+              "\n\n"),
+          llvm::cl::init(ttcore::TTArgumentTypeMap())};
 
   // TODO (azecevic): This pass is causing a lot of memory consumption and is
   // disabled by default (https://github.com/tenstorrent/tt-mlir/issues/2512).

@@ -175,8 +175,6 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   switch (tensorMemoryLayout) {
   case ::tt::target::ttnn::TensorMemoryLayout::Interleaved:
     return ::ttnn::TensorMemoryLayout::INTERLEAVED;
-  case ::tt::target::ttnn::TensorMemoryLayout::SingleBank:
-    return ::ttnn::TensorMemoryLayout::INTERLEAVED;
   case ::tt::target::ttnn::TensorMemoryLayout::HeightSharded:
     return ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::WidthSharded:

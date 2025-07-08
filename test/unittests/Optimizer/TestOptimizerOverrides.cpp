@@ -45,8 +45,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "shard_layout#block_sharded:"
                     "transpose_shards#true:"
                     "output_layout#row_major:"
-                    "preprocess_weights_on_device#false:"
-                    "always_preprocess_weights#false:"
                     "enable_act_double_buffer#false:"
                     "enable_weights_double_buffer#false:"
                     "enable_split_reader#false:"
@@ -60,9 +58,9 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
 
   const auto &params = parsedOverride["op0"];
   ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.weightsDtype.has_value());
-  ASSERT_EQ(params.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "relu");
   ASSERT_TRUE(params.deallocateActivation.has_value());
@@ -83,10 +81,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(params.transposeShards.value());
   ASSERT_TRUE(params.outputLayout.has_value());
   ASSERT_EQ(params.outputLayout.value(), Layout::RowMajor);
-  ASSERT_TRUE(params.preprocessWeightsOnDevice.has_value());
-  ASSERT_FALSE(params.preprocessWeightsOnDevice.value());
-  ASSERT_TRUE(params.alwaysPreprocessWeights.has_value());
-  ASSERT_FALSE(params.alwaysPreprocessWeights.value());
   ASSERT_TRUE(params.enableActDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableActDoubleBuffer.value());
   ASSERT_TRUE(params.enableWeightsDoubleBuffer.has_value());
@@ -110,7 +104,7 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
 
   const auto &params = parsedOverride["op0"];
   ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "");
   ASSERT_FALSE(params.weightsDtype.has_value());
@@ -147,15 +141,15 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
 
   const auto &params0 = parsedOverride["op0"];
   ASSERT_TRUE(params0.dtype.has_value());
-  ASSERT_EQ(params0.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params0.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params0.activation.has_value());
   ASSERT_EQ(params0.activation.value(), "");
 
   const auto &params1 = parsedOverride["op1"];
   ASSERT_TRUE(params1.dtype.has_value());
-  ASSERT_EQ(params1.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params1.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.weightsDtype.has_value());
-  ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.activation.has_value());
   ASSERT_EQ(params1.activation.value(), "relu");
 }
@@ -197,7 +191,7 @@ TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
   ASSERT_TRUE(params.memoryLayout.has_value());
   ASSERT_EQ(params.memoryLayout.value(), Layout::Tile);
   ASSERT_TRUE(params.dataType.has_value());
-  ASSERT_EQ(params.dataType.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params.dataType.value(), mlir::tt::ttcore::DataType::Float32);
 }
 
 TEST_F(OutputLayoutOverrideTest, ParsePartialOutputLayoutOverride) {
@@ -262,7 +256,7 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(params1.memoryLayout.has_value());
   ASSERT_EQ(params1.memoryLayout.value(), Layout::Tile);
   ASSERT_TRUE(params1.dataType.has_value());
-  ASSERT_EQ(params1.dataType.value(), mlir::tt::DataType::Float32);
+  ASSERT_EQ(params1.dataType.value(), mlir::tt::ttcore::DataType::Float32);
 
   const auto &params2 = parsedOverride["op2"];
   ASSERT_TRUE(params2.grid.has_value());
@@ -277,7 +271,7 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(params2.memoryLayout.has_value());
   ASSERT_EQ(params2.memoryLayout.value(), Layout::RowMajor);
   ASSERT_TRUE(params2.dataType.has_value());
-  ASSERT_EQ(params2.dataType.value(), mlir::tt::DataType::Float16);
+  ASSERT_EQ(params2.dataType.value(), mlir::tt::ttcore::DataType::Float16);
 }
 
 class TestOptimizerOverrideHandler : public ::testing::Test {
@@ -334,7 +328,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -350,7 +344,7 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::Interleaved;
     outputLayoutOverrideParams.memoryLayout = Layout::Tile;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
@@ -362,7 +356,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -378,7 +372,7 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::BlockSharded;
     outputLayoutOverrideParams.memoryLayout = Layout::RowMajor;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
@@ -390,7 +384,7 @@ public:
     //   BufferType;
     //   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
     //   Layout memoryLayout;             // ROW_MAJOR / TILE
-    //   mlir::tt::DataType dataType;
+    //   mlir::tt::ttcore::DataType dataType;
     // };
 
     OutputLayoutOverrideParams outputLayoutOverrideParams;
@@ -406,7 +400,7 @@ public:
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::HeightSharded;
     outputLayoutOverrideParams.memoryLayout = Layout::Tile;
-    outputLayoutOverrideParams.dataType = mlir::tt::DataType::Float16;
+    outputLayoutOverrideParams.dataType = mlir::tt::ttcore::DataType::Float16;
 
     return outputLayoutOverrideParams;
   }
@@ -631,14 +625,14 @@ TEST_F(TestOptimizerOverrideHandler, TestAddOutputLayoutOverrideParams) {
 
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output0", grid1, BufferType::DRAM, TensorMemoryLayout::Interleaved,
-      Layout::Tile, mlir::tt::DataType::Float16);
+      Layout::Tile, mlir::tt::ttcore::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output1", grid2, BufferType::L1, TensorMemoryLayout::BlockSharded,
-      Layout::RowMajor, mlir::tt::DataType::Float16);
+      Layout::RowMajor, mlir::tt::ttcore::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output2", grid3, BufferType::SystemMemory,
       TensorMemoryLayout::HeightSharded, Layout::Tile,
-      mlir::tt::DataType::Float16);
+      mlir::tt::ttcore::DataType::Float16);
 
   ASSERT_TRUE(compareOutputLayoutOverrides(
       optimizerOverridesHandler.getOutputLayoutOverrides(),
@@ -692,7 +686,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "add_1_2", grid, BufferType::DRAM, TensorMemoryLayout::Interleaved,
-      Layout::RowMajor, mlir::tt::DataType::Float32);
+      Layout::RowMajor, mlir::tt::ttcore::DataType::Float32);
 
   ASSERT_EQ(optimizerOverridesHandler.toString(), options);
 }

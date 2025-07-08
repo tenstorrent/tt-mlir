@@ -317,7 +317,7 @@ private:
   const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
-  DeviceAttr deviceAttr;
+  ttcore::DeviceAttr deviceAttr;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
   llvm::DenseMap<Operation *, std::vector<Edge>> userOpEdges;

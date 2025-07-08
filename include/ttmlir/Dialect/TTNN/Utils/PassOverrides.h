@@ -33,8 +33,8 @@ struct OptionNames {
 };
 
 struct Conv2dConfigOverrideParams {
-  std::optional<tt::DataType> dtype = std::nullopt;
-  std::optional<tt::DataType> weightsDtype = std::nullopt;
+  std::optional<ttcore::DataType> dtype = std::nullopt;
+  std::optional<ttcore::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
@@ -46,8 +46,6 @@ struct Conv2dConfigOverrideParams {
   std::optional<CoreRangeSetAttr> coreGrid = std::nullopt;
   std::optional<bool> transposeShards = std::nullopt;
   std::optional<Layout> outputLayout = std::nullopt;
-  std::optional<bool> preprocessWeightsOnDevice = std::nullopt;
-  std::optional<bool> alwaysPreprocessWeights = std::nullopt;
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;
@@ -61,10 +59,7 @@ struct Conv2dConfigOverrideParams {
            !reshardIfNotOptimal.has_value() &&
            !overrideShardingConfig.has_value() && !shardLayout.has_value() &&
            !coreGrid.has_value() && !transposeShards.has_value() &&
-           !outputLayout.has_value() &&
-           !preprocessWeightsOnDevice.has_value() &&
-           !alwaysPreprocessWeights.has_value() &&
-           !enableActDoubleBuffer.has_value() &&
+           !outputLayout.has_value() && !enableActDoubleBuffer.has_value() &&
            !enableWeightsDoubleBuffer.has_value() &&
            !enableSplitReader.has_value() && !enableSubblockPadding.has_value();
   }
@@ -76,7 +71,7 @@ struct OutputLayoutOverrideParams {
   std::optional<TensorMemoryLayout> tensorMemoryLayout =
       std::nullopt; // INTERLEAVED / SHARDED etc...
   std::optional<Layout> memoryLayout = std::nullopt; // ROW_MAJOR / TILE
-  std::optional<tt::DataType> dataType = std::nullopt;
+  std::optional<ttcore::DataType> dataType = std::nullopt;
 
   bool empty() const {
     return !grid.has_value() && !bufferType.has_value() &&

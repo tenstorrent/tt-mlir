@@ -214,8 +214,8 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
   let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-    static tt::SystemDescAttr getDefault(MLIRContext *context, tt::Arch arch = tt::Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
-    static FailureOr<tt::SystemDescAttr> getFromPath(MLIRContext *context, StringRef path, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
+    static SystemDescAttr getDefault(MLIRContext *context, Arch arch = Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
+    static FailureOr<SystemDescAttr> getFromPath(MLIRContext *context, StringRef path, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
     ChipDescAttr getChipDesc(unsigned chipIndex) const;
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
@@ -338,7 +338,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? `>`";
 
   let extraClassDeclaration = [{
-    static  MetalLayoutAttr get(::mlir::MLIRContext *context,
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      uint64_t deviceGridRank,
                                      OOBVal oobVal, MemorySpace memorySpace,
@@ -352,6 +352,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         ArrayRef<int64_t> tileShape,
         DenseIntElementsAttr collapseIntervals,
         ArrayRef<int64_t> dimAlignments);
+
+    // Returns gridShape eltwise-mul shardShape
+    static llvm::SmallVector<int64_t> getUnshardedShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape);
 
     // Get the corresponding memref type (essentially just drops grid dimensions).
     static MemRefType getMemRefType(RankedTensorType tensorType);

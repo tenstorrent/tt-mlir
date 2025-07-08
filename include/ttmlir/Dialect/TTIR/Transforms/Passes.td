@@ -437,7 +437,7 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     }
     ```
   }];
-  let dependentDialects = ["::mlir::tt::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
@@ -495,7 +495,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       }
   }];
 
-  let dependentDialects = ["::mlir::tt::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
@@ -555,7 +555,13 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
     on either end are inverses.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+
+  list<Option> options = [
+    Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
+    Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
+    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">
+  ];
 }
 
 def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
@@ -565,7 +571,7 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
     This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
