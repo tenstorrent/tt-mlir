@@ -129,14 +129,14 @@ public:
 //
 namespace {
 class GetTupleElementOpConversionPattern
-    : public OpConversionPattern<mlir::tt::GetTupleElementOp> {
+    : public OpConversionPattern<mlir::tt::ttcore::GetTupleElementOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::GetTupleElementOp getTupleElementOp,
-                  mlir::tt::GetTupleElementOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttcore::GetTupleElementOp getTupleElementOp,
+                  mlir::tt::ttcore::GetTupleElementOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // SubscriptOp requires a Value object as index, which is created by
     // invoking the emitpy::LiteralOp.
@@ -163,13 +163,15 @@ public:
 // TupleOp conversion pattern
 //
 namespace {
-class TupleOpConversionPattern : public OpConversionPattern<mlir::tt::TupleOp> {
+class TupleOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::TupleOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::TupleOp tupleOp, mlir::tt::TupleOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttcore::TupleOp tupleOp,
+                  mlir::tt::ttcore::TupleOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
@@ -201,15 +203,15 @@ public:
 };
 } // namespace
 
-// mlir::tt::DeviceOp conversion pattern
+// mlir::tt::ttcore::DeviceOp conversion pattern
 //
 namespace {
 struct TTDeviceOpConversionPattern
-    : public OpConversionPattern<mlir::tt::DeviceOp> {
-  using OpConversionPattern<mlir::tt::DeviceOp>::OpConversionPattern;
+    : public OpConversionPattern<mlir::tt::ttcore::DeviceOp> {
+  using OpConversionPattern<mlir::tt::ttcore::DeviceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::DeviceOp deviceOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttcore::DeviceOp deviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.eraseOp(deviceOp);
     return success();

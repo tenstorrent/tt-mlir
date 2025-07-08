@@ -218,7 +218,7 @@ void createTTIRToEmitCSOPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options) {
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitPyPass());
