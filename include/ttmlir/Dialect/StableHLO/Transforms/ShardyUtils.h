@@ -79,9 +79,7 @@ inline mlir::sdy::MeshAttr createMeshAttrFromMeshMap(MLIRContext *context,
     sdyMeshAxisAttrs.push_back(sdyMeshAxisAttrTensor);
   }
 
-  mlir::sdy::MeshAttr sdyMeshAttr =
-      mlir::sdy::MeshAttr::get(context, sdyMeshAxisAttrs);
-  return sdyMeshAttr;
+  return mlir::sdy::MeshAttr::get(context, sdyMeshAxisAttrs);
 }
 
 // Create a meshMap from a meshAttr helper function.
@@ -98,34 +96,45 @@ inline MeshMap createMeshMapFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
 // Check if the module has any sdy tensor sharding annotations.
 inline bool sdyAnnotationsExist(mlir::ModuleOp &module) {
   for (auto &op : module.getBody()->getOperations()) {
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
-      // Check if sdy.sharding exists for any of the arguments.
-      for (BlockArgument arg : funcOp.getBody().front().getArguments()) {
-        if (auto currentArgAttrDict =
-                funcOp.getArgAttrDict(arg.getArgNumber())) {
-          if (currentArgAttrDict.contains(
-                  mlir::sdy::TensorShardingAttr::name)) {
-            return true;
-          }
+    if (!mlir::isa<func::FuncOp>(op)) {
+      continue;
+    }
+
+    func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
+    // Check if sdy.sharding exists for any of the arguments.
+    for (BlockArgument arg : funcOp.getBody().front().getArguments()) {
+      if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+        if (currentArgAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
+          return true;
+        }
+      }
+    }
+
+    // Check if sdy.sharding exists for any of the results.
+    mlir::FunctionType funcType = funcOp.getFunctionType();
+    for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
+      if (auto resultAttrDict = mlir::DictionaryAttr::get(
+              module.getContext(), funcOp.getResultAttrs(i))) {
+        if (resultAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
+          return true;
+        }
+      }
+    }
+
+    // Check if sdy.sharding exists for any of the operations.
+    mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+      if (auto currentArgAttrDict =
+              mlir::DictionaryAttr::get(module.getContext(), op->getAttrs())) {
+        if (currentArgAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
+          return WalkResult::interrupt();
         }
       }
 
-      // Check if sdy.sharding exists for any of the operations.
-      mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
-        if (auto currentArgAttrDict = mlir::DictionaryAttr::get(
-                module.getContext(), op->getAttrs())) {
-          if (currentArgAttrDict.contains(
-                  mlir::sdy::TensorShardingAttr::name)) {
-            return WalkResult::interrupt();
-          }
-        }
+      return WalkResult::advance();
+    });
 
-        return WalkResult::advance();
-      });
-
-      if (result.wasInterrupted()) {
-        return true;
-      }
+    if (result.wasInterrupted()) {
+      return true;
     }
   }
 
@@ -135,26 +144,52 @@ inline bool sdyAnnotationsExist(mlir::ModuleOp &module) {
 // Check if the module has any gspmd annotations.
 inline bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
   for (auto &op : module.getBody()->getOperations()) {
-    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(op)) {
-      // Check if any gspmd operations exist.
-      mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
-        if (mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
-          auto customCall = mlir::dyn_cast<mlir::stablehlo::CustomCallOp>(op);
-          auto callTarget = customCall.getCallTargetName();
+    if (!mlir::isa<func::FuncOp>(op)) {
+      continue;
+    }
 
-          if (callTarget == "Sharding" ||
-              callTarget == "SPMDFullToShardShape" ||
-              callTarget == "SPMDShardToFullShape") {
-            return WalkResult::interrupt();
-          }
+    // Check if any gspmd operations exist.
+    func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
+    mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+      if (mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
+        auto customCall = mlir::cast<mlir::stablehlo::CustomCallOp>(op);
+        auto callTarget = customCall.getCallTargetName();
+
+        if (callTarget == "Sharding" || callTarget == "SPMDFullToShardShape" ||
+            callTarget == "SPMDShardToFullShape") {
+          return WalkResult::interrupt();
         }
-
-        return WalkResult::advance();
-      });
-
-      if (result.wasInterrupted()) {
-        return true;
       }
+
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Check if any manual computation op exists in the graph.
+inline bool doesManualComputationOpExist(mlir::ModuleOp &module) {
+  for (auto &op : module.getBody()->getOperations()) {
+    if (!mlir::isa<func::FuncOp>(op)) {
+      continue;
+    }
+
+    func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
+    mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+      if (mlir::isa<mlir::sdy::ManualComputationOp>(op)) {
+        return WalkResult::interrupt();
+      }
+
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      return true;
     }
   }
 
@@ -181,6 +216,38 @@ removeDictionaryAttrSdyShardingAnnotations(MLIRContext *context,
   return mlir::DictionaryAttr::get(context, newArgAttrs);
 }
 
+// Remove all sdy tensor shardings from the module.
+inline void removeSdyTensorShardings(MLIRContext *context,
+                                     func::FuncOp &funcOp) {
+  // Remove sharding annotations from arguments
+  for (auto arg : funcOp.getArguments()) {
+    if (auto argAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+      funcOp.setArgAttrs(arg.getArgNumber(),
+                         sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+                             context, argAttrDict));
+    }
+  }
+
+  // Remove sharding annotations from results
+  mlir::FunctionType funcType = funcOp.getFunctionType();
+  for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
+    if (auto resultAttrDict =
+            mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i))) {
+      funcOp.setResultAttrs(
+          i, sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+                 context, resultAttrDict));
+    }
+  }
+
+  // Remove sharding annotations from operations
+  funcOp.getBody().walk([&](mlir::Operation *op) {
+    if (auto opAttrDict = op->getAttrDictionary()) {
+      op->setAttrs(sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+          context, opAttrDict));
+    }
+  });
+}
+
 // Create a new DictionaryAttr (from an old DictionaryAttr if provided) and add
 // a sdy.sharding annotation to it.
 inline mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
@@ -205,7 +272,7 @@ inline mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type) {
   mlir::RankedTensorType rankedTensorType =
-      mlir::dyn_cast<mlir::RankedTensorType>(type);
+      mlir::cast<mlir::RankedTensorType>(type);
   llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
   for (uint32_t i = 0; i < rankedTensorType.getShape().size(); i++) {

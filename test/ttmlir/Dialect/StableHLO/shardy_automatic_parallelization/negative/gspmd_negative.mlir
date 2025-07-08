@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: not ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2" %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --stablehlo-pipeline="mesh-shape=1,2" %s 2>&1 | FileCheck %s
 
 func.func public @gspmd_negative(%arg0: tensor<8192x800xf32>) -> (tensor<8192x800xf32> {jax.result_info = ""}) {
   %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,2]<=[2]}"} : (tensor<8192x800xf32>) -> tensor<8192x800xf32>
