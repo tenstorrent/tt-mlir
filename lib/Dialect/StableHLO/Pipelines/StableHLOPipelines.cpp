@@ -25,8 +25,8 @@ namespace mlir::tt::stablehlo {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-void createAutomaticShardingPipeline(
-    OpPassManager &pm, const AutomaticShardingPipelineOptions &options) {
+void createStableHLOPipeline(OpPassManager &pm,
+                             const StableHLOPipelineOptions &options) {
   // Inline all operations to make analysis easier.
   pm.addPass(mlir::createInlinerPass());
 
@@ -37,12 +37,15 @@ void createAutomaticShardingPipeline(
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
+  // Annotate arguments with whether they are already pre-sharded or not.
+  pm.addPass(createApplyArgumentShardStatusPass());
+
   // Annotate arguments with sdy tensor annotations.
-  ShardyAnnotateArgumentsPassOptions shardyAnnotateArgumentsOptions;
-  shardyAnnotateArgumentsOptions.meshShape = llvm::to_vector(options.meshShape);
-  shardyAnnotateArgumentsOptions.automaticArgAnalysis =
-      options.automaticArgAnalysis;
-  pm.addPass(createShardyAnnotateArgumentsPass(shardyAnnotateArgumentsOptions));
+  ApplyShardyArgumentAnnotationsPassOptions annotateArgumentsOptions;
+  annotateArgumentsOptions.meshShape = llvm::to_vector(options.meshShape);
+  annotateArgumentsOptions.automaticArgAnalysis = options.automaticArgAnalysis;
+  pm.addPass(
+      createApplyShardyArgumentAnnotationsPass(annotateArgumentsOptions));
 
   // Propagate tensor shardings through the entire graph.
   pm.addPass(mlir::sdy::createAggressivePropagationPass());
@@ -55,13 +58,13 @@ void createAutomaticShardingPipeline(
 
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.
-  pm.addPass(createShardyWrapManualComputationPass());
+  pm.addPass(createWrapUnderManualComputationPass());
 
   // Convert reshards to collectives
   pm.addPass(mlir::sdy::createReshardToCollectivesPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
-  pm.addPass(createUpdateAutomaticShardShapesPass());
+  pm.addPass(createUpdateGlobalToLocalShapesPass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
@@ -74,13 +77,12 @@ void createAutomaticShardingPipeline(
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
-void registerAutomaticShardingPipeline() {
-  // Automatic Sharding Pipeline
-  mlir::PassPipelineRegistration<
-      mlir::tt::stablehlo::AutomaticShardingPipelineOptions>(
-      "automatic-sharding-pipeline",
-      "Automatic sharding pipeline using shardy annotated stablehlo graph.",
-      mlir::tt::stablehlo::createAutomaticShardingPipeline);
+void registerStableHLOPipeline() {
+  // StableHLO Pipeline
+  mlir::PassPipelineRegistration<mlir::tt::stablehlo::StableHLOPipelineOptions>(
+      "stablehlo-pipeline",
+      "StableHLO pipeline to run stablehlo and shardy specific passes",
+      mlir::tt::stablehlo::createStableHLOPipeline);
 }
 
 } // namespace mlir::tt::stablehlo
