@@ -1,5 +1,8 @@
 add_mlir_dialect_library(MLIRSTABLEHLOTransforms
-  ShardyAutomaticParallelization.cpp
+  ApplyArgumentShardStatus.cpp
+  ApplyShardyArgumentAnnotations.cpp
+  WrapUnderManualComputation.cpp
+  UpdateGlobalToLocalShapes.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS

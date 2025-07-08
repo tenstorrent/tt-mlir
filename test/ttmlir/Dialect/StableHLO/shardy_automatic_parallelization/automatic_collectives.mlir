@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=2,4" %s > %t.mlir
+// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=2,4" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 sdy.mesh @mesh = <["model"=2, "batch"=4]>
