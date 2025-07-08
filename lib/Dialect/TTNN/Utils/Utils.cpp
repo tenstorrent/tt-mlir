@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
+#include <atomic>
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -248,6 +249,11 @@ std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
     opNames.insert(opName.getStringRef());
   }
   return opNames;
+}
+
+std::uint64_t getNextTraceFuncId() {
+  static std::atomic<uint64_t> id{0};
+  return id.fetch_add(1, std::memory_order_relaxed);
 }
 
 } // namespace mlir::tt::ttnn::utils

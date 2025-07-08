@@ -564,13 +564,14 @@ size_t getL1SizePerCore(Device meshDevice) {
       });
 }
 
-bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId) {
-  using RetType = bool;
-  return DISPATCH_TO_CURRENT_RUNTIME(
+void releaseTrace(Device meshDevice, std::uint64_t binaryId,
+                  std::uint64_t traceFuncId) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return ::tt::runtime::ttnn::releaseTrace(meshDevice, binaryId,
-                                                 programId);
+                                                 traceFuncId);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);

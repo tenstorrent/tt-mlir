@@ -11,9 +11,9 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
-#include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/trace_cache.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -611,10 +611,11 @@ size_t getL1SizePerCore(Device meshDevice) {
   return ttnnMeshDevice.l1_size_per_core();
 }
 
-bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId) {
+void releaseTrace(Device meshDevice, std::uint64_t binaryId,
+                  std::uint64_t traceFuncId) {
   ::tt::runtime::ttnn::TraceCache &traceCache =
       meshDevice.getTraceCache()->as<TraceCache>(DeviceRuntime::TTNN);
-  return traceCache.erase(binaryId, programId);
+  traceCache.erase(binaryId, traceFuncId);
 }
 
 void deallocateBuffers(Device deviceHandle) {

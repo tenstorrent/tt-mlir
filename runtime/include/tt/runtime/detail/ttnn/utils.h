@@ -14,9 +14,11 @@ namespace tt::runtime::ttnn::utils {
 
 bool isOnHost(const ::ttnn::StorageType &storageType);
 
+bool isOnDevice(const ::ttnn::StorageType &storageType);
+
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-bool isOnDevice(const ::ttnn::StorageType &storageType);
+bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape);
 

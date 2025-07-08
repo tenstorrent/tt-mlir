@@ -3,6 +3,25 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
+table BeginTraceCaptureOp {
+  device: tt.target.DeviceRef;
+  trace_func_id: uint64;
+  cq_id: uint32;
+}
+
+table EndTraceCaptureOp {
+  device: tt.target.DeviceRef;
+  trace_func_id: uint64;
+  cq_id: uint32;
+}
+
+table ExecuteTraceOp {
+  device: tt.target.DeviceRef;
+  trace_func_id: uint64;
+  cq_id: uint32;
+  blocking: bool;
+}
+
 table TraceOp {
   device: tt.target.DeviceRef;
   cq_id: uint32;

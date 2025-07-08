@@ -99,6 +99,8 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
+std::uint64_t getNextTraceFuncId();
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

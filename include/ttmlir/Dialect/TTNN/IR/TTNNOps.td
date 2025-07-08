@@ -2125,6 +2125,81 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
+def TTNN_CopyHostToDeviceTensorOp : TTNN_InplaceOp<"copy_host_to_device_tensor"> {
+  let summary = "Copy host to device tensor op.";
+  let description = [{
+    Copies host_tensor to device_tensor through cq_id.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$host_tensor,
+                       Arg<AnyRankedTensor, "device tensor", [MemWrite]>:$device_tensor,
+                       UI32Attr:$cq_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
+  let summary = "Begin trace capture.";
+  let description = [{
+    Begins trace capture. The trace_func_id is the unique identifier of the trace.
+    It is NOT the same as the TTNN trace id generated at runtime. This trace_func_id
+    is used to identify the trace at runtime by mapping this trace_func_id to the
+    runtime TTNN trace id. BeginTraceCapture, EndTraceCapture, ExecuteTrace ops
+    that correspond to the same trace will share the same unique trace_func_id.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       UI64Attr:$trace_func_id,
+                       UI32Attr:$cq_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
+  let summary = "End trace capture.";
+  let description = [{
+    Ends trace capture.
+  }];
+
+
+  let arguments = (ins TTNN_Device:$device,
+                       UI64Attr:$trace_func_id,
+                       UI32Attr:$cq_id);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
+  let summary = "Execute trace.";
+  let description = [{
+    Executes the captured trace. $trace_func_name is the unique function name of the trace which is generated
+    by the compiler for TTNN_CaptureOrExecuteTraceOp. Runtime will look up the actual device trace id
+    based on the unique $trace_func_name.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       UI64Attr:$trace_func_id,
+                       UI32Attr:$cq_id,
+                       BoolAttr:$blocking);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace"> {
+  let summary = "Capture or execute trace.";
+  let description = [{
+    Captures or executes the trace.
+  }];
+
+  let arguments = (ins TTNN_Device:$device,
+                       UI64Attr:$trace_func_id,
+                       FlatSymbolRefAttr:$capture_callee,
+                       FlatSymbolRefAttr:$execute_callee,
+                       Variadic<AnyRankedTensor>:$inputs);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TraceOp : TTNN_Op<"trace"> {
     let summary = "Trace capture and execute operation.";
     let description = [{
@@ -2169,7 +2244,7 @@ def TTNN_TraceOp : TTNN_Op<"trace"> {
 
     let arguments = (ins
       TTNN_Device:$device,
-      I32Attr:$cq_id,
+      UI32Attr:$cq_id,
       BoolAttr:$blocking,
       FlatSymbolRefAttr:$callee,
       Variadic<AnyRankedTensor>:$inputs

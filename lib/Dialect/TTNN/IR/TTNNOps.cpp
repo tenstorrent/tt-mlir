@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -15,6 +16,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <cstdint>
 #include <numeric>
@@ -57,6 +59,14 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   rewriter.eraseOp(op);
 
   return ::mlir::success();
+}
+
+static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
+  auto ttnnLayoutAttr =
+      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  bool isOnDevice =
+      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+  return isOnDevice;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2524,7 +2534,40 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
-// TraceOp
+// CopyHostToDeviceTensorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult CopyHostToDeviceTensorOp::verify() {
+  auto hostTensorType =
+      ::mlir::cast<RankedTensorType>(this->getHostTensor().getType());
+  if (!hostTensorType) {
+    return emitOpError() << "Host tensor must be ranked";
+  }
+  if (isTensorOnDevice(hostTensorType)) {
+    return emitOpError() << "Host tensor must be on system memory";
+  }
+
+  auto deviceTensorType =
+      ::mlir::cast<RankedTensorType>(this->getDeviceTensor().getType());
+  if (!deviceTensorType) {
+    return emitOpError() << "Device tensor must be ranked";
+  }
+  if (!isTensorOnDevice(deviceTensorType)) {
+    return emitOpError() << "Device tensor must be on device memory";
+  }
+
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError()
+           << "CQ ID must be 0 or 1 for copy host to device tensor op, got: "
+           << cqId;
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// TraceOps
 //===----------------------------------------------------------------------===//
 
 static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
@@ -2550,12 +2593,140 @@ static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
   return ::mlir::success();
 }
 
-static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
-  auto ttnnLayoutAttr =
-      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  bool isOnDevice =
-      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
-  return isOnDevice;
+void BeginTraceCaptureOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult BeginTraceCaptureOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError() << "Device must be set for begin trace capture op";
+  }
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError()
+           << "CQ ID must be 0 or 1 for begin trace capture op, got: " << cqId;
+  }
+
+  return ::mlir::success();
+}
+
+void EndTraceCaptureOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult EndTraceCaptureOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError() << "Device must be set for end trace capture op";
+  }
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError()
+           << "CQ ID must be 0 or 1 for end trace capture op, got: " << cqId;
+  }
+
+  return ::mlir::success();
+}
+
+void ExecuteTraceOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult ExecuteTraceOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError() << "Device must be set for execute trace op";
+  }
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError() << "CQ ID must be 0 or 1 for execute trace op, got: "
+                         << cqId;
+  }
+
+  return ::mlir::success();
+}
+
+void CaptureOrExecuteTraceOp::getEffects(
+    ::mlir::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Read::get(),
+                       TraceResource::get());
+  effects.emplace_back(::mlir::MemoryEffects::Write::get(),
+                       TraceResource::get());
+}
+
+::mlir::LogicalResult CaptureOrExecuteTraceOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError()
+           << "Device must be set for capture or execute trace op";
+  }
+
+  // Verify that the callee exists
+  FlatSymbolRefAttr captureCalleeAttr = this->getCaptureCalleeAttr();
+  func::FuncOp captureFuncOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this,
+                                                         captureCalleeAttr);
+  if (!captureFuncOp) {
+    return emitOpError() << "'" << captureCalleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  FlatSymbolRefAttr executeCalleeAttr = this->getExecuteCalleeAttr();
+  func::FuncOp executeFuncOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this,
+                                                         executeCalleeAttr);
+  if (!executeFuncOp) {
+    return emitOpError() << "'" << executeCalleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  // Verify trace function ID matches between the op and capture/execute callee
+  // functions
+  uint64_t myTraceFuncId = this->getTraceFuncId();
+  auto captureTraceFuncIdAttr = captureFuncOp->getAttr("trace_func_id");
+  if (!captureTraceFuncIdAttr) {
+    return emitOpError()
+           << "Capture callee function does not have trace function ID";
+  }
+  if (!mlir::isa<IntegerAttr>(captureTraceFuncIdAttr)) {
+    return emitOpError() << "Trace function ID is not an integer";
+  }
+  uint64_t captureTraceFuncId =
+      mlir::cast<IntegerAttr>(captureTraceFuncIdAttr).getValue().getZExtValue();
+  if (captureTraceFuncId != myTraceFuncId) {
+    return emitOpError() << "Trace function ID does not match between the op "
+                            "and capture callee functions";
+  }
+
+  auto executeTraceFuncIdAttr = executeFuncOp->getAttr("trace_func_id");
+  if (!executeTraceFuncIdAttr) {
+    return emitOpError()
+           << "Execute callee function does not have trace function ID";
+  }
+  if (!mlir::isa<IntegerAttr>(executeTraceFuncIdAttr)) {
+    return emitOpError() << "Trace function ID is not an integer";
+  }
+  uint64_t executeTraceFuncId =
+      mlir::cast<IntegerAttr>(executeTraceFuncIdAttr).getValue().getZExtValue();
+  if (executeTraceFuncId != myTraceFuncId) {
+    return emitOpError() << "Trace function ID does not match between the op "
+                            "and execute callee functions";
+  }
+
+  return ::mlir::success();
 }
 
 ::mlir::LogicalResult TraceOp::verify() {

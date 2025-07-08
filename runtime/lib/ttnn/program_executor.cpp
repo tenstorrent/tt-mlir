@@ -54,9 +54,11 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/sort.h"
-#include "operations/trace/trace.h"
+#include "operations/trace/begin_trace_capture.h"
+#include "operations/trace/end_trace_capture.h"
+#include "operations/trace/execute_trace.h"
 #include "tt/runtime/debug.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
@@ -311,8 +313,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::TraceOp: {
-    return operations::trace::run(op->type_as_TraceOp(), getContext());
+  case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
+    return operations::trace::run(op->type_as_BeginTraceCaptureOp(),
+                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::EndTraceCaptureOp: {
+    return operations::trace::run(op->type_as_EndTraceCaptureOp(),
+                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::ExecuteTraceOp: {
+    return operations::trace::run(op->type_as_ExecuteTraceOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",

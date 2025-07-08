@@ -6,7 +6,7 @@
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
 
@@ -24,6 +24,10 @@ bool isOnHost(const ::ttnn::StorageType &storageType) {
          storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
 }
 
+bool isOnDevice(const ::ttnn::StorageType &storageType) {
+  return storageType == ::ttnn::StorageType::DEVICE;
+}
+
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
       tensorRef->desc()->layout()->memory_desc()->storage_type();
@@ -31,8 +35,10 @@ bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
          (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
 }
 
-bool isOnDevice(const ::ttnn::StorageType &storageType) {
-  return storageType == ::ttnn::StorageType::DEVICE;
+bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  const ::tt::target::ttnn::StorageType storageType =
+      tensorRef->desc()->layout()->memory_desc()->storage_type();
+  return (storageType == ::tt::target::ttnn::StorageType::Device);
 }
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape) {
