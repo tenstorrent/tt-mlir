@@ -6,31 +6,12 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Path setup --------------------------------------------------------------
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here.
-import sys
-import os
-from pathlib import Path
-
-# Add the Python packages directory to the path
-build_dir = Path(__file__).resolve().parents[3] / "build"
-sys.path.insert(0, str(build_dir / "python_packages/ttir_builder"))
-
-# Output paths
-html_dir = build_dir / "docs/book/autogen/html/Module"
-md_dir = build_dir / "docs/src/autogen/md/Module"
-
-# Create output directories
-html_dir.mkdir(parents=True, exist_ok=True)
-md_dir.mkdir(parents=True, exist_ok=True)
-
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "ttir-builder"
-copyright = "2025, Julia Grim"
-author = "Julia Grim"
+copyright = "2025 Tenstorrent AI ULC"
+author = "Nick Smith"
 release = "0.1"
 
 # -- General configuration ---------------------------------------------------
