@@ -831,7 +831,6 @@ public:
         /*output=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
-        /*compute_kernel_config=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
