@@ -7,12 +7,9 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include "mlir/IR/Attributes.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn_to_emitpy::utils {
 
