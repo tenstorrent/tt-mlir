@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -64,7 +64,6 @@ generateDefaultReplicaGroups(const llvm::SmallVector<int64_t> &meshShape) {
 // default replica groups. For example, if the mesh shape = [2, 4], we generate
 // a default replica groups as: [[0,1,2,3],[4,5,6,7]]. Then we transpose it
 // [[0,4],[1,5],[2,6],[3,7]].
-
 static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
     const llvm::SmallVector<llvm::SmallVector<int64_t>> &replicaGroups) {
   assert(!replicaGroups.empty() &&
@@ -83,7 +82,7 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
 
 // Get the correct replica groups for the given mesh and mesh axis.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
-populateReplicaGroups(mlir::tt::sdy_utils::MeshMap meshMap,
+populateReplicaGroups(mlir::tt::shardy_utils::MeshMap meshMap,
                       mlir::StringRef meshAxis) {
   assert(meshMap.size() == 2 && "Meshmap must have exactly 2 elements when "
                                 "trying to populate replica groups\n.");
@@ -100,7 +99,7 @@ populateReplicaGroups(mlir::tt::sdy_utils::MeshMap meshMap,
 }
 
 template <typename SrcOp>
-static mlir::tt::sdy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
+static mlir::tt::shardy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
   // Get the mesh attr that relates to the sdy.all_gather.
   mlir::sdy::MeshAttr meshAttr;
   mlir::Attribute attr = srcOp.getOutSharding().getMeshOrRef();
@@ -115,8 +114,8 @@ static mlir::tt::sdy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
     mlir::sdy::MeshOp meshOp = mlir::cast<mlir::sdy::MeshOp>(symbolOp);
     meshAttr = meshOp.getMesh();
   }
-  mlir::tt::sdy_utils::MeshMap meshMap =
-      mlir::tt::sdy_utils::createMeshMapFromMeshAttr(meshAttr);
+  mlir::tt::shardy_utils::MeshMap meshMap =
+      mlir::tt::shardy_utils::createMeshMapFromMeshAttr(meshAttr);
 
   return meshMap;
 }
@@ -156,7 +155,7 @@ public:
 
     // Iterate through gathering axes and create an all gather operation for
     // each axes that needs to be gathered.
-    mlir::tt::sdy_utils::MeshMap meshMap =
+    mlir::tt::shardy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllGatherOp>(srcOp);
 
     Value result = srcOp.getOperand();
@@ -223,7 +222,7 @@ public:
 
     // Iterate through reduce scatter axes and create a reduce scatter operation
     // for each axes that needs to be reduced.
-    mlir::tt::sdy_utils::MeshMap meshMap =
+    mlir::tt::shardy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::ReduceScatterOp>(srcOp);
 
     Value result = srcOp.getOperand();
@@ -298,7 +297,7 @@ public:
 
     // Iterate through reduction axes and create a all reduce operation for
     // each axes that needs to be reduced.
-    mlir::tt::sdy_utils::MeshMap meshMap =
+    mlir::tt::shardy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllReduceOp>(srcOp);
     Value result = srcOp.getOperand();
 
@@ -347,7 +346,7 @@ public:
 
     // Iterate through all all to all parameter attributes and insert a new all
     // to all op for each axis to perform the operation on.
-    mlir::tt::sdy_utils::MeshMap meshMap =
+    mlir::tt::shardy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllToAllOp>(srcOp);
     Value result = srcOp.getOperand();
 
