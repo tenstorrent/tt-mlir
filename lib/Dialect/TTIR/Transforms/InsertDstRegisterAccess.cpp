@@ -261,6 +261,16 @@ public:
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
   }
 
+  static SmallVector<affine::AffineForOp> getLoopList(Operation *loopNestOrOp) {
+    Operation *currOp = loopNestOrOp;
+    SmallVector<affine::AffineForOp> loops;
+    while (mlir::isa<affine::AffineForOp>(currOp)) {
+      loops.push_back(mlir::cast<affine::AffineForOp>(currOp));
+      currOp = currOp->getParentOfType<affine::AffineForOp>();
+    }
+    return loops;
+  }
+
   static void
   dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
                    const DenseMap<Operation *, CopyInfo> &loopNests) {
@@ -270,7 +280,9 @@ public:
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       rewriter.setInsertionPoint(loopNestOrOp);
-      auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices);
+      auto loopsToGuard = getLoopList(loopNestOrOp);
+      auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices,
+                                          loopsToGuard);
       if (guard) {
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
       }
@@ -313,15 +325,25 @@ public:
     }
   }
 
-  static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
-                                          Location loc,
-                                          ArrayRef<int64_t> guardIndices) {
+  template <class... Ts>
+  struct overloads : Ts... {
+    using Ts::operator()...;
+  };
+
+  static scf::IfOp
+  insertGuardForLoopNest(PatternRewriter &rewriter, Location loc,
+                         ArrayRef<int64_t> guardIndices,
+                         ArrayRef<affine::AffineForOp> loopsToGuard) {
     if (guardIndices.empty()) {
       return nullptr;
     }
     auto zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+    auto indexConst = [&](int64_t index) {
+      return rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                rewriter.getIndexAttr(index));
+    };
     auto cmp = rewriter
                    .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
                                               rewriter.getBoolAttr(false))
@@ -331,6 +353,13 @@ public:
       auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                                iterIndex, zero);
       cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
+    }
+    for (auto loop : loopsToGuard) {
+      auto remainder = rewriter.create<arith::RemSIOp>(
+          loc, loop.getInductionVar(), indexConst(loop.getStepAsInt()));
+      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                               remainder, zero);
+      cmp = rewriter.create<arith::AndIOp>(loc, cmp, eq).getResult();
     }
     return rewriter.create<scf::IfOp>(loc, cmp);
   }
