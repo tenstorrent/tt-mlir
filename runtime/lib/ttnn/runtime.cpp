@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -237,9 +238,12 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
+
+  ::ttnn::MeshShape meshShape = operations::utils::getMeshShapeFromConfig(
+      distributionStrategy, ttnnTensorShards);
+
   ::ttnn::Tensor multiDeviceHostTensor =
-      ::ttnn::distributed::aggregate_as_tensor(ttnnTensorShards,
-                                               distributionStrategy);
+      ::ttnn::distributed::from_host_shards(ttnnTensorShards, meshShape);
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
