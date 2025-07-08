@@ -1,14 +1,21 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=false enable-trace=true" %s | FileCheck %s
 
 module {
-  // CHECK-LABEL: func.func @creation_ops_trace
+  // CHECK-LABEL: func.func @trace_0_creation_ops
   // CHECK: "ttnn.add"
 
+  // CHECK-LABEL: func.func @run_and_capture_trace_0_creation_ops
+  // CHECK-NOT: "ttnn.write_tensor"
+  // CHECK: "ttnn.begin_trace_capture"
+  // CHECK: "ttnn.end_trace_capture"
+
+  // CHECK-LABEL: func.func @execute_trace_0_creation_ops
+  // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func @creation_ops(
   func.func @creation_ops() -> tensor<4x4xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
-    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = ttnn.trace(%[[GET_DEVICE]], 0, false, @creation_ops_trace_0, [])
+    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]]) <{capture_callee = @run_and_capture_trace_0_creation_ops, execute_callee = @execute_trace_0_creation_ops}>
     // CHECK-NOT: "ttnn.zeros"
     // CHECK-NOT: "ttnn.ones"
     // CHECK-NOT: "ttnn.arange"

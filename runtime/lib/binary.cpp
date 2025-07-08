@@ -54,7 +54,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
 
 std::uint64_t Binary::nextBinaryId() {
   static std::atomic<uint64_t> id{0};
-  return id++;
+  return id.fetch_add(1, std::memory_order_relaxed);
 }
 
 std::uint64_t Binary::id() const { return binaryId; }
