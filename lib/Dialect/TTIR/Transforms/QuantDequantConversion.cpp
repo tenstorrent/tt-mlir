@@ -22,22 +22,22 @@ namespace {
 // If the op does not support quantized execution, inserts DQ → op → Q sandwich
 // instead.
 class CommuteQuantizeAboveQuantizableOpRewriter
-    : public TTIRCommuteOpInterfaceRewritePattern<ttir::QuantizeOp,
-                                                  QuantizableOpInterface> {
+    : public TTIRCommuteOpInterfaceRewritePattern<
+          ttir::QuantizeOp, QuantizableOpInterface, CommuteDirection::UPWARDS> {
 public:
   using TTIRCommuteOpInterfaceRewritePattern<
-      ttir::QuantizeOp,
-      QuantizableOpInterface>::TTIRCommuteOpInterfaceRewritePattern;
+      ttir::QuantizeOp, QuantizableOpInterface,
+      CommuteDirection::UPWARDS>::TTIRCommuteOpInterfaceRewritePattern;
 
 private:
-  bool isCommuteViable(QuantizableOpInterface op,
-                       ttir::QuantizeOp quantOp) const override {
+  bool isCommuteUpwardsViable(QuantizableOpInterface op,
+                              ttir::QuantizeOp quantOp) const override {
     // For now, always assume QuantizableOp is commutable with Quantize.
     return true;
   }
 
-  bool isCommuteFavorable(QuantizableOpInterface op,
-                          ttir::QuantizeOp quantOp) const override {
+  bool isCommuteUpwardsFavorable(QuantizableOpInterface op,
+                                 ttir::QuantizeOp quantOp) const override {
     // Skip commuting if the QuantizeOp has been explicitly marked to opt-out.
     if (quantOp->hasAttr("ttir.skip_qdq_commute")) {
       return false;
@@ -45,9 +45,9 @@ private:
     return true;
   }
 
-  void performCommuteRewrite(QuantizableOpInterface op,
-                             ttir::QuantizeOp quantOp,
-                             PatternRewriter &rewriter) const override {
+  void performCommuteUpwardsRewrite(QuantizableOpInterface op,
+                                    ttir::QuantizeOp quantOp,
+                                    PatternRewriter &rewriter) const override {
     llvm::SmallVector<Operation *> users(op->getUsers());
     auto oldOpType = cast<RankedTensorType>(op->getResult(0).getType());
     auto oldQuantizeResultType = quantOp.getResult().getType();
@@ -112,6 +112,26 @@ private:
       newQuantOp->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
       rewriter.replaceOp(quantOp, newQuantOp.getResult());
     }
+  }
+
+  void
+  performCommuteDownwardsRewrite(QuantizableOpInterface op,
+                                 ttir::QuantizeOp quantOp,
+                                 PatternRewriter &rewriter) const override {
+    // TODO(@anusingh): Identify next step here.
+    llvm_unreachable("Not implemented, this should not be called.");
+  }
+
+  bool isCommuteDownwardsViable(QuantizableOpInterface op,
+                                ttir::QuantizeOp quantOp) const override {
+    // Not viable for now.
+    return false;
+  }
+
+  bool isCommuteDownwardsFavorable(QuantizableOpInterface op,
+                                   ttir::QuantizeOp quantOp) const override {
+    // Not viable for now.
+    return false;
   }
 };
 
