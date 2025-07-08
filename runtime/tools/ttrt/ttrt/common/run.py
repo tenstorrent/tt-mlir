@@ -783,7 +783,7 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
-                            start = time.perf_counter_ns()
+                            start_submit = time.perf_counter_ns()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
@@ -792,16 +792,20 @@ class Run:
                             )
 
                             ttrt.runtime.wait(runtime_outputs)
-                            end = time.perf_counter_ns()
-                            e2e_duration_nanoseconds = end - start
-                            bin.add_program_results(
-                                program_index, loop, e2e_duration_nanoseconds
-                            )
+                            end_submit = time.perf_counter_ns()
+                            e2e_duration_nanoseconds_submit = end_submit - start_submit
 
+                            e2e_duration_nanoseconds_output = 0
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
+                                start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
                                 )[0]
+                                end_get_output = time.perf_counter_ns()
+                                e2e_duration_nanoseconds_output += (
+                                    end_get_output - start_get_output
+                                )
+
                                 ttrt.runtime.memcpy(
                                     outputs[i],
                                     output_host,
@@ -945,6 +949,13 @@ class Run:
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            )
+
+                            bin.add_program_results(
+                                program_index,
+                                loop,
+                                e2e_duration_nanoseconds_submit,
+                                e2e_duration_nanoseconds_output,
                             )
 
                         if event is not None:
