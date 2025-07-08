@@ -2,39 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Dialect.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/Visitors.h"
-#include "mlir/Support/IndentedOstream.h"
-#include "mlir/Support/LLVM.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
-#include "llvm/ADT/DenseMap.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Support/IndentedOstream.h"
 #include "llvm/ADT/ScopedHashTable.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
+
 #include <stack>
-#include <utility>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -175,9 +154,8 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   ss << getOrCreateName(op.getValue());
-  for (auto index : op.getIndices()) {
-    ss << "[" << getOrCreateName(index) << "]";
-  }
+  auto index = op.getIndices();
+  ss << "[" << getOrCreateName(index) << "]";
   return name;
 }
 
@@ -380,12 +358,23 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, LoadOp loadOp) {
-  if (failed(emitter.emitAssignPrefix(*loadOp))) {
+static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
+  if (failed(emitter.emitAssignPrefix(*assignOp))) {
     return failure();
   }
 
-  return emitter.emitOperand(loadOp.getOperand());
+  return emitter.emitOperands(*assignOp);
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    ConstantOp constantOp) {
+  Attribute value = constantOp.getValue();
+
+  if (failed(emitter.emitAssignPrefix(*constantOp))) {
+    return failure();
+  }
+
+  return emitter.emitAttribute(constantOp->getLoc(), value);
 }
 
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
@@ -394,7 +383,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, LoadOp>(
+          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());

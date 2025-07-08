@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIREMITPYDialect
+add_mlir_dialect_library(MLIREmitPyDialect
         EmitPyDialect.cpp
         EmitPyOps.cpp
         EmitPyTypes.cpp

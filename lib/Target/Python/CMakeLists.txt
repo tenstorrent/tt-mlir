@@ -6,6 +6,6 @@ add_mlir_translation_library(EmitPyTargetPython
     ${PROJECT_SOURCE_DIR}/include/Target/Python
 
     LINK_LIBS PUBLIC
-    MLIREMITPYDialect
+    MLIREmitPyDialect
     MLIRFuncDialect
 )

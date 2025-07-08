@@ -8,14 +8,7 @@ add_mlir_conversion_library(TTMLIRTTNNToEmitPy
 
   DEPENDS
   TTMLIRConversionPassIncGen
-  MLIREMITPYDialect
 
   LINK_LIBS PUBLIC
-  MLIREMITPYDialect
-  MLIRTTTransforms
-  MLIRIR
-  MLIRPass
-  MLIRFuncTransforms
-  MLIRTargetCpp
-  MLIREMITPYDialect
+  MLIREmitPyDialect
 )

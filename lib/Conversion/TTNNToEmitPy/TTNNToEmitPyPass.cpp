@@ -2,27 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
-
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
-#include "mlir/Dialect/Quant/IR/Quant.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinDialect.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -70,9 +58,6 @@ struct ConvertTTNNToEmitPyPass
     //
     target.addDynamicallyLegalOp<mlir::ModuleOp>(
         [&](mlir::ModuleOp op) { return op->getAttrs().empty(); });
-
-    // Add header imports to front of module
-    //
 
     OpBuilder builder(module);
 

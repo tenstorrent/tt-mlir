@@ -3,14 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToEmitPy/Utils.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
-
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Pass/Pass.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn_to_emitpy::utils {
 

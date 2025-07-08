@@ -3,36 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
+
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/Utils.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Utils.h"
-
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Quant/IR/Quant.h"
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/Types.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-
-#include "llvm/Support/raw_ostream.h"
-#include <cstdint>
-#include <optional>
-#include <string>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -99,7 +77,8 @@ public:
         ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
-        "ttnn.matmul", adaptor.getOperands(), rewriter.getArrayAttr(attrs));
+        matmulOp.getOperationName(), adaptor.getOperands(),
+        rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -116,7 +95,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         softmaxOp, this->getTypeConverter()->convertType(softmaxOp.getType()),
-        "ttnn.softmax", adaptor.getOperands());
+        softmaxOp.getOperationName(), adaptor.getOperands());
     return success();
   }
 };
@@ -132,13 +111,15 @@ public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(arith::ConstantOp constantOp,
-                  arith::ConstantOp::Adaptor adaptor,
+  matchAndRewrite(arith::ConstantOp constOp, arith::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        constantOp, this->getTypeConverter()->convertType(constantOp.getType()),
-        "constant", ValueRange(),
-        rewriter.getArrayAttr(constantOp.getValueAttr()));
+    Type newTy = this->getTypeConverter()->convertType(constOp.getType());
+    if (!newTy) {
+      return rewriter.notifyMatchFailure(constOp, "type conversion failed");
+    }
+
+    rewriter.replaceOpWithNewOp<emitpy::ConstantOp>(constOp, newTy,
+                                                    adaptor.getValue());
     return success();
   }
 };
@@ -164,21 +145,12 @@ public:
         getTupleElementOp->getLoc(), rewriter.getIndexType(),
         std::to_string(adaptor.getIndex()));
 
-    // SubscriptOp returns an emitpy::LValueType, so we wrap the
-    // OpaqueType with LValueType.
-    //
-    emitpy::LValueType lvalueReturnType =
-        emitpy::LValueType::get(emitpy::OpaqueType::get(
-            rewriter.getContext(), ttnn_to_emitpy::TypeNameV<::ttnn::Tensor>));
-
     Value subscript = rewriter.create<emitpy::SubscriptOp>(
-        getTupleElementOp->getLoc(), lvalueReturnType, adaptor.getOperand(),
-        indexAsVal);
+        getTupleElementOp->getLoc(),
+        this->getTypeConverter()->convertType(getTupleElementOp.getType()),
+        adaptor.getOperand(), indexAsVal);
 
-    // As SubscriptOp returns an LValueType, we need to convert it to an
-    // OpaqueType - this is done by invoking the emitpy::LoadOp.
-    //
-    rewriter.replaceOpWithNewOp<emitpy::LoadOp>(
+    rewriter.replaceOpWithNewOp<emitpy::AssignOp>(
         getTupleElementOp,
         emitpy::OpaqueType::get(getContext(),
                                 ttnn_to_emitpy::TypeNameV<::ttnn::Tensor>),
@@ -222,7 +194,7 @@ public:
     llvm::SmallVector<Attribute, 1> attrs =
         ttnn_to_emitpy::utils::createIndexArray<1>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        deallocateOp, mlir::TypeRange{}, "ttnn.deallocate",
+        deallocateOp, mlir::TypeRange{}, deallocateOp.getOperationName(),
         adaptor.getOperands(), rewriter.getArrayAttr(attrs));
     return success();
   }
@@ -282,7 +254,8 @@ public:
         ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         toDeviceOp, this->getTypeConverter()->convertType(toDeviceOp.getType()),
-        "ttnn.to_device", adaptor.getOperands(), rewriter.getArrayAttr(attrs));
+        toDeviceOp.getOperationName(), adaptor.getOperands(),
+        rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -353,37 +326,56 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
   // Device ops
   //
-  patterns.add<TTDeviceOpConversionPattern>(typeConverter, ctx);
-  patterns.add<GetDeviceOpConversionPattern>(typeConverter, ctx);
+  // clang-format off
+  patterns.add<TTDeviceOpConversionPattern,
+               GetDeviceOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
   // Tensor ops
   //
   // clang-format off
-  patterns.add<NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>, NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>>(typeConverter, ctx);
+  patterns.add<NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
+               NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>>(typeConverter, ctx);
+  // clang-format on
+
   // Arith ops
   //
   patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
+
   // Tuple ops
   //
-  patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
-  patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
+  // clang-format off
+  patterns.add<GetTupleElementOpConversionPattern,
+               TupleOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
   // Matmul ops
   //
   patterns.add<MatmulOpConversionPattern>(typeConverter, ctx);
+
   // Eltwise unary ops
   //
-  patterns.add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>>(typeConverter,
-                                                              ctx);
+  // clang-format off
+  patterns.add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>>(typeConverter, ctx);
+  // clang-format on
+
   // Eltwise binary ops
   //
-  patterns.add<EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::AddOp>>(typeConverter,
-                                                              ctx);
+  // clang-format off
+  patterns.add<EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::AddOp>>(typeConverter, ctx);
+  // clang-format on
+
   // Memory ops
   //
-  patterns.add<ToDeviceOpConversionPattern, DeallocateOpConversionPattern>(
-      typeConverter, ctx);
+  // clang-format off
+  patterns.add<ToDeviceOpConversionPattern,
+               DeallocateOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
   // Other ops
   //
   patterns.add<SoftmaxOpConversionPattern>(typeConverter, ctx);
+
   // Module op
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);

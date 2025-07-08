@@ -3,13 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
+
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/DialectImplementation.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
-
-#include "ttmlir/Utils.h"
 
 using namespace mlir::tt::emitpy;
 

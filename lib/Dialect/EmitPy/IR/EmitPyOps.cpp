@@ -4,26 +4,6 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/OperationSupport.h"
-#include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLForwardCompat.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/LogicalResult.h"
-
-#include <cstddef>
-
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
 
@@ -123,13 +103,15 @@ void ImportOp::print(OpAsmPrinter &p) {
     ArrayAttr member_aliases = nullptr;
     if (getMemberAliases()) {
       member_aliases = *getMemberAliases();
-      p << " as "
-        << "\"" << member_aliases[0] << "\"";
+      if (member_aliases[0]) {
+        p << " as "
+          << "\"" << member_aliases[0] << "\"";
+      }
     }
     for (size_t i = 1; i < membersToImport.size(); i++) {
       p << ", "
         << "\"" << membersToImport[i] << "\"";
-      if (!member_aliases.empty() && i < member_aliases.size()) {
+      if (!member_aliases.empty() && member_aliases[i]) {
         p << " as "
           << "\"" << member_aliases[i] << "\"";
       }
@@ -167,7 +149,7 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
     }
 
     if (succeeded(parser.parseOptionalStar())) {
-      // This is an 'from <moduleName> import *' form
+      // Parse 'from <moduleName> import *' case.
       importAllAttr = builder.getUnitAttr();
       result.addAttribute("import_all", importAllAttr);
 
@@ -177,8 +159,8 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
             "unexpected 'as' keyword in 'from ... import *' form");
       }
     } else {
-      // This is an 'from <moduleName> import <membersToImport> [as <alias>]'
-      // form
+      // Parse 'from <moduleName> import <membersToImport> [as <memberAliases>]'
+      // case.
       StringAttr member;
       StringAttr member_alias = builder.getStringAttr("");
       SmallVector<StringRef> members;
@@ -219,7 +201,7 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
       result.addAttribute("member_aliases", memberAliasesAttr);
     }
   } else {
-    // This is an 'import <moduleName> [as <alias>]' form
+    // Parse 'import <moduleName> [as <moduleAlias>]' case.
     if (parser.parseKeyword("import")) {
       return parser.emitError(parser.getNameLoc())
              << "expected string literal 'import'";
@@ -240,6 +222,82 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
     }
   }
 
+  return success();
+}
+
+LogicalResult ImportOp::verify() {
+  StringRef moduleName = getModuleName();
+  ::std::optional<::llvm::StringRef> moduleAlias = getModuleAlias();
+  ::std::optional<::mlir::ArrayAttr> membersToImport = getMembersToImport();
+  ::std::optional<::mlir::ArrayAttr> memberAliases = getMemberAliases();
+  ::std::optional<bool> importAll = getImportAll();
+
+  // <moduleName> must be non-empty.
+  if (moduleName.empty()) {
+    return emitOpError("module name attribute must be non-empty");
+  }
+
+  bool hasModuleAlias = moduleAlias.has_value();
+  bool hasMembersToImport = membersToImport.has_value();
+  bool hasMemberAliases = memberAliases.has_value();
+  bool hasImportAll = importAll.has_value();
+
+  // Verify 'from <moduleName> import *' case.
+  if (hasImportAll) {
+    if (hasModuleAlias) {
+      return emitOpError("cannot specify 'module alias' with *");
+    }
+    if (hasMembersToImport) {
+      return emitOpError("cannot specify 'members to import' with *");
+    }
+    if (hasMemberAliases) {
+      return emitOpError("cannot specify 'member aliases' with *");
+    }
+    return success();
+  }
+
+  // Verify 'import <moduleName> as <moduleAlias>' case.
+  if (hasModuleAlias) {
+    if (hasMembersToImport) {
+      return emitOpError(
+          "cannot specify 'members to import' with 'module alias'");
+    }
+    if (hasMemberAliases) {
+      return emitOpError("cannot specify 'member aliases' with 'module alias'");
+    }
+    return success();
+  }
+
+  // Verify 'from <moduleName> import <membersToImport> [as <memberAliases>]'
+  // case.
+  if (hasMembersToImport) {
+    // Check individual members' names are not empty.
+    for (auto member : *membersToImport) {
+      StringAttr memberName = dyn_cast<StringAttr>(member);
+      if (memberName.empty()) {
+        return emitOpError("imported member name cannot be empty");
+      }
+    }
+
+    // If <memberAliases> are provided, their count must be equal to
+    // <membersToImport> count.
+    if (hasMemberAliases) {
+      if (membersToImport->size() != memberAliases->size()) {
+        return emitOpError("number of member aliases must be equal to "
+                           "the number of members to import");
+      }
+      // Check individual members' aliases are not empty if specified.
+      for (Attribute memberAlias : *memberAliases) {
+        StringAttr memberAliasName = dyn_cast<StringAttr>(memberAlias);
+        if (!memberAliasName) {
+          return emitOpError("member alias must be a string attribute");
+        }
+      }
+    }
+    return success();
+  }
+
+  // Case 'import module'
   return success();
 }
 

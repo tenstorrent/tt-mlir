@@ -28,39 +28,15 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
     Example:
 
     ```mlir
-    !emitpy.opaque<"int">
+    !emitpy.opaque<"tuple">
     !emitpy.opaque<"ttnn.Tensor">
-    !emitpy.opaque<"vector<ttnn.Tensor>">
+    !emitpy.opaque<"list<ttnn.Tensor>">
     ```
   }];
 
   let parameters = (ins StringRefParameter<"the opaque value">:$value);
   let assemblyFormat = "`<` $value `>`";
   let genVerifyDecl = 1;
-}
-
-def EmitPy_LValueType : EmitPy_Type<"LValue", "lvalue"> {
-  let summary = "EmitPy lvalue type";
-
-  let description = [{
-    Values of this type can be assigned to and their address can be taken.
-
-    Example:
-
-    ```mlir
-    !emitpy.lvalue<!emitpy.opaque<"ttnn.Tensor">>
-    ```
-  }];
-
-  let parameters = (ins "Type":$valueType);
-  let builders = [
-    TypeBuilderWithInferredContext<(ins "Type":$valueType), [{
-      return $_get(valueType.getContext(), valueType);
-    }]>
-  ];
-  let assemblyFormat = "`<` qualified($valueType) `>`";
-  //TODO (amilovanovic) : implement custom verify method
-  //let genVerifyDecl = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD

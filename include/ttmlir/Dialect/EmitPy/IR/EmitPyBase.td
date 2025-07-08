@@ -15,10 +15,8 @@ def EmitPy_Dialect : Dialect {
     let name = "emitpy";
     let cppNamespace = "::mlir::tt::emitpy";
 
+    // TODO (amilovanovic) add Dialects/emitpy.md to description
     let summary = "Dialect to generate Python from MLIR.";
-    let description = [{
-      [include "Dialects/emitpy.md"]
-    }];
 
     let useDefaultTypePrinterParser = 1;
     let useDefaultAttributePrinterParser = 1;

@@ -7,9 +7,9 @@
 
 #include "mlir/IR/Dialect.h"
 
-#include <variant>
-
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.h.inc"
+
+#include <variant>
 
 namespace mlir {
 namespace tt {

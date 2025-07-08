@@ -7,8 +7,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-#include "mlir/IR/BuiltinTypes.h"
-
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsTypes.h.inc"
 

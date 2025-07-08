@@ -30,12 +30,14 @@ def EmitPy_OpaqueAttr : EmitPy_Attr<"Opaque", "opaque"> {
 
     ```mlir
     #emitpy.opaque<"">
-    #emitpy.opaque<"nullptr">
+    #emitpy.opaque<"None">
     ```
   }];
 
   let parameters = (ins StringRefParameter<"the opaque value">:$value);
   let assemblyFormat = "`<` $value `>`";
 }
+
+def EmitPy_OpaqueOrTypedAttr : AnyAttrOf<[EmitPy_OpaqueAttr, TypedAttrInterface]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYATTRIBUTES_TD

@@ -2,17 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Dialect.h"
-#include "mlir/Tools/mlir-translate/Translation.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
-#include "llvm/Support/CommandLine.h"
 
-using namespace mlir::tt;
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Tools/mlir-translate/Translation.h"
 
 namespace mlir::tt::emitpy {
 

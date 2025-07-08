@@ -30,7 +30,7 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
 
     ```mlir
     // Custom form defining a call to `foo()`.
-    %0 = emitpy.call_opaque "foo" () : () -> i32
+    %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
@@ -78,6 +78,7 @@ def EmitPy_ImportOp : EmitPy_Op<"import"> {
     Arg<OptionalAttr<UnitAttr>, "import all members with *">:$import_all
   );
 
+  let hasVerifier = 1;
   let hasCustomAssemblyFormat = 1;
 }
 
@@ -112,34 +113,30 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
 
     ```mlir
     %0 = emitpy.literal "0" : index
-    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"vector<ttnn.Tensor>">, index) -> !emitpy.lvalue<!emitpy.opaque<"ttnn.Tensor">>
+    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"vector<ttnn.Tensor>">, index) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
   let arguments = (ins
     Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
-    Variadic<Index>:$indices);
+    Index:$indices);
 
-  let results = (outs EmitPy_LValueType:$result);
+  let results = (outs EmitPy_OpaqueType:$result);
 
-  //TODO (amilovanovic) : add custom verify method
-  //let hasVerifier = 1;
+  // TODO (amilovanovic) : add custom verify method
   let assemblyFormat = "$value `[` $indices `]` attr-dict `:` functional-type(operands, results)";
 }
 
-def EmitPy_LoadOp : EmitPy_Op<"load", [TypesMatchWith<"result type matches value type of 'operand'",
-                  "operand", "result",
-                  "::llvm::cast<LValueType>($_self).getValueType()">]> {
-  let summary = "Load an lvalue into an SSA value.";
+def EmitPy_AssignOp : EmitPy_Op<"assign"> {
+  let summary = "Assign operation.";
   let description = [{
-    This operation loads the content of a modifiable lvalue into an SSA value.
-    Modifications of the lvalue executed after the load are not observable on
-    the produced value.
+    The `emitpy.assign` operation represents a Python variable assignment.
+    This models `new_var = old_var` or `var = constant`.
 
     Example:
 
     ```mlir
-    %2 = emitpy.load %1 : <!emitpy.opaque<"ttnn.Tensor">>
+    %2 = emitpy.assign %1 : <!emitpy.opaque<"ttnn.Tensor">>
     ```
     ```Python
     // Code emitted for the operation above.
@@ -148,27 +145,26 @@ def EmitPy_LoadOp : EmitPy_Op<"load", [TypesMatchWith<"result type matches value
   }];
 
   let arguments = (ins
-    Res<EmitPy_LValueType, "", [MemRead<DefaultResource, 0, FullEffect>]>:$operand);
+    EmitPy_OpaqueType:$value);
 
   let results = (outs AnyType:$result);
 
-  let assemblyFormat = "$operand attr-dict `:` type($operand)";
+  //let assemblyFormat = "$result `=` $value attr-dict";
 }
 
-def EmitC_VerbatimOp : EmitPy_Op<"verbatim"> {
+def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{
-    The `emitc.verbatim` operation produces no results and the value is emitted as is
-    followed by a line break  ('\n' character) during translation.
+    The `emitpy.verbatim` operation produces no results and the value is emitted as is
+    followed by a line break ('\n' character) during translation.
+
+    This operation can be used in situations where a more suitable operation is
+    not yet implemented in the dialect.
 
     Note: Use with caution. This operation can have arbitrary effects on the
     semantics of the emitted code. Use semantically more meaningful operations
     whenever possible. Additionally this op is *NOT* intended to be used to
     inject large snippets of code.
-
-    This operation can be used in situations where a more suitable operation is
-    not yet implemented in the dialect or where preprocessor directives
-    interfere with the structure of the code.
   }];
 
   let extraClassDeclaration = [{
@@ -182,6 +178,21 @@ def EmitC_VerbatimOp : EmitPy_Op<"verbatim"> {
 
   let hasVerifier = 1;
   let assemblyFormat = "$value (`args` $fmtArgs^ `:` type($fmtArgs))? attr-dict";
+}
+
+def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
+  let summary = "Constant operation";
+  let description = [{
+    The `emitpy.constant` operation produces an SSA value equal to some constant
+    specified by an attribute. This can be used to form simple integer and
+    floating point constants, as well as more exotic things like tensor
+    constants.
+  }];
+
+  let arguments = (ins EmitPy_OpaqueOrTypedAttr:$value);
+  let results = (outs AnyType:$result);
+
+  //let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
