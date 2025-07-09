@@ -32,7 +32,9 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
     let results = (outs TTNN_Device:$device);
 }
 
-def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> {
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToMemoryConfig op.";
     let description = [{
       This op converts the memory config of the input tensor based on the given memory config.
