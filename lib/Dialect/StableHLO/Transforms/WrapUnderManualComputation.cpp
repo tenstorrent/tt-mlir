@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
@@ -36,13 +36,13 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   mlir::sdy::TensorShardingPerValueAttr inShardings =
       mlir::sdy::TensorShardingPerValueAttr::get(
           context,
-          sdy_utils::getInShardingAttrs(context, funcOp, globalMeshOp));
+          shardy_utils::getInShardingAttrs(context, funcOp, globalMeshOp));
 
   // Get out_shardings of current function.
   mlir::sdy::TensorShardingPerValueAttr outShardings =
       mlir::sdy::TensorShardingPerValueAttr::get(
           context,
-          sdy_utils::getOutShardingAttrs(context, funcOp, globalMeshOp));
+          shardy_utils::getOutShardingAttrs(context, funcOp, globalMeshOp));
 
   // Create sdy.manual_computation op
   mlir::FunctionType funcType = funcOp.getFunctionType();
@@ -137,7 +137,8 @@ public:
     mlir::PassManager pm(context);
 
     // If the module has gspmd annotations, we skip this pass.
-    bool gspmdAnnotationsExist = sdy_utils::gspmdAnnotationsExist(rootModule);
+    bool gspmdAnnotationsExist =
+        shardy_utils::gspmdAnnotationsExist(rootModule);
     if (gspmdAnnotationsExist) {
       rootModule.emitWarning("Wrapping under manual computation pass does not "
                              "support GSPMD annotated module for now.\n");
@@ -147,7 +148,7 @@ public:
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
     llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
-        sdy_utils::getMeshOps(rootModule);
+        shardy_utils::getMeshOps(rootModule);
 
     if (parsedMeshOps.size() == 0) {
       rootModule.emitError(

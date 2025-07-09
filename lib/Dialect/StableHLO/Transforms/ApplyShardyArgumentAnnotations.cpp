@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
@@ -248,8 +248,9 @@ public:
     llvm::ArrayRef<int64_t> meshShapeRef = *meshShape;
 
     // Determine whether any existing sharding annotations exist.
-    bool gspmdAnnotationsExist = sdy_utils::gspmdAnnotationsExist(rootModule);
-    bool sdyAnnotationsExist = sdy_utils::sdyAnnotationsExist(rootModule);
+    bool gspmdAnnotationsExist =
+        shardy_utils::gspmdAnnotationsExist(rootModule);
+    bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
     bool ttArgAnnotationsExist =
         mlir::tt::stablehlo::ttAnnotationsExist(rootModule);
 
@@ -276,7 +277,7 @@ public:
     if (sdyAnnotationsExist) {
       // Get the shardy mesh op in the root module.
       llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
-          sdy_utils::getMeshOps(rootModule);
+          shardy_utils::getMeshOps(rootModule);
 
       if (parsedMeshOps.size() == 0) {
         rootModule.emitError(
@@ -303,9 +304,9 @@ public:
 
       // Check if manual computation op exists. If it does, this is a solved
       // graph and we remove all sdy annotations.
-      if (sdy_utils::doesManualComputationOpExist(rootModule)) {
+      if (shardy_utils::doesManualComputationOpExist(rootModule)) {
         rootModule.walk([&](func::FuncOp funcOp) {
-          sdy_utils::removeSdyTensorShardings(context, funcOp);
+          shardy_utils::removeSdyTensorShardings(context, funcOp);
         });
       }
 
@@ -318,7 +319,7 @@ public:
     if (automaticArgAnalysis || ttArgAnnotationsExist) {
       // Remove any sdy meshOps that exists and insert our own to run analysis
       // on.
-      sdy_utils::removeMeshOps(rootModule);
+      shardy_utils::removeMeshOps(rootModule);
 
       // Check if user provided a mesh.
       if (meshShapeRef.size() == 0) {
@@ -337,11 +338,11 @@ public:
       }
 
       std::string meshName = "mesh";
-      sdy_utils::MeshMap meshMap;
+      shardy_utils::MeshMap meshMap;
       meshMap["default"] = meshShapeRef[0];
       meshMap["batch"] = meshShapeRef[1];
       mlir::sdy::MeshAttr sdyMeshAttr =
-          sdy_utils::createMeshAttrFromMeshMap(context, meshMap);
+          shardy_utils::createMeshAttrFromMeshMap(context, meshMap);
       builder.setInsertionPoint(&(rootModule.getBody()->front()));
       builder.create<mlir::sdy::MeshOp>(builder.getUnknownLoc(),
                                         builder.getStringAttr(meshName),
