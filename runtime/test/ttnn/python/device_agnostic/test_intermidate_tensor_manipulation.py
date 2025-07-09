@@ -79,10 +79,11 @@ def postop(binary, programContext, opContext):
         programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
     )
 
+
 def is_callback_enabled():
-    
     debug_stats = str(ttrt.runtime.DebugStats.get())
     return debug_stats != "DebugStats Disabled"
+
 
 def test_intermidate_tensor_manipulation(helper: Helper, request):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
@@ -97,7 +98,6 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
     rand_inputs_torch = get_torch_inputs(test_runner.program)
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]
-
 
     hooks = ttrt.runtime.DebugHooks.get(identity, postop)
     if not is_callback_enabled():
