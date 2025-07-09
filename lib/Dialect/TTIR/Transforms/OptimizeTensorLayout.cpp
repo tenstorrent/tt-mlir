@@ -247,16 +247,6 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       blockShape[i] *= dim;
     }
 
-    for (auto [i, dim] :
-         llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
-      // Handle the edge case where a 0 constant appears in the affine map, i.e.
-      // some kind of reduction or broadcast:
-      //   (d0, d1) -> (d0, 0)
-      if (blockShape[i] == 0) {
-        blockShape[i] = 1;
-      }
-      blockShape[i] *= dim;
-    }
     auto viewOperandType = applyGridShape(newOperandType, blockShape);
 
     // Do not insert ViewLayoutOp if the shapes are already identical.
