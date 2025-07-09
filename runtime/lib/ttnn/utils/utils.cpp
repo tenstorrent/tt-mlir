@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -359,6 +360,29 @@ getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
 
   // For AllGatherTensor or any other case, use the number of tensor shards
   return ::ttnn::MeshShape(tensorShards.size());
+}
+
+::tt::runtime::TensorRef
+createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  std::shared_ptr<const void> tensorRefPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
+  return tt::runtime::TensorRef(tensorRefPtr, DeviceRuntime::TTNN);
+}
+
+std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbVector) {
+  std::vector<const tt::target::ttnn::TensorRef *> stdVector;
+  if (!fbVector) {
+    return stdVector;
+  }
+
+  stdVector.reserve(fbVector->size());
+  for (const auto *tensorRef : *fbVector) {
+    stdVector.push_back(tensorRef);
+  }
+
+  return stdVector;
 }
 
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,

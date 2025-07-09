@@ -14,6 +14,15 @@
 
 namespace tt::runtime::debug {
 
+bool runtimeDebugEnabled(){
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  return true;
+#else
+  return false;
+#endif
+
+}
+
 struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Env &
