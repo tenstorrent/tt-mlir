@@ -126,6 +126,9 @@ void setTensorRetain(Tensor tensor, bool retain);
 
 Arch getArch();
 
+void enablePersistentKernelCache();
+void disablePersistentKernelCache();
+
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,

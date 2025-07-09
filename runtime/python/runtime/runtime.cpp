@@ -251,6 +251,14 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Create a multi-device host tensor with owned memory");
   m.def("get_arch", &tt::runtime::getArch,
         "Get the architecture of the device");
+  m.def("enable_persistent_kernel_cache",
+        &tt::runtime::enablePersistentKernelCache,
+        "Enable persistent kernel cache, which will cache kernel binaries on "
+        "disk usable across runs.");
+  m.def("disable_persistent_kernel_cache",
+        &tt::runtime::disablePersistentKernelCache,
+        "Disable persistent kernel cache, which will disable caching kernel "
+        "binaries on disk.");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_mesh_device", &tt::runtime::openMeshDevice, nb::arg("mesh_shape"),
