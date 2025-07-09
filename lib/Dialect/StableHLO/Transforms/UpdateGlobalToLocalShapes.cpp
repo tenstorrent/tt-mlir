@@ -84,11 +84,11 @@ static FailureOr<mlir::OperationState> createNewOperationState(
               for (const auto [index, dimShardingAttr] :
                    llvm::enumerate(dimShardings)) {
                 FailureOr<int64_t> updatedStartDim =
-                    sdy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
+                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
                                                    dimShardingAttr,
                                                    startIndices[index]);
                 FailureOr<int64_t> updatedLimitDim =
-                    sdy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
+                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
                                                    dimShardingAttr,
                                                    limitIndices[index]);
 
@@ -138,7 +138,7 @@ static FailureOr<mlir::OperationState> createNewOperationState(
               for (const auto [index, dimShardingAttr] :
                    llvm::enumerate(dimShardings)) {
                 FailureOr<int64_t> updatedSliceDim =
-                    sdy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
+                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
                                                    dimShardingAttr,
                                                    newSliceSizes[index]);
 
@@ -216,7 +216,7 @@ static mlir::LogicalResult updateManualAxes(MLIRContext *context,
       mlir::RankedTensorType oldType =
           mlir::cast<mlir::RankedTensorType>(arg.getType());
       FailureOr<mlir::RankedTensorType> newType =
-          sdy_utils::populateShardedOutputType(
+          shardy_utils::populateShardedOutputType(
               globalMeshOp.getMesh(), oldType,
               tensorShardings[arg.getArgNumber()]);
 
@@ -261,7 +261,7 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
       llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
           tensorShardingPerValueAttr.getShardings();
       FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes =
-          sdy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
+          shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
 
       if (failed(newTypes)) {
         op->emitError("Could not apply propagated tensor shardings to "
@@ -284,7 +284,7 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
 
       // If the operation has nested regions, we need to remap and copy
       // them over (eg. stablehlo.reduce).
-      sdy_utils::copyNestedRegions(builder, op, newOp);
+      shardy_utils::copyNestedRegions(builder, op, newOp);
 
       // Update all old op results with new op results.
       for (uint32_t i = 0; i < op->getNumResults(); i++) {
@@ -332,7 +332,7 @@ public:
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
     llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
-        sdy_utils::getMeshOps(rootModule);
+        shardy_utils::getMeshOps(rootModule);
 
     if (parsedMeshOps.size() == 0) {
       rootModule.emitError(
@@ -384,7 +384,7 @@ public:
     // Remove all sdy tensor sharding annotations since all the analysis is
     // complete
     rootModule.walk([&](func::FuncOp funcOp) {
-      sdy_utils::removeSdyTensorShardings(context, funcOp);
+      shardy_utils::removeSdyTensorShardings(context, funcOp);
     });
   }
 };

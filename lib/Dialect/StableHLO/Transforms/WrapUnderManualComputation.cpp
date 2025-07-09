@@ -36,13 +36,13 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   mlir::sdy::TensorShardingPerValueAttr inShardings =
       mlir::sdy::TensorShardingPerValueAttr::get(
           context,
-          sdy_utils::getInShardingAttrs(context, funcOp, globalMeshOp));
+          shardy_utils::getInShardingAttrs(context, funcOp, globalMeshOp));
 
   // Get out_shardings of current function.
   mlir::sdy::TensorShardingPerValueAttr outShardings =
       mlir::sdy::TensorShardingPerValueAttr::get(
           context,
-          sdy_utils::getOutShardingAttrs(context, funcOp, globalMeshOp));
+          shardy_utils::getOutShardingAttrs(context, funcOp, globalMeshOp));
 
   // Create sdy.manual_computation op
   mlir::FunctionType funcType = funcOp.getFunctionType();
@@ -139,7 +139,7 @@ public:
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
     llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
-        sdy_utils::getMeshOps(rootModule);
+        shardy_utils::getMeshOps(rootModule);
 
     if (parsedMeshOps.size() == 0) {
       rootModule.emitError(

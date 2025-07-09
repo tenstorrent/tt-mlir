@@ -2,51 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
-#define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
+#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
 
-#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdefaulted-function-deleted"
-#include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
-#pragma clang diagnostic pop
+#include <numeric>
 
-#include "shardy/dialect/sdy/ir/constants.h"
-#include "shardy/dialect/sdy/ir/dialect.h"
-#include "shardy/dialect/sdy/ir/utils.h"
-#include "shardy/dialect/sdy/transforms/export/passes.h"
-#include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
-#include "shardy/dialect/sdy/transforms/propagation/passes.h"
-#include "stablehlo/dialect/StablehloOps.h"
-
-namespace mlir::tt::sdy_utils {
+namespace mlir::tt::shardy_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
-// We used MapVector because we want the order to be preserved when inserting
-// axes into the meshMap.
-using MeshMap =
-    llvm::MapVector</*axis_name*/ llvm::StringRef, /*axis_size*/ int64_t>;
-
 // Get all the meshOps from the module.
-inline llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module) {
+llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module) {
   llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps;
 
   for (mlir::Operation &op : module.getBody()->getOperations()) {
@@ -59,7 +30,7 @@ inline llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module) {
 }
 
 // Remove all meshOps from the module.
-inline void removeMeshOps(mlir::ModuleOp &module) {
+void removeMeshOps(mlir::ModuleOp &module) {
   for (mlir::Operation &op :
        llvm::make_early_inc_range(module.getBody()->getOperations())) {
     if (auto meshOp = llvm::dyn_cast<mlir::sdy::MeshOp>(op)) {
@@ -69,7 +40,7 @@ inline void removeMeshOps(mlir::ModuleOp &module) {
 }
 
 // Create a meshAttr from a meshMap helper function.
-inline mlir::sdy::MeshAttr createMeshAttrFromMeshMap(MLIRContext *context,
+mlir::sdy::MeshAttr createMeshAttrFromMeshMap(MLIRContext *context,
                                                      MeshMap &meshMap) {
   llvm::SmallVector<mlir::sdy::MeshAxisAttr> sdyMeshAxisAttrs;
 
@@ -83,7 +54,7 @@ inline mlir::sdy::MeshAttr createMeshAttrFromMeshMap(MLIRContext *context,
 }
 
 // Create a meshMap from a meshAttr helper function.
-inline MeshMap createMeshMapFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
+MeshMap createMeshMapFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
   MeshMap meshMap;
 
   for (auto meshAxisAttr : meshAttr.getAxes()) {
@@ -94,7 +65,7 @@ inline MeshMap createMeshMapFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
 }
 
 // Check if the module has any sdy tensor sharding annotations.
-inline bool sdyAnnotationsExist(mlir::ModuleOp &module) {
+bool sdyAnnotationsExist(mlir::ModuleOp &module) {
   for (auto &op : module.getBody()->getOperations()) {
     if (!mlir::isa<func::FuncOp>(op)) {
       continue;
@@ -142,7 +113,7 @@ inline bool sdyAnnotationsExist(mlir::ModuleOp &module) {
 }
 
 // Check if the module has any gspmd annotations.
-inline bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
+bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
   for (auto &op : module.getBody()->getOperations()) {
     if (!mlir::isa<func::FuncOp>(op)) {
       continue;
@@ -173,7 +144,7 @@ inline bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
 }
 
 // Check if any manual computation op exists in the graph.
-inline bool doesManualComputationOpExist(mlir::ModuleOp &module) {
+bool doesManualComputationOpExist(mlir::ModuleOp &module) {
   for (auto &op : module.getBody()->getOperations()) {
     if (!mlir::isa<func::FuncOp>(op)) {
       continue;
@@ -198,7 +169,7 @@ inline bool doesManualComputationOpExist(mlir::ModuleOp &module) {
 
 // Create a new DictionaryAttr from an old DictionaryAttr with all sdy.sharding
 // annotations removed.
-inline mlir::DictionaryAttr
+mlir::DictionaryAttr
 removeDictionaryAttrSdyShardingAnnotations(MLIRContext *context,
                                            mlir::DictionaryAttr dictAttr) {
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
@@ -217,13 +188,13 @@ removeDictionaryAttrSdyShardingAnnotations(MLIRContext *context,
 }
 
 // Remove all sdy tensor shardings from the module.
-inline void removeSdyTensorShardings(MLIRContext *context,
+void removeSdyTensorShardings(MLIRContext *context,
                                      func::FuncOp &funcOp) {
   // Remove sharding annotations from arguments
   for (auto arg : funcOp.getArguments()) {
     if (auto argAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
       funcOp.setArgAttrs(arg.getArgNumber(),
-                         sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+                         shardy_utils::removeDictionaryAttrSdyShardingAnnotations(
                              context, argAttrDict));
     }
   }
@@ -234,7 +205,7 @@ inline void removeSdyTensorShardings(MLIRContext *context,
     if (auto resultAttrDict =
             mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i))) {
       funcOp.setResultAttrs(
-          i, sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+          i, shardy_utils::removeDictionaryAttrSdyShardingAnnotations(
                  context, resultAttrDict));
     }
   }
@@ -242,7 +213,7 @@ inline void removeSdyTensorShardings(MLIRContext *context,
   // Remove sharding annotations from operations
   funcOp.getBody().walk([&](mlir::Operation *op) {
     if (auto opAttrDict = op->getAttrDictionary()) {
-      op->setAttrs(sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+      op->setAttrs(shardy_utils::removeDictionaryAttrSdyShardingAnnotations(
           context, opAttrDict));
     }
   });
@@ -250,7 +221,7 @@ inline void removeSdyTensorShardings(MLIRContext *context,
 
 // Create a new DictionaryAttr (from an old DictionaryAttr if provided) and add
 // a sdy.sharding annotation to it.
-inline mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
+mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
     MLIRContext *context, mlir::sdy::TensorShardingAttr shardingAttr,
     std::optional<mlir::DictionaryAttr> dictAttr = std::nullopt) {
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
@@ -268,7 +239,7 @@ inline mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
 
 // Get a default sdy.sharding annotation (ie all dimensions are open and
 // replicated).
-inline mlir::sdy::TensorShardingAttr
+mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type) {
   mlir::RankedTensorType rankedTensorType =
@@ -285,7 +256,7 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 }
 
 // Get the argument sharding attributes.
-inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                    mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> inShardingAttrs;
@@ -302,12 +273,12 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
             << funcOp.getName() << " argument #: " << arg.getArgNumber()
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
-        shardingAttr = sdy_utils::getDefaultTensorSdyShardingAttr(
+        shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
             context, globalMeshOp.getSymName(), arg.getType());
 
         // Set argument with it's default sdy.sharding attribute
         mlir::DictionaryAttr newDictAttr =
-            sdy_utils::addDictionaryAttrSdyShardingAnnotation(
+            shardy_utils::addDictionaryAttrSdyShardingAnnotation(
                 context, shardingAttr, argAttrDict);
         funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
       }
@@ -316,12 +287,12 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           << funcOp.getName() << " argument #: " << arg.getArgNumber()
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";
-      shardingAttr = sdy_utils::getDefaultTensorSdyShardingAttr(
+      shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
           context, globalMeshOp.getSymName(), arg.getType());
 
       // Set argument with it's default sdy.sharding attribute
       mlir::DictionaryAttr newDictAttr =
-          sdy_utils::addDictionaryAttrSdyShardingAnnotation(context,
+          shardy_utils::addDictionaryAttrSdyShardingAnnotation(context,
                                                             shardingAttr);
       funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
     }
@@ -333,7 +304,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 }
 
 // Get the result sharding attributes.
-inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> outShardingAttrs;
@@ -352,7 +323,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
             << funcOp.getName() << " result #: " << i
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
-        shardingAttr = sdy_utils::getDefaultTensorSdyShardingAttr(
+        shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
             context, globalMeshOp.getSymName(), funcType.getResult(i));
       }
     } else {
@@ -360,7 +331,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           << funcOp.getName() << " result #: " << i
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";
-      shardingAttr = sdy_utils::getDefaultTensorSdyShardingAttr(
+      shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
           context, globalMeshOp.getSymName(), funcType.getResult(i));
     }
 
@@ -371,7 +342,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 }
 
 // Calculate the updated shape based on the tensor sharding annotation.
-inline FailureOr<int64_t>
+FailureOr<int64_t>
 calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
                     mlir::sdy::DimensionShardingAttr dimShardingAttr,
                     int64_t oldShapeDim) {
@@ -394,7 +365,7 @@ calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
 }
 
 // Calculate the new sharded output based on the sdy tensor sharding attribute.
-inline FailureOr<mlir::RankedTensorType>
+FailureOr<mlir::RankedTensorType>
 populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
                           mlir::RankedTensorType oldType,
                           mlir::sdy::TensorShardingAttr tensorShardingAttr) {
@@ -418,7 +389,7 @@ populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
 };
 
 // Loop through all the tensorShardings and apply them to each output.
-inline FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
+FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
     mlir::Operation *op, mlir::sdy::MeshOp &globalMeshOp,
     llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings) {
   llvm::SmallVector<mlir::RankedTensorType> newTypes;
@@ -440,7 +411,7 @@ inline FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
 }
 
 // Copy nested regions between srcOp and destOp
-inline void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
+void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
                               mlir::Operation *destOp) {
   for (unsigned i = 0; i < srcOp->getNumRegions(); i++) {
     auto &oldRegion = srcOp->getRegion(i);
@@ -463,8 +434,6 @@ inline void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
   }
 }
 
-#endif // #ifdef TTMLIR_ENABLE_STABLEHLO
-
-} // namespace mlir::tt::sdy_utils
-
-#endif // TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
+#endif  // #ifdef TTMLIR_ENABLE_STABLEHLO
+  
+} // namespace mlir::tt::shardy_utils
