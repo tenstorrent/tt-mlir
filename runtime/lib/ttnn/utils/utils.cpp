@@ -336,10 +336,29 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
       .getTensor();
 }
 
-void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  ::tt::tt_metal::HostBuffer hostBuffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
-  return static_cast<void *>(hostBuffer.view_bytes().data());
+::ttnn::MeshShape
+getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
+                       const std::vector<::ttnn::Tensor> &tensorShards) {
+  // Extract mesh shape based on the active variant type in config
+  // See tt-metal/ttnn/core/tensor/serialization.cpp
+  if (auto *shard2d_strategy =
+          std::get_if<::tt::tt_metal::ShardTensor2D>(&config)) {
+    return ::ttnn::MeshShape(shard2d_strategy->shard_mesh.y,
+                             shard2d_strategy->shard_mesh.x);
+  }
+
+  if (auto *replicate_strategy =
+          std::get_if<::tt::tt_metal::ReplicateTensor>(&config)) {
+    return ::ttnn::MeshShape(replicate_strategy->replication_factor);
+  }
+
+  if (std::get_if<::tt::tt_metal::ShardTensor>(&config)) {
+    // For ShardTensor, use the number of tensor shards as the mesh size
+    return ::ttnn::MeshShape(tensorShards.size());
+  }
+
+  // For AllGatherTensor or any other case, use the number of tensor shards
+  return ::ttnn::MeshShape(tensorShards.size());
 }
 
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
@@ -349,6 +368,12 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   ::ttnn::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
+}
+
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 } // namespace tt::runtime::ttnn::utils
