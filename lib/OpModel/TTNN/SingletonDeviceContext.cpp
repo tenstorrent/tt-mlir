@@ -48,8 +48,10 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
   ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
+      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::ETH
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
+  std::cerr << "TTNN: Using DispatchCoreType: "
+            << static_cast<int>(dispatchCoreType) << std::endl;
 
   ::tt::tt_metal::distributed::MeshShape shape{1, 1};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(

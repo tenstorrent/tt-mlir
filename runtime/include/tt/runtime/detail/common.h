@@ -32,9 +32,12 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
     size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
     size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
     type = numDevices == numPCIeDevices
-               ? ::tt::tt_metal::DispatchCoreType::WORKER
+               ? ::tt::tt_metal::DispatchCoreType::ETH
                : ::tt::tt_metal::DispatchCoreType::ETH;
   }
+
+  std::cerr << "TTNN: Using DispatchCoreType: "
+            << static_cast<int>(type) << std::endl;
   return type;
 }
 
