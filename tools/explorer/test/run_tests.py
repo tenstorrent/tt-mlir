@@ -201,7 +201,6 @@ def test_execute_mnist_with_overrides():
                 {"key": "memory_layout", "value": "tile"},
                 {"key": "buffer_type", "value": "dram"},
                 {"key": "tensor_memory_layout", "value": "interleaved"},
-                {"key": "grid_shape", "value": "[8x8]"},
             ],
         }
     }
