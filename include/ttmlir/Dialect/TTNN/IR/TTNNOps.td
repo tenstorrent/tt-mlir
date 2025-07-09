@@ -1237,7 +1237,9 @@ def TTNN_SliceOp: TTNN_Op<"slice",
     let hasVerifier = 1;
 }
 
-def TTNN_LinearOp : TTNN_Op<"linear"> {
+def TTNN_LinearOp : TTNN_Op<"linear",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Linear transformation of inputs.";
 
     let description = [{

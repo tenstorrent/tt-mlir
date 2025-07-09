@@ -411,6 +411,114 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, LinearOpInterface) {
+  // create LinearOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> biasShape = {2048, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
+
+  // test LinearOp interface
+  auto constraintsExp = getOpConstraints(linear.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 262144);
+    EXPECT_EQ(peakSize, 262144);
+    EXPECT_EQ(outputSize, 131072);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(linear.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
+  // create LinearOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> biasShape = {2048, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
+
+  // test LinearOp interface
+  OpModel backend = dyn_cast<OpModel>(linear.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(linear), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 262144);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+}
+
+TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
+  // create LinearOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> biasShape = {2048, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded)
+                          .withIgnorePhysicalLayout(true);
+  auto linear =
+      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
+                               ::mlir::ValueRange{inputA, inputB, bias});
+
+  // test LinearOp interface
+  OpModel backend = dyn_cast<OpModel>(linear.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(linear), OpConfig(outputLayout));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto constraints = constraintsExp.get();
+  EXPECT_EQ(constraints.cbL1PeakSize, 131072);
+  EXPECT_EQ(constraints.tensorL1PeakSize, 262144);
+  EXPECT_EQ(constraints.outputL1BufferSize, 131072);
+
+  ASSERT_TRUE(constraints.outputLayout);
+  EXPECT_EQ(constraints.outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(constraints.outputLayout.hasShardedL1TensorMemoryLayout());
+  EXPECT_TRUE(constraints.outputLayout.getGrid());
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+}
+
 TEST_F(OpModelBase, MatmulOpInterface) {
   // create MatmulOp
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
