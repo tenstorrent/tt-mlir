@@ -565,7 +565,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     Here is how tensor will look like after layout tensor<32x32x64xf32, #ttnn.ttnn_layout<linear, grid, memref, mem_layout>>
     Lets break down what each parameter means:
     - linear: An affine map that defines how the logical tensor dimensions map to physical space.
-    - grid: The grid shape (of tensix cores) where tensor is divided onto.
+    - grid: The grid shape (of tensix cores) where tensor is divided onto. For non-L1 buffer type, grid shape has to be 1x1.
     - memref: A memref is used to describe shard size and memory space. Shard size is calculated by dividing the tensor size by grid size.
     - mem_layout: The layout of the tensor in memory. For tensor on host it should be None. For tensor on device
     it can be interleaved or sharded.
