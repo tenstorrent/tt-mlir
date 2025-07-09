@@ -261,11 +261,11 @@ public:
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
   }
 
-  static SmallVector<affine::AffineForOp> getLoopList(Operation *loopNestOrOp) {
-    Operation *currOp = loopNestOrOp;
-    SmallVector<affine::AffineForOp> loops;
-    while (mlir::isa<affine::AffineForOp>(currOp)) {
-      loops.push_back(mlir::cast<affine::AffineForOp>(currOp));
+  static SmallVector<Operation *> getLoopList(Operation *loopNestOrOp) {
+    Operation *currOp = loopNestOrOp->getParentOfType<affine::AffineForOp>();
+    SmallVector<Operation *> loops;
+    while (currOp) {
+      loops.push_back(currOp);
       currOp = currOp->getParentOfType<affine::AffineForOp>();
     }
     return loops;
@@ -280,9 +280,13 @@ public:
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       rewriter.setInsertionPoint(loopNestOrOp);
-      auto loopsToGuard = getLoopList(loopNestOrOp);
+      auto loopToGuard =
+          loopNestOrOp->template getParentOfType<affine::AffineForOp>();
+      auto innerLoopSubblockFactor =
+          loopNestOrOp->template getParentOfType<ttir::GenericOp>()
+              .getSubblockFactorsValue()[2];
       auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices,
-                                          loopsToGuard);
+                                          loopToGuard, innerLoopSubblockFactor);
       if (guard) {
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
       }
@@ -325,15 +329,11 @@ public:
     }
   }
 
-  template <class... Ts>
-  struct overloads : Ts... {
-    using Ts::operator()...;
-  };
-
-  static scf::IfOp
-  insertGuardForLoopNest(PatternRewriter &rewriter, Location loc,
-                         ArrayRef<int64_t> guardIndices,
-                         ArrayRef<affine::AffineForOp> loopsToGuard) {
+  static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
+                                          Location loc,
+                                          ArrayRef<int64_t> guardIndices,
+                                          Operation *innerLoop,
+                                          int64_t innerLoopSubblockFactor) {
     if (guardIndices.empty()) {
       return nullptr;
     }
@@ -354,15 +354,28 @@ public:
                                                iterIndex, zero);
       cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
     }
-    for (auto loop : loopsToGuard) {
-      auto remainder = rewriter.create<arith::RemSIOp>(
-          loc, loop.getInductionVar(), indexConst(loop.getStepAsInt()));
-      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                               remainder, zero);
-      cmp = rewriter.create<arith::AndIOp>(loc, cmp, eq).getResult();
-    }
+    auto remainder = rewriter.create<arith::RemSIOp>(
+        loc, mlir::cast<affine::AffineForOp>(innerLoop).getInductionVar(),
+        indexConst(
+            mlir::cast<affine::AffineForOp>(innerLoop).getConstantUpperBound() /
+            innerLoopSubblockFactor));
+    auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                             remainder, zero);
+    cmp = rewriter.create<arith::AndIOp>(loc, cmp, eq).getResult();
     return rewriter.create<scf::IfOp>(loc, cmp);
   }
+
+  // static scf::IfOp
+  // insertGuardForPackLoopNest(PatternRewriter &rewriter, Location loc,
+  // ArrayRef<Operation*> loopsToGuard, ArrayRef<int64_t> subblockFactors) {
+  //   auto cmp = rewriter
+  //                  .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+  //                                             rewriter.getBoolAttr(true))
+  //                  .getResult();
+  //   for (size_t i = 0; i < loopsToGuard.size(); ++i) {
+
+  //   }
+  // }
 
   template <typename LoadStoreOpTy>
   static void dataCopyGenerate(
