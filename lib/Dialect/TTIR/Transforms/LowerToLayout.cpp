@@ -57,31 +57,35 @@ public:
       return lowerSystemLayoutChange(rewriter, op);
     }
 
-    auto view = rewriter
-                    .create<ViewLayoutOp>(op.getLoc(), op.getOutput().getType(),
-                                          op.getInput())
-                    .getResult();
+    // Get the shapes to determine if we need a view
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
 
-    const size_t gridRank =
-        inputLayout
-            .getGridShape(mlir::cast<RankedTensorType>(op.getInput().getType()))
-            .size();
+    Value viewInput = op.getInput();
 
-    // The DMA Op must have equivalent grid ranks on input/output.
-    assert(gridRank == outputLayout
-                           .getGridShape(mlir::cast<RankedTensorType>(
-                               op.getOutput().getType()))
-                           .size());
+    // If grid shapes differ, we need a view to reblock
+    auto inputGridShape = inputLayout.getGridShape(inputType);
+    auto outputGridShape = outputLayout.getGridShape(outputType);
+
+    if (inputGridShape != outputGridShape) {
+      // Use the shape-based builder for reblocking
+      viewInput = rewriter
+                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
+                                            outputType.getShape())
+                      .getResult();
+    }
+
+    const size_t gridRank = outputGridShape.size();
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, view, op.getOutput(),
+        op, viewInput, op.getOutput(),
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           auto dma = builder.create<ttir::DMAOp>(
-              loc, view, mlir::cast<AffineMapAttr>(indexingMaps[0]),
+              loc, viewInput, mlir::cast<AffineMapAttr>(indexingMaps[0]),
               blockArgs[1]);
           builder.create<ttir::DMAWaitOp>(loc, dma);
         },

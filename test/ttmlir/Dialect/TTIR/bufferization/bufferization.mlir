@@ -47,7 +47,7 @@ func.func @stream_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout> 
 func.func @view_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout> {
   %arg0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: = ttir.view_layout
-  %view = "ttir.view_layout"(%arg0) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
+  %view = "ttir.view_layout"(%arg0) <{viewMap = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
   return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
 }
 

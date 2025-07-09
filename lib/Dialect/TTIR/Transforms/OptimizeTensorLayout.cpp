@@ -51,6 +51,7 @@ static RankedTensorType applyGridShape(RankedTensorType tensorType,
       logicalShape, gridShape, ttcore::getTensorTileShapeOrEmpty(tensorType),
       newTensorEncoding.getCollapsedIntervals(),
       newTensorEncoding.getDimAlignments());
+
   return RankedTensorType::get(newPhysicalShape, tensorType.getElementType(),
                                newTensorEncoding);
 }
@@ -238,6 +239,47 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     ttcore::MetalLayoutAttr metalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(newOperandType.getEncoding());
     SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
+
+    llvm::errs() << "blockedView debug:\n";
+    llvm::errs() << "  newOperandType shape: ";
+    for (auto d : newOperandType.getShape()) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n";
+    llvm::errs() << "  blockFactors: ";
+    for (auto d : blockFactors) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n";
+    llvm::errs() << "  indexingMap: " << indexingMap << "\n";
+    llvm::errs() << "  blockShape after compose: ";
+    for (auto d : blockShape) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n";
+
+    for (auto [i, dim] :
+         llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
+      if (blockShape[i] == 0) {
+        blockShape[i] = 1;
+      }
+      blockShape[i] *= dim;
+    }
+
+    llvm::errs() << "  blockShape after multiply: ";
+    for (auto d : blockShape) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n";
+
+    auto viewOperandType = applyGridShape(newOperandType, blockShape);
+
+    llvm::errs() << "  viewOperandType shape: ";
+    for (auto d : viewOperandType.getShape()) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n\n";
+
     for (auto [i, dim] :
          llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
       // Handle the edge case where a 0 constant appears in the affine map, i.e.
@@ -248,9 +290,17 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       }
       blockShape[i] *= dim;
     }
-    auto viewOperandType = applyGridShape(newOperandType, blockShape);
+    // auto viewOperandType = applyGridShape(newOperandType, blockShape);
+
+    // Check if we actually need a view
+    if (toLayoutOp.getType(0) == viewOperandType) {
+      return toLayoutOp.getResult(0);
+    }
+
+    // Use the reblocked shape builder to create a proper view
     return rewriter
-        .create<ViewLayoutOp>(loc, viewOperandType, toLayoutOp.getResult(0))
+        .create<ViewLayoutOp>(loc, toLayoutOp.getResult(0),
+                              viewOperandType.getShape())
         .getResult();
   }
 

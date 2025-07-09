@@ -335,25 +335,51 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
       and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
       moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
 
+      The viewMap attribute captures the transformation from output indices to input indices.
+
       Additional notes/constraints:
       - It is not capable of changing the data type nor the memory space of the tensor.
       - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
       - All ViewLayout ops can trivially be converted to ToLayout ops.
 
-      ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      Example:
+      ```mlir
+      // Reblocking from 1x2x4x4 to 2x4x2x2
+      #map = affine_map<(d0, d1, d2, d3) -> (d0 floordiv 2, d0 mod 2 * 2 + d1 floordiv 2, d1 mod 2 * 2 + d2 floordiv 2, d2 mod 2 * 2 + d3)>
+      %1 = "ttir.view_layout"(%0) {viewMap = #map} : tensor<1x2x4x4xf32> -> tensor<2x4x2x2xf32>
       ```
     }];
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
+    let arguments = (ins
+      AnyRankedTensorOrMemRef:$input,
+      AffineMapAttr:$viewMap,
+      DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout
+    );
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let assemblyFormat = [{ $input attr-dict `:` type($input) `->` type($result) }];
+    let builders = [
+      // Builder with explicit AffineMap
+      OpBuilder<(ins "Value":$input, "AffineMap":$view, CArg<"bool", "false">:$reinterpretLayout)>,
+
+      // Builder with reblocked shape (calculates map automatically)
+      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
+                     CArg<"bool", "false">:$reinterpretLayout)>,
+    ];
+
+    let assemblyFormat = [{
+      $input attr-dict `:` type($input) `->` type($result)
+    }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
+
+    let extraClassDeclaration = [{
+
+      // Helper method to calculate reblock map
+      static AffineMap calculateReblockMap(ArrayRef<int64_t> inputShape,
+                                          ArrayRef<int64_t> outputShape,
+                                          MLIRContext *ctx);
+    }];
 }
 
 //===----------------------------------------------------------------------===//
