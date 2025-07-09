@@ -1422,92 +1422,77 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
-// ToLayoutOp canonicalization
-void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // ToLayoutOp can be folded if its input has the same layout as the output of
-  // toLayoutOp.
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
-                   mlir::PatternRewriter &rewriter) {
-    RankedTensorType previousType = toLayoutOp.getInput().getType();
-    TTNNLayoutAttr previousLayout =
-        mlir::dyn_cast<TTNNLayoutAttr>(previousType.getEncoding());
-    // Verify if input tensor has layout attribute.
-    if (!previousLayout) {
-      return mlir::failure();
-    }
+namespace {
+// ToLayoutOp can be folded if its input has the same layout as the output of
+// ToLayoutOp.
+mlir::OpFoldResult foldIdentityToLayoutOp(ttnn::ToLayoutOp op) {
+  mlir::RankedTensorType inputType = op.getInput().getType();
+  ttnn::TTNNLayoutAttr inputLayout =
+      mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  // Verify if input tensor has layout attribute.
+  if (!inputLayout) {
+    return nullptr;
+  }
 
-    RankedTensorType currentType = toLayoutOp.getType();
-    TTNNLayoutAttr currentLayout =
-        mlir::dyn_cast<TTNNLayoutAttr>(currentType.getEncoding());
-    // Verify if the output tensor has layout attribute.
-    if (!currentLayout) {
-      return mlir::failure();
-    }
+  mlir::RankedTensorType outputType = op.getType();
+  ttnn::TTNNLayoutAttr outputLayout =
+      mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding());
+  // Verify if the output tensor has layout attribute.
+  if (!outputLayout) {
+    return nullptr;
+  }
 
-    // Verify that the layouts are the same.
-    if (previousLayout != currentLayout) {
-      return mlir::failure();
-    }
+  return inputLayout == outputLayout ? op.getInput() : nullptr;
+}
 
-    rewriter.replaceAllUsesWith(toLayoutOp, toLayoutOp->getOperand(0));
-    rewriter.eraseOp(toLayoutOp);
-    return mlir::success();
-  });
+// Two consecutive ToLayoutOps can be merged together in the following way:
+// df - data format, l - layout, ms - memory
+// space, tml - tensor memory layout
+//
+//                |
+//      -----------------------
+//      |     ToLayoutOp      |                     |
+//      | df1, l1, ms1, tml1  |          -----------------------
+//      -----------------------          |     ToLayoutOp      |
+//                |                 -->  | df2, l1, ms2, tml1  |
+//                |                      -----------------------
+//      -----------------------                     |
+//      |     ToLayoutOp      |
+//      |      df2, ms2       |
+//      -----------------------
+//                |
+//
+mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
+  // Get the input operand and verify that the previous op is ToLayoutOp.
+  ttnn::ToLayoutOp producerOp = op.getInput().getDefiningOp<ttnn::ToLayoutOp>();
 
-  // Two consecutive ToLayoutOps can be merged if the previous op has only one
-  // use.
-  // df - data format, l - layout, ms - memory
-  // space, tml - tensor memory layout
-  //
-  //                |
-  //      -----------------------
-  //      |     ToLayoutOp      |                     |
-  //      | df1, l1, ms1, tml1  |          -----------------------
-  //      -----------------------          |     ToLayoutOp      |
-  //                |                 -->  | df2, l1, ms2, tml1  |
-  //                |                      -----------------------
-  //      -----------------------                     |
-  //      |     ToLayoutOp      |
-  //      |      df2, ms2       |
-  //      -----------------------
-  //                |
-  //
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
-                   mlir::PatternRewriter &rewriter) {
-    // Get the input operand and verify that the previous op is toLayoutOp.
-    ToLayoutOp previousToLayoutOp =
-        toLayoutOp.getInput().getDefiningOp<ToLayoutOp>();
+  if (!producerOp) {
+    return nullptr;
+  }
 
-    // NOLINTNEXTLINE
-    if (!previousToLayoutOp) {
-      return mlir::failure();
-    }
+  if (!op.getDtype()) {
+    op.setDtypeAttr(producerOp.getDtypeAttr());
+  }
+  if (!op.getMemoryConfig()) {
+    op.setMemoryConfigAttr(producerOp.getMemoryConfigAttr());
+  }
+  op.getInputMutable().set(producerOp.getInput());
 
-    // Check if the previous op has only one use. We can only merge if the
-    // previous op has single use.
-    if (!previousToLayoutOp->hasOneUse()) {
-      return mlir::failure();
-    }
+  return op.getResult();
+}
+} // namespace
 
-    // Replace the previous op with the merged ToLayoutOp.
-    Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
-        previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
-        toLayoutOp.getLayoutAttr(),
-        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
-                                  : previousToLayoutOp.getDtypeAttr(),
-        toLayoutOp.getMemoryConfigAttr()
-            ? toLayoutOp.getMemoryConfigAttr()
-            : previousToLayoutOp.getMemoryConfigAttr());
+// ToLayoutOp folder
+mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityToLayoutOp(*this)) {
+    return foldResult;
+  }
 
-    // Replace all uses of the current op with the merged ToLayoutOp.
-    rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+  if (auto foldResult = foldConsecutiveToLayoutOp(*this)) {
+    return foldResult;
+  }
 
-    // Erase the current op.
-    rewriter.eraseOp(toLayoutOp);
-
-    return mlir::success();
-  });
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1895,6 +1880,40 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
     return emitOpError(
         "Dimension attribute must be within the bounds of the input tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SortOp::verify() {
+  auto dim = getDim();
+  auto input = getInput();
+  auto rank = input.getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [")
+           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+  }
+
+  auto indicesType =
+      mlir::cast<RankedTensorType>(getResults().back().getType());
+  auto elementType = indicesType.getElementType();
+  if (!elementType.isInteger(16)) {
+    return emitOpError("Expected data type for indices is i16 but got ")
+           << elementType;
+  }
+
+  auto values = getResults().front();
+  if (input.getType() != values.getType()) {
+    return emitOpError("Sorted tensor type does not match with input tensor.");
+  }
+
+  if (input.getType().getShape() != indicesType.getShape()) {
+    return emitOpError("Indices shape does not match with input tensor shape.");
   }
 
   return success();

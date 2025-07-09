@@ -12,6 +12,7 @@
 #include "tt-metalium/host_buffer.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
@@ -33,6 +34,7 @@
 #include "ttnn/operations/eltwise/ternary/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/reduction/sort/sort.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
@@ -127,6 +129,9 @@ bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
 Arch getArch();
+
+void enablePersistentKernelCache();
+void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 

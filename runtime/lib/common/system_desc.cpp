@@ -6,6 +6,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -64,12 +65,16 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      bool getConnection = true;
       // Skip on blackhole. When link is down, get_connected_ethernet_core
       // will throw an exception.
       // See https://github.com/tenstorrent/tt-mlir/issues/3423 for BH
+      if (workaround::Env::get().blackholeWorkarounds) {
+        getConnection &= device->arch() != ::tt::ARCH::BLACKHOLE;
+      }
       // See https://github.com/tenstorrent/tt-mlir/issues/3781 for WH
-      if (device->arch() == ::tt::ARCH::BLACKHOLE ||
-          device->arch() == ::tt::ARCH::WORMHOLE_B0) {
+      getConnection &= device->arch() != ::tt::ARCH::WORMHOLE_B0;
+      if (!getConnection) {
         continue;
       }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =

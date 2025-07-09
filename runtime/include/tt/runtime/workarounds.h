@@ -12,7 +12,8 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool traceImplicitFromDevice = true);
+                        bool traceImplicitFromDevice = true,
+                        bool blackholeWorkarounds = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -32,14 +33,21 @@ struct Env {
   // memcpy or when we model this behaviour in the compiler.
   bool traceImplicitFromDevice;
 
+  // TODO(bug #3423): When link is down, get_connected_ethernet_core will throw
+  // an exception.
+  // TODO(bug #4023): untilize on device fails for blackhole. Falling back to
+  // host for now.
+  bool blackholeWorkarounds;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool traceImplicitFromDevice)
+                bool traceImplicitFromDevice, bool blackholeWorkarounds)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        traceImplicitFromDevice(traceImplicitFromDevice) {}
+        traceImplicitFromDevice(traceImplicitFromDevice),
+        blackholeWorkarounds(blackholeWorkarounds) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -51,6 +59,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "\t"
      << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
+  os << "\t"
+     << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
   os << "}";
   return os;
 }

@@ -378,6 +378,20 @@ Arch getArch() {
       [&]() -> RetType { return ::tt::runtime::ttmetal::getArch(); });
 }
 
+void enablePersistentKernelCache() {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::enablePersistentKernelCache(); },
+      [&]() { ::tt::runtime::ttmetal::enablePersistentKernelCache(); });
+}
+
+void disablePersistentKernelCache() {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::disablePersistentKernelCache(); },
+      [&]() { ::tt::runtime::ttmetal::disablePersistentKernelCache(); });
+}
+
 size_t getNumAvailableDevices() {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(

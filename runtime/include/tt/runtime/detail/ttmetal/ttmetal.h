@@ -12,6 +12,7 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "tt-metalium/tt_metal.hpp"
 
@@ -63,6 +64,9 @@ bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
 Arch getArch();
+
+void enablePersistentKernelCache();
+void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 

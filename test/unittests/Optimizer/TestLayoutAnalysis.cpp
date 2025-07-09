@@ -69,7 +69,7 @@ protected:
   // Helper method to create a tensor type with given dimensions
   mlir::RankedTensorType createTensorType(llvm::ArrayRef<int64_t> shape,
                                           mlir::Type elementType) {
-    auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
+    auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context);
     TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
         &context, shape, elementType, BufferType::DRAM, gridAttr,
         TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
@@ -80,7 +80,6 @@ protected:
   llvm::DenseSet<mlir::Type> createScalarTypeSet() {
     llvm::DenseSet<mlir::Type> types;
     types.insert(builder.getF32Type());
-    types.insert(builder.getF16Type());
     types.insert(builder.getBF16Type());
     return types;
   }

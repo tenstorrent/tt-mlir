@@ -60,5 +60,6 @@ inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
       [](const T &x) -> uint32_t { return static_cast<uint32_t>(x); });
   return ::ttnn::Shape(rawShape);
 }
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

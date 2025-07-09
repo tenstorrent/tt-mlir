@@ -63,9 +63,8 @@ static TTNNLayoutAttr createLayoutAttr(
     MLIRContext *ctx, ttcore::GridAttr deviceGrid, RankedTensorType type,
     BufferType bufferType = g_defaultMemorySpaceDevice, bool isTiled = true) {
 
-  std::int64_t deviceGridRank = deviceGrid.getShape().size();
-  // Default to single core grid
-  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx, deviceGridRank);
+  // Default to single core grid.
+  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx);
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
