@@ -10,7 +10,6 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -136,8 +135,14 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
 
   // If untilize is true and the data type can be untilized on device
-  // Untilize on device first before reading back to host
-  if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
+  bool untilizeOnDevice =
+      untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype());
+  // If blackhole workarounds are enabled, only untilize on device if the
+  // architecture is not blackhole
+  if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
+    untilizeOnDevice &= getArch() != ::tt::runtime::Arch::BLACKHOLE;
+  }
+  if (untilizeOnDevice) {
     ::ttnn::Tensor hostTensor = ::ttnn::from_device(
         ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                           std::nullopt),
@@ -239,8 +244,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
 
-  ::ttnn::MeshShape meshShape = operations::utils::getMeshShapeFromConfig(
-      distributionStrategy, ttnnTensorShards);
+  ::ttnn::MeshShape meshShape =
+      utils::getMeshShapeFromConfig(distributionStrategy, ttnnTensorShards);
 
   ::ttnn::Tensor multiDeviceHostTensor =
       ::ttnn::distributed::from_host_shards(ttnnTensorShards, meshShape);
