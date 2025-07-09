@@ -3119,6 +3119,34 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttir::SortOp::verify() {
+  auto dim = getDim();
+  auto input = getInput();
+  auto rank = input.getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [")
+           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+  }
+
+  auto indicesType =
+      mlir::cast<RankedTensorType>(getResults().back().getType());
+  auto values = getResults().front();
+  if (input.getType() != values.getType()) {
+    return emitOpError("Sorted tensor type does not match with input tensor.");
+  }
+
+  if (input.getType().getShape() != indicesType.getShape()) {
+    return emitOpError("Indices shape does not match with input tensor shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
