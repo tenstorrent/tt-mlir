@@ -57,18 +57,17 @@ public:
       return lowerSystemLayoutChange(rewriter, op);
     }
 
-    // Get the shapes to determine if we need a view
+    // Get the shapes to determine if we need a view.
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
 
     Value viewInput = op.getInput();
 
-    // If grid shapes differ, we need a view to reblock
+    // If grid shapes differ, we need a view to reblock.
     auto inputGridShape = inputLayout.getGridShape(inputType);
     auto outputGridShape = outputLayout.getGridShape(outputType);
 
     if (inputGridShape != outputGridShape) {
-      // Use the shape-based builder for reblocking
       viewInput = rewriter
                       .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
                                             outputType.getShape())

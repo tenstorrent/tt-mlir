@@ -2405,7 +2405,7 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
-// Helper function to evaluate affine expression with given dimensions
+// Helper function to evaluate affine expression on given dimensions.
 static int64_t evaluateAffineExpr(mlir::AffineExpr expr,
                                   mlir::ArrayRef<int64_t> dims) {
   switch (expr.getKind()) {
@@ -2438,16 +2438,16 @@ static int64_t evaluateAffineExpr(mlir::AffineExpr expr,
   }
 }
 
-// Calculate reblock map - this is the core logic moved from
-// reblockViewWorkaround
+// Calculate a reblocking affine map from inputShape to outputShape.
 mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
     mlir::ArrayRef<int64_t> inputShape, mlir::ArrayRef<int64_t> outputShape,
     mlir::MLIRContext *ctx) {
   assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
-  // For reblocking, we assume the shape is split into grid and shard dimensions
-  // Shape format: [grid_dims..., shard_dims...]
+  // Assume the shapes are sharded s.t. first half is grid dims, second half is
+  // shard dims.
   size_t rank = inputShape.size();
+  assert(rank % 2 == 0);
   size_t halfRank = rank / 2;
 
   mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
@@ -2456,8 +2456,7 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
 
   SmallVector<AffineExpr> mapExprs(rank);
 
-  // Step 1: Canonicalize from output to canonical form
-  // This converts grid/shard coordinates to a flat canonical representation
+  // Convert grid/shard coordinates to a flat canonical representation.
   for (size_t i = 0; i < halfRank; i++) {
     auto dG = getAffineDimExpr(i, ctx);
     mapExprs[i] = dG.floorDiv(outputGridShape[i]);
@@ -2468,8 +2467,7 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
   }
   auto outputToCanonical = AffineMap::get(rank, 0, mapExprs, ctx);
 
-  // Step 2: Un-canonicalize from canonical to input form
-  // This converts from flat canonical back to grid/shard coordinates
+  // Converts from flat canonical back to grid/shard coordinates.
   for (size_t i = 0; i < halfRank; i++) {
     size_t j = i + halfRank;
     auto dS = getAffineDimExpr(j, ctx);
@@ -2478,32 +2476,29 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
   }
   auto canonicalToInput = AffineMap::get(rank, 0, mapExprs, ctx);
 
-  // Compose the maps: input -> canonical -> output
+  // Compose the maps: input -> canonical -> output.
   return canonicalToInput.compose(outputToCanonical);
 }
 
-// Updated verifier
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   auto inputType = mlir::cast<mlir::ShapedType>(getInput().getType());
   auto resultType = mlir::cast<mlir::ShapedType>(getResult().getType());
 
-  // Get the view map
   mlir::AffineMap viewMap = getViewMap();
 
-  // Verify that the view map is compatible with input/output shapes
   auto inputShape = inputType.getShape();
   auto resultShape = resultType.getShape();
 
   if (viewMap.getNumDims() != resultShape.size()) {
-    return emitError("view map dimension count must match output rank");
+    return emitError("View map dimension count must match output rank.");
   }
 
   if (viewMap.getNumResults() != inputShape.size()) {
-    return emitError("view map result count must match input rank");
+    return emitError("View map result count must match input rank.");
   }
 
-  // The view map goes from output indices to input indices
-  // Verify with a test point at the boundary
+  // Verify a test point at the boundary gets mapped from input to output
+  // correctly.
   mlir::SmallVector<int64_t> testPoint(resultShape.begin(), resultShape.end());
   for (size_t i = 0; i < testPoint.size(); i++) {
     testPoint[i] = testPoint[i] > 0 ? testPoint[i] - 1 : 0;
@@ -2523,7 +2518,7 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   return mlir::success();
 }
 
-// Builder with explicit AffineMap
+// Builder with explicit AffineMap.
 void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
                                          OperationState &state, Value input,
                                          AffineMap view,
@@ -2532,29 +2527,13 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
   auto inputType = mlir::cast<ShapedType>(input.getType());
   auto inputShape = inputType.getShape();
 
-  // Apply the view to get output shape
+  // Apply the view to get output shape.
   SmallVector<int64_t> outputShape;
   for (auto expr : view.getResults()) {
     SmallVector<int64_t> dims(inputShape.begin(), inputShape.end());
     outputShape.push_back(evaluateAffineExpr(expr, dims));
   }
 
-  // In the builder, after calculating outputShape:
-  llvm::errs() << "Input shape: ";
-  for (auto d : inputShape) {
-    llvm::errs() << d << " ";
-  }
-  llvm::errs() << "\n";
-
-  llvm::errs() << "Output shape calculated: ";
-  for (auto d : outputShape) {
-    llvm::errs() << d << " ";
-  }
-  llvm::errs() << "\n";
-
-  llvm::errs() << "Affine map: " << view << "\n";
-
-  // Create output type
   Type elementType = inputType.getElementType();
   Type outputType;
 
@@ -2562,8 +2541,7 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
     auto inputEncoding =
         mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-    // For reblocking, we need to derive the new grid shape from the output
-    // shape The first half of dimensions are grid, second half are shard
+    // For reblocking, we need to derive the new grid shape from the output.
     size_t halfRank = outputShape.size() / 2;
     ArrayRef<int64_t> outputGridShape =
         ArrayRef<int64_t>(outputShape).take_front(halfRank);
@@ -2575,7 +2553,7 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
         inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
         inputEncoding.getDimAlignments());
 
-    // Derive physical shape with new grid
+    // Derive physical shape with new grid.
     auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
         inputEncoding.getLogicalShape(), outputGridShape,
         ttcore::getTensorTileShapeOrEmpty(tensorType),
@@ -2585,30 +2563,28 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
     outputType =
         RankedTensorType::get(physicalShape, elementType, outputEncoding);
   } else {
-    // For memrefs, apply ViewLayoutAttr directly
+    // For memrefs, apply ViewLayoutAttr directly.
     auto memrefType = mlir::cast<MemRefType>(inputType);
     auto viewAttr = ttcore::ViewLayoutAttr::get(builder.getContext(), view);
     outputType = MemRefType::get(outputShape, elementType, viewAttr,
                                  memrefType.getMemorySpace());
   }
 
-  // Build with the view map stored as an attribute
+  // Build with the view map stored as an attribute.
   build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
         builder.getBoolAttr(reinterpretLayout));
 }
 
-// Builder with reblocked shape
+// Builder with reblocked shape.
 void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
                                          OperationState &state, Value input,
                                          ArrayRef<int64_t> reblockedShape,
                                          bool reinterpretLayout) {
   auto inputType = mlir::cast<ShapedType>(input.getType());
 
-  // Calculate reblock map
   AffineMap view = calculateReblockMap(inputType.getShape(), reblockedShape,
                                        builder.getContext());
 
-  // Create output type with the provided reblockedShape
   Type elementType = inputType.getElementType();
   Type outputType;
 
@@ -2616,11 +2592,11 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
     auto inputEncoding =
         mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-    // For reblocking, extract grid shape from reblockedShape
+    // For reblocking, extract grid shape from reblockedShape.
     size_t halfRank = reblockedShape.size() / 2;
     ArrayRef<int64_t> outputGridShape = reblockedShape.take_front(halfRank);
 
-    // Create new encoding with the output grid shape
+    // Create new encoding with the output grid shape.
     auto outputEncoding = ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         outputGridShape.size(), inputEncoding.getOobVal(),
@@ -2636,7 +2612,7 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
                                  memrefType.getMemorySpace());
   }
 
-  // Build with the view map stored as an attribute
+  // Build with the view map stored as an attribute.
   build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
         builder.getBoolAttr(reinterpretLayout));
 }
@@ -2671,10 +2647,9 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
-  // Get the affine map from the current op
   mlir::AffineMap viewMap = getViewMapAttr().getValue();
 
-  // Create new bufferized ViewLayoutOp with the same view map
+  // Create new bufferized ViewLayoutOp with the same view map.
   mlir::bufferization::replaceOpWithNewBufferizedOp<
       mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, viewMap,
                                     getReinterpretLayout());

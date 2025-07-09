@@ -374,7 +374,6 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let hasFolder = 1;
 
     let extraClassDeclaration = [{
-
       // Helper method to calculate reblock map
       static AffineMap calculateReblockMap(ArrayRef<int64_t> inputShape,
                                           ArrayRef<int64_t> outputShape,

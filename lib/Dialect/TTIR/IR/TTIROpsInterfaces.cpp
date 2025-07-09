@@ -23,14 +23,13 @@ std::pair<mlir::MemRefType, mlir::AffineMap>
 mlir::tt::ttir::applyViews(mlir::Operation *op) {
   auto viewOp = mlir::dyn_cast<ttir::ViewOpInterface>(op);
   auto resultMemref = mlir::cast<mlir::MemRefType>(op->getResult(0).getType());
-
   if (!viewOp) {
     return std::make_pair(
         resultMemref, mlir::AffineMap::getMultiDimIdentityMap(
                           resultMemref.getRank(), resultMemref.getContext()));
   }
 
-  // Get the view map directly from the ViewLayoutAttr
+  // Get the view map directly from the ViewLayoutAttr.
   auto viewAttr = mlir::cast<ttcore::ViewLayoutAttr>(resultMemref.getLayout());
   auto map = viewAttr.getAffineMap();
 
@@ -41,6 +40,5 @@ mlir::tt::ttir::applyViews(mlir::Operation *op) {
       mlir::isa<ttcore::ShardLayoutAttr>(inputMemref.getLayout()) &&
       "Expected ShardLayoutAttr, only one level of view nesting is supported");
 
-  // No more workaround needed - the view map already includes reblocking
   return std::make_pair(inputMemref, map);
 }
