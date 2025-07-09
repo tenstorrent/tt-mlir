@@ -106,8 +106,8 @@ protected:
                                             mlir::tt::ttnn::BufferType::DRAM),
         std::nullopt);
 
-    // Create an empty op with all required parameters
-    builder.create<mlir::tt::ttnn::EmptyOp>(
+    // Create an empty tensor
+    auto empty = builder.create<mlir::tt::ttnn::EmptyOp>(
         builder.getUnknownLoc(), tensorType,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
@@ -115,8 +115,13 @@ protected:
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), device,
         memConfig);
 
+    // Use that tensor in a CopyOp so we have a legal op with a tensor result
+    auto relu = builder.create<mlir::tt::ttnn::ReluOp>(builder.getUnknownLoc(),
+                                                       empty.getResult());
+
     // Add return op
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                         relu.getResult());
   }
 };
 
@@ -176,6 +181,83 @@ TEST_P(AllPossibleLayoutsAnalysisTest, GenerateAndCategorizeLayouts) {
   }
 }
 
+// Test that LegalLayoutAnalysis correctly filters layouts based on RowMajor
+// and maxShardedConfigs settings
+TEST_P(AllPossibleLayoutsAnalysisTest, LegalLayoutAnalysisVariants) {
+  createTestOps();
+
+  // Step 1: Run AllPossibleLayoutsAnalysis
+  auto scalarTypes = createScalarTypeSet();
+  auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
+  AllPossibleLayoutsAnalysisInput allLayoutsInput(gridAttr, &scalarTypes, true);
+  AllPossibleLayoutsAnalysis allLayoutsAnalysis(module.get());
+  allLayoutsAnalysis.init(allLayoutsInput);
+  auto allLayoutsResult = allLayoutsAnalysis.getResult();
+
+  // Verify that all possible layouts are generated
+  EXPECT_FALSE(allLayoutsResult.empty());
+
+  // Step 2: Walk function ops and their sub-ops
+  module->walk([&](mlir::func::FuncOp funcOp) {
+    funcOp->walk([&](mlir::Operation *op) {
+      if (op->getNumResults() == 0) {
+        return;
+      }
+      if (!llvm::isa<mlir::RankedTensorType>(op->getResult(0).getType())) {
+        return;
+      }
+      if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
+        return;
+      }
+
+      auto resultType =
+          mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
+      auto it = allLayoutsResult.find(resultType);
+      if (it == allLayoutsResult.end()) {
+        return;
+      }
+      auto layoutsForTensor = it->second;
+
+      // Verify that layouts exist for this tensor type
+      EXPECT_FALSE(layoutsForTensor.empty());
+      // Step 3: Run LegalLayoutAnalysis for this tensor type
+      for (bool rowMajorEnabled : {true, false}) {
+        for (int maxShardedConfigs : {1, 5, 10}) {
+          LegalLayoutAnalysisInput legalLayoutsInput(&layoutsForTensor,
+                                                     maxShardedConfigs, nullptr,
+                                                     nullptr, rowMajorEnabled);
+          LegalLayoutAnalysis legalLayoutsAnalysis(op);
+          legalLayoutsAnalysis.init(legalLayoutsInput);
+          auto legalLayoutsResult = legalLayoutsAnalysis.getResult();
+
+          // Verify that legal layouts are not empty
+          EXPECT_FALSE(legalLayoutsResult.empty());
+
+          // Validate legal layouts
+          for (const auto &opConfig : legalLayoutsResult) {
+            const auto &layout = opConfig.outputLayout;
+
+            // Check RowMajor-specific constraints
+            if (!rowMajorEnabled) {
+              EXPECT_TRUE(layout.isTiled());
+            }
+          }
+
+          // Verify that the number of sharded layouts does not exceed
+          // maxShardedConfigs
+          int shardedLayoutCount = 0;
+          for (const auto &opConfig : legalLayoutsResult) {
+            if (opConfig.outputLayout.hasShardedTensorMemoryLayout()) {
+              ++shardedLayoutCount;
+            }
+          }
+          EXPECT_LE(shardedLayoutCount, maxShardedConfigs);
+        }
+      }
+    });
+  });
+}
+
 // Instantiate the test with different tensor shapes and grid sizes
 INSTANTIATE_TEST_SUITE_P(
     ShapeAndGridVariations, AllPossibleLayoutsAnalysisTest,
@@ -183,7 +265,9 @@ INSTANTIATE_TEST_SUITE_P(
         // Different tensor shapes to test
         testing::Values(std::vector<int64_t>{256, 512, 32},
                         std::vector<int64_t>{128, 256, 64},
-                        std::vector<int64_t>{512, 1024, 128}),
+                        std::vector<int64_t>{512, 1024, 128},
+                        std::vector<int64_t>{16, 16}),
         // Different max grid values to test
         testing::Values(std::vector<int64_t>{4, 4}, std::vector<int64_t>{8, 8},
-                        std::vector<int64_t>{6, 6})));
+                        std::vector<int64_t>{6, 6},
+                        std::vector<int64_t>{2, 2})));
