@@ -48,23 +48,27 @@ private:
   void performCommuteUpwardsRewrite(QuantizableOpInterface op,
                                     ttir::QuantizeOp quantOp,
                                     PatternRewriter &rewriter) const override {
-    llvm::SmallVector<Operation *> users(op->getUsers());
-    auto oldOpType = cast<RankedTensorType>(op->getResult(0).getType());
-    auto oldQuantizeResultType = quantOp.getResult().getType();
-    auto quantType = mlir::dyn_cast<quant::QuantizedType>(
+    RankedTensorType oldOpType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    RankedTensorType oldQuantizeResultType = quantOp.getResult().getType();
+    quant::QuantizedType quantType = mlir::dyn_cast<quant::QuantizedType>(
         oldQuantizeResultType.getElementType());
     // Construct the expected quantized result type by applying the quantized
     // element type to the original op's shape and encoding.
-    auto newOpType = RankedTensorType::get(oldOpType.getShape(), quantType,
-                                           oldOpType.getEncoding());
+    RankedTensorType newOpType = RankedTensorType::get(
+        oldOpType.getShape(), quantType, oldOpType.getEncoding());
     SmallVector<Value> newQuantOperands;
     // Quantize all input operands to prepare for pushing Quantize above the op.
-    for (auto [i, operand] : llvm::enumerate(op->getOperands().drop_back())) {
-      auto oldOperandType = cast<RankedTensorType>(operand.getType());
-      auto newOperandType = RankedTensorType::get(
+    DestinationStyleOpInterface dps =
+        mlir::cast<DestinationStyleOpInterface>(op.getOperation());
+    for (auto [i, operand] : llvm::enumerate(dps.getDpsInputOperands())) {
+      RankedTensorType oldOperandType = mlir::cast<RankedTensorType>(
+          op->getOperand(operand->getOperandNumber()).getType());
+      RankedTensorType newOperandType = RankedTensorType::get(
           oldOperandType.getShape(), quantType, oldOperandType.getEncoding());
-      auto q = ttir::utils::createDPSOp<ttir::QuantizeOp>(
-          rewriter, op->getLoc(), newOperandType, operand, quantOp->getAttrs());
+      ttir::QuantizeOp q = ttir::utils::createDPSOp<ttir::QuantizeOp>(
+          rewriter, op->getLoc(), newOperandType, operand->get(),
+          quantOp->getAttrs());
       newQuantOperands.push_back(q);
     }
     newQuantOperands.push_back(rewriter.create<ttir::EmptyOp>(
@@ -87,25 +91,27 @@ private:
       // and create a DequantizeOp
       for (size_t i = 0; i < newQuantOperands.size() - 1; ++i) {
         // the output type of the DQ is always the Q's input type.
-        auto floatType =
+        mlir::RankedTensorType floatType =
             cast<RankedTensorType>(newQuantOperands[i]
                                        .getDefiningOp<ttir::QuantizeOp>()
                                        .getInput()
                                        .getType());
-        auto dq = ttir::utils::createDPSOp<ttir::DequantizeOp>(
+        ttir::DequantizeOp dq = ttir::utils::createDPSOp<ttir::DequantizeOp>(
             rewriter, op->getLoc(), floatType, newQuantOperands[i]);
         dequantizedOperands.push_back(dq);
       }
-      dequantizedOperands.push_back(op->getOperands().back());
+      // Assuming one output (push back an empty op with same shape and encoding
+      // as the original op)
+      dequantizedOperands.push_back(rewriter.create<ttir::EmptyOp>(
+          op->getLoc(), oldOpType.getShape(), oldOpType.getElementType(),
+          oldOpType.getEncoding()));
       // Recreate the original op with dequantized inputs and float output type.
-      OperationState state(op->getLoc(), op->getName());
-      state.addOperands(ValueRange(dequantizedOperands));
-      state.addTypes(TypeRange(op->getResult(0).getType()));
-      state.addAttributes(op->getAttrs());
-      Operation *newOp = rewriter.create(state);
-
+      Operation *newOp =
+          rewriter.create(op->getLoc(), op->getName().getIdentifier(),
+                          ValueRange(dequantizedOperands),
+                          TypeRange(op->getResultTypes()), op->getAttrs());
       // Create a new quantize op whose input is the original op.
-      auto newQuantOp = ttir::utils::createDPSOp<ttir::QuantizeOp>(
+      ttir::QuantizeOp newQuantOp = ttir::utils::createDPSOp<ttir::QuantizeOp>(
           rewriter, op->getLoc(), newOpType, newOp->getResult(0));
       // Mark this QuantizeOp to prevent future rewrites from attempting to
       // commute it again.
