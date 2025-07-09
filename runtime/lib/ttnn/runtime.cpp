@@ -232,7 +232,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   std::vector<::ttnn::Tensor> ttnnTensorShards;
   ttnnTensorShards.reserve(tensorShards.size());
   std::transform(tensorShards.begin(), tensorShards.end(),
@@ -244,11 +245,21 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
 
-  ::ttnn::MeshShape meshShape =
-      utils::getMeshShapeFromConfig(distributionStrategy, ttnnTensorShards);
+  LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
+  ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
+
+  if (auto *shard2dConfig =
+          std::get_if<::tt::tt_metal::ShardTensor2D>(&distributionStrategy)) {
+    ::ttnn::MeshShape configMeshShape(shard2dConfig->shard_mesh.y,
+                                      shard2dConfig->shard_mesh.x);
+    LOG_ASSERT(
+        ttnnMeshShape == configMeshShape,
+        "Mesh shape mismatch between device mesh shape and config mesh shape",
+        ttnnMeshShape, " != ", configMeshShape);
+  }
 
   ::ttnn::Tensor multiDeviceHostTensor =
-      ::ttnn::distributed::from_host_shards(ttnnTensorShards, meshShape);
+      ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
@@ -258,7 +269,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   std::vector<::tt::runtime::Tensor> tensorShards;
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
@@ -266,7 +278,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return createOwnedHostTensor(dataShard, shape, stride,
                                                 itemsize, dataType);
                  });
-  return createMultiDeviceHostTensor(tensorShards, strategy);
+  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
 ::tt::runtime::Tensor createEmptyTensor(

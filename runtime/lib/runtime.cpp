@@ -227,7 +227,8 @@ Tensor createMultiDeviceHostTensor(
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -236,7 +237,7 @@ Tensor createMultiDeviceHostTensor(
       RetType,
       [&]() -> RetType {
         return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
-            data, shape, stride, itemsize, dataType, strategy);
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
@@ -245,14 +246,15 @@ Tensor createMultiDeviceHostTensor(
 
 Tensor createMultiDeviceHostTensor(
     const std::vector<Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   using RetType = Tensor;
   LOG_ASSERT(!tensorShards.empty());
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::createMultiDeviceHostTensor(tensorShards,
-                                                                strategy);
+        return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
+            tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
