@@ -4,8 +4,9 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Dict
 
+from ttmlir import optimizer_overrides
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 
@@ -828,6 +829,27 @@ def test_concat(shapes: List[Shape], dim: int, request):
     )
 
 
+conv2d_config = {
+    "dtype": "bf16",
+    "weights_dtype": "bf16",
+    "activation": "none",
+    "deallocate_activation": "false",
+    "reallocate_halo_output": "true",
+    "act_block_h_override": "0",
+    "act_block_w_div": "1",
+    "reshard_if_not_optimal": "false",
+    "override_sharding_config": "false",
+    "shard_layout": "height_sharded",
+    "core_grid": "#ttnn.core_range_set<>",
+    "transpose_shards": "true",
+    "output_layout": "tile",
+    "enable_act_double_buffer": "false",
+    "enable_weights_double_buffer": "false",
+    "enable_split_reader": "false",
+    "enable_subblock_padding": "false",
+}
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -843,6 +865,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
+@pytest.mark.parametrize("config", [{}, conv2d_config])
 def test_conv2d(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -850,6 +873,7 @@ def test_conv2d(
     padding: List[int],
     dilation: List[int],
     groups: int,
+    config: Dict[str, str],
     request,
 ):
     def conv2d(
@@ -860,7 +884,7 @@ def test_conv2d(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.conv2d(
+        conv2d_0 = builder.conv2d(
             in0,
             weight,
             bias,
@@ -871,11 +895,14 @@ def test_conv2d(
             groups=groups,
             unit_attrs=unit_attrs,
         )
+        builder.set_conv2d_config_override(config, "conv2d_0")
+        return conv2d_0
 
     compile_to_flatbuffer(
         conv2d,
         shapes,
         dtypes,
+        optimization_policy="Optimizer Disabled",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

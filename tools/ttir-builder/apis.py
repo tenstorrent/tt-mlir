@@ -7,6 +7,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from ttmlir import optimizer_overrides
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
@@ -168,6 +169,9 @@ class TTIRBuilder(TTIRBuilderOps):
 
         # golden check level
         self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+
+        # override parameters
+        self._override_params = {}
 
     # ----- Public helpers -----
 
@@ -405,6 +409,92 @@ class TTIRBuilder(TTIRBuilderOps):
                     continue
                 self.id_golden_map[output_key] = Golden(tensor)
 
+    def set_output_layout_override(self, attributes: Dict[str, str], op_name: str):
+        override_handler = optimizer_overrides.OptimizerOverridesHandler()
+        output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
+        for key, value in attributes.items():
+            match key:
+                case "data_type":
+                    output_layout_override.set_data_type_from_str(value)
+                case "memory_layout":
+                    output_layout_override.set_memory_layout_from_str(value)
+                case "buffer_type":
+                    output_layout_override.set_buffer_type_from_str(value)
+                case "tensor_memory_layout":
+                    output_layout_override.set_tensor_memory_layout_from_str(value)
+                case "grid_shape":
+                    output_layout_override.grid = [
+                        int(x) for x in value.strip("[]").split("x")
+                    ]
+                case _:
+                    raise ValueError(f"Invalid override attribute: {key}")
+
+        if not output_layout_override.empty():
+            override_handler.add_output_layout_override(op_name, output_layout_override)
+        self._override_params[str(self._loc)] = override_handler.to_string()
+
+    def set_conv2d_config_override(self, configs: Dict[str, str], op_name: str):
+        override_handler = optimizer_overrides.OptimizerOverridesHandler()
+        conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
+
+        for key, value in configs.items():
+            match key:
+                case "dtype":
+                    conv2d_config_override.set_dtype_from_str(value)
+                case "weights_dtype":
+                    conv2d_config_override.set_weights_dtype_from_str(value)
+                case "activation":
+                    conv2d_config_override.set_activation_from_str(
+                        "none" if value == "None" else value
+                    )
+                case "deallocate_activation":
+                    conv2d_config_override.set_deallocate_activation_from_str(value)
+                case "reallocate_halo_output":
+                    conv2d_config_override.set_reallocate_halo_output_from_str(value)
+                case "act_block_h_override":
+                    conv2d_config_override.set_act_block_h_override_from_str(
+                        value.strip("[]")
+                    )
+                case "act_block_w_div":
+                    conv2d_config_override.set_act_block_w_div_from_str(
+                        value.strip("[]")
+                    )
+                case "reshard_if_not_optimal":
+                    conv2d_config_override.set_reshard_if_not_optimal_from_str(value)
+                case "override_sharding_config":
+                    conv2d_config_override.set_override_sharding_config_from_str(value)
+                case "shard_layout":
+                    if value != "None":
+                        conv2d_config_override.set_shard_layout_from_str(value)
+                case "core_grid":
+                    pass
+                case "transpose_shards":
+                    conv2d_config_override.set_transpose_shards_from_str(value)
+                case "output_layout":
+                    conv2d_config_override.set_output_layout_from_str(value)
+                # case "preprocess_weights_on_device":
+                #    conv2d_config_override.set_preprocess_weights_on_device_from_str(
+                #        value
+                #    )
+                # case "always_preprocess_weights":
+                #    conv2d_config_override.set_always_preprocess_weights_from_str(value)
+                case "enable_act_double_buffer":
+                    conv2d_config_override.set_enable_act_double_buffer_from_str(value)
+                case "enable_weights_double_buffer":
+                    conv2d_config_override.set_enable_weights_double_buffer_from_str(
+                        value
+                    )
+                case "enable_split_reader":
+                    conv2d_config_override.set_enable_split_reader_from_str(value)
+                case "enable_subblock_padding":
+                    conv2d_config_override.set_enable_subblock_padding_from_str(value)
+                case _:
+                    raise ValueError(f"Invalid override attribute: {key}")
+
+        if not conv2d_config_override.empty():
+            override_handler.add_conv2d_config_override(op_name, conv2d_config_override)
+        self._override_params[str(self._loc)] = override_handler.to_string()
+
     # ----- Private helpers -----
 
     @staticmethod
@@ -515,6 +605,16 @@ class TTIRBuilder(TTIRBuilderOps):
         return typ
 
     # ----- Utility Conversion ----
+
+    @autodoc_skip
+    def _get_overrides(self) -> List[str]:
+        """
+        Returns a list of strings of overrides
+        """
+        params = []
+        for key, value in self._override_params.items():
+            params.append(value)
+        return params
 
     @autodoc_skip
     def get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:

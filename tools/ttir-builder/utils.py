@@ -8,6 +8,7 @@ import torch
 import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 
+from ttmlir import optimizer_overrides
 from ttmlir.dialects import func
 from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
@@ -27,6 +28,12 @@ TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 # Default output to the current directory from where this module is being invoked
 OUTPUT_PATH = ""
 
+OPTIMIZATION_POLICIES = {
+    "Optimizer Disabled": False,
+    "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
+    "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
+    "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
+}
 
 class Marks:
     """
@@ -162,6 +169,23 @@ def create_custom_pipeline_fn(
             pm.run(module.operation)
 
     return wrapper
+
+
+def optimization_policy_to_str(optimization_policy):
+    override_handler = optimizer_overrides.OptimizerOverridesHandler()
+    # Parse optimization policy from optimization_options.
+    if optimization_policy not in OPTIMIZATION_POLICIES:
+        raise ValueError(f"Invalid optimization policy selected: {optimization_policy}")
+
+    if optimization_policy == "Optimizer Disabled":
+        override_handler.set_enable_optimizer(False)
+    else:
+        override_handler.set_enable_optimizer(True)
+        override_handler.set_enable_memory_layout_analysis(False)
+        override_handler.set_memory_layout_analysis_policy(
+            OPTIMIZATION_POLICIES[optimization_policy]
+        )
+    return override_handler.to_string()
 
 
 def build_mlir_module(
@@ -315,6 +339,7 @@ def run_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     argument_types_string: Optional[str] = None,
+    optimization_policy: str = "",
 ):
     """
     Runs a pipeline over a module and optionally dumps to file.
@@ -346,9 +371,15 @@ def run_pipeline(
     -------
     MLIR module containing MLIR op graph defined by `module` and pipeline_fn.
     """
-
     if pipeline_options is None:
         pipeline_options = []
+
+    if optimization_policy:
+        override_handler = optimizer_overrides.OptimizerOverridesHandler()
+        override_handler.set_memory_layout_analysis_policy(
+            OPTIMIZATION_POLICIES[optimization_policy]
+        )
+        pipeline_options.append(override_handler.to_string())
 
     if argument_types_string:
         tt_populate_argument_types(module, argument_types_string)
@@ -364,6 +395,9 @@ def run_pipeline(
         pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
     if argument_types_string:
         pipeline_options.append("enable-const-eval=true")
+    if optimization_policy:
+        overrides = optimization_policy_to_str(optimization_policy)
+        pipeline_options.append(overrides)
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
@@ -389,6 +423,7 @@ def compile_to_flatbuffer(
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
+    optimization_policy: str = "",
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -463,6 +498,8 @@ def compile_to_flatbuffer(
     if pipeline_options is None:
         pipeline_options = []
 
+    if optimization_policy is None:
+        optimization_policy = {}
     pipeline_fn: Callable
     to_flatbuffer: Callable
     mlir_suffix: str
@@ -498,6 +535,9 @@ def compile_to_flatbuffer(
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    # Add any op-level overrides to pipeline_options
+    pipeline_options += builder._get_overrides()
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = run_pipeline(
         module,
@@ -508,6 +548,7 @@ def compile_to_flatbuffer(
         system_desc_path=system_desc_path,
         mesh_shape=mesh_shape,
         argument_types_string=argument_types_string,
+        optimization_policy=optimization_policy,
     )
     print(f"{target} pipeline ran successfully.")
 
