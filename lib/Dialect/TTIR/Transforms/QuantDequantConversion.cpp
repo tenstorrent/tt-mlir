@@ -119,28 +119,7 @@ private:
       rewriter.replaceOp(quantOp, newQuantOp.getResult());
     }
   }
-
-  void
-  performCommuteDownwardsRewrite(QuantizableOpInterface op,
-                                 ttir::QuantizeOp quantOp,
-                                 PatternRewriter &rewriter) const override {
-    // TODO(@anusingh): Identify next step here.
-    llvm_unreachable("Not implemented, this should not be called.");
-  }
-
-  bool isCommuteDownwardsViable(QuantizableOpInterface op,
-                                ttir::QuantizeOp quantOp) const override {
-    // Not viable for now.
-    return false;
-  }
-
-  bool isCommuteDownwardsFavorable(QuantizableOpInterface op,
-                                   ttir::QuantizeOp quantOp) const override {
-    // Not viable for now.
-    return false;
-  }
 };
-
 struct QuantizeConvolutionRewriter
     : public OpRewritePattern<ttir::ConvolutionOp> {
   using OpRewritePattern<ttir::ConvolutionOp>::OpRewritePattern;

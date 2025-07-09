@@ -107,7 +107,6 @@ private:
   // This should return `true` if `tmUser` can be commuted above `op`.
   virtual bool isCommuteUpwardsViable(CommutableOpOrInterface op,
                                       TMOpType tmUser) const = 0;
-
   // This should return `true` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
   // `isCommuteUpwardsViable` is that this function should be used to determine
@@ -136,26 +135,36 @@ private:
   // in the future and adds 9 ops.
   //
   virtual bool isCommuteUpwardsFavorable(CommutableOpOrInterface op,
-                                         TMOpType tmUser) const = 0;
+                                         TMOpType tmUser) const {
+    return false;
+  };
 
   // This should return `true` if `tmOperand` can be commuted below `op`.
   virtual bool isCommuteDownwardsViable(CommutableOpOrInterface op,
-                                        TMOpType tmOperand) const = 0;
+                                        TMOpType tmOperand) const {
+    return false;
+  };
 
   // Similarly to `isCommuteUpwardsFavorable`, this should return `true` if
   // commuting `tmOperand` below `op` is favourable.
   virtual bool isCommuteDownwardsFavorable(CommutableOpOrInterface op,
-                                           TMOpType tmOperand) const = 0;
+                                           TMOpType tmOperand) const {
+    return false;
+  };
 
   // This should perform the commute of `tmUser` above `op`.
-  virtual void
-  performCommuteUpwardsRewrite(CommutableOpOrInterface op, TMOpType tmUser,
-                               PatternRewriter &rewriter) const = 0;
+  virtual void performCommuteUpwardsRewrite(CommutableOpOrInterface op,
+                                            TMOpType tmUser,
+                                            PatternRewriter &rewriter) const {
+    return;
+  }
 
   // This should perform the commute of `tmOperand` below `op`.
-  virtual void
-  performCommuteDownwardsRewrite(CommutableOpOrInterface op, TMOpType tmOperand,
-                                 PatternRewriter &rewriter) const = 0;
+  virtual void performCommuteDownwardsRewrite(CommutableOpOrInterface op,
+                                              TMOpType tmOperand,
+                                              PatternRewriter &rewriter) const {
+    return;
+  }
 };
 
 // Using this class will allow you to match against any operation that
