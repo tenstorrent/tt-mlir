@@ -154,33 +154,15 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         num_tiles_per_core = int(num_tiles_per_core)
 
         # Define the multicore runtime arguments
-        writer_rt_args = self.create_rt_args()
-        reader_rt_args = self.create_rt_args()
-        compute_rt_args = self.create_rt_args()
+        start_id_multicore = []
 
         # Go row-wise
         bb = self.get_core_ranges().bounding_box()
         for i in range(bb.start.x, bb.end.x + 1):
+            start_id_multicore.append([])
             for j in range(bb.start.y, bb.end.y + 1):
                 # Set for each core
-                core = ttnn.CoreCoord(i, j)
-                # Set Compute rt_args
-                self.set_args(compute_rt_args, core, num_tiles_per_core, start_id)
-                self.set_args(
-                    writer_rt_args,
-                    core,
-                    out_tensor.buffer_address(),
-                    num_tiles_per_core,
-                    start_id,
-                )
-                self.set_args(
-                    reader_rt_args,
-                    core,
-                    a_tensor.buffer_address(),
-                    b_tensor.buffer_address(),
-                    num_tiles_per_core,
-                    start_id,
-                )
+                start_id_multicore[-1].append([start_id])
                 start_id += 1
 
         kernels = [
@@ -189,19 +171,25 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 cb_in0,
                 cb_in1,
                 cb_out,
-                rt_args=compute_rt_args,
+                num_tiles_per_core,
+                start_id_multicore,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.writer_multicore,
                 cb_out,
-                rt_args=writer_rt_args,
+                out_tensor.buffer_address(),
+                num_tiles_per_core,
+                start_id_multicore,
                 dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.reader_binary_interleaved,
                 cb_in0,
                 cb_in1,
-                rt_args=reader_rt_args,
+                a_tensor.buffer_address(),
+                b_tensor.buffer_address(),
+                num_tiles_per_core,
+                start_id_multicore,
                 src0_is_dram=is_a_dram,
                 src1_is_dram=is_b_dram,
             ),
@@ -249,7 +237,7 @@ output_tensor = ttnn.allocate_tensor_on_device(
 core_ranges = None  # Define core ranges here
 vecadd_op = VecAddMulticorePyKernelOp()
 
-# Run tests against the golden "exp" op.
+# Run tests against the golden "add" op.
 output = vecadd_op(a_tensor, b_tensor, output_tensor)
 golden = ttnn.add(a_tensor, b_tensor)
 

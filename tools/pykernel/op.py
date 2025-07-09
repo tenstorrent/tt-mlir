@@ -100,10 +100,6 @@ class PyKernelOp:
         # Default Implementation - Returns None and throws error
         return None
 
-    def set_common_runtime_args(self, args):
-        self.common_runtime_args = args
-        return args
-
     def _config_from_thread_type(self, thread_name):
         match thread_name:
             case "reader_thread":
@@ -151,28 +147,7 @@ class PyKernelOp:
 
         return OpCircularBuffer(cb_type, cb_format, cb_desc)
 
-    def set_args(self, arguments: Arguments, core, *args):
-        if not (
-            all(isinstance(x, int) for x in args)
-            or all(isinstance(x, CompiledValue) for x in args)
-        ):
-            raise TypeError("Arguments must be a list of integers")
-
-        args = list(args)
-
-        if isinstance(core, ttnn.CoreCoord):
-            arguments.set_args_at_core(core.x, core.y, args)
-        elif isinstance(core, ttnn.CoreRange):
-            for x in range(core.start.x, core.end.x):
-                for y in range(core.start.y, core.end.y):
-                    arguments.set_args_at_core(x, y, args)
-        elif isinstance(core, ttnn.CoreRangeSet):
-            for rng in core.ranges():
-                for x in range(rng.start.x, rng.end.x):
-                    for y in range(rng.start.y, rng.end.y):
-                        arguments.set_args_at_core(x, y, args)
-
-    def create_rt_args(self, arguments: dict = {}, core_ranges=None):
+    def create_rt_args(self, core_ranges=None):
         # Argument_dict is a dict with keys of Core types, and values of list[int]
 
         # Check for various instances of core types
@@ -180,56 +155,77 @@ class PyKernelOp:
         core_grid = self.get_core_ranges(core_ranges)
         grid_size = core_grid.bounding_box().grid_size()
 
-        result = Arguments(grid_size.x, grid_size.y)
-
-        # Define for each of the cores specifically
-        for core, args in arguments.items():
-            self.set_args(result, core, *args)
+        result = [[0 for j in range(grid_size.y)] for i in range(grid_size.x)]
 
         return result
 
-    def create_ct_args(self, arguments: dict = {}, core_ranges=None):
-        core_grid = self.get_core_ranges(core_ranges)
-        grid_size = core_grid.bounding_box().grid_size()
-
-        result = Arguments(grid_size.x, grid_size.y)
-
-        # Specific core definitions
-        for core, _args in arguments.items():
-            args = [CompiledValue(k, v) for k, v in _args.items()]
-            self.set_args(result, core, *args)
-
-        return result
-
+    # Use common runtime args for scalars, otherwise use arg_val for list of lists and template function to resolve this.
     # Who knew function signature theory and resolution order would be relevant one day
-    def create_kernel(
-        self, kernel, *args, rt_args=None, ct_args=None, core_ranges=None, **kwargs
-    ):
+    def create_kernel(self, kernel, *args, core_ranges=None, **kwargs):
         # Resolve core_ranges
         core_ranges = self.get_core_ranges(core_ranges)
 
-        # Resolve arguments
-        _rt_args = [x for x in args if not isinstance(x, OpCircularBuffer)]
-        if rt_args is not None and _rt_args:
-            raise TypeError("Can't define both rt_args and positional rt_args")
-        elif _rt_args:
-            # If positional arguments are defined we will override the value of rt_args
-            rt_args = self.create_rt_args({core_ranges: _rt_args})
-        elif rt_args is None and not _rt_args:
-            rt_args = self.create_rt_args()
+        # Resolve arguments from list of list structure
+        # Check for all arguments
 
-        if ct_args is not None and kwargs:
-            raise TypeError("Can't define both ct_args and keyword ct_args")
-        elif kwargs:
-            # If kwargs are defined, we will override the value of ct_args
-            ct_args = self.create_ct_args({core_ranges: kwargs})
-        elif ct_args is None and not kwargs:
-            ct_args = self.create_ct_args()
+        cb_args = []
+        common_rt_args = []
+        arg_idx = 0
+        common_idx = 0
+        rt_args = None
+        all_rt_args = []
+
+        for arg in args:
+            if isinstance(arg, OpCircularBuffer):
+                cb_args.append(arg)
+            elif isinstance(arg, int):
+                # Scalar Integer, treat as a CommonRuntimeArg
+                _arg = Arguments.make_common(arg, common_idx)
+                common_rt_args.append(arg)
+                all_rt_args.append(_arg)
+                common_idx += 1
+                arg_idx += 1
+            elif isinstance(arg, list):
+                # Make sure it's a list of lists
+                print(arg)
+                if not arg:
+                    raise IndexError("Empty list provided as positional argument.")
+                if not isinstance(arg[0], (list, tuple)):
+                    raise TypeError(
+                        "Core-Specific RT Args must be formatted as a list of lists spanning the core_range"
+                    )
+                if not all(
+                    all(all(isinstance(x, int) for x in _args) for _args in row)
+                    for row in arg
+                ):
+                    raise TypeError(
+                        "Core-Specific RT Args must all be integer values across the 2D Core Grid."
+                    )
+
+                # just a placeholder so that the IR parses the RT arg as an int type (uses get_arg_val)
+                all_rt_args.append(0)
+
+                # Construct the mega rt_args
+                if rt_args is None:
+                    # initialize to size of list provided
+                    rt_args = arg
+                else:
+                    # List already initialized, append to each element
+                    for i, row in enumerate(rt_args):
+                        for j, _list in enumerate(row):
+                            _list.extend(arg[i][j])
+
+                arg_idx += 1
+
+        ct_args = self.make_ct_args(**kwargs)
+
+        if rt_args is None:
+            rt_args = [[[]]]
 
         # Get the PyKernel type for cb_args
         cb_args = [x.cb_type for x in args if isinstance(x, OpCircularBuffer)]
 
-        kernel_string = kernel(*cb_args, *rt_args.get_args(), *ct_args.get_args())
+        kernel_string = kernel(*cb_args, *all_rt_args, *ct_args)
         kernel_t = Kernel(kernel.__name__, kernel_string)
         kernel_path = kernel_t.dump_to_file()
 
@@ -239,14 +235,14 @@ class PyKernelOp:
             "kernel_source": kernel_path,
             "core_ranges": self.get_core_ranges(core_ranges),
             "compile_time_args": [cb.cb_id for cb in cb_args],
-            "runtime_args": rt_args.get_all_args(),
+            "runtime_args": rt_args,
             "config": config(),
         }
 
-        print(kernel.__name__, kernel_desc_args)
+        if common_rt_args:
+            kernel_desc_args["common_runtime_args"] = common_rt_args
 
-        if hasattr(self, "common_runtime_args"):
-            kernel_desc_args["common_runtime_args"] = self.common_runtime_args
+        print(kernel.__name__, kernel_desc_args)
 
         kernel_desc = self.ttnn.KernelDescriptor(**kernel_desc_args)
 

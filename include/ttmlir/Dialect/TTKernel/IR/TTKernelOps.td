@@ -1179,6 +1179,17 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let results = (outs TTKernel_ArgResultType:$arg_val);
 }
 
+def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
+    let summary = "Get common runtime arg value.";
+    let description = [{
+      Get runtime argument value at specified index. (Indexes from different location compared to get_arg_val)
+    }];
+
+    let arguments = (ins IndexLike:$arg_index);
+
+    let results = (outs I32:$arg_val);
+}
+
 def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
                                               [Pure]> {
     let summary = "Get compile-time arg value.";

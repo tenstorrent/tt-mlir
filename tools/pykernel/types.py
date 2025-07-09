@@ -46,8 +46,20 @@ class CompiledValue:
 
 
 class Arguments:
-    def __init__(self, x=1, y=1):
-        self.args = [[[] for i in range(x)] for j in range(y)]
+    def __init__(self, x=0, y=0, is_common=False, common_idx=None):
+        if is_common is True:
+            if common_idx is None:
+                raise Exception("If argument is common, Common_idx must be defined")
+            self.common_idx = common_idx
+            self.is_common = True
+        else:
+            self.args = [[[] for i in range(x)] for j in range(y)]
+
+    @staticmethod
+    def make_common(val, idx):
+        res = Arguments(0, 0, is_common=True, common_idx=idx)
+        setattr(res, "value", val)
+        return res
 
     def set_args_at_core(self, i, j, args):
         self.args[i][j] = args
