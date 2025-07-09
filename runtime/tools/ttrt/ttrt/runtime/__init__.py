@@ -18,6 +18,7 @@ try:
         DebugHooks,
         DebugStats,
         MeshDeviceOptions,
+        runtime_debug_enabled,
         get_current_runtime,
         set_current_runtime,
         set_compatible_runtime,

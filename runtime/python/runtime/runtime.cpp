@@ -442,6 +442,12 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, nb::arg("tensor"),
         nb::arg("force") = false, "Deallocate the tensor memory");
 
+  m.def("runtime_debug_enabled"
+      []() {
+        return debug::runtimeDebugEnabled();
+      }
+  );
+
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {

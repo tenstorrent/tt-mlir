@@ -19,6 +19,7 @@ from ..utils import (
     get_to_layout_inputs,
     get_runtime_tensor_from_torch,
     get_torch_inputs,
+    runtime_debug_enabled,
 )
 
 FLATBUFFER_BASE_PATH = (
@@ -100,7 +101,7 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]
 
     hooks = ttrt.runtime.DebugHooks.get(identity, postop)
-    if not is_callback_enabled():
+    if not runtime_debug_enabled():
         return
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
