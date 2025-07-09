@@ -1556,6 +1556,29 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            step);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SortOp>
+createSortOp(FlatbufferObjectCache &cache, SortOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  int8_t dim = op.getDim();
+  bool descending = op.getDescending();
+  bool stable = op.getStable();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateSortOpDirect(
+      *cache.fbb, in, dim, descending, stable,
+      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+}
+
 template <typename Pool2dOp>
 ::flatbuffers::Offset<::tt::target::ttnn::Pool2dOp>
 createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
@@ -2076,6 +2099,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
+                           locInfo);
+  }
+  if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {
+    return createOperation(cache, createSortOp(cache, sortOp), debugString,
                            locInfo);
   }
   if (auto avg_pool2dOp = dyn_cast<AvgPool2dOp>(op); avg_pool2dOp) {

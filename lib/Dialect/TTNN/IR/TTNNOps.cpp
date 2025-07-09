@@ -1886,6 +1886,40 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SortOp::verify() {
+  auto dim = getDim();
+  auto input = getInput();
+  auto rank = input.getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [")
+           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+  }
+
+  auto indicesType =
+      mlir::cast<RankedTensorType>(getResults().back().getType());
+  auto elementType = indicesType.getElementType();
+  if (!elementType.isInteger(16)) {
+    return emitOpError("Expected data type for indices is i16 but got ")
+           << elementType;
+  }
+
+  auto values = getResults().front();
+  if (input.getType() != values.getType()) {
+    return emitOpError("Sorted tensor type does not match with input tensor.");
+  }
+
+  if (input.getType().getShape() != indicesType.getShape()) {
+    return emitOpError("Indices shape does not match with input tensor shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BatchNormOp
 //===----------------------------------------------------------------------===//
 

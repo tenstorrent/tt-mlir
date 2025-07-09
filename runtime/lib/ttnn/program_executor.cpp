@@ -53,6 +53,7 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/reduction/sort.h"
 #include "operations/trace/trace.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
@@ -246,6 +247,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    return operations::sort::run(op->type_as_SortOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
