@@ -856,7 +856,8 @@ private:
     // input.
     TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
         inputRowMajorLayout.getElementType(),
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+
     Type newTensorType = RankedTensorType::get(
         outputType.getShape(), outputRowMajorLayout.getElementType(),
         outputRowMajorLayout);
@@ -939,8 +940,12 @@ private:
       }
       assert(inputLayouts.size() > 0 && "Expected at least one input");
 
-      if (!inputLayouts[0].isTiled() ||
-          inputLayouts[0].hasShardedTensorMemoryLayout()) {
+      // Both input and output layout has to be checked otherwise some
+      // inconsistencies may arise:
+      // https://github.com/tenstorrent/tt-mlir/issues/4051
+      if ((!inputLayouts[0].isTiled() ||
+           inputLayouts[0].hasShardedTensorMemoryLayout()) &&
+          !resultLayout.isTiled()) {
         // Input is already in RowMajor or has sharded tensor memory layout, no
         // need to convert.
         return;
@@ -957,17 +962,23 @@ private:
         return;
       }
 
+      // Op constraints are checked to verify that there is a layout that
+      // satisfies the constraints, but the workaround is applied regardless of
+      // current input layout. Canonicalization pass will be run after this pass
+      // to remove redundant `ToLayoutOp`s.
+      bool hasPassedConstraints = false;
       // Let's check first if the op can be executed with the current layout.
       if (checkOpConstraints(op, inputLayouts, l1CacheSize,
                              /*convertInputToRowMajor=*/false)) {
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                      "Successfully passed constraints, no conversion needed");
-        return;
+        hasPassedConstraints = true;
       }
 
       // Failed to satisfy constraints, try with row major layout for the input
       // operand.
-      if (!checkOpConstraints(op, inputLayouts, l1CacheSize,
+      if (!hasPassedConstraints &&
+          !checkOpConstraints(op, inputLayouts, l1CacheSize,
                               /*convertInputToRowMajor=*/true)) {
         op->emitOpError(
             "Failed to satisfy constraints with Tile and RM layouts");
