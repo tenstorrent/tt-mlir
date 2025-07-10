@@ -830,8 +830,8 @@ public:
     SmallVector<int64_t> newPadding;
     // We add the padding of the input to the ops current padding
     // in the event the current PoolingOp already has non-zero padding
-    for (uint32_t i = 0; i < padding.size(); i++) {
-      newPadding.push_back(padding[i] + op.getPadding()[i]);
+    for (const auto [a, b]: llvm::zip_equal(padding, op.getPadding())) {
+      newPadding.push_back(a + b);
     }
     rewriter.modifyOpInPlace(op, [&](PoolingOp &op) {
       op.getInputsMutable().assign(newInputs);
