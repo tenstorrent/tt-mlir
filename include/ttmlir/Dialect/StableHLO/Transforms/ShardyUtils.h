@@ -198,6 +198,33 @@ inline bool doesManualComputationOpExist(mlir::ModuleOp &module) {
   return false;
 }
 
+// Check if any manual axes exist in the graph.
+inline bool manualAxesExist(mlir::ModuleOp &module) {
+  for (auto &op : module.getBody()->getOperations()) {
+    if (!mlir::isa<func::FuncOp>(op)) {
+      continue;
+    }
+
+    func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
+    mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+      if (mlir::isa<mlir::sdy::ManualComputationOp>(op)) {
+        auto manualComputationOp = mlir::cast<mlir::sdy::ManualComputationOp>(op);
+        if (manualComputationOp.getManualAxesAttr().size() == 0) {
+          return WalkResult::interrupt();
+        }
+      }
+
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // Create a new DictionaryAttr from an old DictionaryAttr with all sdy.sharding
 // annotations removed.
 inline mlir::DictionaryAttr

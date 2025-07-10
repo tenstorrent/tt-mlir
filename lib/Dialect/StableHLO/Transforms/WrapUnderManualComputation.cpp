@@ -144,6 +144,15 @@ public:
       return;
     }
 
+    // If the module ops are already under manual computation, we skip
+    // this pass.
+    bool manualComputationOpsExist = sdy_utils::doesManualComputationOpExist(rootModule);
+    if (manualComputationOpsExist) {
+      rootModule.emitWarning(
+          "Module is already wrapped under manual computation op. Skipping pass.\n");
+      return;
+    }
+
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
     llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =

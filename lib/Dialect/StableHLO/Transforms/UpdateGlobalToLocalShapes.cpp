@@ -332,9 +332,18 @@ public:
     // If the module has gspmd annotations, we skip this pass.
     bool gspmdAnnotationsExist = sdy_utils::gspmdAnnotationsExist(rootModule);
     if (gspmdAnnotationsExist) {
-      rootModule.emitWarning("Wrapping under manual computation pass does not "
-                             "support GSPMD annotated module for now.\n");
+      rootModule.emitWarning("GSPMD annotated modules are already in local device shape. Skipping pass.\n");
       return;
+    }
+
+    // Need to check if manual axes is specified in the manual computation op. If so, tensor shapes are already local and we can skip this pass.
+    if (sdy_utils::doesManualComputationOpExist(rootModule)) {
+      if (sdy_utils::manualAxesExist(rootModule)) {
+        rootModule.emitWarning(
+            "Manual computation op already has manual axes specified. "
+            "Skipping pass.\n");
+        return;
+      }
     }
 
     // Get the shardy mesh op in the root module.

@@ -30,15 +30,14 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Inline all operations to make analysis easier.
   pm.addPass(mlir::createInlinerPass());
 
-  // Apply sharding constraints.
-  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
-
   // Annotate arguments with tt tensor annotations if the exist.
-  pm.addPass(
-      mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
+  pm.addPass(mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
+
+  // Apply sharding constraints.
+  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Annotate arguments with sdy tensor annotations.
   ApplyShardyArgumentAnnotationsPassOptions annotateArgumentsOptions;

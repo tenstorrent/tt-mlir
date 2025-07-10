@@ -253,11 +253,19 @@ public:
     bool ttArgAnnotationsExist =
         mlir::tt::stablehlo::ttAnnotationsExist(rootModule);
 
+    // If no annotations exist, this is a single chip graph. We do not perform any analysis on it and set a 1x1 mesh.
     if (!sdyAnnotationsExist && !gspmdAnnotationsExist &&
         !ttArgAnnotationsExist && !automaticArgAnalysis) {
-      rootModule.emitError("Could not find sdy, gspmd, tt annotations and "
-                           "automatic arg analysis is "
-                           "disabled. Skipping pass.\n");
+      std::string meshName = "mesh";
+      sdy_utils::MeshMap meshMap;
+      meshMap["x"] = 1;
+      meshMap["y"] = 1;
+      mlir::sdy::MeshAttr sdyMeshAttr =
+          sdy_utils::createMeshAttrFromMeshMap(context, meshMap);
+      builder.setInsertionPoint(&(rootModule.getBody()->front()));
+      builder.create<mlir::sdy::MeshOp>(builder.getUnknownLoc(),
+                                        builder.getStringAttr(meshName),
+                                        sdyMeshAttr);
       return;
     }
 
@@ -299,6 +307,21 @@ public:
         rootModule.emitWarning(
             "User provided mesh but mesh already exists "
             "in mlir module. Using existing mesh in module.\n");
+      }
+
+      // If mesh shape is 1D, we bump it up to 2D with dim0 as 1. This is because TTNN only supports 2D meshes.
+      mlir::sdy::MeshAttr parsedMeshAttr = parsedMeshOps[0].getMesh();
+      sdy_utils::MeshMap parsedMeshMap = sdy_utils::createMeshMapFromMeshAttr(parsedMeshAttr);
+      if (parsedMeshMap.size() == 1) {
+        sdy_utils::MeshMap meshMapNew;
+        meshMapNew["default"] = 1;
+        for (const auto &pair : parsedMeshMap) {
+          meshMapNew.insert(pair);
+        }
+        mlir::sdy::MeshAttr newMeshAttr = sdy_utils::createMeshAttrFromMeshMap(context, meshMapNew);
+        sdy_utils::removeMeshOps(rootModule);
+        builder.setInsertionPoint(&(rootModule.getBody()->front()));
+        builder.create<mlir::sdy::MeshOp>(builder.getUnknownLoc(), builder.getStringAttr(parsedMeshOps[0].getSymName()), newMeshAttr);
       }
 
       // Check if manual computation op exists. If it does, this is a solved

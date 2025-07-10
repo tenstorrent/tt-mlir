@@ -48,7 +48,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     mlir::tt::ttcore::ShardStatus shardStatus =
         mlir::tt::ttcore::ShardStatus::Unsharded;
 
-    // If the argument contains a gspmd.sharding annotations, it is already
+    // If the argument contains a sharding annotations, it is already
     // pre-sharded.
     if (argAttrDict) {
       newArgAttrs =
@@ -106,17 +106,6 @@ public:
     mlir::ModuleOp rootModule = getOperation();
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
-
-    // Check what types of annotations exist in the module. If non exist, we
-    // do nothing.
-    bool gspmdAnnotationsExist = sdy_utils::gspmdAnnotationsExist(rootModule);
-    bool sdyAnnotationsExist = sdy_utils::sdyAnnotationsExist(rootModule);
-
-    if (!gspmdAnnotationsExist && !sdyAnnotationsExist) {
-      rootModule.emitError("No sharding annotations found in the module. "
-                           "Skipping pass.\n");
-      return;
-    }
 
     // Loop through each argument. For each argument, check if it has a sdy
     // sharding annotations. If it does, it is pre-sharded. If it does not, it

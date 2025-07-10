@@ -1,7 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
-
-// -----
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline --stablehlo-to-ttir-pipeline %s | FileCheck %s
 
 // jax/pjrt sharding target 1x2 for n300 all_reduce cluster_axis=1 rank=2
 module @all_reduce_1x2_rank_2_cluster_1 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
