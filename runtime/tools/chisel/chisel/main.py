@@ -9,6 +9,7 @@ from chisel.core.context import ChiselContext
 from chisel.core.enums import ExecutionType
 from ttmlir.ir import Operation
 
+
 def main():
     """
     To run this script:
@@ -16,7 +17,9 @@ def main():
     To generate ttir.mlir and ttnn.mlir please run chisel.sh on your starting ttir file
     """
     model = "mlpmixer_trimmed"
-    base_dir = Path(f"/proj_sw/user_dev/ndrakulic/chisel/{model}")
+    base_dir = Path(
+        f"/proj_sw/user_dev/sgligorijevic/jaxbringups/tt-mlir/chiselingv4/{model}"
+    )
     main_fn = "main"
     program_index = 0
     tensor_folder = base_dir / "tensors"
@@ -32,14 +35,17 @@ def main():
         ttir_text=ttir_path.read_text(),
         ttnn_text=ttnn_path.read_text(),
         output_dir=output_dir,
-        report_path=base_dir / f"report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        report_path=base_dir
+        / f"report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         main_fn=main_fn,
         program_index=program_index,
         flatbuffer_path=flatbuffer_path,
-        should_skip_op=lambda op: '%6 = "ttnn.matmul"' in op.get_asm(enable_debug_info=True)
+        # should_skip_op=lambda op: '%6 = "ttnn.matmul"' in op.get_asm(enable_debug_info=True)
     )
     chisel_context.bind_callbacks()
-    input_paths = [f"{tensor_folder}/{i}.pt" for i in range(len(os.listdir(tensor_folder)))]
+    input_paths = [
+        f"{tensor_folder}/{i}.pt" for i in range(len(os.listdir(tensor_folder)))
+    ]
     print(f"Input paths:")
     print(*input_paths, sep="\n")
     chisel_context.load_inputs_from_disk(input_paths)

@@ -39,26 +39,27 @@ from ttrt.runtime import (
     create_owned_host_tensor,
     retrieve_tensor_from_pool,
     DataType,
-    Tensor as RtTensor
+    Tensor as RtTensor,
 )
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("chisel")
 
-DEBUG=True
+DEBUG = True
+
 
 class ChiselContext:
     """
     Main context class for Chisel that manages the execution and comparison of MLIR operations
     between golden (reference) and device implementations.
-    
+
     This class handles:
     - Loading and managing MLIR modules for both golden and device execution
     - Tensor management and tracking across execution contexts
     - Operation execution and result comparison
     - Debugging and reporting utilities
     - Integration with the TTRT (Tenstorrent Runtime) backend
-    
+
     Args:
         ttir_text (str): MLIR text for the golden implementation
         ttnn_text (str): MLIR text for the device implementation
@@ -67,12 +68,13 @@ class ChiselContext:
         main_fn (str): Name of the main function to execute
         program_index (int, optional): Index of the program to run. Defaults to 0.
         flatbuffer_path (pathlib.Path | None, optional): Path to flatbuffer file. Defaults to None.
-        function_argument_bridge_type (Literal["host", "device"], optional): 
+        function_argument_bridge_type (Literal["host", "device"], optional):
             Choose between host and device for a source of input arguments. Defaults to "host".
         caching (bool, optional): Enable tensor caching. Defaults to True.
-        should_skip_op (Callable[[Operation], bool], optional): 
+        should_skip_op (Callable[[Operation], bool], optional):
             Function to determine if an operation should be skipped. Defaults to lambda op: False.
     """
+
     def __init__(
         self,
         ttir_text: str,
@@ -83,12 +85,12 @@ class ChiselContext:
         program_index: int = 0,
         flatbuffer_path: pathlib.Path | None = None,
         function_argument_bridge_type: Literal["host", "device"] = "host",
-        caching: bool = True,
-        should_skip_op: Callable[[Operation], bool] = lambda op: False
+        caching: bool = False,
+        should_skip_op: Callable[[Operation], bool] = lambda op: False,
     ):
         """
         Initialize the Chisel context with MLIR modules and runtime configuration.
-        
+
         This sets up the execution environment including:
         - MLIR context and module loading
         - Tensor management pools
@@ -126,31 +128,39 @@ class ChiselContext:
         }
 
         # Set up registry, tensor pools, and executors
-        self.registry = Registry(golden_module=self.modules[ExecutionType.GOLDEN], 
-                               device_module=self.modules[ExecutionType.DEVICE], 
-                               should_skip_op=should_skip_op)
-        self.golden_tensor_pool = TensorPool(caching=caching, output_dir=self.output_dir / "golden")
-        self.device_tensor_pool = TensorPool(caching=caching, output_dir=self.output_dir / "device")
+        self.registry = Registry(
+            golden_module=self.modules[ExecutionType.GOLDEN],
+            device_module=self.modules[ExecutionType.DEVICE],
+            should_skip_op=should_skip_op,
+        )
+        self.golden_tensor_pool = TensorPool(
+            caching=caching, output_dir=self.output_dir / "golden"
+        )
+        self.device_tensor_pool = TensorPool(
+            caching=caching, output_dir=self.output_dir / "device"
+        )
         self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)
-        
+
         # Set up reporting
         self.report = ReportWriter(
-            report_path, 
+            report_path,
             {
-                ExecutionType.GOLDEN: self.golden_ir_module.get_asm_state(), 
-                ExecutionType.DEVICE: self.device_ir_module.get_asm_state()
-            }
+                ExecutionType.GOLDEN: self.golden_ir_module.get_asm_state(),
+                ExecutionType.DEVICE: self.device_ir_module.get_asm_state(),
+            },
         )
-        
+
         self.rt_logger = RtLogger()
         self.rt_artifacts = RtArtifacts(
-            logger=self.rt_logger, 
-            artifacts_folder_path=str(self.output_dir)
+            logger=self.rt_logger, artifacts_folder_path=str(self.output_dir)
         )
 
         # Initialize operation tracking and function arguments
         self.current_device_op = None  # Tracks the currently executing device operation
-        self.arg_names = [arg.get_name() for arg in self.device_ir_module.get_function_inputs(self.main_fn)]
+        self.arg_names = [
+            arg.get_name()
+            for arg in self.device_ir_module.get_function_inputs(self.main_fn)
+        ]
 
         # Set up TTRT runtime if flatbuffer path is provided
         self.rt_api = None
@@ -158,11 +168,10 @@ class ChiselContext:
             self.flatbuffer_path = flatbuffer_path
             self.setup_ttrt()
 
-
     def setup_ttrt(self):
         """
         Initialize the TTRT environment.
-        
+
         This sets up the runtime API with the provided flatbuffer binary and configuration.
         The runtime is initialized with ones initialization for tensor values.
         """
@@ -172,45 +181,52 @@ class ChiselContext:
             "binary": str(self.flatbuffer_path),
             "save-artifacts": True,
             "--program-index": self.program_index,
-            "--init": "ones"
+            # "--init": "ones"
         }
-        
+
         # Initialize the runtime API with the specified configuration
         RtApi.initialize_apis()
         self.rt_api = RtApi.Run(
-            args=args, 
-            logger=self.rt_logger, 
-            artifacts=self.rt_artifacts
+            args=args, logger=self.rt_logger, artifacts=self.rt_artifacts
         )
 
     def compare_outputs(self, op_location: Tuple[int, int]):
         """
         Compare the outputs of golden and device executions for a given operation location.
-        
+
         This method:
         1. Retrieves outputs from both golden and device executions
         2. Computes comparison metrics (PCC, absolute error, relative error)
         3. Records the results in the report
-        
+
         Args:
             op_location (Tuple[int, int]): The location of the operation to compare
         """
         # Get output tensors from both execution types
-        device_output = self.registry.get_group_output(op_location, ExecutionType.DEVICE)
-        golden_output = self.registry.get_group_output(op_location, ExecutionType.GOLDEN)
-        
+        device_output = self.registry.get_group_output(
+            op_location, ExecutionType.DEVICE
+        )
+        golden_output = self.registry.get_group_output(
+            op_location, ExecutionType.GOLDEN
+        )
+
         # Extract tensor data if outputs exist
         if device_output is not None:
             device_output_name = device_output.get_name()
             device_output = self.device_tensor_pool[device_output_name].data
         else:
             device_output = None
-        
+
         if golden_output is not None:
             golden_output_name = golden_output.get_name()
             golden_output = self.golden_tensor_pool[golden_output_name].data
         else:
             golden_output = None
+
+        dump_path = self.output_dir / "intermediates"
+        dump_path.mkdir(parents=True, exist_ok=True)
+        name = device_output_name.replace("%", "v").replace(".", "_")
+        torch.save(device_output, dump_path / f"{name}.pt")
 
         # Compute comparison metrics if both outputs exist
         if golden_output is not None and device_output is not None:
@@ -227,27 +243,35 @@ class ChiselContext:
             location=op_location,
             golden_ops=self.registry.get_group(op_location, ExecutionType.GOLDEN),
             device_ops=self.registry.get_group(op_location, ExecutionType.DEVICE),
-            golden_output=self.registry.get_group_output(op_location, ExecutionType.GOLDEN),
-            device_output=self.registry.get_group_output(op_location, ExecutionType.DEVICE),
-            golden_inputs=self.registry.get_group_inputs(op_location, ExecutionType.GOLDEN),
-            device_inputs=self.registry.get_group_inputs(op_location, ExecutionType.DEVICE),
+            golden_output=self.registry.get_group_output(
+                op_location, ExecutionType.GOLDEN
+            ),
+            device_output=self.registry.get_group_output(
+                op_location, ExecutionType.DEVICE
+            ),
+            golden_inputs=self.registry.get_group_inputs(
+                op_location, ExecutionType.GOLDEN
+            ),
+            device_inputs=self.registry.get_group_inputs(
+                op_location, ExecutionType.DEVICE
+            ),
             pcc=pcc,
             abs_error=abs_error,
             rel_error=rel_error,
             device_output_tensor=device_output,
-            golden_output_tensor=golden_output
+            golden_output_tensor=golden_output,
         )
 
     @debug_wrap(debug=DEBUG)
     def preop(self, binary, programContext, opContext):
         """
         Pre-operation callback executed before each device operation.
-        
+
         This method:
         1. Extracts operation information and location
         2. Sets up input tensors for the operation
         3. Updates tensor references in the device tensor pool
-        
+
         Args:
             binary: The binary containing the operation
             programContext: Context of the current program
@@ -263,7 +287,9 @@ class ChiselContext:
             return
 
         # Find the corresponding device operation in the registry
-        self.current_device_op = self.registry.find_op(op_location, debug_str, ExecutionType.DEVICE)
+        self.current_device_op = self.registry.find_op(
+            op_location, debug_str, ExecutionType.DEVICE
+        )
         if self.current_device_op is None:
             return
 
@@ -281,23 +307,32 @@ class ChiselContext:
             else:
                 # Create new tensor value if it doesn't exist
                 self.device_tensor_pool[input_name] = TensorValue(
-                    input_name, 
-                    None, 
-                    ExecutionType.DEVICE, 
-                    tensor_ref=tensor_ref
+                    input_name, None, ExecutionType.DEVICE, tensor_ref=tensor_ref
                 )
 
+        # if "%arg2" in self.device_tensor_pool:
+        #     arg2_tensor = self.device_tensor_pool["%arg2"]
+        #     if arg2_tensor.data is not None:
+        #         print(f"Step {op_location}: %arg2 current data = {arg2_tensor.data}")
+        #     if arg2_tensor.execution_data is not None:
+        #         print(f"Step {op_location}: %arg2 current execdata = {arg2_tensor.execution_data}")
+        #     if arg2_tensor.data is None and arg2_tensor.execution_data is None:
+        #         print(f"Step {op_location}: %arg2 exists but has no data")
+        # else:
+        #     print(f"Step {op_location}: %arg2 not found in tensor pool")
+
+        # print(f"This was preop for operation {self.current_device_op}")
 
     @debug_wrap(debug=DEBUG)
     def postop(self, binary, programContext, opContext):
         """
         Post-operation callback executed after each device operation.
-        
+
         This method:
         1. Captures the operation's output tensor
         2. Stores it in the device tensor pool
         3. Triggers golden execution and comparison if needed
-        
+
         Args:
             binary: The binary containing the operation
             programContext: Context of the current program
@@ -319,88 +354,105 @@ class ChiselContext:
         output_ref = get_op_output_ref(opContext, programContext)
         if output_ref is None:
             return
-            
+
         # Retrieve and store the output tensor
         output_tensor = retrieve_tensor_from_pool(programContext, output_ref)
         tensor_value = TensorValue(
-            output_name, 
-            get_torch_tensor(output_tensor), 
-            ExecutionType.DEVICE, 
-            tensor_ref=output_ref
+            output_name,
+            get_torch_tensor(output_tensor),
+            ExecutionType.DEVICE,
+            tensor_ref=output_ref,
         )
         self.device_tensor_pool[output_name] = tensor_value
 
         # Execute golden model and compare results if needed
-        if self.registry.should_compare(self.current_device_op, op_location, ExecutionType.DEVICE):
+        if self.registry.should_compare(
+            self.current_device_op, op_location, ExecutionType.DEVICE
+        ):
             self.executor.execute_golden(op_location, debug_str)
             if self.registry.op_groups[op_location].skip_group:
                 self.skip_group(op_location, programContext)
             self.compare_outputs(op_location)
 
-    def get_corresponding_tensors(self, tensor_name: str, from_type: ExecutionType, to_type: ExecutionType):
+    def get_corresponding_tensors(
+        self, tensor_name: str, from_type: ExecutionType, to_type: ExecutionType
+    ):
         """
         Get corresponding tensors between different execution types.
-        
+
         Args:
             tensor_name: Name of the tensor to find
             from_type: Source execution type (GOLDEN or DEVICE)
             to_type: Target execution type (GOLDEN or DEVICE)
-            
+
         Returns:
             Tuple of (source_tensor, target_tensor)
         """
         # Get tensor location in the source execution type
         tensor_loc = self.registry.tensor_to_location[from_type][tensor_name]
-        
+
         # Get MLIR tensors for both execution types
         source_mlir = self.registry.tensors[tensor_loc].get(from_type)
         target_mlir = self.registry.tensors[tensor_loc].get(to_type)
-        
+
         if source_mlir is None or target_mlir is None:
             raise ValueError(f"Could not find corresponding tensors for {tensor_name}")
-            
+
         # Get actual tensor values from pools
-        source_pool = self.golden_tensor_pool if from_type == ExecutionType.GOLDEN else self.device_tensor_pool
-        target_pool = self.golden_tensor_pool if to_type == ExecutionType.GOLDEN else self.device_tensor_pool
-        
+        source_pool = (
+            self.golden_tensor_pool
+            if from_type == ExecutionType.GOLDEN
+            else self.device_tensor_pool
+        )
+        target_pool = (
+            self.golden_tensor_pool
+            if to_type == ExecutionType.GOLDEN
+            else self.device_tensor_pool
+        )
+
         source_name = source_mlir.get_name(self.modules[from_type].get_asm_state())
         target_name = target_mlir.get_name(self.modules[to_type].get_asm_state())
-        
+
         source_tensor = source_pool.get(source_name)
         target_tensor = target_pool.get(target_name)
-        
-        if source_tensor is None or target_tensor is None:
-            raise ValueError(f"Could not find tensors in pools: {source_name} or {target_name}")
-            
-        return source_tensor, target_tensor
 
+        if source_tensor is None or target_tensor is None:
+            raise ValueError(
+                f"Could not find tensors in pools: {source_name} or {target_name}"
+            )
+
+        return source_tensor, target_tensor
 
     def skip_group(self, op_location, programContext):
         """
         Skip execution of a group of operations.
-        
+
         This method is called when a group of operations is marked to be skipped.
         It ensures proper tensor synchronization between device and golden models.
-        
+
         Args:
             op_location: Location of the operation group
             programContext: Context of the current program
         """
         group: OpGroup = self.registry.op_groups[op_location]
-        
+
         # Process inputs for the group
-        device_inputs = self.registry.get_group_inputs(op_location, ExecutionType.DEVICE)
+        device_inputs = self.registry.get_group_inputs(
+            op_location, ExecutionType.DEVICE
+        )
         golden_inputs = []
-        
+
         # Synchronize input tensors between device and golden models
         for input in device_inputs:
             # Get corresponding golden tensor
             device_name = input.get_name(self.device_ir_module.get_asm_state())
-            device_tensor, golden_tensor = self.get_corresponding_tensors(device_name, ExecutionType.DEVICE, ExecutionType.GOLDEN)
-            
+            device_tensor, golden_tensor = self.get_corresponding_tensors(
+                device_name, ExecutionType.DEVICE, ExecutionType.GOLDEN
+            )
+
             golden_inputs.append(golden_tensor)
             golden_tensor.set_execution_data(device_tensor.data)
-        
+
         # Execute golden operations with skipping
         for op in self.registry.get_group(op_location, ExecutionType.GOLDEN):
             self.executor.execute(op, skip_op=True)
@@ -408,11 +460,13 @@ class ChiselContext:
         # Reset execution data for golden inputs
         for input in golden_inputs:
             input.set_execution_data()
-        
+
         output = self.registry.get_group_output(op_location, ExecutionType.GOLDEN)
         output_name = output.get_name(self.golden_ir_module.get_asm_state())
-        golden_tensor, device_tensor = self.get_corresponding_tensors(output_name, ExecutionType.GOLDEN, ExecutionType.DEVICE)
-        
+        golden_tensor, device_tensor = self.get_corresponding_tensors(
+            output_name, ExecutionType.GOLDEN, ExecutionType.DEVICE
+        )
+
         # Update device tensor with golden tensor data
         device_tensor.set_execution_data(golden_tensor.execution_data)
         device_tensor.update_tensor_in_pool(programContext)
@@ -420,16 +474,14 @@ class ChiselContext:
         # Reset execution data for golden output
         golden_tensor.set_execution_data()
 
-
-
     def function_argument_bridge(self, programContext, input_name):
         """
         Bridge function arguments between host and device execution contexts.
-        
+
         This method handles the synchronization of tensor data between:
         - Host and device memory spaces
         - Golden and device execution contexts
-        
+
         Args:
             programContext: Context of the current program
             input_name: Name of the input tensor to bridge
@@ -440,26 +492,30 @@ class ChiselContext:
             if device_tensor.execution_data is None:
                 return
             device_tensor.update_tensor_in_pool(programContext)
-            
+
         elif self.function_argument_bridge_type == "device":
             # For device tensors that are function arguments, sync to golden tensors
             if input_name in self.arg_names:
                 device_tensor = self.device_tensor_pool[input_name]
                 # Retrieve tensor data from device
-                device_data = retrieve_tensor_from_pool(programContext, device_tensor.tensor_ref)
+                device_data = retrieve_tensor_from_pool(
+                    programContext, device_tensor.tensor_ref
+                )
                 torch_tensor = get_torch_tensor(device_data)
-                
+
                 # Create and initialize corresponding golden tensor
-                golden_tensor = TensorValue(input_name, torch_tensor, ExecutionType.GOLDEN)
+                golden_tensor = TensorValue(
+                    input_name, torch_tensor, ExecutionType.GOLDEN
+                )
                 golden_tensor.set_execution_data()
                 self.golden_tensor_pool[input_name] = golden_tensor
 
     def run(self):
         """
         Execute the runtime with the configured settings.
-        
+
         This starts the execution of the loaded program using the TTRT runtime.
-        
+
         Returns:
             Tuple containing result code and execution results
         """
@@ -470,7 +526,7 @@ class ChiselContext:
     def bind_callbacks(self):
         """
         Set up debug hooks for operation execution.
-        
+
         This configures the pre-operation and post-operation callbacks
         that will be triggered during program execution.
         """
@@ -479,15 +535,20 @@ class ChiselContext:
     def load_inputs_from_disk(self, positional_inputs_paths):
         """
         Load input tensors from disk and initialize both golden and device tensor pools.
-        
+
         Args:
             positional_inputs_paths: List of file paths containing input tensors
         """
         # Iterate through each input path and corresponding function argument
-        for path, arg in zip(positional_inputs_paths, self.device_ir_module.get_function_inputs(), strict=True):
+        for path, arg in zip(
+            positional_inputs_paths,
+            self.device_ir_module.get_function_inputs(),
+            strict=True,
+        ):
             tensor = torch.load(path)
+            # tensor = torch.randn_like(tensor)
             arg_name = arg.get_name()
-            
+
             golden_tensor = TensorValue(arg_name, tensor, ExecutionType.GOLDEN)
             golden_tensor.set_execution_data()
             self.golden_tensor_pool[arg_name] = golden_tensor
