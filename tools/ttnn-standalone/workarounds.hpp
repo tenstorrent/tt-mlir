@@ -120,4 +120,37 @@ inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
 }
 } // namespace tt::runtime::ttnn::operations::ccl::mesh_shard
 
+namespace tt::runtime::ttnn::operations::ccl::point_to_point {
+inline ::ttnn::Tensor
+point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
+               const uint32_t receiverId,
+               const std::optional<::ttnn::Tensor> &accumTensor) {
+
+  auto extractShardsToHost = [](const ::ttnn::Tensor &deviceTensor) {
+    return ::ttnn::distributed::get_device_tensors(
+        ::ttnn::from_device(deviceTensor));
+  };
+  std::vector<::ttnn::Tensor> inputTensorsHost =
+      extractShardsToHost(inputTensor);
+
+  std::vector<::ttnn::Tensor> outputTensorsHost;
+  bool hasUserProvidedAccumTensor = accumTensor.has_value();
+
+  if (hasUserProvidedAccumTensor) {
+    outputTensorsHost = extractShardsToHost(accumTensor.value());
+  } else {
+    outputTensorsHost = inputTensorsHost;
+  }
+
+  outputTensorsHost[receiverId] = inputTensorsHost[senderId];
+
+  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
+      ::ttnn::distributed::from_host_shards(outputTensorsHost,
+                                            inputTensor.mesh_device()->shape()),
+      inputTensor.mesh_device(), inputTensor.memory_config());
+
+  return outputTensor;
+}
+} // namespace tt::runtime::ttnn::operations::ccl::point_to_point
+
 #endif // TTMLIR_TOOLS_TTNN_STANDALONE_WORKAROUNDS_HPP
