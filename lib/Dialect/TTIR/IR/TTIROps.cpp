@@ -2526,6 +2526,7 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
   auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
   mlir::Type elementType = inputType.getElementType();
 
+  mlir::Type result;
   if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
     auto inputEncoding =
         mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -2541,15 +2542,16 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
         inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
         inputEncoding.getDimAlignments());
 
-    return mlir::RankedTensorType::get(outputShape, elementType,
-                                       outputEncoding);
+    result =
+        mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
   } else {
     auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
     auto viewAttr =
         mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
-    return mlir::MemRefType::get(outputShape, elementType, viewAttr,
-                                 memrefType.getMemorySpace());
+    result = mlir::MemRefType::get(outputShape, elementType, viewAttr,
+                                   memrefType.getMemorySpace());
   }
+  return result;
 }
 
 // Builder with reblocked shape.
