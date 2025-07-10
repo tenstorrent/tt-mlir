@@ -292,13 +292,18 @@ ModuleOp hoistInputTensorOps(ModuleOp module, OpBuilder &builder) {
                                         oldFuncType.getResults().end());
 
     // Collect types for new arguments in traversal order
-    for (Operation *op : tensorCreationOps) {
+    for (unsigned i = 0; i < tensorCreationOps.size(); ++i) {
+      Operation *op = tensorCreationOps[i];
       Value result = op->getResult(0);
       newArguments.push_back(result);
       newArgumentTypes.push_back(result.getType());
       // Create tt ArgumentType attribute for the new argument
-      newArgumentTypeAttrs.push_back(ttcore::ArgumentTypeAttr::get(
-          builder.getContext(), ttcore::ArgumentType::Input));
+      // TODO (svuckovic): Find a better way to discern between input and
+      // parameter arg types
+      ttcore::ArgumentType argType = (i == 0) ? ttcore::ArgumentType::Input
+                                              : ttcore::ArgumentType::Parameter;
+      newArgumentTypeAttrs.push_back(
+          ttcore::ArgumentTypeAttr::get(builder.getContext(), argType));
     }
 
     // Add new argument types to the function type
