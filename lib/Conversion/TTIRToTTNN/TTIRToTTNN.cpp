@@ -1015,12 +1015,18 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*compute_config=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
@@ -1113,6 +1119,11 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     // Transposed convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C).
     llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
@@ -1127,7 +1138,8 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*memoryConfig=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =

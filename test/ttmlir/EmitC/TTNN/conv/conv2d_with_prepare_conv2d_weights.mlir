@@ -34,7 +34,9 @@ func.func @conv2d_with_prepare_conv2d_weights(%arg0: tensor<1x32x32x64xbf16, #tt
             out_channels = 64 : i32,
             padding = array<i32: 2, 4>,
             stride = array<i32: 4, 8>,
-            weights_format = "OIHW"
+            weights_format = "OIHW",
+            input_dtype = #ttcore.supportedDataTypes<bf16>,
+            output_dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<64x16x3x3xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<1x1x576x64xbf16, #ttnn_layout2>
   "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<64x16x3x3xbf16, #ttnn_layout1>) -> ()
   %3 = "ttnn.from_device"(%1) : (tensor<1x1x1024x64xbf16, #ttnn_layout5>) -> tensor<1x1x1024x64xbf16, #ttnn_layout6>
@@ -43,7 +45,20 @@ func.func @conv2d_with_prepare_conv2d_weights(%arg0: tensor<1x32x32x64xbf16, #tt
   "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x1x1024x64xbf16, #ttnn_layout6>) -> ()
   %5 = "ttnn.to_device"(%4, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout7>, !ttnn.device) -> tensor<1x1x1024x64xbf16, #ttnn_layout8>
   "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x1x1024x64xbf16, #ttnn_layout7>) -> ()
-  %6 = "ttnn.conv2d"(%5, %2, %arg2, %0) <{batch_size = 1 : i32, dilation = array<i32: 2, 4>, groups = 4 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, padding = array<i32: 2, 4>, stride = array<i32: 4, 8>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout8>, tensor<1x1x576x64xbf16, #ttnn_layout2>, tensor<1x1x1x64xbf16, #ttnn_layout3>, !ttnn.device) -> tensor<1x1x32x64xbf16, #ttnn_layout4>
+  %6 = "ttnn.conv2d"(%5, %2, %arg2, %0)
+        <{
+          batch_size = 1 : i32,
+          dilation = array<i32: 2, 4>,
+          groups = 4 : i32,
+          in_channels = 64 : i32,
+          input_height = 32 : i32,
+          input_width = 32 : i32,
+          kernel_size = array<i32: 3, 3>,
+          out_channels = 64 : i32,
+          padding = array<i32: 2, 4>,
+          stride = array<i32: 4, 8>,
+          output_dtype = #ttcore.supportedDataTypes<bf16>
+        }> : (tensor<1x1x1024x64xbf16, #ttnn_layout8>, tensor<1x1x576x64xbf16, #ttnn_layout2>, tensor<1x1x1x64xbf16, #ttnn_layout3>, !ttnn.device) -> tensor<1x1x32x64xbf16, #ttnn_layout4>
   "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x1x1024x64xbf16, #ttnn_layout8>) -> ()
   "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x576x64xbf16, #ttnn_layout2>) -> ()
   "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x64xbf16, #ttnn_layout3>) -> ()

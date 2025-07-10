@@ -47,7 +47,8 @@ module attributes {} {
               output_padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
               groups = 1 : i32,
-              conv2d_config = #conv2d_config
+              conv2d_config = #conv2d_config,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<3x8x8x256xbf16, #ttnn_layout4>, tensor<256x256x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x256xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x300x256xbf16, #ttnn_layout3>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<3x8x8x256xbf16, #ttnn_layout4>) -> ()
     "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x256xbf16, #ttnn_layout2>) -> ()
