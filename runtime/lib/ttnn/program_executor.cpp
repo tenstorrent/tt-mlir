@@ -55,6 +55,7 @@
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/sort.h"
 #include "operations/trace/trace.h"
+#include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/perf.h"
