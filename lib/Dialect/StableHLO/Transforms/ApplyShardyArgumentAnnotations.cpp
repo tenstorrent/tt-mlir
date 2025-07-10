@@ -256,7 +256,7 @@ public:
 
     if (!sdyAnnotationsExist && !gspmdAnnotationsExist &&
         !ttArgAnnotationsExist && !automaticArgAnalysis) {
-      rootModule.emitError("Could not find sdy, gspmd, tt annotations and "
+      rootModule.emitWarning("Could not find sdy, gspmd, tt annotations and "
                            "automatic arg analysis is "
                            "disabled. Skipping pass.\n");
       return;

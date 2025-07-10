@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline --stablehlo-to-ttir-pipeline %s | FileCheck %s
 // UNSUPPORTED: true
 
 module @jit_loss_fsdp_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {

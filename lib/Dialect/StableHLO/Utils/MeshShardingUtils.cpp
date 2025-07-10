@@ -176,10 +176,9 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
 llvm::Expected<GSPMDMeshSharding>
 GSPMDMeshSharding::generate(llvm::StringRef opShardingStr,
                             llvm::StringRef operandShardingStr,
+                            mlir::tt::ttcore::MeshShardDirection shardDirection,
                             mlir::tt::ttcore::ShardStatus shardStatus) {
   // Need to parse GSPMD sharding string and fill out MeshSharding info.
-  mlir::tt::ttcore::MeshShardDirection shardDirection =
-      mlir::tt::ttcore::MeshShardDirection::ShardToFull;
   mlir::tt::ttcore::MeshShardType shardType =
       mlir::tt::ttcore::MeshShardType::Identity;
   llvm::SmallVector<int64_t> shardShape = {-1};
@@ -294,7 +293,7 @@ GSPMDMeshSharding::generate(llvm::StringRef opShardingStr,
 
   // Check if the input is already pre-sharded. If it is, override shardType to
   // Identity.
-  shardType = shardType == ttcore::MeshShardType::Identity
+  shardType = shardStatus == ttcore::ShardStatus::Sharded
                   ? ttcore::MeshShardType::Identity
                   : shardType;
 

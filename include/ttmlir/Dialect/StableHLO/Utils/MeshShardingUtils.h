@@ -71,7 +71,7 @@ class GSPMDMeshSharding : public MeshSharding {
 public:
   // Static factory method
   static llvm::Expected<GSPMDMeshSharding>
-  generate(llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr,
+  generate(llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr, mlir::tt::ttcore::MeshShardDirection shardDirection,
            mlir::tt::ttcore::ShardStatus shardStatus);
   GSPMDMeshSharding(mlir::tt::ttcore::MeshShardDirection shardDirection,
                     mlir::tt::ttcore::MeshShardType shardType,

@@ -1961,9 +1961,6 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    mlir::ModuleOp module = srcOp->getParentOfType<mlir::ModuleOp>();
-
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
@@ -1987,6 +1984,12 @@ public:
       return success();
     }
 
+    // Assign correct shard direction based on the call target name.
+    mlir::tt::ttcore::MeshShardDirection shardDirection = mlir::tt::ttcore::MeshShardDirection::FullToShard;
+    if (callTargetName == mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
+      shardDirection = mlir::tt::ttcore::MeshShardDirection::ShardToFull;
+    }
+
     // We want to extract the mhlo.sharding attribute from the
     // CustomCallOp.
     auto opShardingAttr =
@@ -1997,12 +2000,14 @@ public:
           srcOp, "Required to have mhlo.sharding attribute.");
     }
 
-    // We also want to extract the mhlo.sharding attribute from this op's
+    // We also want to extract the mhlo.sharding attribute and its shard status from this op's
     // @Sharding operand.
     auto shardingOperand = srcOp->getOperand(0);
     auto definingOp = shardingOperand.getDefiningOp<stablehlo::CustomCallOp>();
     auto operandShardingAttr = definingOp->getAttrOfType<mlir::StringAttr>(
         mlir::tt::sharding_utils::kXlaShardingAttr);
+    auto operandShardStatusAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(mlir::tt::ttcore::ShardStatusAttr::name);
 
     if (!operandShardingAttr) {
       return rewriter.notifyMatchFailure(
@@ -2013,8 +2018,8 @@ public:
     llvm::Expected<mlir::tt::sharding_utils::GSPMDMeshSharding>
         gspmdMeshSharding =
             mlir::tt::sharding_utils::GSPMDMeshSharding::generate(
-                opShardingAttr.getValue(), operandShardingAttr.getValue(),
-                mlir::tt::ttcore::ShardStatus::Unsharded);
+                opShardingAttr.getValue(), operandShardingAttr.getValue(), shardDirection,
+                operandShardStatusAttr.getValue());
     if (auto err = gspmdMeshSharding.takeError()) {
       return rewriter.notifyMatchFailure(
           srcOp, "Error trying to parse GSPMD annotation.");
@@ -2030,9 +2035,7 @@ public:
         gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
 
     // Erase the @Sharding op as well.
-    module.dump();
     rewriter.eraseOp(definingOp);
-    module.dump();
     return success();
   }
 

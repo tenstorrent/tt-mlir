@@ -151,9 +151,8 @@ public:
         shardy_utils::getMeshOps(rootModule);
 
     if (parsedMeshOps.size() == 0) {
-      rootModule.emitError(
+      rootModule.emitWarning(
           "Pass requires a shardy mesh op to be present in the root module.\n");
-      signalPassFailure();
       return;
     }
 

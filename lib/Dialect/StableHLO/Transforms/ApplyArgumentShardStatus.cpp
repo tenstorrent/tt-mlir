@@ -236,7 +236,7 @@ public:
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
     if (!gspmdAnnotationsExist && !sdyAnnotationsExist) {
-      rootModule.emitError("No sharding annotations found in the module. "
+      rootModule.emitWarning("No sharding annotations found in the module. "
                            "Skipping pass.\n");
       return;
     }
