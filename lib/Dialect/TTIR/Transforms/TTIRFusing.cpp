@@ -803,6 +803,45 @@ private:
   }
 };
 
+class PadPoolingFusionpattern : public mlir::OpRewritePattern<PoolingOp> {
+public:
+  using mlir::OpRewritePattern<PoolingOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(PoolingOp op, mlir::PatternRewriter &rewriter) const final {
+    PadOp padToCompare;
+    SmallVector<Value> newInputs;
+    for (Value value : op.getInputs()) {
+      if (!value.getDefiningOp<PadOp>()) {
+        return failure();
+      }
+
+      PadOp pad = value.getDefiningOp<PadOp>();
+      if (!padToCompare) {
+        padToCompare = pad;
+      }
+
+      if (pad.getPadding() != padToCompare.getPadding()) {
+        return failure();
+      }
+      newInputs.push_back(pad.getInput());
+    }
+
+    ArrayRef<int32_t> padding = padToCompare.getPadding();
+    SmallVector<int64_t> newPadding;
+    // We add the padding of the input to the ops current padding
+    // in the event the current PoolingOp already has non-zero padding
+    for (uint32_t i = 0; i < padding.size(); i++) {
+      newPadding.push_back(padding[i] + op.getPadding()[i]);
+    }
+    rewriter.replaceOpWithNewOp<PoolingOp>(
+        op, op.getResultTypes(), newInputs, op.getOutputs(),
+        op.getPoolingMethod(), op.getWindowDimensions(), op.getWindowStrides(),
+        op.getBaseDilations(), op.getWindowDilations(), newPadding);
+
+    return success();
+  }
+};
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -832,6 +871,8 @@ public:
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
       patterns.add<CacheFillUpdatePattern>(&getContext());
+
+      patterns.add<PadPoolingFusionpattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
