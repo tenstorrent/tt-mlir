@@ -6,13 +6,18 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
-#include <algorithm>
-
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult
 TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
                                              PatternRewriter &rewriter) const {
+  auto inputType = mlir::cast<RankedTensorType>(op.getOperand().getType());
+  auto inputLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  if (inputLayoutAttr.getDataType() != ttcore::DataType::Int32) {
+    return failure();
+  }
+
   Value device;
   if (op.getOperand().getDefiningOp()) {
     device = ttnn::utils::getOrInsertDevice(rewriter,
