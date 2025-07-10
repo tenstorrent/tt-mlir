@@ -1566,6 +1566,20 @@ public:
   }
 };
 
+class ConcatenateHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::ConcatenateHeadsOp> {
+public:
+  using OpConversionPattern<ttir::ConcatenateHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatenateHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ConcatenateHeadsOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), /*memory_config=*/nullptr);
+    return success();
+  }
+};
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
@@ -1768,6 +1782,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern
+           ConcatenateHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

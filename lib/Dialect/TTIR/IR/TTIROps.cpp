@@ -4467,6 +4467,76 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+// ConcatenateHeadsOp verification
+::mlir::LogicalResult mlir::tt::ttir::ConcatenateHeadsOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Input tensor must be 4D tensor [batch_size, num_heads, sequence_size,
+  // head_size].
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+
+  // Output tensor must be 2D or 3D tensor.
+  if (outputType.getRank() != 2 && outputType.getRank() != 3) {
+    return emitOpError("Expected rank of output tensor is 2 or 3, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // If output is 2D, add dimension 1 at the beginning for comparison
+  llvm::SmallVector<int64_t> adjustedOutputShape;
+  if (outputType.getRank() == 2) {
+    adjustedOutputShape = {1, outputShape[0], outputShape[1]};
+  } else {
+    adjustedOutputShape = {outputShape[0], outputShape[1], outputShape[2]};
+  }
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+  // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+  // Verify batch_size dimension matches
+  if (inputShape[INPUT_BATCH] != adjustedOutputShape[OUTPUT_BATCH]) {
+    return emitOpError("Expected output batch dimension to be ")
+           << inputShape[INPUT_BATCH] << ", got "
+           << adjustedOutputShape[OUTPUT_BATCH];
+  }
+
+  // Verify sequence_size dimension matches
+  if (inputShape[INPUT_SEQ] != adjustedOutputShape[OUTPUT_SEQ]) {
+    return emitOpError("Expected output sequence dimension to be ")
+           << inputShape[INPUT_SEQ] << ", got "
+           << adjustedOutputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != adjustedOutputShape[OUTPUT_HIDDEN]) {
+    return emitOpError("Expected output hidden dimension to be num_heads * "
+                       "head_size = ")
+           << expectedHiddenSize << ", got "
+           << adjustedOutputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
