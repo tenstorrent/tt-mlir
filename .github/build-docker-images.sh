@@ -6,10 +6,10 @@
 set -e
 
 REPO=tenstorrent/tt-mlir
-BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
-CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
-BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04
-IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
+BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04-debug
+CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04-debug
+BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04-debug
+IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04-debug
 CIBW_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-manylinux-2-34
 
 # Compute the hash of the Dockerfile
