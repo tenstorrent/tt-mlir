@@ -817,23 +817,23 @@ public:
         return failure();
       }
       if (!padToCompare) {
-        padToCompare = pad;
+        padToCompare = padOp;
       }
 
-      if (pad.getPadding() != padToCompare.getPadding()) {
+      if (padOp.getPadding() != padToCompare.getPadding()) {
         return failure();
       }
-      newInputs.push_back(pad.getInput());
+      newInputs.push_back(padOp.getInput());
     }
 
     ArrayRef<int32_t> padding = padToCompare.getPadding();
     SmallVector<int64_t> newPadding;
     // We add the padding of the input to the ops current padding
     // in the event the current PoolingOp already has non-zero padding
-    for (const auto [a, b]: llvm::zip_equal(padding, op.getPadding())) {
+    for (const auto [a, b] : llvm::zip_equal(padding, op.getPadding())) {
       newPadding.push_back(a + b);
     }
-    rewriter.modifyOpInPlace(op, [&](PoolingOp &op) {
+    rewriter.modifyOpInPlace(op, [&]() {
       op.getInputsMutable().assign(newInputs);
       op.setPadding(newPadding);
     });
