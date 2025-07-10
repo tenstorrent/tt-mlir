@@ -803,7 +803,7 @@ private:
   }
 };
 
-class PadPoolingFusionpattern : public mlir::OpRewritePattern<PoolingOp> {
+class PadPoolingFusionPattern : public mlir::OpRewritePattern<PoolingOp> {
 public:
   using mlir::OpRewritePattern<PoolingOp>::OpRewritePattern;
 
@@ -872,7 +872,7 @@ public:
       patterns.add<Conv2dWithMultiply>(&getContext());
       patterns.add<CacheFillUpdatePattern>(&getContext());
 
-      patterns.add<PadPoolingFusionpattern>(&getContext());
+      patterns.add<PadPoolingFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
