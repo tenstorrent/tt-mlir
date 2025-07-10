@@ -666,7 +666,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
 
-    DeviceAttr deviceAttr = lookupDevice(entry);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
 
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 

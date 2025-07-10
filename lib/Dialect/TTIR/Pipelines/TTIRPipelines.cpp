@@ -114,12 +114,13 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  OpPassManager &cpuPm =
+      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
-  mlir::tt::TTIRToTTIRDecompositionOptions ttirDecompOptions;
-  ttirDecompOptions.opsToDecompose = {"dot-general", "reduce-or"};
-  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(ttirDecompOptions));
+  mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
@@ -135,7 +136,7 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
 
   // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
   // TTIRToTosa + TosaToLinalg decomp.
-  cpuPm.addPass(transforms::createWorkaroundReenableDPS());
+  cpuPm.addPass(transforms::createReenableLostDPS());
 
   // Cleanup the funcs s.t. they don't return values.
   cpuPm.addPass(transforms::createRemoveReturnValues());
