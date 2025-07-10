@@ -214,17 +214,17 @@ getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
 }
 
 // Get dimensions from the dim_arg attribute; if the attribute is not present or
-// empty, return all dimensions
+// empty, return all dimensions.
 static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
   if (auto dimAttr = op->getAttrOfType<ArrayAttr>("dim_arg")) {
     if (dimAttr.size() == 0) {
-      // If dim_arg is present but empty, reduce along all dimensions
+      // If dim_arg is present but empty, reduce along all dimensions.
       SmallVector<int64_t> allDims(rank);
       std::iota(allDims.begin(), allDims.end(), 0);
       return allDims;
     }
 
-    // Otherwise, use the provided dimensions
+    // Otherwise, use the provided dimensions.
     SmallVector<int64_t> dims;
     for (auto dim : dimAttr) {
       if (auto intAttr = dyn_cast<IntegerAttr>(dim)) {
@@ -234,7 +234,7 @@ static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
     return dims;
   }
 
-  // If no dim_arg attribute, reduce along all dimensions
+  // If no dim_arg attribute, reduce along all dimensions.
   SmallVector<int64_t> allDims(rank);
   std::iota(allDims.begin(), allDims.end(), 0);
   return allDims;
@@ -246,6 +246,51 @@ static bool getKeepDimFromAttribute(Operation *op) {
     return keepDimAttr.getValue();
   }
   return false;
+}
+
+// Helper function to create a chain of reduction operations for multiple
+// dimensions
+template <typename ReductionOp>
+static Value createReductionOpChain(Value input, RankedTensorType resultType,
+                                    ArrayRef<int64_t> dims, bool keepDim,
+                                    Location loc,
+                                    ConversionPatternRewriter &rewriter) {
+  // Sort dimensions in descending order to avoid changing indices during
+  // reduction
+  SmallVector<int64_t> sortedDims(dims.begin(), dims.end());
+  std::sort(sortedDims.begin(), sortedDims.end(), std::greater<int64_t>());
+
+  Value result = input;
+  auto inputType = cast<RankedTensorType>(input.getType());
+
+  // For each dimension, create a reduction operation
+  for (size_t i = 0; i < sortedDims.size(); ++i) {
+    int64_t dim = sortedDims[i];
+
+    // Create the axis attribute for this dimension
+    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(dim));
+
+    // For the last dimension in our chain, use the final result type
+    // For intermediate dimensions, calculate the intermediate shape
+    RankedTensorType opResultType;
+    if (i == sortedDims.size() - 1) {
+      opResultType = resultType;
+    } else {
+      SmallVector<int64_t> shape(inputType.getShape().begin(),
+                                 inputType.getShape().end());
+      if (keepDim) {
+        shape[dim] = 1;
+      } else {
+        shape.erase(shape.begin() + dim);
+      }
+      opResultType = RankedTensorType::get(shape, inputType.getElementType());
+    }
+
+    // Create the reduction operation
+    result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
+  }
+
+  return result;
 }
 
 } // namespace
@@ -1144,86 +1189,6 @@ public:
 } // namespace
 
 namespace {
-// Helper function to get dimensions from the dim_arg attribute
-// If the attribute is not present or empty, return all dimensions
-static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
-  if (auto dimAttr = op->getAttrOfType<ArrayAttr>("dim_arg")) {
-    if (dimAttr.size() == 0) {
-      // If dim_arg is present but empty, reduce along all dimensions
-      SmallVector<int64_t> allDims(rank);
-      std::iota(allDims.begin(), allDims.end(), 0);
-      return allDims;
-    }
-
-    // Otherwise, use the provided dimensions
-    SmallVector<int64_t> dims;
-    for (auto dim : dimAttr) {
-      if (auto intAttr = dyn_cast<IntegerAttr>(dim)) {
-        dims.push_back(intAttr.getInt());
-      }
-    }
-    return dims;
-  }
-
-  // If no dim_arg attribute, reduce along all dimensions
-  SmallVector<int64_t> allDims(rank);
-  std::iota(allDims.begin(), allDims.end(), 0);
-  return allDims;
-}
-
-// Helper function to get keep_dim attribute
-static bool getKeepDimFromAttribute(Operation *op) {
-  if (auto keepDimAttr = op->getAttrOfType<BoolAttr>("keep_dim")) {
-    return keepDimAttr.getValue();
-  }
-  return false;
-}
-
-// Helper function to create a chain of reduction operations for multiple
-// dimensions
-template <typename ReductionOp>
-static Value createReductionOpChain(Value input, RankedTensorType resultType,
-                                    ArrayRef<int64_t> dims, bool keepDim,
-                                    Location loc,
-                                    ConversionPatternRewriter &rewriter) {
-  // Sort dimensions in descending order to avoid changing indices during
-  // reduction
-  SmallVector<int64_t> sortedDims(dims.begin(), dims.end());
-  std::sort(sortedDims.begin(), sortedDims.end(), std::greater<int64_t>());
-
-  Value result = input;
-  auto inputType = cast<RankedTensorType>(input.getType());
-
-  // For each dimension, create a reduction operation
-  for (size_t i = 0; i < sortedDims.size(); ++i) {
-    int64_t dim = sortedDims[i];
-
-    // Create the axis attribute for this dimension
-    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(dim));
-
-    // For the last dimension in our chain, use the final result type
-    // For intermediate dimensions, calculate the intermediate shape
-    RankedTensorType opResultType;
-    if (i == sortedDims.size() - 1) {
-      opResultType = resultType;
-    } else {
-      SmallVector<int64_t> shape(inputType.getShape().begin(),
-                                 inputType.getShape().end());
-      if (keepDim) {
-        shape[dim] = 1;
-      } else {
-        shape.erase(shape.begin() + dim);
-      }
-      opResultType = RankedTensorType::get(shape, inputType.getElementType());
-    }
-
-    // Create the reduction operation
-    result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
-  }
-
-  return result;
-}
-
 class MaxOpConversionPattern : public OpConversionPattern<ttir::MaxOp> {
 public:
   using OpConversionPattern<ttir::MaxOp>::OpConversionPattern;
