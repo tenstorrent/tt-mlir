@@ -22,13 +22,13 @@ def test_tilize(shape: Shape, request):
 
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, tilize=True),
+            output_type=builder.metal_tensor_layout(shape, tiled=True),
             unit_attrs=unit_attrs,
         )
 
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, tilize=False),
+            output_type=builder.metal_tensor_layout(shape, tiled=True),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )

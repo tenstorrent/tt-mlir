@@ -359,7 +359,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
     let builders = [
       // Builder with explicit AffineMap
-      OpBuilder<(ins "Value":$input, "AffineMap":$view, CArg<"bool", "false">:$reinterpretLayout)>,
+      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$outputShape, "AffineMap":$view, CArg<"bool", "false">:$reinterpretLayout)>,
 
       // Builder with reblocked shape (calculates map automatically)
       OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,

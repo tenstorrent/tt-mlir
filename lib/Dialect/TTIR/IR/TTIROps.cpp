@@ -2490,16 +2490,16 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   auto resultShape = resultType.getShape();
 
   if (viewMap.getNumDims() != resultShape.size()) {
-    return emitError("View map dimension count must match output rank.");
+    return emitOpError("view map dimension count must match output rank");
   }
 
   if (viewMap.getNumResults() != inputShape.size()) {
-    return emitError("View map result count must match input rank.");
+    return emitOpError("view map result count must match input rank");
   }
 
   // Verify a test point at the boundary gets mapped from input to output
   // correctly.
-  mlir::SmallVector<int64_t> testPoint(resultShape.begin(), resultShape.end());
+  mlir::SmallVector<int64_t> testPoint(resultShape);
   for (size_t i = 0; i < testPoint.size(); i++) {
     testPoint[i] = testPoint[i] > 0 ? testPoint[i] - 1 : 0;
   }
@@ -2511,68 +2511,45 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
 
   for (size_t i = 0; i < mappedPoint.size(); i++) {
     if (mappedPoint[i] < 0 || mappedPoint[i] >= inputShape[i]) {
-      return emitError("view map produces out-of-bounds indices");
+      return emitOpError("view_layout's view map does not correctly map input "
+                         "shape to output shape");
     }
   }
 
   return mlir::success();
 }
 
-// Builder with explicit AffineMap.
-void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
-                                         OperationState &state, Value input,
-                                         AffineMap view,
-                                         bool reinterpretLayout) {
+static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
+                                       mlir::Value input,
+                                       mlir::ArrayRef<int64_t> outputShape,
+                                       mlir::AffineMap view) {
+  auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
+  mlir::Type elementType = inputType.getElementType();
 
-  auto inputType = mlir::cast<ShapedType>(input.getType());
-  auto inputShape = inputType.getShape();
-
-  // Apply the view to get output shape.
-  SmallVector<int64_t> outputShape;
-  for (auto expr : view.getResults()) {
-    SmallVector<int64_t> dims(inputShape.begin(), inputShape.end());
-    outputShape.push_back(evaluateAffineExpr(expr, dims));
-  }
-
-  Type elementType = inputType.getElementType();
-  Type outputType;
-
-  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(inputType)) {
+  if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
     auto inputEncoding =
-        mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-    // For reblocking, we need to derive the new grid shape from the output.
-    size_t halfRank = outputShape.size() / 2;
-    ArrayRef<int64_t> outputGridShape =
-        ArrayRef<int64_t>(outputShape).take_front(halfRank);
+    // For reblocking, extract grid shape from outputShape.
+    const size_t halfRank = outputShape.size() / 2;
+    mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
 
-    // Create new encoding with the output grid shape
-    auto outputEncoding = ttcore::MetalLayoutAttr::get(
+    // Create new encoding with the output grid shape.
+    auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         outputGridShape.size(), inputEncoding.getOobVal(),
         inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
         inputEncoding.getDimAlignments());
 
-    // Derive physical shape with new grid.
-    auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
-        inputEncoding.getLogicalShape(), outputGridShape,
-        ttcore::getTensorTileShapeOrEmpty(tensorType),
-        outputEncoding.getCollapsedIntervals(),
-        outputEncoding.getDimAlignments());
-
-    outputType =
-        RankedTensorType::get(physicalShape, elementType, outputEncoding);
+    return mlir::RankedTensorType::get(outputShape, elementType,
+                                       outputEncoding);
   } else {
-    // For memrefs, apply ViewLayoutAttr directly.
-    auto memrefType = mlir::cast<MemRefType>(inputType);
-    auto viewAttr = ttcore::ViewLayoutAttr::get(builder.getContext(), view);
-    outputType = MemRefType::get(outputShape, elementType, viewAttr,
+    auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
+    auto viewAttr =
+        mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
+    return mlir::MemRefType::get(outputShape, elementType, viewAttr,
                                  memrefType.getMemorySpace());
   }
-
-  // Build with the view map stored as an attribute.
-  build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
-        builder.getBoolAttr(reinterpretLayout));
 }
 
 // Builder with reblocked shape.
@@ -2580,39 +2557,26 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
                                          OperationState &state, Value input,
                                          ArrayRef<int64_t> reblockedShape,
                                          bool reinterpretLayout) {
-  auto inputType = mlir::cast<ShapedType>(input.getType());
+  auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
 
   AffineMap view = calculateReblockMap(inputType.getShape(), reblockedShape,
                                        builder.getContext());
 
-  Type elementType = inputType.getElementType();
-  Type outputType;
-
-  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(inputType)) {
-    auto inputEncoding =
-        mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-
-    // For reblocking, extract grid shape from reblockedShape.
-    size_t halfRank = reblockedShape.size() / 2;
-    ArrayRef<int64_t> outputGridShape = reblockedShape.take_front(halfRank);
-
-    // Create new encoding with the output grid shape.
-    auto outputEncoding = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), inputEncoding.getLogicalShape(),
-        outputGridShape.size(), inputEncoding.getOobVal(),
-        inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
-        inputEncoding.getDimAlignments());
-
-    outputType =
-        RankedTensorType::get(reblockedShape, elementType, outputEncoding);
-  } else {
-    auto memrefType = mlir::cast<MemRefType>(inputType);
-    auto viewAttr = ttcore::ViewLayoutAttr::get(builder.getContext(), view);
-    outputType = MemRefType::get(reblockedShape, elementType, viewAttr,
-                                 memrefType.getMemorySpace());
-  }
+  Type outputType = createViewOutputType(builder, input, reblockedShape, view);
 
   // Build with the view map stored as an attribute.
+  build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
+        builder.getBoolAttr(reinterpretLayout));
+}
+
+// Builder with explicit AffineMap and output shape.
+void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
+                                         OperationState &state, Value input,
+                                         ArrayRef<int64_t> outputShape,
+                                         AffineMap view,
+                                         bool reinterpretLayout) {
+  Type outputType = createViewOutputType(builder, input, outputShape, view);
+
   build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
         builder.getBoolAttr(reinterpretLayout));
 }
@@ -2647,12 +2611,16 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
+  // Get the output shape from the current op's result type
+  auto outputType = mlir::cast<mlir::ShapedType>(getResult().getType());
+  auto outputShape = outputType.getShape();
+
   mlir::AffineMap viewMap = getViewMapAttr().getValue();
 
   // Create new bufferized ViewLayoutOp with the same view map.
   mlir::bufferization::replaceOpWithNewBufferizedOp<
-      mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, viewMap,
-                                    getReinterpretLayout());
+      mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, outputShape,
+                                    viewMap, getReinterpretLayout());
 
   return mlir::success();
 }
