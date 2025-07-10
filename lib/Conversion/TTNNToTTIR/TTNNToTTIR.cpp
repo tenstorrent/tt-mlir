@@ -51,7 +51,7 @@ public:
   using OpConversionPattern<ttnn::Conv2dOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttnn::Conv2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttnn::Conv2dOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     // let arguments = (ins AnyRankedTensor:$input,
@@ -65,33 +65,32 @@ public:
     //   DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr,
     //   "nullptr">:$flattened_compat_info);
 
-    // nhwc
-
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    uint64_t numSpatialDims = 4;
+    // uint64_t numSpatialDims = 4;
 
     // // These are the defaults intended by stablehlo when the attrs are not
     // // populated
-    DenseI64ArrayAttr windowStridesAttr =
-        adaptor.getStrideAttr()
-            ? toDenseI64ArrayAttr(adaptor.getStride(), rewriter)
-            : rewriter.getDenseI64ArrayAttr(
-                  SmallVector<int64_t>(numSpatialDims, 1));
-    SmallVector<int64_t, 4> padding = {
-        adaptor.getPadding()[0], adaptor.getPadding()[1],
-        adaptor.getPadding()[0], adaptor.getPadding()[1]};
-    DenseI64ArrayAttr paddingAttr = rewriter.getDenseI64ArrayAttr(padding);
-    DenseI64ArrayAttr inputDilationAttr =
-        rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(numSpatialDims, 1));
-    DenseI64ArrayAttr kernelDilationAttr =
-        adaptor.getDilationAttr()
-            ? toDenseI64ArrayAttr(adaptor.getDilation(), rewriter)
-            : rewriter.getDenseI64ArrayAttr(
-                  SmallVector<int64_t>(numSpatialDims, 1));
-    DenseBoolArrayAttr windowReversalAttr = rewriter.getDenseBoolArrayAttr(
-        SmallVector<bool>(numSpatialDims, false));
+    // DenseI64ArrayAttr windowStridesAttr =
+    //     adaptor.getStrideAttr()
+    //         ? toDenseI64ArrayAttr(adaptor.getStride(), rewriter)
+    //         : rewriter.getDenseI64ArrayAttr(
+    //               SmallVector<int64_t>(numSpatialDims, 1));
+    // SmallVector<int64_t, 4> padding = {
+    //     adaptor.getPadding()[0], adaptor.getPadding()[1],
+    //     adaptor.getPadding()[0], adaptor.getPadding()[1]};
+    // DenseI64ArrayAttr paddingAttr = rewriter.getDenseI64ArrayAttr(padding);
+    // DenseI64ArrayAttr inputDilationAttr =
+    //     rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(numSpatialDims,
+    //     1));
+    // DenseI64ArrayAttr kernelDilationAttr =
+    //     adaptor.getDilationAttr()
+    //         ? toDenseI64ArrayAttr(adaptor.getDilation(), rewriter)
+    //         : rewriter.getDenseI64ArrayAttr(
+    //               SmallVector<int64_t>(numSpatialDims, 1));
+    // DenseBoolArrayAttr windowReversalAttr = rewriter.getDenseBoolArrayAttr(
+    //     SmallVector<bool>(numSpatialDims, false));
 
     // let arguments = (ins
     //   AnyRankedTensor:$input,
@@ -122,18 +121,48 @@ public:
     //   ArrayRefParameter<"int64_t">:$outputSpatialDimensions
     // );
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
-        rewriter, op, outputType, adaptor.getInput(), adaptor.getWeight(),
-        Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
-        kernelDilationAttr, windowReversalAttr,
-        mlir::tt::ttir::ConvolutionLayoutAttr::get(
-            getContext(), 0, 3, llvm::SmallVector<int64_t, 2>{1, 2}, 0, 1,
-            llvm::SmallVector<int64_t, 2>{2, 3}, 0, 3,
-            llvm::SmallVector<int64_t, 2>{1, 2}),
-        mlir::IntegerAttr::get(rewriter.getI64Type(), 1),
-        mlir::IntegerAttr::get(rewriter.getI64Type(), 1));
+    // ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
+    //     rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getWeight(),
+    //     Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
+    //     kernelDilationAttr, windowReversalAttr,
+    //     mlir::tt::ttir::ConvolutionLayoutAttr::get(
+    //         getContext(), 0, 3, llvm::SmallVector<int64_t, 2>{1, 2}, 0, 1,
+    //         llvm::SmallVector<int64_t, 2>{2, 3}, 0, 3,
+    //         llvm::SmallVector<int64_t, 2>{1, 2}),
+    //     mlir::IntegerAttr::get(rewriter.getI64Type(), 1),
+    //     mlir::IntegerAttr::get(rewriter.getI64Type(), 1));
 
-    // rewriter.eraseOp(op);
+    //
+    //
+    // Convert to Conv2dOp instead of ConvolutionOp
+    //
+    //
+
+    // static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState
+    // &odsState, ::mlir::Type result, ::mlir::Value input, ::mlir::Value
+    // weight, /*optional*/::mlir::Value bias, ::mlir::Value output,
+    // ::mlir::Attribute stride, ::mlir::Attribute padding, ::mlir::Attribute
+    // dilation, ::mlir::IntegerAttr groups,
+    // ::mlir::tt::ttir::FlattenedCompatInfoAttr flattened_compat_info =
+    // nullptr);
+    //
+    // static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState
+    // &odsState, ::mlir::Type result, ::mlir::Value input, ::mlir::Value
+    // weight, /*optional*/::mlir::Value bias, ::mlir::Value output,
+    // ::mlir::Attribute stride, ::mlir::Attribute padding, ::mlir::Attribute
+    // dilation, uint32_t groups, ::mlir::tt::ttir::FlattenedCompatInfoAttr
+    // flattened_compat_info);
+
+    ttir::FlattenedCompatInfoAttr flattenedCompatInfoAttr =
+        ttir::FlattenedCompatInfoAttr::get(getContext(), adaptor.getBatchSize(),
+                                           adaptor.getInputHeight(),
+                                           adaptor.getInputWidth());
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::Conv2dOp>(
+        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), adaptor.getStrideAttr(), adaptor.getPaddingAttr(),
+        adaptor.getDilationAttr(), adaptor.getGroupsAttr(),
+        flattenedCompatInfoAttr);
 
     return success();
   }
@@ -208,17 +237,18 @@ public:
 } // namespace
 
 namespace {
-class MaxPool2dOpConversionPattern
-    : public OpConversionPattern<ttnn::MaxPool2dOp> {
+template <typename TTNNOpTy, typename TTIROpTy>
+class MaxPool2dOpConversionPattern : public OpConversionPattern<TTNNOpTy> {
 public:
-  using OpConversionPattern<ttnn::MaxPool2dOp>::OpConversionPattern;
+  using OpConversionPattern<TTNNOpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTNNOpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttnn::MaxPool2dOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(TTNNOpTy srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     // let arguments = (ins AnyRankedTensor:$input,
     //   AnyRankedTensor:$output,
@@ -236,13 +266,19 @@ public:
     //   DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr,
     //   "nullptr">:$flattened_compat_info);
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MaxPool2dOp>(
+    ttir::FlattenedCompatInfoAttr flattenedCompatInfoAttr =
+        ttir::FlattenedCompatInfoAttr::get(
+            this->getContext(), adaptor.getBatchSize(),
+            adaptor.getInputHeight(), adaptor.getInputWidth());
+
+    ttir::utils::replaceOpWithNewDPSOp<TTIROpTy>(
         rewriter, srcOp, outputType, adaptor.getInput(),
         adaptor.getKernelSize()[0], adaptor.getKernelSize()[1],
         adaptor.getStride()[0], adaptor.getStride()[1],
         adaptor.getDilation()[0], adaptor.getDilation()[1],
         adaptor.getCeilMode(), adaptor.getPadding()[0], adaptor.getPadding()[0],
-        adaptor.getPadding()[1], adaptor.getPadding()[1], nullptr);
+        adaptor.getPadding()[1], adaptor.getPadding()[1],
+        flattenedCompatInfoAttr);
 
     return success();
   }
@@ -362,8 +398,9 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<
            Conv2dOpConversionPattern,
           //  PoolingOpConversionPattern<ttnn::MaxPool2dOp>,
-           PoolingOpConversionPattern<ttnn::AvgPool2dOp>,
-           MaxPool2dOpConversionPattern,
+          //  PoolingOpConversionPattern<ttnn::AvgPool2dOp>,
+           MaxPool2dOpConversionPattern<ttnn::MaxPool2dOp, ttir::MaxPool2dOp>,
+           MaxPool2dOpConversionPattern<ttnn::AvgPool2dOp, ttir::AvgPool2dOp>,
            ReluOpConversionPattern,
            AddOpConversionPattern,
            TTNNToTTIRNamedFullConversionPattern<ttnn::OnesOp, ttir::OnesOp>,

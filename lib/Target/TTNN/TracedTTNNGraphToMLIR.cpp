@@ -254,6 +254,88 @@ inline std::pair<int, int> calculateOutputDims(int inputY, int inputX,
       {padding, padding, padding, padding}, dilation, ceilMode);
 }
 
+ModuleOp hoistInputTensorOps(ModuleOp module, OpBuilder &builder) {
+  // Find all functions in the module
+  module.walk([&](func::FuncOp funcOp) {
+    // Use a vector to maintain the order of tensor creation ops as they're
+    // encountered
+    llvm::SmallVector<Operation *> tensorCreationOps;
+    llvm::SmallVector<Value> newArguments;
+    llvm::SmallVector<Type> newArgumentTypes;
+    llvm::SmallVector<ttcore::ArgumentTypeAttr> newArgumentTypeAttrs;
+
+    // Set to track which ops we've already seen to avoid duplicates
+    llvm::DenseSet<Operation *> seenOps;
+
+    // Find all tensor creation operations in the function in traversal order
+    funcOp.walk([&](Operation *op) {
+      if (isa<ttnn::OnesOp, ttnn::ZerosOp, ttnn::EmptyOp, ttnn::FullOp>(op)) {
+        // Only add each op once
+        if (seenOps.insert(op).second) {
+          // Store the tensor creation op in order of traversal
+          tensorCreationOps.push_back(op);
+        }
+      }
+    });
+
+    // If no tensor creation ops found, return early
+    if (tensorCreationOps.empty()) {
+      return;
+    }
+
+    // Create a new function type with additional arguments for tensor creation
+    // ops
+    FunctionType oldFuncType = funcOp.getFunctionType();
+    llvm::SmallVector<Type> inputTypes(oldFuncType.getInputs().begin(),
+                                       oldFuncType.getInputs().end());
+    llvm::SmallVector<Type> resultTypes(oldFuncType.getResults().begin(),
+                                        oldFuncType.getResults().end());
+
+    // Collect types for new arguments in traversal order
+    for (Operation *op : tensorCreationOps) {
+      Value result = op->getResult(0);
+      newArguments.push_back(result);
+      newArgumentTypes.push_back(result.getType());
+      // Create tt ArgumentType attribute for the new argument
+      newArgumentTypeAttrs.push_back(ttcore::ArgumentTypeAttr::get(
+          builder.getContext(), ttcore::ArgumentType::Input));
+    }
+
+    // Add new argument types to the function type
+    inputTypes.append(newArgumentTypes.begin(), newArgumentTypes.end());
+    FunctionType newFuncType = builder.getFunctionType(inputTypes, resultTypes);
+
+    // Update function type
+    funcOp.setType(newFuncType);
+
+    // Add argument attributes for the new arguments
+    for (unsigned i = 0; i < newArgumentTypeAttrs.size(); ++i) {
+      unsigned argIndex = oldFuncType.getNumInputs() + i;
+      funcOp.setArgAttr(argIndex, newArgumentTypeAttrs[i].name,
+                        newArgumentTypeAttrs[i]);
+    }
+
+    // Create new block arguments for the tensor creation ops
+    Block &entryBlock = funcOp.getBlocks().front();
+    for (Type type : newArgumentTypes) {
+      entryBlock.addArgument(type, builder.getUnknownLoc());
+    }
+
+    // Replace uses of tensor creation op results with the new block arguments
+    for (unsigned i = 0; i < newArguments.size(); ++i) {
+      Value oldValue = newArguments[i];
+      Value newValue = entryBlock.getArgument(oldFuncType.getNumInputs() + i);
+      oldValue.replaceAllUsesWith(newValue);
+
+      // Erase the tensor creation op
+      Operation *op = tensorCreationOps[i];
+      op->erase();
+    }
+  });
+
+  return module;
+}
+
 OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
                                                      MLIRContext *context) {
 
@@ -303,6 +385,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
       static int counter = 0;
       counter++;
       if (counter > 99999) {
+        // if (counter > 10) {
         break;
       }
       if (const llvm::json::Object *nodeObj = node.getAsObject()) {
@@ -638,7 +721,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               RankedTensorType::get(outputShape, builder.getBF16Type(),
                                     layoutAttr),
               input, batch_size, input_h, input_w, channels, kernel_size,
-              stride, padding, /*dilation=*/1, /*memory_config=*/nullptr,
+              stride, padding, /*dilation=*/llvm::SmallVector<int32_t, 2>{1, 1},
+              /*memory_config=*/nullptr,
               /*applied_shard_scheme=*/nullptr, ceil_mode,
               /*in_place_halo=*/false);
           result = avgpool2dOp.getResult();
@@ -813,6 +897,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
   builder.create<func::ReturnOp>(builder.getUnknownLoc(), returnValues);
 
   // module->dump();
+
+  hoistInputTensorOps(module, builder);
 
   return module;
 }

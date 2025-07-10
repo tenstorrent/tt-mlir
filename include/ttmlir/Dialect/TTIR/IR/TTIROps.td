@@ -3522,75 +3522,75 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
-  let summary = "2D average pooling operation.";
-  let description = [{
-    The `avg_pool2d` operation applies a 2D average pooling over an input tensor composed of several input planes.
+    let summary = "2D average pooling operation.";
+    let description = [{
+      The `avg_pool2d` operation applies a 2D average pooling over an input tensor composed of several input planes.
 
-    This operation performs downsampling by dividing the input into local regions and computing the average value
-    of each region. It reduces the spatial dimensions (height and width) of an input tensor while preserving the
-    batch and channel dimensions. This is commonly used in neural networks to reduce the spatial size of feature maps.
+      This operation performs downsampling by dividing the input into local regions and computing the average value
+      of each region. It reduces the spatial dimensions (height and width) of an input tensor while preserving the
+      batch and channel dimensions. This is commonly used in neural networks to reduce the spatial size of feature maps.
 
-    Example:
-    ```mlir
-    // Basic 2D average pooling with a 2x2 kernel and stride 1
-    %input = ... : tensor<1x3x3x1xf32>  // 3x3 input tensor with values:
-                                        // [[[1, 2, 3],
-                                        //   [4, 5, 6],
-                                        //   [7, 8, 9]]]]
-    %output = ttir.empty() : tensor<1x2x2x1xf32>
-    %result = ttir.avg_pool2d(%input, %output) {
-        kernel_height = 2 : i32,
-        kernel_width = 2 : i32,
-        stride_height = 1 : i32,
-        stride_width = 1 : i32,
-        dilation_height = 1 : i32,
-        dilation_width = 1 : i32,
-        ceil_mode = false,
-        padding_left = 0 : i32,
-        padding_right = 0 : i32,
-        padding_top = 0 : i32,
-        padding_bottom = 0 : i32
-    } : tensor<1x3x3x1xf32>, tensor<1x2x2x1xf32> -> tensor<1x2x2x1xf32>
-    // Result: [[[3, 4],
-    //           [6, 7]]]]
-    // Where: 3 = (1+2+4+5)/4, 4 = (2+3+5+6)/4, 6 = (4+5+7+8)/4, 7 = (5+6+8+9)/4
-    ```
+      Example:
+      ```mlir
+      // Basic 2D average pooling with a 2x2 kernel and stride 1
+      %input = ... : tensor<1x3x3x1xf32>  // 3x3 input tensor with values:
+                                          // [[[1, 2, 3],
+                                          //   [4, 5, 6],
+                                          //   [7, 8, 9]]]]
+      %output = ttir.empty() : tensor<1x2x2x1xf32>
+      %result = ttir.avg_pool2d(%input, %output) {
+          kernel_height = 2 : i32,
+          kernel_width = 2 : i32,
+          stride_height = 1 : i32,
+          stride_width = 1 : i32,
+          dilation_height = 1 : i32,
+          dilation_width = 1 : i32,
+          ceil_mode = false,
+          padding_left = 0 : i32,
+          padding_right = 0 : i32,
+          padding_top = 0 : i32,
+          padding_bottom = 0 : i32
+      } : tensor<1x3x3x1xf32>, tensor<1x2x2x1xf32> -> tensor<1x2x2x1xf32>
+      // Result: [[[3, 4],
+      //           [6, 7]]]]
+      // Where: 3 = (1+2+4+5)/4, 4 = (2+3+5+6)/4, 6 = (4+5+7+8)/4, 7 = (5+6+8+9)/4
+      ```
 
-    Inputs:
-    - `input` (Tensor): Input tensor in NHWC format (batch, height, width, channels).
+      Inputs:
+      - `input` (Tensor): Input tensor in NHWC format (batch, height, width, channels).
 
-    Attributes:
-    - `kernel_height` (Integer): Height of the pooling kernel.
-    - `kernel_width` (Integer): Width of the pooling kernel.
-    - `stride_height` (Integer): Stride along the height dimension.
-    - `stride_width` (Integer): Stride along the width dimension.
-    - `dilation_height` (Integer): Dilation factor for height dimension.
-    - `dilation_width` (Integer): Dilation factor for width dimension.
-    - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
-    - `padding_left`, `padding_right`, `padding_top`, `padding_bottom` (Integer): Padding on each side.
+      Attributes:
+      - `kernel_height` (Integer): Height of the pooling kernel.
+      - `kernel_width` (Integer): Width of the pooling kernel.
+      - `stride_height` (Integer): Stride along the height dimension.
+      - `stride_width` (Integer): Stride along the width dimension.
+      - `dilation_height` (Integer): Dilation factor for height dimension.
+      - `dilation_width` (Integer): Dilation factor for width dimension.
+      - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
+      - `padding_left`, `padding_right`, `padding_top`, `padding_bottom` (Integer): Padding on each side.
 
-    Outputs:
-    - `result` (Tensor): Output tensor after average pooling.
-  }];
+      Outputs:
+      - `result` (Tensor): Output tensor after average pooling.
+    }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output,
-                       SI32Attr:$kernel_height,
-                       SI32Attr:$kernel_width,
-                       SI32Attr:$stride_height,
-                       SI32Attr:$stride_width,
-                       SI32Attr:$dilation_height,
-                       SI32Attr:$dilation_width,
-                       BoolAttr:$ceil_mode,
-                       SI32Attr:$padding_left,
-                       SI32Attr:$padding_right,
-                       SI32Attr:$padding_top,
-                       SI32Attr:$padding_bottom,
-                       DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$kernel_height,
+                         SI32Attr:$kernel_width,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         BoolAttr:$ceil_mode,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
+                         DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
-  let results = (outs AnyRankedTensor:$result);
+    let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 1;
+    let hasVerifier = 1;
 }
 
 def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
