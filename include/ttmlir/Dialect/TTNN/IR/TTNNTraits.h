@@ -108,7 +108,7 @@ public:
     RankedTensorType output =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
     TTNNLayoutAttr outputLayoutAttr =
-        mlir::dyn_cast<TTNNLayoutAttr>(output.getEncoding());
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(output.getEncoding());
 
     // If output layout isn't present, skip the verification.
     if (!outputLayoutAttr) {

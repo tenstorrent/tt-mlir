@@ -43,6 +43,13 @@ public:
               rewriter.getAttr<ttnn::BufferTypeAttr>(
                   inputLayoutAttr.getBufferType()),
               utils::createShardSpecIfNeeded(inputLayoutAttr, deviceGrid));
+      auto inputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+          &getContext(), inputLayoutAttr.getDataType());
+
+      auto outputLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(conv2dOp.getType().getEncoding());
+      auto outputDtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
+          outputLayoutAttr.getDataType());
 
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
@@ -58,8 +65,8 @@ public:
               conv2dOp.getKernelSizeAttr(), conv2dOp.getStrideAttr(),
               conv2dOp.getPaddingAttr(), conv2dOp.getDilationAttr(),
               rewriter.getBoolAttr(conv2dOp.getBias() != nullptr),
-              conv2dOp.getGroupsAttr(), conv2dOp.getDevice(),
-              conv2dOp.getConv2dConfigAttr());
+              conv2dOp.getGroupsAttr(), conv2dOp.getDevice(), inputDtypeAttr,
+              outputDtypeAttr, conv2dOp.getConv2dConfigAttr());
 
       // Update only the weight operand since PrepareConv2dWeightsOp will change
       // the shape and layout of the weight

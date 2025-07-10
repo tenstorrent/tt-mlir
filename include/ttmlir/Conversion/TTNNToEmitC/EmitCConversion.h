@@ -1022,11 +1022,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 
     bool firstElement = true;
     rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
-    if (attr.getDtype()) {
-      rso << (firstElement ? "" : ", ") << ".dtype = "
-          << EmitCTypeConverter<::ttnn::DataType>::convert(*attr.getDtype());
-      firstElement = false;
-    }
     if (attr.getWeightsDtype()) {
       rso << (firstElement ? "" : ", ") << ".weights_dtype = "
           << EmitCTypeConverter<::ttnn::DataType>::convert(
@@ -1494,31 +1489,6 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
-  }
-
-  // TODO (azecevic): This is a temporary solution for handling the case when
-  // the value of the Conv2dConfigAttr is nullptr. This should be removed once
-  // https://github.com/tenstorrent/tt-mlir/issues/2852 lands.
-  mlir::Attribute getConv2dConfig(mlir::Value input, mlir::Value weight) {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-
-    auto inputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-    auto weightLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
-
-    ttcore::DataType inputDataType = inputLayoutAttr.getDataType();
-    ttcore::DataType weightDataType = weightLayoutAttr.getDataType();
-
-    std::string buf;
-    llvm::raw_string_ostream rso(buf);
-    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
-    rso << ".dtype = " << convert(inputDataType) << ", ";
-    rso << ".weights_dtype = " << convert(weightDataType);
-    rso << "}";
-
-    return rewriter.getType<emitc::OpaqueAttr>(buf);
   }
 
 private:

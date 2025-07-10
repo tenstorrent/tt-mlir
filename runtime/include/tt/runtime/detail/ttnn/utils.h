@@ -79,10 +79,6 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 
-::ttnn::MeshShape
-getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
-                       const std::vector<::ttnn::Tensor> &tensorShards);
-
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 
 ::ttnn::TensorSpec createTensorSpec(

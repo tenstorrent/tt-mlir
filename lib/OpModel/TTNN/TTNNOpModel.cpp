@@ -318,7 +318,6 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
     // TODO(#2441): Need to match tensor dtypes with conv2d config.
     // This will be fixed on IR side shortly.
-    localConfig.dtype = inputSpec.data_type();
     localConfig.weights_dtype = weightTensor.dtype();
   } else {
     localConfig = *conv2dConfigConverted;
@@ -337,7 +336,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig,
+        hasBias, groups, device, /*input_dtype=*/weightTensor.dtype(),
+        /*output_dtype=*/weightTensor.dtype(), localConfig,
         /* compute_config_ */ std::nullopt,
         /* dram_slice_config_ */ std::nullopt);
   };
@@ -354,7 +354,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig,
+        hasBias, groups, device, /*input_dtype=*/weightTensor.dtype(),
+        /*output_dtype=*/weightTensor.dtype(), localConfig,
         /* compute_config_ */ std::nullopt,
         /* mirror_kernel */ true);
   };
@@ -1777,7 +1778,6 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
       localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
-      localConfig.dtype = inputSpec.data_type();
       localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
@@ -1791,8 +1791,8 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, biasTensor, localConfig, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        groups, /*dtype=*/inputSpec.data_type(), biasTensor, localConfig,
+        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(
@@ -1858,7 +1858,6 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
       localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
-      localConfig.dtype = inputSpec.data_type();
       localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
@@ -1872,8 +1871,8 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, biasTensor, localConfig, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        groups, /*dtype=*/inputSpec.data_type(), biasTensor, localConfig,
+        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime("Conv2dOpInterface", conv2dOpQuery);
@@ -1942,7 +1941,6 @@ llvm::Expected<OpConstraints> ConvTranspose2dOpInterface::getOpConstraints(
       localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
-      localConfig.dtype = inputSpec.data_type();
       localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
@@ -1956,7 +1954,8 @@ llvm::Expected<OpConstraints> ConvTranspose2dOpInterface::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, biasTensor, localConfig, /* compute_config */ std::nullopt,
+        groups, /*dtype=*/inputSpec.data_type(), biasTensor, localConfig,
+        /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2024,7 +2023,6 @@ llvm::Expected<size_t> ConvTranspose2dOpInterface::getOpRuntime(
       localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
-      localConfig.dtype = inputSpec.data_type();
       localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
@@ -2038,7 +2036,8 @@ llvm::Expected<size_t> ConvTranspose2dOpInterface::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, biasTensor, localConfig, /* compute_config */ std::nullopt,
+        groups, /*dtype=*/inputSpec.data_type(), biasTensor, localConfig,
+        /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
