@@ -812,11 +812,10 @@ public:
     PadOp padToCompare;
     SmallVector<Value> newInputs;
     for (Value value : op.getInputs()) {
-      if (!value.getDefiningOp<PadOp>()) {
+      PadOp padOp = value.getDefiningOp<PadOp>();
+      if (!padOp) {
         return failure();
       }
-
-      PadOp pad = value.getDefiningOp<PadOp>();
       if (!padToCompare) {
         padToCompare = pad;
       }
