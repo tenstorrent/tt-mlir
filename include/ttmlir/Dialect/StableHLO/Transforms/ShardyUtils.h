@@ -6,6 +6,8 @@
 #define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -222,9 +224,29 @@ inline void removeSdyTensorShardings(MLIRContext *context,
   // Remove sharding annotations from arguments
   for (auto arg : funcOp.getArguments()) {
     if (auto argAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
-      funcOp.setArgAttrs(arg.getArgNumber(),
-                         sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
-                             context, argAttrDict));
+      // (todo: tapspatel) - https://github.com/tenstorrent/tt-mlir/issues/4047
+      // Ideally we do not want to depend on sharding annotations to determine
+      // shard status. However, this will require refactoring changes in shlo ->
+      // ttir conversion so not removing the sharding annotations is a
+      // workaround for now.
+      const auto shardStatusName = mlir::tt::ttcore::ShardStatusAttr::name;
+
+      // Check for missing or explicitly unsharded shard status.
+      auto attr = argAttrDict.get(shardStatusName);
+      auto statusAttr =
+          mlir::dyn_cast_if_present<mlir::tt::ttcore::ShardStatusAttr>(attr);
+      bool isUnsharded =
+          statusAttr &&
+          statusAttr.getValue() == mlir::tt::ttcore::ShardStatus::Unsharded;
+
+      if (!attr || isUnsharded) {
+        // Remove the sdy.sharding annotation from the argument.
+        funcOp.setArgAttrs(
+            arg.getArgNumber(),
+            sdy_utils::removeDictionaryAttrSdyShardingAnnotations(context,
+                                                                  argAttrDict));
+        continue;
+      }
     }
   }
 
@@ -233,9 +255,28 @@ inline void removeSdyTensorShardings(MLIRContext *context,
   for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
     if (auto resultAttrDict =
             mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i))) {
-      funcOp.setResultAttrs(
-          i, sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
-                 context, resultAttrDict));
+      // (todo: tapspatel) - https://github.com/tenstorrent/tt-mlir/issues/4047
+      // Ideally we do not want to depend on sharding annotations to determine
+      // shard status. However, this will require refactoring changes in shlo ->
+      // ttir conversion so not removing the sharding annotations is a
+      // workaround for now.
+      const auto shardStatusName = mlir::tt::ttcore::ShardStatusAttr::name;
+
+      // Check for missing or explicitly unsharded shard status.
+      auto attr = resultAttrDict.get(shardStatusName);
+      auto statusAttr =
+          mlir::dyn_cast_if_present<mlir::tt::ttcore::ShardStatusAttr>(attr);
+      bool isUnsharded =
+          statusAttr &&
+          statusAttr.getValue() == mlir::tt::ttcore::ShardStatus::Unsharded;
+
+      if (!attr || isUnsharded) {
+        // Remove the sdy.sharding annotation from the argument.
+        funcOp.setResultAttrs(
+            i, sdy_utils::removeDictionaryAttrSdyShardingAnnotations(
+                   context, resultAttrDict));
+        continue;
+      }
     }
   }
 
