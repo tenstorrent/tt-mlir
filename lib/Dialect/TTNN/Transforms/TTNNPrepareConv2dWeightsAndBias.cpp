@@ -78,7 +78,7 @@ public:
         ttnn::TTNNLayoutAttr biasLayoutAttr =
             mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
         auto biasDtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
-          biasLayoutAttr.getDataType());
+            biasLayoutAttr.getDataType());
         assert(biasLayoutAttr.getBufferType() ==
                    ttnn::BufferType::SystemMemory &&
                biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
@@ -105,11 +105,12 @@ public:
             conv2dOp.getInputWidthAttr(), conv2dOp.getKernelSizeAttr(),
             conv2dOp.getStrideAttr(), conv2dOp.getPaddingAttr(),
             conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
-            conv2dOp.getDevice(), inputDtypeAttr, biasDtypeAttr,  conv2dConfig);
+            conv2dOp.getDevice(), inputDtypeAttr, biasDtypeAttr, conv2dConfig);
       }
 
       // Update only the weight and bias since PrepareConv2dWeightsOp and
-      // PrepareConv2dBiasOp will change the shape and layout of the weight and bias.
+      // PrepareConv2dBiasOp will change the shape and layout of the weight and
+      // bias.
       rewriter.modifyOpInPlace(conv2dOp, [&]() {
         conv2dOp.getWeightMutable().assign(prepareConv2dWeightsOp);
 
