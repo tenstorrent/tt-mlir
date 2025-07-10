@@ -2557,10 +2557,8 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
   }
 
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError()
-           << "CQ ID must be 0 or 1 for copy host to device tensor op, got: "
-           << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
   }
 
   return ::mlir::success();
@@ -2569,6 +2567,32 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 //===----------------------------------------------------------------------===//
 // TraceOps
 //===----------------------------------------------------------------------===//
+
+static ::mlir::LogicalResult verifyTraceIdTensor(Value traceId) {
+  if (!traceId) {
+    return ::mlir::emitError(traceId.getLoc()) << "Trace ID must be set";
+  }
+  if (!mlir::isa<mlir::RankedTensorType>(traceId.getType())) {
+    return ::mlir::emitError(traceId.getLoc())
+           << "Trace ID must be a ranked tensor type";
+  }
+  auto traceIdTensor = mlir::cast<mlir::RankedTensorType>(traceId.getType());
+  if (traceIdTensor.getRank() != 0) {
+    return ::mlir::emitError(traceId.getLoc()) << "Trace ID must be a scalar";
+  }
+  if (!mlir::isa<mlir::IntegerType>(traceIdTensor.getElementType())) {
+    return ::mlir::emitError(traceId.getLoc()) << "Trace ID must be an integer";
+  }
+  if (traceIdTensor.getElementType().getIntOrFloatBitWidth() != 32) {
+    return ::mlir::emitError(traceId.getLoc())
+           << "Trace ID must be of type i32";
+  }
+  if (isTensorOnDevice(traceIdTensor)) {
+    return ::mlir::emitError(traceId.getLoc())
+           << "Trace ID must be on system memory";
+  }
+  return ::mlir::success();
+}
 
 static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
                                               ::mlir::ValueRange opValues,
@@ -2607,9 +2631,13 @@ void BeginTraceCaptureOp::getEffects(
     return emitOpError() << "Device must be set for begin trace capture op";
   }
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError()
-           << "CQ ID must be 0 or 1 for begin trace capture op, got: " << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
+  }
+
+  ::mlir::LogicalResult traceIdResult = verifyTraceIdTensor(this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
   }
 
   return ::mlir::success();
@@ -2629,9 +2657,13 @@ void EndTraceCaptureOp::getEffects(
     return emitOpError() << "Device must be set for end trace capture op";
   }
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError()
-           << "CQ ID must be 0 or 1 for end trace capture op, got: " << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
+  }
+
+  ::mlir::LogicalResult traceIdResult = verifyTraceIdTensor(this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
   }
 
   return ::mlir::success();
@@ -2651,9 +2683,13 @@ void ExecuteTraceOp::getEffects(
     return emitOpError() << "Device must be set for execute trace op";
   }
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError() << "CQ ID must be 0 or 1 for execute trace op, got: "
-                         << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
+  }
+
+  ::mlir::LogicalResult traceIdResult = verifyTraceIdTensor(this->getTraceId());
+  if (failed(traceIdResult)) {
+    return traceIdResult;
   }
 
   return ::mlir::success();
@@ -2693,39 +2729,6 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
-  // Verify trace function ID matches between the op and capture/execute callee
-  // functions
-  uint64_t myTraceFuncId = this->getTraceFuncId();
-  auto captureTraceFuncIdAttr = captureFuncOp->getAttr("trace_func_id");
-  if (!captureTraceFuncIdAttr) {
-    return emitOpError()
-           << "Capture callee function does not have trace function ID";
-  }
-  if (!mlir::isa<IntegerAttr>(captureTraceFuncIdAttr)) {
-    return emitOpError() << "Trace function ID is not an integer";
-  }
-  uint64_t captureTraceFuncId =
-      mlir::cast<IntegerAttr>(captureTraceFuncIdAttr).getValue().getZExtValue();
-  if (captureTraceFuncId != myTraceFuncId) {
-    return emitOpError() << "Trace function ID does not match between the op "
-                            "and capture callee functions";
-  }
-
-  auto executeTraceFuncIdAttr = executeFuncOp->getAttr("trace_func_id");
-  if (!executeTraceFuncIdAttr) {
-    return emitOpError()
-           << "Execute callee function does not have trace function ID";
-  }
-  if (!mlir::isa<IntegerAttr>(executeTraceFuncIdAttr)) {
-    return emitOpError() << "Trace function ID is not an integer";
-  }
-  uint64_t executeTraceFuncId =
-      mlir::cast<IntegerAttr>(executeTraceFuncIdAttr).getValue().getZExtValue();
-  if (executeTraceFuncId != myTraceFuncId) {
-    return emitOpError() << "Trace function ID does not match between the op "
-                            "and execute callee functions";
-  }
-
   return ::mlir::success();
 }
 
@@ -2736,8 +2739,8 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   uint32_t cqId = this->getCqId();
-  if (cqId != 0 && cqId != 1) {
-    return emitOpError() << "CQ ID must be 0 or 1 for trace op, got: " << cqId;
+  if (llvm::find(VALID_CQ_IDS, cqId) == VALID_CQ_IDS.end()) {
+    return emitOpError() << "Invalid CQ ID " << cqId;
   }
 
   // Verify that the callee exists and has the right type.

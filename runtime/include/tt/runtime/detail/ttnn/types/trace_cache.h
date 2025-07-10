@@ -30,15 +30,21 @@ public:
   TraceCache(TraceCache &&) = delete;
   TraceCache &operator=(TraceCache &&) = delete;
 
-  bool contains(uint64_t binaryId, uint64_t traceFuncId) const;
-  TraceData *get(uint64_t binaryId, uint64_t traceFuncId);
-  void insert(uint64_t binaryId, uint64_t traceFuncId,
-              const TraceData &traceData);
-  void erase(uint64_t binaryId, uint64_t traceFuncId);
+  bool contains(uint64_t binaryId, size_t mainProgramId,
+                size_t captureProgramId, size_t executeProgramId) const;
+  TraceData *get(uint64_t binaryId, size_t mainProgramId,
+                 size_t captureProgramId, size_t executeProgramId);
+  void insert(uint64_t binaryId, size_t mainProgramId, size_t captureProgramId,
+              size_t executeProgramId, const TraceData &traceData);
+  void erase(uint64_t binaryId, size_t mainProgramId);
+  void erase(uint64_t binaryId, size_t mainProgramId, size_t captureProgramId,
+             size_t executeProgramId);
 
 private:
   std::weak_ptr<::ttnn::MeshDevice> meshDevice;
-  std::unordered_map<TraceCacheKey, TraceData> cache;
+  std::unordered_map<MainProgramKey,
+                     std::unordered_map<TraceCaptureExecuteKey, TraceData>>
+      cache;
 };
 } // namespace tt::runtime::ttnn
 

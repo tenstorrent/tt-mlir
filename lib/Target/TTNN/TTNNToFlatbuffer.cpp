@@ -1719,30 +1719,68 @@ createOp(FlatbufferObjectCache &cache, CopyHostToDeviceTensorOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::BeginTraceCaptureOp>
 createOp(FlatbufferObjectCache &cache, BeginTraceCaptureOp op) {
   ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
-  uint64_t traceId = op.getTraceFuncId();
+  auto traceIdTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTraceId()));
   uint32_t cqId = op.getCqId();
   return ::tt::target::ttnn::CreateBeginTraceCaptureOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceId, cqId);
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceIdTensor,
+      cqId);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EndTraceCaptureOp>
 createOp(FlatbufferObjectCache &cache, EndTraceCaptureOp op) {
   ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
-  uint64_t traceId = op.getTraceFuncId();
+  auto traceIdTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTraceId()));
   uint32_t cqId = op.getCqId();
   return ::tt::target::ttnn::CreateEndTraceCaptureOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceId, cqId);
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceIdTensor,
+      cqId);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ExecuteTraceOp>
 createOp(FlatbufferObjectCache &cache, ExecuteTraceOp op) {
   ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
-  uint64_t traceId = op.getTraceFuncId();
+  auto traceIdTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTraceId()));
   uint32_t cqId = op.getCqId();
   bool blocking = op.getBlocking();
   return ::tt::target::ttnn::CreateExecuteTraceOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceId, cqId,
-      blocking);
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), traceIdTensor,
+      cqId, blocking);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::CaptureOrExecuteTraceOp>
+createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+
+  ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  for (auto input : op.getInputs()) {
+    inputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto captureIt = programIndexMap.find(op.getCaptureCallee().str());
+  assert(captureIt != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t captureProgramIdx = captureIt->second;
+
+  auto executeIt = programIndexMap.find(op.getExecuteCallee().str());
+  assert(executeIt != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t executeProgramIdx = executeIt->second;
+
+  return ::tt::target::ttnn::CreateCaptureOrExecuteTraceOpDirect(
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), captureProgramIdx,
+      executeProgramIdx, &inputs, &outputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -2216,6 +2254,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto executeTraceOp = dyn_cast<ExecuteTraceOp>(op); executeTraceOp) {
     return createOperation(cache, createOp(cache, executeTraceOp), debugString,
                            locInfo);
+  }
+  if (auto captureOrExecuteTraceOp = dyn_cast<CaptureOrExecuteTraceOp>(op);
+      captureOrExecuteTraceOp) {
+    return createOperation(
+        cache, createOp(cache, captureOrExecuteTraceOp, programIndexMap),
+        debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

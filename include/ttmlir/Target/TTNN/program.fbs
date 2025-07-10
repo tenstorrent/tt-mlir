@@ -29,6 +29,7 @@ union OpType {
   ArangeOp,
   BatchNormOp,
   BeginTraceCaptureOp,
+  CaptureOrExecuteTraceOp,
   CollectivePermuteOp,
   ConcatOp,
   ConstantOp,

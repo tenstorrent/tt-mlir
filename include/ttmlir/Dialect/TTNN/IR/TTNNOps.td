@@ -2141,16 +2141,13 @@ def TTNN_CopyHostToDeviceTensorOp : TTNN_InplaceOp<"copy_host_to_device_tensor">
 def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
   let summary = "Begin trace capture.";
   let description = [{
-    Begins trace capture. The trace_func_id is the unique identifier of the trace.
-    It is NOT the same as the TTNN trace id generated at runtime. This trace_func_id
-    is used to identify the trace at runtime by mapping this trace_func_id to the
-    runtime TTNN trace id. BeginTraceCapture, EndTraceCapture, ExecuteTrace ops
-    that correspond to the same trace will share the same unique trace_func_id.
+    Begins trace capture. Returns a scalar tensor containing the trace id.
   }];
 
   let arguments = (ins TTNN_Device:$device,
-                       UI64Attr:$trace_func_id,
                        UI32Attr:$cq_id);
+
+  let results = (outs AnyRankedTensor:$trace_id);
 
   let hasVerifier = 1;
 }
@@ -2158,12 +2155,12 @@ def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
 def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
   let summary = "End trace capture.";
   let description = [{
-    Ends trace capture.
+    Ends trace capture for the given trace id. Consumes a scalar tensor containing the trace id.
   }];
 
 
   let arguments = (ins TTNN_Device:$device,
-                       UI64Attr:$trace_func_id,
+                       AnyRankedTensor:$trace_id,
                        UI32Attr:$cq_id);
 
   let hasVerifier = 1;
@@ -2172,13 +2169,11 @@ def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
 def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
   let summary = "Execute trace.";
   let description = [{
-    Executes the captured trace. $trace_func_name is the unique function name of the trace which is generated
-    by the compiler for TTNN_CaptureOrExecuteTraceOp. Runtime will look up the actual device trace id
-    based on the unique $trace_func_name.
+    Executes the captured trace. Consumes a scalar tensor containing the trace id.
   }];
 
   let arguments = (ins TTNN_Device:$device,
-                       UI64Attr:$trace_func_id,
+                       AnyRankedTensor:$trace_id,
                        UI32Attr:$cq_id,
                        BoolAttr:$blocking);
 
@@ -2192,10 +2187,11 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   }];
 
   let arguments = (ins TTNN_Device:$device,
-                       UI64Attr:$trace_func_id,
                        FlatSymbolRefAttr:$capture_callee,
                        FlatSymbolRefAttr:$execute_callee,
                        Variadic<AnyRankedTensor>:$inputs);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let hasVerifier = 1;
 }

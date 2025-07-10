@@ -13,25 +13,18 @@ namespace tt::runtime::ttnn::operations::trace {
 
 void run(const ::tt::target::ttnn::ExecuteTraceOp *op,
          ProgramContext &context) {
-  ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  std::shared_ptr<::tt::runtime::ttnn::TraceCache> traceCache =
-      deviceHandle.getTraceCache()
-          ->asSharedPtr<::tt::runtime::ttnn::TraceCache>(DeviceRuntime::TTNN);
-  LOG_ASSERT(traceCache, "TraceCache must be initialized in DeviceHandle");
-
-  uint64_t binaryId = context.getExecutableHandle().id();
-  uint64_t traceFuncId = op->trace_func_id();
-  TraceData *traceData = traceCache->get(binaryId, traceFuncId);
-  LOG_ASSERT(traceData, "Trace does not exist for binary_id ", binaryId,
-             " traceFuncId ", traceFuncId);
-
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   ::ttnn::QueueId ttnnCqId = ::ttnn::QueueId(op->cq_id());
+
+  const ::ttnn::Tensor &traceIdTensor =
+      context.getTensorPool().getTTNNTensorAndValidate(op->trace_id());
+  std::vector<uint32_t> traceIdVec = traceIdTensor.to_vector<uint32_t>();
+  LOG_ASSERT(traceIdVec.size() == 1, "Trace ID must be a single value");
+  ::ttnn::MeshTraceId traceId(traceIdVec[0]);
+
   // Execute the trace
-  ::ttnn::operations::trace::execute_trace(&meshDevice, traceData->traceId,
-                                           ttnnCqId, op->blocking());
+  ::ttnn::operations::trace::execute_trace(&meshDevice, traceId, ttnnCqId,
+                                           op->blocking());
 }
 
 } // namespace tt::runtime::ttnn::operations::trace

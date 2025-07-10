@@ -157,7 +157,7 @@ size_t getDramSizePerChannel(Device meshDevice);
 size_t getL1SizePerCore(Device meshDevice);
 
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
-                  std::uint64_t traceFuncId);
+                  size_t mainProgramId);
 
 void wait(Event event);
 

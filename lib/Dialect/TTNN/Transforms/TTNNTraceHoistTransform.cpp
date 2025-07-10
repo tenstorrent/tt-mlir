@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
@@ -134,7 +135,7 @@ private:
     builder.setInsertionPoint(funcOp);
     auto traceFuncOp = builder.create<func::FuncOp>(
         funcOp.getLoc(), traceFuncName, traceFuncType);
-    traceFuncOp->setAttr(utils::g_TTNNTraceAttrName, builder.getUnitAttr());
+    traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
 
     // Build the body of the new function
     auto *traceFuncEntryBlock = traceFuncOp.addEntryBlock();

@@ -612,10 +612,10 @@ size_t getL1SizePerCore(Device meshDevice) {
 }
 
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
-                  std::uint64_t traceFuncId) {
+                  size_t mainProgramId) {
   ::tt::runtime::ttnn::TraceCache &traceCache =
       meshDevice.getTraceCache()->as<TraceCache>(DeviceRuntime::TTNN);
-  traceCache.erase(binaryId, traceFuncId);
+  traceCache.erase(binaryId, mainProgramId);
 }
 
 void deallocateBuffers(Device deviceHandle) {

@@ -251,9 +251,4 @@ std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   return opNames;
 }
 
-std::uint64_t getNextTraceFuncId() {
-  static std::atomic<uint64_t> id{0};
-  return id.fetch_add(1, std::memory_order_relaxed);
-}
-
 } // namespace mlir::tt::ttnn::utils

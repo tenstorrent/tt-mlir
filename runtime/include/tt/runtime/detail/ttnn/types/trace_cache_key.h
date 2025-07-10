@@ -10,16 +10,32 @@
 
 namespace tt::runtime::ttnn {
 
-class TraceCacheKey {
+class MainProgramKey {
 public:
   uint64_t binaryId;
-  uint64_t traceFuncId;
+  size_t mainProgramId;
 
-  TraceCacheKey(uint64_t binaryId, uint64_t traceFuncId)
-      : binaryId(binaryId), traceFuncId(traceFuncId) {}
+  MainProgramKey(uint64_t binaryId, size_t mainProgramId)
+      : binaryId(binaryId), mainProgramId(mainProgramId) {}
 
-  bool operator==(const TraceCacheKey &other) const {
-    return (other.binaryId == binaryId) && (other.traceFuncId == traceFuncId);
+  bool operator==(const MainProgramKey &other) const {
+    return (other.binaryId == binaryId) &&
+           (other.mainProgramId == mainProgramId);
+  }
+};
+
+class TraceCaptureExecuteKey {
+public:
+  size_t captureProgramId;
+  size_t executeProgramId;
+
+  TraceCaptureExecuteKey(size_t captureProgramId, size_t executeProgramId)
+      : captureProgramId(captureProgramId), executeProgramId(executeProgramId) {
+  }
+
+  bool operator==(const TraceCaptureExecuteKey &other) const {
+    return (other.captureProgramId == captureProgramId) &&
+           (other.executeProgramId == executeProgramId);
   }
 };
 
@@ -27,13 +43,26 @@ public:
 
 namespace std {
 template <>
-struct hash<::tt::runtime::ttnn::TraceCacheKey> {
-  std::size_t operator()(const tt::runtime::ttnn::TraceCacheKey &key) const {
+struct hash<::tt::runtime::ttnn::MainProgramKey> {
+  std::size_t operator()(const tt::runtime::ttnn::MainProgramKey &key) const {
     std::size_t seed = 0;
     seed ^= std::hash<uint64_t>{}(key.binaryId) + 0x9e3779b9 + (seed << 6) +
             (seed >> 2);
-    seed ^= std::hash<uint64_t>{}(key.traceFuncId) + 0x9e3779b9 + (seed << 6) +
+    seed ^= std::hash<size_t>{}(key.mainProgramId) + 0x9e3779b9 + (seed << 6) +
             (seed >> 2);
+    return seed;
+  }
+};
+
+template <>
+struct hash<::tt::runtime::ttnn::TraceCaptureExecuteKey> {
+  std::size_t
+  operator()(const tt::runtime::ttnn::TraceCaptureExecuteKey &key) const {
+    std::size_t seed = 0;
+    seed ^= std::hash<size_t>{}(key.captureProgramId) + 0x9e3779b9 +
+            (seed << 6) + (seed >> 2);
+    seed ^= std::hash<size_t>{}(key.executeProgramId) + 0x9e3779b9 +
+            (seed << 6) + (seed >> 2);
     return seed;
   }
 };
