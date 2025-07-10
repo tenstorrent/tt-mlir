@@ -21,6 +21,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
+#include <variant>
 
 // ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
@@ -244,30 +245,30 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // // (0)
-    // if (failed(runAnalyzeOperands(moduleOp))) {
+    // (0)
+    if (failed(runAnalyzeOperands(moduleOp))) {
+      signalPassFailure();
+      return;
+    }
+
+    // // (1) Create streams (with their backing buffers) where needed.
+    // if (failed(runAllocateStreams(moduleOp))) {
     //   signalPassFailure();
     //   return;
     // }
 
-    // (1) Create streams (with their backing buffers) where needed.
-    if (failed(runAllocateStreams(moduleOp))) {
-      signalPassFailure();
-      return;
-    }
+    // // (2) Solve static buffer allocation problem.
+    // FailureOr<ModuleAnalysisData> analysis = runAnalyzeBuffers(moduleOp);
+    // if (failed(analysis)) {
+    //   signalPassFailure();
+    //   return;
+    // }
 
-    // (2) Solve static buffer allocation problem.
-    FailureOr<ModuleAnalysisData> analysis = runAnalyzeBuffers(moduleOp);
-    if (failed(analysis)) {
-      signalPassFailure();
-      return;
-    }
-
-    // (3) Annotate buffers with addresses and pair allocs with their deallocs.
-    if (failed(runAllocateBuffers(moduleOp, *analysis))) {
-      signalPassFailure();
-      return;
-    }
+    // // (3) Annotate buffers with addresses and pair allocs with their
+    // deallocs. if (failed(runAllocateBuffers(moduleOp, *analysis))) {
+    //   signalPassFailure();
+    //   return;
+    // }
   }
 
   // ----------------------
@@ -297,48 +298,196 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return moduleAnalysis;
   }
 
+  struct AliasMode {
+    AllocSizeT alignedSize;
+    SequenceT first;
+    SequenceT last;
+  };
+
+  struct StreamMode {
+    AllocSizeT bufferSize; // TODO this will become a set of choices
+    SequenceT first;
+    SequenceT last;
+    bool isL1Stream;
+  };
+
   FailureOr<FuncAnalysisData2> runAnalyzeOperands(func::FuncOp funcOp) {
     Block &funcBody = funcOp.getBody().front();
 
     FuncAnalysisData2 analysis;
 
-    // Collect decision vars for memspace re-mapping. Visit generic ops and
-    // their operands with memref.alloc sources. If such an operand
-    // has multiple users and any of those are not in the set of visited generic
-    // ops we will allocate the operand but it will not be eligible for spilling
-    // into a different memspace (e.g. L1 -> DRAM).
+    // Collect all memref.allocs that are root defs of all generic operands.
+    // (For streams and views, traverse through the input.) Note that such
+    // a memref.alloc can also have non-generic op users; presence of those
+    // will make the alloc ineligible for memspace remapping.
 
-    llvm::DenseSet<memref::AllocOp> allocOps;
-    llvm::DenseSet<ttir::GenericOp> genericOps;
+    llvm::DenseMap<memref::AllocOp, llvm::SmallPtrSet<Operation *, 4>> allocOps;
 
-    funcBody.walk([&](Operation *op) {
-      llvm::TypeSwitch<Operation *, void>(op)
-          .Case([&](memref::AllocOp op) { allocOps.insert(op); })
-          .Case([&](ttir::GenericOp op) { genericOps.insert(op); });
-    });
-    llvm::outs() << "found " << allocOps.size() << " alloc(s), "
-                 << genericOps.size() << " generic(s)\n";
-
-    // TODO modify test to include a non-generic user
-
-    for (ttir::GenericOp genericOp : genericOps) {
-      // Note: this covers the results (outs).
+    funcBody.walk([&](ttir::GenericOp genericOp) {
       for (Value operand : genericOp->getOperands()) {
-        Operation *srcAllocOP = walkUseDef(operand);
-        llvm::outs() << genericOp->getName() << " operand <- "
-                     << srcAllocOP->getLoc() << "\n";
+        llvm::SmallVector<Operation *> path;
+        memref::AllocOp allocOp = findRootAlloc(operand, path);
+        if (allocOp) {
+          llvm::outs() << "path length " << path.size() << "\n";
+          allocOps[allocOp].insert(path.begin(), path.end());
+        }
+      }
+    });
+    llvm::outs() << "found " << allocOps.size() << " root alloc(s)\n";
+
+    // Check 'allocOp' immediate users against the set seen in the paths
+    // leading to generic op operands.
+
+    for (auto &[allocOp, pathSet] : allocOps) {
+      for (Operation *user : allocOp->getUsers()) {
+        if (!pathSet.contains(user)) {
+          llvm::outs() << "user not in pathset: " << (*user) << "\n";
+          // TODO remove it/mark ineligible for remapping
+        }
       }
     }
+
+    // Find all alloc sites and analyse sets of their possible placements.
+
+    funcBody.walk<WalkOrder::PreOrder>([&](memref::AllocOp allocOp) {
+
+    });
 
     return analysis;
   }
 
-  static Operation *walkUseDef(Value v) {
-    // A canonicalizer pass should collapse all view_layout chains but don't
+  LogicalResult runRemapOperands(func::FuncOp funcOp) {
+    Block &funcBody = funcOp.getBody().front();
+    IRRewriter rewriter(funcOp->getContext());
+
+    funcBody.walk([&](ttir::GenericOp genericOp) {
+      for (OpOperand &operand : genericOp->getOpOperands()) {
+        walkAndRewrite(rewriter, operand.get(),
+                       ttcore::MemorySpace::DeviceDRAM);
+        insertStream2(rewriter, operand, genericOp);
+        break; // TODO doing only the 1st operand as practice
+      }
+      return WalkResult::interrupt(); // TODO doing only the 1st generic as
+                                      // practice
+    });
+
+    // funcBody.walk([&](ttir::GenericOp genericOp) {
+    //   for (OpOperand &operand : genericOp->getOpOperands()) {
+    //     insertStream2(rewriter, operand, genericOp);
+    //     break;
+    //   }
+    //   return WalkResult::interrupt();
+    // });
+
+    // llvm::DenseSet<memref::AllocOp> allocOps;
+    // llvm::DenseSet<ttir::GenericOp> genericOps;
+
+    // funcBody.walk([&](Operation *op) {
+    //   llvm::TypeSwitch<Operation *, void>(op)
+    //       .Case([&](memref::AllocOp op) { allocOps.insert(op); })
+    //       .Case([&](ttir::GenericOp op) { genericOps.insert(op); });
+    // });
+    // llvm::outs() << "found " << allocOps.size() << " alloc(s), "
+    //              << genericOps.size() << " generic(s)\n";
+    //
+    // for (ttir::GenericOp genericOp : genericOps) {
+    //   // Note: this covers the results (outs).
+    //   for (Value operand : genericOp->getOperands()) {
+    //     Operation *srcAllocOP = walkUseDef(operand);
+    //     llvm::outs() << genericOp->getName() << " operand <- "
+    //                  << srcAllocOP->getLoc() << "\n";
+    //   }
+    // }
+
+    return success();
+  }
+
+  static MemRefType remap(RewriterBase &rewriter, MemRefType memrefType,
+                          ttcore::MemorySpace space) {
+    return MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
+                           memrefType.getLayout(),
+                           rewriter.getAttr<ttcore::MemorySpaceAttr>(space));
+  }
+  static void remap(RewriterBase &rewriter, memref::AllocOp op,
+                    ttcore::MemorySpace space) {
+    auto memref = op.getMemref();
+    MemRefType memrefType = memref.getType();
+    MemRefType newType = remap(rewriter, memrefType, space);
+
+    rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
+  }
+
+  static void remap(RewriterBase &rewriter, ttir::ViewLayoutOp op,
+                    ttcore::MemorySpace space) {
+    auto memref = op->getResult(0); // TODO name
+    MemRefType memrefType = llvm::cast<MemRefType>(memref.getType());
+    MemRefType newType = remap(rewriter, memrefType, space);
+
+    rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
+  }
+
+  static void walkAndRewrite(RewriterBase &rewriter, Value v,
+                             ttcore::MemorySpace space) {
+    llvm::TypeSwitch<Operation *, void>(v.getDefiningOp())
+        .Case([&](memref::AllocOp op) { remap(rewriter, op, space); })
+        .Case([&](ttir::ViewLayoutOp op) {
+          remap(rewriter, op, space);
+          walkAndRewrite(rewriter, op.getInput(), space);
+        })
+        .Case([&](ttir::StreamLayoutOp op) {
+          // TODO correct handling here
+          walkAndRewrite(rewriter, op.getInput(), space);
+        });
+  }
+
+  static void insertStream2(RewriterBase &rewriter, OpOperand &operand,
+                            ttir::GenericOp op) {
+    auto memref = mlir::cast<MemRefType>(operand.get().getType());
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    {
+      // By design, must insert just before the generic op.
+      rewriter.setInsertionPoint(op);
+
+      auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
+          rewriter.getMultiDimIdentityMap(memref.getRank()));
+      auto streamMemref =
+          MemRefType::get(memref.getShape(), memref.getElementType(),
+                          streamAttr, memref.getMemorySpace());
+
+      auto bufferLayout = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
+      // TODO this needs re-shaping/re-sizing:
+      auto bufferMemref = MemRefType::get(
+          memref.getShape(), memref.getElementType(), bufferLayout,
+          rewriter.getAttr<ttcore::MemorySpaceAttr>(
+              ttcore::MemorySpace::DeviceL1));
+      auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
+
+      auto stream = rewriter.create<ttir::StreamLayoutOp>(
+          op.getLoc(), streamMemref, operand.get(), buffer);
+
+      rewriter.modifyOpInPlace(op,
+                               [&]() { operand.assign(stream.getResult()); });
+    }
+  }
+
+  static memref::AllocOp findRootAlloc(Value v,
+                                       llvm::SmallVector<Operation *> &path) {
+    // A canonicalizer pass would collapse all view_layout chains but don't
     // rely on that here.
-    return llvm::TypeSwitch<Operation *, Operation *>(v.getDefiningOp())
-        .Case([&](memref::AllocOp op) { return op.getOperation(); })
-        .Case([&](ttir::ViewLayoutOp op) { return walkUseDef(op.getInput()); })
+    return llvm::TypeSwitch<Operation *, memref::AllocOp>(v.getDefiningOp())
+        .Case([&](memref::AllocOp op) {
+          path.emplace_back(op.getOperation());
+          return op;
+        })
+        .Case([&](ttir::ViewLayoutOp op) {
+          path.emplace_back(op.getOperation());
+          return findRootAlloc(op.getInput(), path);
+        })
+        .Case([&](ttir::StreamLayoutOp op) {
+          path.emplace_back(op.getOperation());
+          return findRootAlloc(op.getInput(), path);
+        })
         .Default([&](Operation *op) { return nullptr; });
   }
 
