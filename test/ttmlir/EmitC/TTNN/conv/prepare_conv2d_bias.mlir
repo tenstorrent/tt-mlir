@@ -31,7 +31,9 @@ module {
             out_channels = 64 : i32,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
-            conv2d_config = #conv2d_config_bf16
+            conv2d_config = #conv2d_config_bf16,
+            input_dtype = #ttcore.supportedDataTypes<bf16>,
+            output_dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<1x1x1x64xbf16, #ttnn_layout>, !ttnn.device) -> tensor<1x1x1x64xbf16, #ttnn_layout1>
     "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x1x1x64xbf16, #ttnn_layout>) -> ()
     return %1 : tensor<1x1x1x64xbf16, #ttnn_layout1>
@@ -53,7 +55,9 @@ module {
             out_channels = 64 : i32,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
-            conv2d_config = #conv2d_config_f32
+            conv2d_config = #conv2d_config_f32,
+            input_dtype = #ttcore.supportedDataTypes<f32>,
+            output_dtype = #ttcore.supportedDataTypes<f32>
           }> : (tensor<1x1x1x64xf32, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1x64xf32, #ttnn_layout3>
     "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x1x1x64xf32, #ttnn_layout2>) -> ()
     return %1 : tensor<1x1x1x64xf32, #ttnn_layout3>

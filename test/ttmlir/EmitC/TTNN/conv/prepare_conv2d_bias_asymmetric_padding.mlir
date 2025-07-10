@@ -7,7 +7,7 @@
 #system_memory = #ttnn.buffer_type<system_memory>
 
 #ttnn_layout_bias_bf16 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 + d1 + d2, d3), <1x1>, memref<1x128xbf16, #system_memory>>
-#ttnn_layout_prepared_bias_bf16 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2112 + d1 * 64 + d2, d3), <8x8, (d0, d1) -> (0, d0, d1)>, memref<9x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout_prepared_bias_bf16 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2112 + d1 * 64 + d2, d3), <1x1>, memref<9x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #conv2d_config_bf16 = #ttnn.conv2d_config<weights_dtype = bf16>
 
 func.func @prepare_conv2d_bias_asymmetric_padding_bf16(%arg0: tensor<1x1x1x128xbf16, #ttnn_layout_bias_bf16>) -> tensor<1x1x1x128xbf16, #ttnn_layout_prepared_bias_bf16> {
@@ -26,7 +26,9 @@ func.func @prepare_conv2d_bias_asymmetric_padding_bf16(%arg0: tensor<1x1x1x128xb
         kernel_size = array<i32: 3, 3>,
         out_channels = 128 : i32,
         padding = array<i32: 1, 2, 3, 4>,
-        stride = array<i32: 1, 1>
+        stride = array<i32: 1, 1>,
+        input_dtype = #ttcore.supportedDataTypes<bf16>,
+        output_dtype = #ttcore.supportedDataTypes<bf16>
       }> : (tensor<1x1x1x128xbf16, #ttnn_layout_bias_bf16>, !ttnn.device) -> tensor<1x1x1x128xbf16, #ttnn_layout_prepared_bias_bf16>
 
   "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x1x1x128xbf16, #ttnn_layout_bias_bf16>) -> ()
@@ -53,7 +55,9 @@ func.func @prepare_conv2d_bias_f32(%arg0: tensor<1x1x1x64xf32, #ttnn_layout_bias
         kernel_size = array<i32: 5, 5>,
         out_channels = 64 : i32,
         padding = array<i32: 2, 1, 4, 5>,
-        stride = array<i32: 1, 1>
+        stride = array<i32: 1, 1>,
+        input_dtype = #ttcore.supportedDataTypes<f32>,
+        output_dtype = #ttcore.supportedDataTypes<f32>
       }> : (tensor<1x1x1x64xf32, #ttnn_layout_bias_f32>, !ttnn.device) -> tensor<1x1x1x64xf32, #ttnn_layout_prepared_bias_f32>
 
   "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x1x1x64xf32, #ttnn_layout_bias_f32>) -> ()
