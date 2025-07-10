@@ -834,10 +834,10 @@ public:
     for (uint32_t i = 0; i < padding.size(); i++) {
       newPadding.push_back(padding[i] + op.getPadding()[i]);
     }
-    rewriter.replaceOpWithNewOp<PoolingOp>(
-        op, op.getResultTypes(), newInputs, op.getOutputs(),
-        op.getPoolingMethod(), op.getWindowDimensions(), op.getWindowStrides(),
-        op.getBaseDilations(), op.getWindowDilations(), newPadding);
+    rewriter.modifyOpInPlace(op, [&](PoolingOp &op) {
+      op.getInputsMutable().assign(newInputs);
+      op.setPadding(newPadding);
+    });
 
     return success();
   }
