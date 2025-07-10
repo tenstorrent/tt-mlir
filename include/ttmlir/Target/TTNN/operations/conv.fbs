@@ -63,6 +63,8 @@ table PrepareConv2dBiasOp {
   dilation: [int32];
   groups: uint32;
   device: tt.target.DeviceRef;
+  input_dtype: tt.target.DataType;
+  output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
 }
 

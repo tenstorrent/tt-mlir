@@ -613,6 +613,15 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
       toFlatbuffer(cache, op.getDilation());
   auto device = getOperandThroughDPSOps(op.getDevice());
 
+  ::tt::target::DataType inputDtype =
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getInputDtype());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
+
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
@@ -621,7 +630,7 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
       op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
-      conv2dConfig.value_or(0));
+      inputDtype, outputDtype, conv2dConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>

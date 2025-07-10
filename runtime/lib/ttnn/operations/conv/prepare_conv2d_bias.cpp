@@ -35,6 +35,15 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
   std::copy_n(op->stride()->begin(), 2, stride.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
+  ::ttnn::DataType inputDtype =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(op->input_dtype());
+
+  std::optional<::ttnn::DataType> outputDtype;
+  if (op->output_dtype()) {
+    outputDtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
   std::optional<::ttnn::operations::conv::Conv2dConfig> conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
@@ -59,7 +68,8 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
           ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
           op->in_channels(), op->out_channels(), op->batch_size(),
           op->input_height(), op->input_width(), kernelSize, stride, padding,
-          dilation, op->groups(), &targetDevice, conv2dConfig,
+          dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
+          conv2dConfig,
           /*compute_config_=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

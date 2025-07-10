@@ -1047,6 +1047,8 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
             srcOp.getConv2dConfig()),
