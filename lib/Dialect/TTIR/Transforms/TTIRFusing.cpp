@@ -1155,6 +1155,102 @@ private:
   }
 };
 
+
+class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<PermuteOp> {
+  using mlir::OpRewritePattern<PermuteOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(PermuteOp srcOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(srcOp)) {
+      return mlir::failure();
+    }
+    // Get the reshape op that follows the permute op.
+    auto reshapeOp =
+        mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
+
+    Value inputTensor = srcOp.getOperand(0); // %arg0
+
+    // Replace reshape op with concatenate heads op using DPS utility
+    utils::replaceOpWithNewDPSOp<ConcatenateHeadsOp>(
+        rewriter, reshapeOp, reshapeOp.getResult().getType(), inputTensor);
+
+    // Erase permute op
+    rewriter.eraseOp(srcOp);
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(PermuteOp permuteOp) const {
+    // Permute should only have one use and that use should be a reshape op.
+    if (!permuteOp.getResult().hasOneUse() ||
+        !ttmlir::utils::allUsersOfType<ReshapeOp>(permuteOp)) {
+      return false;
+    }
+
+    // Check if the permutation attribute is {0, 2, 1, 3}
+    auto permutationAttr = permuteOp.getPermutation();
+    if (permutationAttr.empty()) {
+      return false;
+    }
+    llvm::SmallVector<int64_t> expectedPermutation = {0, 2, 1, 3};
+
+    if (permutationAttr.size() != expectedPermutation.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < expectedPermutation.size(); ++i) {
+      if (permutationAttr[i] != expectedPermutation[i]) {
+        return false;
+      }
+    }
+
+    ReshapeOp reshapeOp =
+        mlir::cast<ReshapeOp>(*permuteOp.getResult().getUsers().begin());
+
+    ArrayRef<int64_t> inputShape = permuteOp.getInput().getType().getShape();
+    ArrayRef<int64_t> reshapeOutputShape =
+        reshapeOp.getResult().getType().getShape();
+
+    // Handle reshape output shape - if it's 2D, prepend 1 to make it 3D
+
+    llvm::SmallVector<int64_t> adjustedReshapeShape;
+
+    if (reshapeOutputShape.size() == 2) {
+      adjustedReshapeShape.push_back(1);
+      for (auto dim : reshapeOutputShape) {
+        adjustedReshapeShape.push_back(dim);
+      }
+    } else if (reshapeOutputShape.size() == 3) {
+      for (auto dim : reshapeOutputShape) {
+        adjustedReshapeShape.push_back(dim);
+      }
+
+    } else {
+      return false;
+    }
+
+    // Check that input shape is 4 dimensional, adjusted output shape is 3
+    // dimensional.
+    if (inputShape.size() != 4 || adjustedReshapeShape.size() != 3) {
+      return false;
+    }
+
+    // Check that input shape: [batch_size, num_heads, sequence_size, head_size]
+    // output shape: [batch_size, sequence_size, num_heads * head_size]
+    if (inputShape[0] != adjustedReshapeShape[0] ||
+        inputShape[2] != adjustedReshapeShape[1]) {
+      return false;
+    }
+
+    if (inputShape[1] * inputShape[3] != adjustedReshapeShape[2]) {
+      return false;
+    }
+    return true;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1189,6 +1285,7 @@ public:
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(

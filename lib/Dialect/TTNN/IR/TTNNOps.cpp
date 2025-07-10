@@ -2928,4 +2928,81 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ConcatenateHeadsOp::verify() {
+  const ::mlir::RankedTensorType inputType = this->getInputs().getType();
+  const ::mlir::RankedTensorType outputType = this->getResult().getType();
+
+  const ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  const ::mlir::tt::ttcore::DataType outputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
+
+  if (inputDataType != outputDataType) {
+    return emitOpError(
+        "Input and output tensors must have the same dtype. "
+        "Got input dtype = " +
+        DataTypeEnumToString(inputDataType) +
+        ", output dtype = " + DataTypeEnumToString(outputDataType));
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (outputType.getRank() != 2 && outputType.getRank() != 3) {
+    return emitOpError("Output tensor must be a 2D or 3D tensor");
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // If output is 2D, add dimension 1 at the beginning for comparison
+  llvm::SmallVector<int64_t> adjustedOutputShape;
+  if (outputType.getRank() == 2) {
+    adjustedOutputShape = {1, outputShape[0], outputShape[1]};
+  } else {
+    adjustedOutputShape = {outputShape[0], outputShape[1], outputShape[2]};
+  }
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
+  // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
+
+  // Verify batch_size dimension matches
+  if (inputShape[0] != adjustedOutputShape[0]) {
+    return emitOpError(
+        "Input and output batch dimensions must match. "
+        "Got input batch size = " +
+        std::to_string(inputShape[0]) +
+        ", output batch size = " + std::to_string(adjustedOutputShape[0]));
+  }
+
+  // Verify sequence_size dimension matches
+  if (inputShape[2] != adjustedOutputShape[1]) {
+    return emitOpError(
+        "Input sequence dimension must match output sequence dimension. "
+        "Got input sequence size = " +
+        std::to_string(inputShape[2]) +
+        ", output sequence size = " + std::to_string(adjustedOutputShape[1]));
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize = inputShape[1] * inputShape[3];
+  if (expectedHiddenSize != adjustedOutputShape[2]) {
+    return emitOpError(
+        "Output hidden dimension must equal num_heads * head_size. "
+        "Got num_heads = " +
+        std::to_string(inputShape[1]) +
+        ", head_size = " + std::to_string(inputShape[3]) +
+        ", expected hidden size = " + std::to_string(expectedHiddenSize) +
+        ", actual output hidden size = " +
+        std::to_string(adjustedOutputShape[2]));
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn
