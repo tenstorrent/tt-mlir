@@ -559,7 +559,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
-    def div_wrapper(
+    def hoisted_div_wrapper(
         in0: Operand,
         in1: Operand,
         builder: TTIRBuilder,
@@ -568,7 +568,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         return div(in0, in1, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
 
     compile_to_flatbuffer(
-        div_wrapper,
+        hoisted_div_wrapper,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
