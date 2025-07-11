@@ -1170,6 +1170,13 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createRepeatOpOperandsWorkarounds(inputType);
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
