@@ -50,4 +50,11 @@ module {
     %3 = "ttir.quantize"(%1, %2) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>
     return %3 : tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>
   }
+  func.func @commute_dequantize_past_maxpool2d(%arg0: tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x56x56xf32> {
+    %0 = ttir.empty() : tensor<1x64x112x112xf32>
+    %1 = "ttir.dequantize"(%arg0, %0) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    %2 = ttir.empty() : tensor<1x64x56x56xf32>
+    %3 = "ttir.pooling"(%1, %2) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Max>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 3, 3>, window_strides = array<i64: 1, 1, 2, 2>}> : (tensor<1x64x112x112xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
+    return %3 : tensor<1x64x56x56xf32>
+  }
 }

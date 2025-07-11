@@ -106,7 +106,9 @@ protected:
 private:
   // This should return `true` if `tmUser` can be commuted above `op`.
   virtual bool isCommuteUpwardsViable(CommutableOpOrInterface op,
-                                      TMOpType tmUser) const = 0;
+                                      TMOpType tmUser) const {
+    return false;
+  }
   // This should return `true` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
   // `isCommuteUpwardsViable` is that this function should be used to determine
