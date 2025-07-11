@@ -68,6 +68,9 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 populateReplicaGroups(mlir::tt::shardy_utils::MeshMap meshMap,
                       mlir::StringRef meshAxis) {
+  if (meshMap.size() == 1) {
+    meshMap["__unsqueezed_dim__"] = 1;
+  }
   assert(meshMap.size() == 2 && "Meshmap must have exactly 2 elements when "
                                 "trying to populate replica groups\n.");
   auto it = meshMap.begin();
