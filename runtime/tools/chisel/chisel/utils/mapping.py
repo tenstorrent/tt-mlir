@@ -70,7 +70,9 @@ handle_attr_type = {
     ir.DenseIntElementsAttr: handle_dense_elements_attr,
     ir.IntegerAttr: lambda x: x.value,
     ir.BoolAttr: lambda x: x.value,
+    ir.FloatAttr: lambda x: x.value,
     ir.DenseI64ArrayAttr: lambda x: [x[i] for i in range(len(x))],
+    ir.DenseI32ArrayAttr: lambda x: [x[i] for i in range(len(x))],
     ir.DenseFPElementsAttr: handle_dense_elements_attr,
     ir.ArrayAttr: lambda x: [x[i].value for i in range(len(x))],
     ir.StringAttr: lambda x: x.value,
@@ -347,7 +349,7 @@ def custom_matmul(x, y, transpose_a=False, transpose_b=False):
     if transpose_a:
         x = x.T
     if transpose_b:
-        y = y.T
+        y = y.mT
     return torch.matmul(x, y)
 
 
@@ -402,6 +404,13 @@ ttir_to_torch_mapping = {
         custom_broadcast, {"broadcast_dimensions": "size"}, unpack_inputs=False
     ),
     "ttir.constant": OpMapping(custom_constant, {"value": "data"}),
+    "ttir.full": OpMapping(
+        custom_constant,
+        {
+            "fill_value": "data",
+            "shape": "shape",
+        },
+    ),
     "ttir.div": OpMapping(torch.div),
     "ttir.exp": OpMapping(torch.exp, unpack_inputs=False),
     "ttir.pow": OpMapping(torch.pow),
