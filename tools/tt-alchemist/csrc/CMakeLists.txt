@@ -45,7 +45,6 @@ target_link_directories(${LIBRARY_NAME}
 # Link libraries
 target_link_libraries(${LIBRARY_NAME}
   PRIVATE
-    # TTMLIRCompiler
     TTMLIRCompilerStatic
 )
 
