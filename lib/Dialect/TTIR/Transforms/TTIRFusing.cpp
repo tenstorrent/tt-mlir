@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -561,23 +562,37 @@ private:
     ArrayRef<int64_t> updateShape =
         mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
             .getShape();
-    if (inputShape.size() != 4 || scatterIdxShape.size() != 5 ||
-        updateShape.size() != 4) {
+    if (inputShape.size() != 4 || updateShape.size() != 4) {
       return std::nullopt;
     }
-    for (size_t i = 0; i < updateShape.size(); ++i) {
-      if (scatterIdxShape[i] != updateShape[i]) {
-        return std::nullopt;
-      }
-    }
-    if (scatterIdxShape[4] != 4) {
-      return std::nullopt;
-    }
+
     if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
           inputShape[3] == updateShape[3])) {
       return std::nullopt;
     }
 
+    int cacheUpdateSize = updateShape[2];
+    if (scatterIdxShape.size() == 1) {
+      if (scatterIdxShape[0] != cacheUpdateSize) {
+        return std::nullopt;
+      }
+      auto op = scatterIndices.getDefiningOp<ttir::MeshShardOp>();
+      if (!op) {
+        return std::nullopt;
+      }
+      mlir::Value input = op.getInput();
+      auto blockArg = mlir::cast<BlockArgument>(input);
+      if (!blockArg) {
+        return std::nullopt;
+      }
+      // check for shape of the block argument is 1D and is == cacheUpdateSize
+      auto inputShape =
+          mlir::cast<RankedTensorType>(input.getType()).getShape();
+      if (inputShape.size() != 1 || inputShape[0] != cacheUpdateSize) {
+        return std::nullopt;
+      }
+      return input;
+    }
     // Check that the scatter indices input is a concat op that produces the
     // scatter indices for a cache update/fill:
     //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
