@@ -278,13 +278,16 @@ jobs:
           pip install pytest
         fi
 
+    - name: Download tt-alchemist whl
+      uses: actions/download-artifact@v4
+      with:
+        name: tt-alchemist-whl-${{ matrix.build.image }}
+
     - name: Install tt-alchemist whl
       if: ${{ matrix.build.type == 'tt-alchemist' && matrix.build.suite == 'run' }}
       shell: bash
       run: |
         source env/activate
-        pwd
-        ls -lahF
         pip show tt-alchemist && pip uninstall -y tt-alchemist
         pip install tt_alchemist-*.whl --force-reinstall
 
