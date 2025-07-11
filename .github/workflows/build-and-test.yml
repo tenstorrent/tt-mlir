@@ -283,8 +283,10 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        pwd
+        ls -lahF
         pip show tt-alchemist && pip uninstall -y tt-alchemist
-        pip install tt-alchemist-${{ env.version }}*.whl --force-reinstall
+        pip install tt-alchemist-*.whl --force-reinstall
 
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
