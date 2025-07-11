@@ -315,6 +315,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::TraceOp: {
     return operations::trace::run(op->type_as_TraceOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
+                                        getContext());
+  }
   default: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
