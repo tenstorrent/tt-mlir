@@ -291,7 +291,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
   }
 
-  // TODO: Move this to tt-metal side #4043
+  // TODO(rpavlovicTT):: Move this to tt-metal side #4043
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
 
@@ -382,7 +382,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     llvm::report_fatal_error("Conv2d bias tensor assumed to be on host.");
   }
 
-  // TODO: Move this to tt-metal side #4043
+  // TODO(rpavlovicTT):: Move this to tt-metal side #4043
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
 
