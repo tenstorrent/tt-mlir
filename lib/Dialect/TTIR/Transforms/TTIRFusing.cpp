@@ -817,9 +817,13 @@ public:
     auto reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
 
-    // Replce old permute with concatenate heads op.
-    rewriter.replaceOpWithNewOp<ConcatenateHeadsOp>(
-        reshapeOp, reshapeOp.getResult().getType(), srcOp.getInput());
+    Value inputTensor = srcOp.getOperand(0); // %arg0
+
+    // Replace reshape op with concatenate heads op using DPS utility
+    utils::replaceOpWithNewDPSOp<ConcatenateHeadsOp>(
+        rewriter, reshapeOp, reshapeOp.getResult().getType(), inputTensor);
+
+    // Erase permute op
     rewriter.eraseOp(srcOp);
 
     return mlir::success();
@@ -903,6 +907,7 @@ public:
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
       patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
