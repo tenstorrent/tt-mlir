@@ -16,7 +16,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZETENSORLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-static ttcore::GridAttr getOptimalGrid(PatternRewriter &rewriter,
+static ttcore::GridAttr getOptimalGrid(OpBuilder &rewriter,
                                        ArrayRef<int64_t> memrefShape,
                                        ArrayRef<int64_t> deviceGridShape) {
   assert(memrefShape.size() == deviceGridShape.size());
@@ -56,7 +56,7 @@ static RankedTensorType applyGridShape(RankedTensorType tensorType,
 }
 
 static RankedTensorType calculateOptimalLayoutForTensorType(
-    PatternRewriter &rewriter, Value tensor,
+    OpBuilder &rewriter, Value tensor,
     const SmallVector<int64_t> &workerGridShape) {
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
   auto tensorEncoding =
@@ -147,6 +147,21 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
   return inverse.compose(flattenedBlockFactors);
 }
 
+// This override is the "trivial" way to k-block matmuls so that we can test and
+// benchmark large matmuls. We set the block factor for k to the size of the k
+// shard dimension. This means each block is one tile. In the future, we should
+// intelligently pick this factor to optimize memory usage.
+static void
+overrideMatmulKBlockFactor(OpBuilder &rewriter, Value in0Tensor,
+                           SmallVector<int64_t> &blockFactors,
+                           const SmallVector<int64_t> &workerGridShape) {
+  auto optimalTensorType =
+      calculateOptimalLayoutForTensorType(rewriter, in0Tensor, workerGridShape);
+  ttcore::MetalLayoutAttr metalLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(optimalTensorType.getEncoding());
+  blockFactors[2] = metalLayout.getShardShape(optimalTensorType)[1];
+}
+
 namespace {
 struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
   TTIRGenericTensorLayoutRewriter(MLIRContext *context,
@@ -170,6 +185,14 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         metalLayout.getShardShape(newTensorType);
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
         op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    // If we are doing matmul, we override the k block factor.
+    if (op.getIteratorTypesValue().size() == 3 &&
+        op.getIteratorTypesValue()[0] == ttcore::IteratorType::Parallel &&
+        op.getIteratorTypesValue()[1] == ttcore::IteratorType::Parallel &&
+        op.getIteratorTypesValue()[2] == ttcore::IteratorType::Reduction) {
+      overrideMatmulKBlockFactor(rewriter, op->getOperand(0), blockFactors,
+                                 workerGridShape);
+    }
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
     if (op.getGrid().getShape() == metalLayout.getGridShape(newTensorType) &&
         !blockFactorsChanged) {
@@ -195,7 +218,7 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         Value view =
             blockedView(rewriter, op->getLoc(), operand.get(), newOperandType,
                         op.getIndexingMapsValue()[operand.getOperandNumber()],
-                        blockFactors);
+                        blockFactors, op.getIteratorTypesValue());
         rewriter.modifyOpInPlace(op, [&]() { operand.set(view); });
 
         if (dpsOp.isDpsInit(&operand)) {
@@ -219,36 +242,61 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     }
 
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
-    auto toLayoutOp = rewriter.create<ToLayoutOp>(
-        op->getLoc(), op->getResult(0), emptyOp.getResult());
-    rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
-                                  toLayoutOp);
+    auto viewLayoutOp = rewriter.create<ViewLayoutOp>(
+        op->getLoc(), originalType, op->getResult(0));
+    rewriter.replaceAllUsesExcept(op->getResult(0), viewLayoutOp.getResult(),
+                                  viewLayoutOp);
 
     return success();
   }
 
   static Value blockedView(PatternRewriter &rewriter, Location loc,
-                           Value tensor, RankedTensorType newOperandType,
+                           Value tensor, RankedTensorType newTensorType,
                            AffineMap indexingMap,
-                           ArrayRef<int64_t> blockFactors) {
-    auto emptyOp = rewriter.create<EmptyOp>(loc, newOperandType);
+                           ArrayRef<int64_t> blockFactors,
+                           SmallVector<ttcore::IteratorType> iteratorType) {
+    auto emptyOp = rewriter.create<EmptyOp>(loc, newTensorType);
     auto toLayoutOp =
         rewriter.create<ToLayoutOp>(loc, tensor, emptyOp.getResult());
     ttcore::MetalLayoutAttr metalLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(newOperandType.getEncoding());
-    SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
+        mlir::cast<ttcore::MetalLayoutAttr>(newTensorType.getEncoding());
+
+    SmallVector<int64_t> numBlocks = indexingMap.compose(blockFactors);
+
+    // Map iterator types according to the affine map
+    // For example: (d0, d1, d2) -> (d0, d2) with [parallel, parallel,
+    // reduction] should give [parallel, reduction]
+    SmallVector<ttcore::IteratorType> mappedIteratorTypes;
+
+    // Get the results of the indexing map
+    for (auto expr : indexingMap.getResults()) {
+      // If dimension expression, or symbol expression, push corresponding
+      // iterator type If constant, this is a reduction dimension
+      if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[dimExpr.getPosition()]);
+      } else if (auto symbolExpr =
+                     mlir::dyn_cast<mlir::AffineSymbolExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[symbolExpr.getPosition()]);
+      } else {
+        mappedIteratorTypes.push_back(ttcore::IteratorType::Reduction);
+      }
+    }
+
     for (auto [i, dim] :
-         llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
+         llvm::enumerate(metalLayout.getGridShape(newTensorType))) {
       // Handle the edge case where a 0 constant appears in the affine map, i.e.
       // some kind of reduction or broadcast:
-      //   (d0, d1) -> (d0, 0)
-      if (blockShape[i] == 0) {
-        blockShape[i] = 1;
+      if (numBlocks[i] == 0) {
+        numBlocks[i] = 1;
       }
-      blockShape[i] *= dim;
+      // In the case of a reduction dim, we need to gather all of that dimension
+      // so we do not multiply the dim into the blocking factor.
+      if (mappedIteratorTypes[i] == ttcore::IteratorType::Parallel) {
+        numBlocks[i] *= dim;
+      }
     }
-    auto viewOperandType = applyGridShape(newOperandType, blockShape);
+
+    auto viewOperandType = applyGridShape(newTensorType, numBlocks);
     return rewriter
         .create<ViewLayoutOp>(loc, viewOperandType, toLayoutOp.getResult(0))
         .getResult();
