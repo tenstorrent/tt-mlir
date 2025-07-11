@@ -319,15 +319,15 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
   }
 
-  if (config->preprocess_weights_on_device()) {
-    conv2dConfig.preprocess_weights_on_device =
-        *config->preprocess_weights_on_device();
-  }
+  // if (config->preprocess_weights_on_device()) {
+  //   conv2dConfig.preprocess_weights_on_device =
+  //       *config->preprocess_weights_on_device();
+  // }
 
-  if (config->always_preprocess_weights()) {
-    conv2dConfig.always_preprocess_weights =
-        *config->always_preprocess_weights();
-  }
+  // if (config->always_preprocess_weights()) {
+  //   conv2dConfig.always_preprocess_weights =
+  //       *config->always_preprocess_weights();
+  // }
 
   if (config->enable_act_double_buffer()) {
     conv2dConfig.enable_act_double_buffer = *config->enable_act_double_buffer();
