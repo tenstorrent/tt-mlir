@@ -891,9 +891,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
   ::tt::target::ttnn::StorageType storageType;
   if (tensorMeshSharding) {
-    storageType = bufferType == ttnn::BufferType::SystemMemory
-                      ? ::tt::target::ttnn::StorageType::MultiDeviceHost
-                      : ::tt::target::ttnn::StorageType::Device;
+    storageType = ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
                       ? ::tt::target::ttnn::StorageType::Host
