@@ -4171,26 +4171,30 @@ class TTIRBuilderOps:
         """
         from ttmlir.ir import AffineMap, AffineMapAttr
 
-        # Create identity map as a placeholder
+        print(
+            f"ViewLayoutOp.__init__ signature: {inspect.signature(ttir.ViewLayoutOp.__init__)}"
+        )
+
+        # Create identity map
         rank = len(output_type.shape)
         identity_map = AffineMap.get_identity(rank, self._ctx)
 
-        # Create the op first
-        op = self.op_proxy(
+        return self.op_proxy(
             lambda *args, **kwargs: args[0],
             ttir.ViewLayoutOp,
             [in0],
-            ttir_kwargs={"reinterpretLayout": reinterpret_layout},
+            ttir_kwargs={
+                "reinterpretLayout": reinterpret_layout,
+                "viewMap": AffineMapAttr.get(identity_map),
+            },
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+            ),  # Same as before
             unit_attrs=unit_attrs,
         )
-
-        # Set the viewMap attribute after creation
-        op.operation.attributes["viewMap"] = AffineMapAttr.get(identity_map)
-
-        return op
 
     def tilize(
         self,
