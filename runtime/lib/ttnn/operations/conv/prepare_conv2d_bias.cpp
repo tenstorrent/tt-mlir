@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv2d_bias.h"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -10,11 +10,11 @@
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
-void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
+void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &weightTensor =
-      tensorPool.getTTNNTensorAndValidate(op->weight_tensor());
+      tensorPool.getTTNNTensorAndValidate(op->bias_tensor());
 
   std::optional<::ttnn::MemoryConfig> inputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -35,17 +35,6 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
   std::copy_n(op->stride()->begin(), 2, stride.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
-  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
-  if (op->padding()->size() == 2) {
-    std::array<uint32_t, 2> symPadding;
-    std::copy_n(op->padding()->begin(), 2, symPadding.begin());
-    padding = symPadding;
-  } else {
-    std::array<uint32_t, 4> asymPadding;
-    std::copy_n(op->padding()->begin(), 4, asymPadding.begin());
-    padding = asymPadding;
-  }
-
   ::ttnn::DataType inputDtype =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->input_dtype());
 
@@ -60,16 +49,28 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
 
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
+  if (op->padding()->size() == 2) {
+    std::array<uint32_t, 2> symPadding;
+    std::copy_n(op->padding()->begin(), 2, symPadding.begin());
+    padding = symPadding;
+  } else {
+    std::array<uint32_t, 4> asymPadding;
+    std::copy_n(op->padding()->begin(), 4, asymPadding.begin());
+    padding = asymPadding;
+  }
+
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights<
-      ::ttnn::MeshDevice>(
-      weightTensor, *inputMemoryConfig,
-      ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
-      op->weights_format()->str(), op->in_channels(), op->out_channels(),
-      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
-      inputDtype, outputDtype, conv2dConfig, std::nullopt, std::nullopt);
+  ::ttnn::Tensor out =
+      ::ttnn::operations::conv::conv2d::prepare_conv_bias<::ttnn::MeshDevice>(
+          weightTensor, *inputMemoryConfig,
+          ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
+          op->in_channels(), op->out_channels(), op->batch_size(),
+          op->input_height(), op->input_width(), kernelSize, stride, padding,
+          dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
+          conv2dConfig,
+          /*compute_config_=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
