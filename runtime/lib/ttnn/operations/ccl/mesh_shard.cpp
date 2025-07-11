@@ -1,4 +1,3 @@
-
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -113,5 +112,5 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
     out = ::ttnn::distributed::aggregate_tensor(input, *meshComposer);
   }
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
-}vcanic/perf_benchmark_ttmlir_c2a35a15_ttmetal_d27a3a93
+}
 } // namespace tt::runtime::ttnn::operations::ccl
