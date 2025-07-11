@@ -181,6 +181,7 @@ jobs:
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
           {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "tt_alchemist",    path: "tools/tt-alchemist"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -339,6 +340,16 @@ jobs:
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
+        ./run
+
+    - name: Run tt-alchemist test
+      shell: bash
+      if: ${{ matrix.build.type == 'tt_alchemist' && matrix.build.suite == 'run' }}
+      run: |
+        source env/activate
+        cmake --build build -- tt-alchemist
+        tt-alchemist generate ${{ matrix.build.path }}/test/models/mnist.mlir /tmp/test-solution
+        cd /tmp/test-solution
         ./run
 
     - name: Builder Tests
