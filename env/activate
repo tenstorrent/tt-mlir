@@ -29,4 +29,3 @@ export TT_MLIR_HOME="$(pwd)"
 export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
 export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}"  # These paths are needed for tracy (profiling)
 export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
-export TT_ALCHEMIST_LIB_DIR="$(pwd)/${BUILD_DIR:=build}/tools/tt-alchemist/csrc"

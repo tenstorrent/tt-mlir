@@ -3,9 +3,6 @@
 if(NOT DEFINED ENV{TT_MLIR_HOME})
   message(FATAL_ERROR "TT_MLIR_HOME environment variable is not set")
 endif()
-if(NOT DEFINED ENV{TT_ALCHEMIST_LIB_DIR})
-  message(FATAL_ERROR "TT_ALCHEMIST_LIB_DIR environment variable is not set")
-endif()
 
 # Set TT_ALCHEMIST_HOME
 #
@@ -110,8 +107,7 @@ add_custom_command(
 # Build wheel
 add_custom_target(build-wheel-tt-alchemist
   DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${LIBRARY_NAME}
-  COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_DIR=$<TARGET_FILE:${LIBRARY_NAME}>
-          ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
+  COMMAND ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
   COMMENT "Building tt-alchemist wheel"
 )

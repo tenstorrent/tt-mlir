@@ -48,11 +48,20 @@ class TTAlchemistAPI:
 
     def _load_library(self):
         """Load the tt-alchemist shared library."""
-        lib_dir = os.environ.get("TT_ALCHEMIST_LIB_DIR", None)
+        # TT_MLIR_HOME must be set
+        tt_mlir_home = os.environ.get("TT_MLIR_HOME")
+        if not tt_mlir_home:
+            raise RuntimeError("TT_MLIR_HOME environment variable is not set")
+
+        # Get the build directory name from environment or use default "build"
+        build_dir = os.environ.get("BUILD_DIR", "build")
+
+        # Load the tt-alchemist shared library
+        lib_dir = os.path.join(tt_mlir_home, build_dir, "tools", "tt-alchemist", "csrc")
 
         if not lib_dir or not os.path.exists(lib_dir):
             raise RuntimeError(
-                "Could not find tt-alchemist library. Set TT_ALCHEMIST_LIB_DIR environment variable."
+                f"Could not find tt-alchemist library on path: {lib_dir}"
             )
 
         try:
