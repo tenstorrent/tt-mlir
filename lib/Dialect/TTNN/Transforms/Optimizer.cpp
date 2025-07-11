@@ -755,11 +755,14 @@ private:
     }
   }
 
-  // Check if the op can be executed with row major layout on the input.
+  // Check if the op can be executed with row major layout on the input. Returns
+  // expected output layout if constraints are satisfied, otherwise returns
+  // `nullptr`.
   // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3972
-  bool checkOpConstraints(Operation *op,
-                          std::vector<TTNNLayoutAttr> inputLayouts,
-                          size_t l1CacheSize, bool convertInputToRowMajor) {
+  TTNNLayoutAttr checkOpConstraints(Operation *op,
+                                    std::vector<TTNNLayoutAttr> inputLayouts,
+                                    size_t l1CacheSize,
+                                    bool convertInputToRowMajor) {
 
     if (convertInputToRowMajor) {
       inputLayouts[0] = utils::convertTTNNLayoutToRowMajor(
@@ -784,7 +787,7 @@ private:
                    "Failed constraints call after: {}", op->getLoc());
       op->emitWarning("Failed constraints call after: " +
                       llvm::toString(opConstraintsResult.takeError()));
-      return false;
+      return nullptr;
     }
 
     auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
@@ -798,10 +801,10 @@ private:
                       " out of " + std::to_string(l1CacheSize) +
                       " scaled down to " +
                       std::to_string(tensorL1UsageCap * l1CacheSize));
-      return false;
+      return nullptr;
     }
 
-    return true;
+    return outputLayout;
   }
 
   // Surround op with memory reconfig ops that convert tensor to row major
@@ -962,23 +965,24 @@ private:
         return;
       }
 
-      // Op constraints are checked to verify that there is a layout that
-      // satisfies the constraints, but the workaround is applied regardless of
-      // current input layout. Canonicalization pass will be run after this pass
-      // to remove redundant `ToLayoutOp`s.
-      bool hasPassedConstraints = false;
       // Let's check first if the op can be executed with the current layout.
-      if (checkOpConstraints(op, inputLayouts, l1CacheSize,
-                             /*convertInputToRowMajor=*/false)) {
+      if (auto expectedOutputLayout =
+              checkOpConstraints(op, inputLayouts, l1CacheSize,
+                                 /*convertInputToRowMajor=*/false)) {
+        // If output layout is different from the expected one, we need to
+        // convert the output type to the expected one.
+        if (expectedOutputLayout != resultLayout) {
+          op->getResult(0).setType(
+              resultType.cloneWithEncoding(expectedOutputLayout));
+        }
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                      "Successfully passed constraints, no conversion needed");
-        hasPassedConstraints = true;
+        return;
       }
 
       // Failed to satisfy constraints, try with row major layout for the input
       // operand.
-      if (!hasPassedConstraints &&
-          !checkOpConstraints(op, inputLayouts, l1CacheSize,
+      if (!checkOpConstraints(op, inputLayouts, l1CacheSize,
                               /*convertInputToRowMajor=*/true)) {
         op->emitOpError(
             "Failed to satisfy constraints with Tile and RM layouts");
