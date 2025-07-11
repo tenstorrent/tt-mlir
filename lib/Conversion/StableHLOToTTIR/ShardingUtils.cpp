@@ -259,6 +259,9 @@ bool MeshSharding::determineMeshShardOpCreationAndShardType(
   assert(shardType == mlir::tt::ttcore::MeshShardType::Replicate ||
          shardType == mlir::tt::ttcore::MeshShardType::Devices);
 
+  setDummyShardingOp();
+  return true;
+
   // If JAX expects pre-sharded input/return (foundSharding) and if it is
   // replicate, do not create mesh_shard op as the input/output shapes are
   // identical.
