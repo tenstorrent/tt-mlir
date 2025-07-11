@@ -1110,10 +1110,13 @@ class TTIRBuilderOps:
         -------
         (*OpView*)
         """
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.ne,
             ttir.NotEqualOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
