@@ -4021,42 +4021,42 @@ class TTIRBuilderOps:
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
-        Creates ``ttir.requantize``.
+                Creates ``ttir.requantize``.
 
-        *Requantize integer tensor to new scale and zero-point.*
+                *Requantize integer tensor to new scale and zero-point.*
+        f
+                Converts a quantized integer tensor from one quantization scheme to another using
+                new scale and zero-point parameters. For each element in the input tensor, computes:
+                output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
 
-        Converts a quantized integer tensor from one quantization scheme to another using
-        new scale and zero-point parameters. For each element in the input tensor, computes:
-        output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
+                .. code-block:: mlir
 
-        .. code-block:: mlir
+                    // Requantize int8 tensor to new scale and zero-point
+                    %result = ttir.requantize(%input, %output) {scale = 0.2 : f32, zero_point = 100 : i32} : tensor<2x2xi8>, tensor<2x2xi8> -> tensor<2x2xi8>
+                    // Input tensor (scale=0.1, zero_point=128):
+                    // [[143, 126],
+                    //  [128, 165]]
+                    // Output tensor (scale=0.2, zero_point=100):
+                    // [[107, 98],
+                    //  [100, 119]]
 
-            // Requantize int8 tensor to new scale and zero-point
-            %result = ttir.requantize(%input, %output) {scale = 0.2 : f32, zero_point = 100 : i32} : tensor<2x2xi8>, tensor<2x2xi8> -> tensor<2x2xi8>
-            // Input tensor (scale=0.1, zero_point=128):
-            // [[143, 126],
-            //  [128, 165]]
-            // Output tensor (scale=0.2, zero_point=100):
-            // [[107, 98],
-            //  [100, 119]]
+                Parameters
+                ----------
+                in0 : Operand
+                    Input quantized integer tensor to be requantized
+                scale : float
+                    New scale factor for requantization
+                zero_point : int
+                    New integer value that represents 0.0 in the quantized space
+                dtype : torch.dtype
+                    Target integer data type (e.g., torch.int8)
+                unit_attrs : *Optional[List[str]]*
+                    Optional list of unit attributes
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input quantized integer tensor to be requantized
-        scale : float
-            New scale factor for requantization
-        zero_point : int
-            New integer value that represents 0.0 in the quantized space
-        dtype : torch.dtype
-            Target integer data type (e.g., torch.int8)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The requantized integer tensor with new scale and zero-point
+                Returns
+                -------
+                (*OpView*)
+                    The requantized integer tensor with new scale and zero-point
         """
         golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
         return self.op_proxy(

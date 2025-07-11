@@ -248,9 +248,17 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       }
       blockShape[i] *= dim;
     }
+
     auto viewOperandType = applyGridShape(newOperandType, blockShape);
+
+    // Do not insert ViewLayoutOp if the shapes are already identical.
+    if (toLayoutOp.getType(0) == viewOperandType) {
+      return toLayoutOp.getResult(0);
+    }
+
     return rewriter
-        .create<ViewLayoutOp>(loc, viewOperandType, toLayoutOp.getResult(0))
+        .create<ViewLayoutOp>(loc, toLayoutOp.getResult(0),
+                              viewOperandType.getShape())
         .getResult();
   }
 
