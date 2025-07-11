@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include <ttnn/tensor/types.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
