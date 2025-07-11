@@ -1,17 +1,6 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for reshape operation
 
-// Verify that verification fails when shape attribute is empty.
-module {
-  func.func @reshape_shape_attribute_empty(%arg0: tensor<2x32x32xbf16>) -> tensor<32x2x32xbf16> {
-    %0 = ttir.empty() : tensor<32x2x32xbf16>
-    %1 = "ttir.reshape"(%arg0, %0) <{shape = []}> : (tensor<2x32x32xbf16>, tensor<32x2x32xbf16>) -> tensor<32x2x32xbf16>
-    // CHECK: error: 'ttir.reshape' op Shape attribute must be non-empty
-    return %1 : tensor<32x2x32xbf16>
-  }
-}
-
-// -----
 // Verify that verification fails when shape size doesn't matches the rank of the output tensor
 module {
   func.func @reshape_shape_size_different_from_the_output_rank(%arg0: tensor<2x32x32xbf16>) -> tensor<1x32x2x32xbf16> {

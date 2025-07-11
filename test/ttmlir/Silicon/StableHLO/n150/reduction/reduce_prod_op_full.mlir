@@ -13,7 +13,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK: %[[PROD:[0-9]+]] = "ttnn.prod"
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xbf16,
-    // CHECK-SAME: -> tensor<1xbf16,
+    // CHECK-SAME: -> tensor<bf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1, 2, 3] : (tensor<128x10x32x4xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -24,7 +24,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK: %[[PROD:[0-9]+]] = "ttnn.prod"
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x4xbf16,
-    // CHECK-SAME: -> tensor<1xbf16,
+    // CHECK-SAME: -> tensor<bf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1, 2] : (tensor<128x10x4xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -35,7 +35,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK: %[[PROD:[0-9]+]] = "ttnn.prod"
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10xbf16,
-    // CHECK-SAME: -> tensor<1xbf16,
+    // CHECK-SAME: -> tensor<bf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1] : (tensor<128x10xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -46,7 +46,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK: %[[PROD:[0-9]+]] = "ttnn.prod"
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xbf16,
-    // CHECK-SAME: -> tensor<1xbf16,
+    // CHECK-SAME: -> tensor<bf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1, 2, 3] : (tensor<128x10x32x4xf32>, tensor<f32>) -> tensor<f32>
     return %0 : tensor<f32>
   }

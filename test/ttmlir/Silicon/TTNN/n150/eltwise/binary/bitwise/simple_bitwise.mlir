@@ -13,6 +13,16 @@ module attributes {} {
     return %1 : tensor<64x128xi32>
   }
 
+  func.func @bitwise_and_scalars(%arg0: tensor<i32>, %arg1: tensor<i32>) -> tensor<i32> {
+    %0 = ttir.empty() : tensor<i32>
+    %1 = "ttir.bitwise_and"(%arg0, %arg1, %0) : (tensor<i32>, tensor<i32>, tensor<i32>) -> tensor<i32>
+    // CHECK: "ttnn.bitwise_and"
+    // CHECK-SAME: tensor<si32
+    // CHECK-SAME: tensor<si32
+    // CHECK-SAME: -> tensor<si32
+    return %1 : tensor<i32>
+  }
+
   func.func @bitwise_or(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
     %0 = ttir.empty() : tensor<64x128xi32>
     %1 = "ttir.bitwise_or"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>

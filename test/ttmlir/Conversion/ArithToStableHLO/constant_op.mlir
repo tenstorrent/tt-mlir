@@ -2,9 +2,9 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
 module @jit_constant attributes {} {
   func.func public @test_scalar_float() -> tensor<f32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<f32>}> : () -> tensor<f32>
     %0 = arith.constant dense<3.0> : tensor<f32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xf32>
+    // CHECK: return %{{[0-9]+}} : tensor<f32>
     return %0 : tensor<f32>
   }
 
@@ -23,9 +23,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_scalar_int() -> tensor<i32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi32>}> : () -> tensor<1xi32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<i32>}> : () -> tensor<i32>
     %0 = arith.constant dense<3> : tensor<i32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi32>
+    // CHECK: return %{{[0-9]+}} : tensor<i32>
     return %0 : tensor<i32>
   }
 
@@ -44,9 +44,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_scalar_uint() -> tensor<ui32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xui32>}> : () -> tensor<1xui32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<ui32>}> : () -> tensor<ui32>
     %0 = arith.constant dense<3> : tensor<ui32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xui32>
+    // CHECK: return %{{[0-9]+}} : tensor<ui32>
     return %0 : tensor<ui32>
   }
 

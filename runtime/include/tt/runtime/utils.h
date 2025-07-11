@@ -113,7 +113,13 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
 
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
-  assert(!shape.empty());
+  // Scalar case:
+  // For empty shape, return empty stride
+  if (shape.empty()) {
+    return {};
+  }
+
+  // For non-empty shape, calculate stride
   std::vector<uint32_t> stride(shape.size(), 1);
   for (size_t i = shape.size() - 1; i > 0; i--) {
     stride[i - 1] = stride[i] * shape[i];
