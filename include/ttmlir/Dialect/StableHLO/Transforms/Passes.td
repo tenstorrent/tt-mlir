@@ -9,11 +9,23 @@ include "mlir/Pass/PassBase.td"
 include "shardy/dialect/sdy/ir/dialect.td"
 include "shardy/dialect/sdy/ir/op_interface.td"
 
-def ShardyAnnotateArgumentsPass : Pass<"shardy-annotate-arguments", "::mlir::ModuleOp">
+def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::ModuleOp">
 {
-  let summary = "Annotate arguments with shardy tensor annotations.";
+  let summary = "Annotate arguments with their shard status.";
   let description = [{
-    This pass will analyze the module and annotate all the arguments with their respective shardy tensor annotations. It will use existing annotations or determine new ones to support.
+    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not. It will determine this based on analyzing shardy annotations.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ApplyShardyArgumentAnnotationsPass : Pass<"apply-shardy-argument-annotations", "::mlir::ModuleOp">
+{
+  let summary = "Annotate arguments with sdy annotations.";
+  let description = [{
+    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not. It will determine this based on analyzing shardy annotations.
   }];
 
   let options = [
@@ -26,9 +38,9 @@ def ShardyAnnotateArgumentsPass : Pass<"shardy-annotate-arguments", "::mlir::Mod
   ];
 }
 
-def ShardyWrapManualComputationPass : Pass<"shardy-wrap-manual-computation", "::mlir::ModuleOp">
+def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::mlir::ModuleOp">
 {
-  let summary = "Wrap all operations within a shardy manual computation op.";
+  let summary = "Wrap all operations within a sdy manual computation op.";
   let description = [{
     This pass will wrap all the operations within a module under a manual computation op that defines per device tensor shapes.
   }];
@@ -38,9 +50,9 @@ def ShardyWrapManualComputationPass : Pass<"shardy-wrap-manual-computation", "::
   ];
 }
 
-def UpdateAutomaticShardShapesPass : Pass<"update-automatic-shard-shapes", "::mlir::ModuleOp">
+def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mlir::ModuleOp">
 {
-  let summary = "Update all the tensor dimensions based on their tensor sharding annotation.";
+  let summary = "Update all the tensor dimensions based on their tensor sharding annotation from global shapes to local per device shapes.";
 
   let dependentDialects = [
     "::mlir::sdy::SdyDialect"
