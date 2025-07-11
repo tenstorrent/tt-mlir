@@ -91,7 +91,6 @@ void createTTNNPipelineAnalysisPasses(
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-    pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeights());
   }
 }
 
