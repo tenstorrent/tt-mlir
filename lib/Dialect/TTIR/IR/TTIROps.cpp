@@ -3506,8 +3506,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     return emitOpError(
         "Input tensor requires that dim 2 have a size which is less than or "
         "equal to the size of dim 2 of the cache tensor. Got cache dim 2 "
-        "size "
-        "= " +
+        "size = " +
         std::to_string(cacheType.getShape()[2]) +
         ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
   }

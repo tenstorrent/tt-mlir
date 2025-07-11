@@ -238,9 +238,11 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     ttcore::MetalLayoutAttr metalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(newOperandType.getEncoding());
     SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
-
     for (auto [i, dim] :
          llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
+      // Handle the edge case where a 0 constant appears in the affine map, i.e.
+      // some kind of reduction or broadcast:
+      //   (d0, d1) -> (d0, 0)
       if (blockShape[i] == 0) {
         blockShape[i] = 1;
       }
