@@ -704,7 +704,7 @@ public:
 
     if (!sdyAnnotationsExist && !gspmdAnnotationsExist &&
         !ttArgAnnotationsExist && !automaticArgAnalysis) {
-      rootModule.emitError("Could not find sdy, gspmd, tt annotations and "
+      rootModule.emitWarning("Could not find sdy, gspmd, tt annotations and "
                            "automatic arg analysis is "
                            "disabled. Skipping pass.\n");
       return;
@@ -838,6 +838,13 @@ public:
     mlir::OpBuilder builder(context);
     mlir::PassManager pm(context);
 
+    bool sdyAnnotationsExist = sdy_utils::sdyAnnotationsExist(rootModule);
+
+    if (!sdyAnnotationsExist) {
+      rootModule.emitWarning("Could not find sdy annotations. Skipping pass.\n");
+      return;
+    }
+
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
     llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
@@ -886,6 +893,13 @@ public:
     mlir::ModuleOp rootModule = getOperation();
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
+
+    bool sdyAnnotationsExist = sdy_utils::sdyAnnotationsExist(rootModule);
+
+    if (!sdyAnnotationsExist) {
+      rootModule.emitWarning("Could not find sdy annotations. Skipping pass.\n");
+      return;
+    }
 
     // Get the shardy mesh op in the root module.
     mlir::sdy::MeshOp globalMeshOp;
