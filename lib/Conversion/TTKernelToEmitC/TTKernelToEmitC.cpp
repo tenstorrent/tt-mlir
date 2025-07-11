@@ -293,6 +293,12 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if (std::is_same_v<SourceOp, ttkernel::GetCommonArgValOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::GetNocAddrFromBankIDOp>) {
       SmallVector<Attribute, 1> template_args;
@@ -570,6 +576,7 @@ public:
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetCommonArgValOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
