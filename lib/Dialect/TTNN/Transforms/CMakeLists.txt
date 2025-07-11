@@ -18,7 +18,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
-        Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
         Workarounds/Decomposition/RepeatOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
