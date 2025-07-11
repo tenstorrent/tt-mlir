@@ -3357,7 +3357,7 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
+def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [TTIR_QuantizableOpInterface]> {
   let summary = "Generalized convolution operation.";
   let description = [{
     This operation is a more flexible form of convolution that can handle arbitrary dimensionality

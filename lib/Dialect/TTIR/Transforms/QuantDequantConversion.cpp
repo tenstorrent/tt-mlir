@@ -21,105 +21,191 @@ namespace {
 // Rewrites Q(op(x)) into op(Q(x)) if the op supports quantized execution.
 // If the op does not support quantized execution, inserts DQ → op → Q sandwich
 // instead.
-class CommuteQuantizeAboveQuantizableOpRewriter
-    : public TTIRCommuteOpInterfaceRewritePattern<
-          ttir::QuantizeOp, QuantizableOpInterface, CommuteDirection::UPWARDS> {
+// class CommuteQuantizeAboveQuantizableOpRewriter
+//     : public TTIRCommuteOpInterfaceRewritePattern<
+//           ttir::QuantizeOp, QuantizableOpInterface,
+//           CommuteDirection::UPWARDS> {
+// public:
+//   using TTIRCommuteOpInterfaceRewritePattern<
+//       ttir::QuantizeOp, QuantizableOpInterface,
+//       CommuteDirection::UPWARDS>::TTIRCommuteOpInterfaceRewritePattern;
+
+// private:
+//   bool isCommuteUpwardsViable(QuantizableOpInterface op,
+//                               ttir::QuantizeOp quantOp) const override {
+//     // For now, always assume QuantizableOp is commutable with Quantize.
+//     return true;
+//   }
+
+//   bool isCommuteUpwardsFavorable(QuantizableOpInterface op,
+//                                  ttir::QuantizeOp quantOp) const override {
+//     // Skip commuting if the QuantizeOp has been explicitly marked to
+//     opt-out. if (quantOp->hasAttr("ttir.skip_qdq_commute")) {
+//       return false;
+//     }
+//     return true;
+//   }
+
+//   void performCommuteUpwardsRewrite(QuantizableOpInterface op,
+//                                     ttir::QuantizeOp quantOp,
+//                                     PatternRewriter &rewriter) const override
+//                                     {
+//     // Assuming one output for now. TODO: handle multiple outputs.
+//     RankedTensorType oldOpType =
+//         mlir::cast<RankedTensorType>(op->getResult(0).getType());
+//     RankedTensorType oldQuantizeResultType = quantOp.getResult().getType();
+//     quant::QuantizedType quantType = mlir::dyn_cast<quant::QuantizedType>(
+//         oldQuantizeResultType.getElementType());
+//     // Construct the expected quantized result type by applying the quantized
+//     // element type to the original op's shape and encoding.
+//     RankedTensorType newOpType = RankedTensorType::get(
+//         oldOpType.getShape(), quantType, oldOpType.getEncoding());
+//     SmallVector<Value> newQuantOperands;
+//     // Quantize all input operands to prepare for pushing Quantize above the
+//     op. DestinationStyleOpInterface dps =
+//         mlir::cast<DestinationStyleOpInterface>(op.getOperation());
+//     for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+//       RankedTensorType oldOperandType = mlir::cast<RankedTensorType>(
+//           op->getOperand(operand->getOperandNumber()).getType());
+//       RankedTensorType newOperandType = RankedTensorType::get(
+//           oldOperandType.getShape(), quantType,
+//           oldOperandType.getEncoding());
+//       ttir::QuantizeOp q = ttir::utils::createDPSOp<ttir::QuantizeOp>(
+//           rewriter, op->getLoc(), newOperandType, operand->get(),
+//           quantOp->getAttrs());
+//       newQuantOperands.push_back(q);
+//     }
+//     newQuantOperands.push_back(rewriter.create<ttir::EmptyOp>(
+//         op->getLoc(), newOpType.getShape(), newOpType.getElementType(),
+//         newOpType.getEncoding()));
+
+//     // Call rewriteWithQuantizedInputs which returns the new operation.
+//     Operation *newOp =
+//         op.rewriteWithQuantizedInputs(rewriter, newQuantOperands, newOpType);
+
+//     if (newOp && !newOp->getResults().empty()) {
+//       // Op successfully rewritten in quantized form — eliminate original
+//       // QuantizeOp.
+//       rewriter.replaceOp(quantOp, newOp->getResult(0));
+//     } else {
+//       // Op could not be quantized directly — fall back to inserting:
+//       //   Quantize(op(Dequantize(...)))
+//       llvm::SmallVector<Value> dequantizedOperands;
+//       // Iterate over all the indices in newQuantOperands except the last one
+//       // and create a DequantizeOp
+//       for (size_t i = 0; i < newQuantOperands.size() - 1; ++i) {
+//         // the output type of the DQ is always the Q's input type.
+//         mlir::RankedTensorType floatType =
+//             cast<RankedTensorType>(newQuantOperands[i]
+//                                        .getDefiningOp<ttir::QuantizeOp>()
+//                                        .getInput()
+//                                        .getType());
+//         ttir::DequantizeOp dq = ttir::utils::createDPSOp<ttir::DequantizeOp>(
+//             rewriter, op->getLoc(), floatType, newQuantOperands[i]);
+//         dequantizedOperands.push_back(dq);
+//       }
+//       // Assuming one output (push back an empty op with same shape and
+//       encoding
+//       // as the original op)
+//       dequantizedOperands.push_back(rewriter.create<ttir::EmptyOp>(
+//           op->getLoc(), oldOpType.getShape(), oldOpType.getElementType(),
+//           oldOpType.getEncoding()));
+//       // Recreate the original op with dequantized inputs and float output
+//       type. Operation *newOp =
+//           rewriter.create(op->getLoc(), op->getName().getIdentifier(),
+//                           ValueRange(dequantizedOperands),
+//                           TypeRange(op->getResultTypes()), op->getAttrs());
+//       // Create a new quantize op whose input is the original op.
+//       ttir::QuantizeOp newQuantOp =
+//       ttir::utils::createDPSOp<ttir::QuantizeOp>(
+//           rewriter, op->getLoc(), newOpType, newOp->getResult(0));
+//       // Mark this QuantizeOp to prevent future rewrites from attempting to
+//       // commute it again.
+//       newQuantOp->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
+//       rewriter.replaceOp(quantOp, newQuantOp.getResult());
+//     }
+//   }
+// };
+// Rewrites op(DQ(x)) into DQ(op(x)) if the op supports quantized execution.
+// If the op does not support quantized execution, inserts DQ → op → Q
+// sandwich instead.
+class CommuteDequantizeBelowQuantizableOpRewriter
+    : public TTIRCommuteOpInterfaceRewritePattern<ttir::DequantizeOp,
+                                                  QuantizableOpInterface,
+                                                  CommuteDirection::DOWNWARDS> {
 public:
   using TTIRCommuteOpInterfaceRewritePattern<
-      ttir::QuantizeOp, QuantizableOpInterface,
-      CommuteDirection::UPWARDS>::TTIRCommuteOpInterfaceRewritePattern;
+      ttir::DequantizeOp, QuantizableOpInterface,
+      CommuteDirection::DOWNWARDS>::TTIRCommuteOpInterfaceRewritePattern;
 
 private:
-  bool isCommuteUpwardsViable(QuantizableOpInterface op,
-                              ttir::QuantizeOp quantOp) const override {
-    // For now, always assume QuantizableOp is commutable with Quantize.
+  bool isCommuteDownwardsViable(QuantizableOpInterface op,
+                                ttir::DequantizeOp dequantOp) const override {
+    // Require that this operand is one of the inputs to the op
+    // and that its result has only one user (to avoid duplicating work)
+    return dequantOp->hasOneUse();
+  }
+
+  bool
+  isCommuteDownwardsFavorable(QuantizableOpInterface op,
+                              ttir::DequantizeOp dequantOp) const override {
+    // Always favorable for now. Could refine by looking at op type / reuse
+    // potential.
     return true;
   }
 
-  bool isCommuteUpwardsFavorable(QuantizableOpInterface op,
-                                 ttir::QuantizeOp quantOp) const override {
-    // Skip commuting if the QuantizeOp has been explicitly marked to opt-out.
-    if (quantOp->hasAttr("ttir.skip_qdq_commute")) {
-      return false;
+  void
+  performCommuteDownwardsRewrite(QuantizableOpInterface op,
+                                 ttir::DequantizeOp dequantOp,
+                                 PatternRewriter &rewriter) const override {
+    // Collect all operands from the Dequantize ops. These will be the new
+    // operands for the quantized op.
+    llvm::SmallVector<Value> quantOperands;
+    DestinationStyleOpInterface dps =
+        mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
+    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+      auto dq = op->getOperand(operand->getOperandNumber())
+                    .getDefiningOp<ttir::DequantizeOp>();
+      if (dq) {
+        quantOperands.push_back(dq.getOperand(0));
+      }
     }
-    return true;
-  }
+    llvm::SmallVector<Value> emptyOperands;
+    for (mlir::Value output : dps.getDpsInits()) {
+      auto empty = output.getDefiningOp<ttir::EmptyOp>();
+      if (empty) {
+        emptyOperands.push_back(empty);
+      }
+    }
 
-  void performCommuteUpwardsRewrite(QuantizableOpInterface op,
-                                    ttir::QuantizeOp quantOp,
-                                    PatternRewriter &rewriter) const override {
+    // The new result type is the same as the first quantized operand (for now).
     RankedTensorType oldOpType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    RankedTensorType oldQuantizeResultType = quantOp.getResult().getType();
-    quant::QuantizedType quantType = mlir::dyn_cast<quant::QuantizedType>(
-        oldQuantizeResultType.getElementType());
-    // Construct the expected quantized result type by applying the quantized
-    // element type to the original op's shape and encoding.
     RankedTensorType newOpType = RankedTensorType::get(
-        oldOpType.getShape(), quantType, oldOpType.getEncoding());
-    SmallVector<Value> newQuantOperands;
-    // Quantize all input operands to prepare for pushing Quantize above the op.
-    DestinationStyleOpInterface dps =
-        mlir::cast<DestinationStyleOpInterface>(op.getOperation());
-    for (auto [i, operand] : llvm::enumerate(dps.getDpsInputOperands())) {
-      RankedTensorType oldOperandType = mlir::cast<RankedTensorType>(
-          op->getOperand(operand->getOperandNumber()).getType());
-      RankedTensorType newOperandType = RankedTensorType::get(
-          oldOperandType.getShape(), quantType, oldOperandType.getEncoding());
-      ttir::QuantizeOp q = ttir::utils::createDPSOp<ttir::QuantizeOp>(
-          rewriter, op->getLoc(), newOperandType, operand->get(),
-          quantOp->getAttrs());
-      newQuantOperands.push_back(q);
-    }
-    newQuantOperands.push_back(rewriter.create<ttir::EmptyOp>(
-        op->getLoc(), newOpType.getShape(), newOpType.getElementType(),
-        newOpType.getEncoding()));
-
-    // Call rewriteWithQuantizedInputs which returns the new operation.
+        oldOpType.getShape(),
+        mlir::cast<RankedTensorType>(quantOperands[0].getType())
+            .getElementType(),
+        oldOpType.getEncoding());
+    llvm::errs() << "newOpType: " << newOpType << "\n";
+    llvm::errs() << "quantOperands[0].getType(): " << quantOperands[0].getType()
+                 << "\n";
+    // Call rewriteWithQuantizedOutput which returns the new operation.
+    // If the op is successfully rewritten in quantized form, dequantize the
+    // output and rewrite. We expect rewriteWithQuantizedOutput to identify
+    // whether the quantOperands set is sufficient to rewrite the op in
+    // quantized form.
     Operation *newOp =
-        op.rewriteWithQuantizedInputs(rewriter, newQuantOperands, newOpType);
-
+        op.rewriteWithQuantizedInputs(rewriter, quantOperands, newOpType);
+    llvm::errs() << "newOp: " << newOp << "\n";
     if (newOp && !newOp->getResults().empty()) {
       // Op successfully rewritten in quantized form — eliminate original
       // QuantizeOp.
-      rewriter.replaceOp(quantOp, newOp->getResult(0));
-    } else {
-      // Op could not be quantized directly — fall back to inserting:
-      //   Quantize(op(Dequantize(...)))
-      llvm::SmallVector<Value> dequantizedOperands;
-      // Iterate over all the indices in newQuantOperands except the last one
-      // and create a DequantizeOp
-      for (size_t i = 0; i < newQuantOperands.size() - 1; ++i) {
-        // the output type of the DQ is always the Q's input type.
-        mlir::RankedTensorType floatType =
-            cast<RankedTensorType>(newQuantOperands[i]
-                                       .getDefiningOp<ttir::QuantizeOp>()
-                                       .getInput()
-                                       .getType());
-        ttir::DequantizeOp dq = ttir::utils::createDPSOp<ttir::DequantizeOp>(
-            rewriter, op->getLoc(), floatType, newQuantOperands[i]);
-        dequantizedOperands.push_back(dq);
-      }
-      // Assuming one output (push back an empty op with same shape and encoding
-      // as the original op)
-      dequantizedOperands.push_back(rewriter.create<ttir::EmptyOp>(
-          op->getLoc(), oldOpType.getShape(), oldOpType.getElementType(),
-          oldOpType.getEncoding()));
-      // Recreate the original op with dequantized inputs and float output type.
-      Operation *newOp =
-          rewriter.create(op->getLoc(), op->getName().getIdentifier(),
-                          ValueRange(dequantizedOperands),
-                          TypeRange(op->getResultTypes()), op->getAttrs());
-      // Create a new quantize op whose input is the original op.
-      ttir::QuantizeOp newQuantOp = ttir::utils::createDPSOp<ttir::QuantizeOp>(
-          rewriter, op->getLoc(), newOpType, newOp->getResult(0));
-      // Mark this QuantizeOp to prevent future rewrites from attempting to
-      // commute it again.
-      newQuantOp->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
-      rewriter.replaceOp(quantOp, newQuantOp.getResult());
+      rewriter.replaceOp(dequantOp, newOp->getResult(0));
     }
+    // If the op is not successfully rewritten, no fallback (for now).
   }
 };
+
 struct QuantizeConvolutionRewriter
     : public OpRewritePattern<ttir::ConvolutionOp> {
   using OpRewritePattern<ttir::ConvolutionOp>::OpRewritePattern;
@@ -310,9 +396,10 @@ public:
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     // Rewrite the quantized convolution.
-    patterns.add<QuantizeConvolutionRewriter>(&getContext());
+    // patterns.add<QuantizeConvolutionRewriter>(&getContext());
     // Register the QDQ commutation pattern and apply greedily to the module.
-    patterns.add<CommuteQuantizeAboveQuantizableOpRewriter>(&getContext());
+    // patterns.add<CommuteQuantizeAboveQuantizableOpRewriter>(&getContext());
+    patterns.add<CommuteDequantizeBelowQuantizableOpRewriter>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;

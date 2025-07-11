@@ -1020,6 +1020,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> quantizedOperands,
+    mlir::ArrayRef<mlir::Value> outputOperands,
     mlir::Type quantizedResultType) {
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
@@ -1030,11 +1031,9 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
           quantizedResultType)) {
     return nullptr;
   }
-  unsigned numInputs = getInputs().size();
-  unsigned numOutputs = getOutputs().size();
-  mlir::ValueRange inputs = quantizedOperands.take_front(numInputs);
-  mlir::ValueRange outputs =
-      quantizedOperands.drop_front(numInputs).take_front(numOutputs);
+  // get the inputs and outputs
+  mlir::ValueRange inputs = quantizedOperands;
+  mlir::ValueRange outputs = outputOperands;
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
       getLoc(), mlir::TypeRange{quantizedResultType}, inputs, outputs,
       getPoolingMethod(), getWindowDimensions(), getWindowStrides(),
