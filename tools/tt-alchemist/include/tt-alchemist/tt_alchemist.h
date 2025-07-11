@@ -32,9 +32,8 @@ public:
 
   bool modelToCpp(const std::string &input_file);
 
-  // Create a standalone solution with the generated C++ code
-  bool createSolution(const std::string &input_file,
-                      const std::string &output_dir);
+  // Generate a standalone solution with the generated C++ code
+  bool generate(const std::string &input_file, const std::string &output_dir);
 
 private:
   TTAlchemist();
@@ -56,10 +55,10 @@ TT_ALCHEMIST_EXPORT void *tt_alchemist_TTAlchemist_getInstance();
 TT_ALCHEMIST_EXPORT bool
 tt_alchemist_TTAlchemist_modelToCpp(void *instance, const char *input_file);
 
-// Create standalone solution
+// Generate a standalone solution
 TT_ALCHEMIST_EXPORT bool
-tt_alchemist_TTAlchemist_createSolution(void *instance, const char *input_file,
-                                        const char *output_dir);
+tt_alchemist_TTAlchemist_generate(void *instance, const char *input_file,
+                                  const char *output_dir);
 
 #ifdef __cplusplus
 }
