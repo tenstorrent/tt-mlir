@@ -181,7 +181,7 @@ jobs:
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
           {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "tt_alchemist",    path: "tools/tt-alchemist"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "tt-alchemist",    path: "tools/tt-alchemist"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -278,6 +278,14 @@ jobs:
           pip install pytest
         fi
 
+    - name: Install tt-alchemist whl
+      if: ${{ matrix.build.type == 'tt-alchemist' && matrix.build.suite == 'run' }}
+      shell: bash
+      run: |
+        source env/activate
+        pip show tt-alchemist && pip uninstall -y tt-alchemist
+        pip install tt-alchemist-${{ env.version }}*.whl --force-reinstall
+
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:
@@ -344,7 +352,7 @@ jobs:
 
     - name: Run tt-alchemist test
       shell: bash
-      if: ${{ matrix.build.type == 'tt_alchemist' && matrix.build.suite == 'run' }}
+      if: ${{ matrix.build.type == 'tt-alchemist' && matrix.build.suite == 'run' }}
       run: |
         source env/activate
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
