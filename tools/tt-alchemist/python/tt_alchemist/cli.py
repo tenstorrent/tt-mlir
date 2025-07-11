@@ -10,7 +10,7 @@ import click
 from pathlib import Path
 
 # Import the API functions
-from tt_alchemist.api import model_to_cpp, create_solution
+from tt_alchemist.api import model_to_cpp, generate
 
 
 @click.group()
@@ -45,22 +45,25 @@ def model_to_cpp_cmd(input_file, verbose):
 @click.argument("input_file", type=click.Path(exists=True))
 @click.argument("output_dir", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def create_solution_cmd(input_file, output_dir, verbose):
-    """Create a standalone solution with the generated C++ code.
+def generate_cmd(input_file, output_dir, verbose):
+    """Generate a standalone solution with the generated C++ code.
 
-    This creates a directory with all necessary files to build and run the generated code,
-    including CMakeLists.txt, precompiled headers, and a main C++ file.
+    This generates a directory with all necessary files to build and run the
+    generated code, including CMakeLists.txt, precompiled headers, and a main
+    C++ file.
     """
     try:
         if verbose:
-            click.echo(f"Creating solution from {input_file} in directory {output_dir}")
+            click.echo(
+                f"Generating solution from {input_file} in directory {output_dir}"
+            )
 
-        success = create_solution(input_file, output_dir)
+        success = generate(input_file, output_dir)
         if success:
-            click.echo(f"Successfully created solution in: {output_dir}")
+            click.echo(f"Successfully generated solution in: {output_dir}")
             return 0
         else:
-            click.echo(f"Failed to create solution in: {output_dir}")
+            click.echo(f"Failed to generate solution in: {output_dir}")
             return 1
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)

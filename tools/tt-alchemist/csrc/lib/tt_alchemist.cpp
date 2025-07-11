@@ -92,8 +92,8 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
   return true;
 }
 
-bool TTAlchemist::createSolution(const std::string &input_file,
-                                 const std::string &output_dir) {
+bool TTAlchemist::generate(const std::string &input_file,
+                           const std::string &output_dir) {
   // Check if input file exists
   if (!fs::exists(input_file)) {
     std::cout << "Input file does not exist: " << input_file << std::endl;
@@ -196,12 +196,11 @@ bool tt_alchemist_TTAlchemist_modelToCpp(void *instance,
   return alchemist->modelToCpp(input_file);
 }
 
-// Create standalone solution
-bool tt_alchemist_TTAlchemist_createSolution(void *instance,
-                                             const char *input_file,
-                                             const char *output_dir) {
+// Generate a standalone solution
+bool tt_alchemist_TTAlchemist_generate(void *instance, const char *input_file,
+                                       const char *output_dir) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->createSolution(input_file, output_dir);
+  return alchemist->generate(input_file, output_dir);
 }
 
 } // extern "C"

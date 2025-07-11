@@ -39,12 +39,12 @@ class TTAlchemistAPI:
             ctypes.c_char_p,  # input_file
         ]
         self.lib.tt_alchemist_TTAlchemist_modelToCpp.restype = ctypes.c_bool
-        self.lib.tt_alchemist_TTAlchemist_createSolution.argtypes = [
+        self.lib.tt_alchemist_TTAlchemist_generate.argtypes = [
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
         ]
-        self.lib.tt_alchemist_TTAlchemist_createSolution.restype = ctypes.c_bool
+        self.lib.tt_alchemist_TTAlchemist_generate.restype = ctypes.c_bool
 
     def _load_library(self):
         """Load the tt-alchemist shared library."""
@@ -85,20 +85,20 @@ class TTAlchemistAPI:
             self.instance_ptr, input_file.encode("utf-8")
         )
 
-    def create_solution(self, input_file, output_dir):
-        """Create a standalone solution with the generated C++ code.
+    def generate(self, input_file, output_dir):
+        """Generate a standalone solution with the generated C++ code.
 
-        This creates a directory with all necessary files to build and run the generated code,
+        This generates a directory with all necessary files to build and run the generated code,
         including CMakeLists.txt, precompiled headers, and a main C++ file.
 
         Args:
             input_file: Path to the input MLIR file.
-            output_dir: Path to the output directory where the solution will be created.
+            output_dir: Path to the output directory where the solution will be generated.
 
         Returns:
             bool: True if successful, False otherwise.
         """
-        return self.lib.tt_alchemist_TTAlchemist_createSolution(
+        return self.lib.tt_alchemist_TTAlchemist_generate(
             self.instance_ptr, input_file.encode("utf-8"), output_dir.encode("utf-8")
         )
 
@@ -117,18 +117,18 @@ def model_to_cpp(input_file):
     return api.model_to_cpp(input_file)
 
 
-def create_solution(input_file, output_dir):
-    """Create a standalone solution with the generated C++ code.
+def generate(input_file, output_dir):
+    """Generate a standalone solution with the generated C++ code.
 
-    This creates a directory with all necessary files to build and run the generated code,
+    This generates a directory with all necessary files to build and run the generated code,
     including CMakeLists.txt, precompiled headers, and a main C++ file.
 
     Args:
         input_file: Path to the input MLIR file.
-        output_dir: Path to the output directory where the solution will be created.
+        output_dir: Path to the output directory where the solution will be generated.
 
     Returns:
         bool: True if successful, False otherwise.
     """
     api = TTAlchemistAPI.get_instance()
-    return api.create_solution(input_file, output_dir)
+    return api.generate(input_file, output_dir)

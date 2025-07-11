@@ -7,4 +7,4 @@
 from .cli import cli
 
 # Import and expose the API functions
-from .api import model_to_cpp, create_solution
+from .api import model_to_cpp, generate
