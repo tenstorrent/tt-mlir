@@ -297,9 +297,13 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  ::ttnn::Tensor tensor = ::ttnn::operations::core::allocate_tensor_on_device(
-      ::ttnn::Shape(shape), layoutDesc.dataType, layoutDesc.layout, &meshDevice,
-      layoutDesc.memoryConfig);
+  ::ttnn::TensorSpec tensorSpec(
+      ::ttnn::Shape(shape),
+      ::ttnn::TensorLayout(
+          layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
+          layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
+  ::ttnn::Tensor tensor =
+      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }

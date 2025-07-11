@@ -36,8 +36,7 @@ LayoutDesc::LayoutDesc(const ::ttnn::StorageType &storageType,
       memoryConfig(memoryConfig) {}
 
 bool LayoutDesc::isOnHost() const {
-  return (storageType == ::ttnn::StorageType::HOST) ||
-         (storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST);
+  return storageType == ::ttnn::StorageType::HOST;
 }
 
 bool LayoutDesc::isOnDevice() const { return !isOnHost(); }

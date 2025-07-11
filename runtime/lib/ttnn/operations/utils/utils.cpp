@@ -412,9 +412,12 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::TensorSpec tensorSpec(
+      ttnnShape,
+      ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
+                           *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::ttnn::operations::core::allocate_tensor_on_device(
-          ttnnShape, ttnnDataType, ttnnLayout, &meshDevice, memoryConfig);
+      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

@@ -29,11 +29,9 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
     // tensor is pre-sharded by frontend and output tensor is expected to be
     // pre-sharded by frontend. Thus, no sharding is required, but need to makes
     // sure if the tensor is multi-device or multi-device host tensor.
-    DEBUG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE ||
-                     input.storage_type() ==
-                         ::ttnn::StorageType::MULTI_DEVICE_HOST,
+    DEBUG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
                  "Input of mesh_shard with identity shard_type must be Device "
-                 " or MULTI DEVICE HOST Storage.");
+                 "Storage.");
   } else {
     DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
                  "Input of ttnn::mesh_shard should be host tensor for "
