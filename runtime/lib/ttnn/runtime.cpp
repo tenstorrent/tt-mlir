@@ -10,7 +10,6 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -136,8 +135,14 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
 
   // If untilize is true and the data type can be untilized on device
-  // Untilize on device first before reading back to host
-  if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
+  bool untilizeOnDevice =
+      untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype());
+  // If blackhole workarounds are enabled, only untilize on device if the
+  // architecture is not blackhole
+  if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
+    untilizeOnDevice &= getArch() != ::tt::runtime::Arch::BLACKHOLE;
+  }
+  if (untilizeOnDevice) {
     ::ttnn::Tensor hostTensor = ::ttnn::from_device(
         ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                           std::nullopt),
@@ -227,7 +232,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   std::vector<::ttnn::Tensor> ttnnTensorShards;
   ttnnTensorShards.reserve(tensorShards.size());
   std::transform(tensorShards.begin(), tensorShards.end(),
@@ -239,11 +245,21 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
 
-  ::ttnn::MeshShape meshShape = operations::utils::getMeshShapeFromConfig(
-      distributionStrategy, ttnnTensorShards);
+  LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
+  ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
+
+  if (auto *shard2dConfig =
+          std::get_if<::tt::tt_metal::ShardTensor2D>(&distributionStrategy)) {
+    ::ttnn::MeshShape configMeshShape(shard2dConfig->shard_mesh.y,
+                                      shard2dConfig->shard_mesh.x);
+    LOG_ASSERT(
+        ttnnMeshShape == configMeshShape,
+        "Mesh shape mismatch between device mesh shape and config mesh shape",
+        ttnnMeshShape, " != ", configMeshShape);
+  }
 
   ::ttnn::Tensor multiDeviceHostTensor =
-      ::ttnn::distributed::from_host_shards(ttnnTensorShards, meshShape);
+      ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
@@ -253,7 +269,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   std::vector<::tt::runtime::Tensor> tensorShards;
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
@@ -261,7 +278,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return createOwnedHostTensor(dataShard, shape, stride,
                                                 itemsize, dataType);
                  });
-  return createMultiDeviceHostTensor(tensorShards, strategy);
+  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
 ::tt::runtime::Tensor createEmptyTensor(
@@ -429,6 +446,14 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
 
 Arch getArch() {
   return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+}
+
+void enablePersistentKernelCache() {
+  ::tt::tt_metal::detail::EnablePersistentKernelCache();
+}
+
+void disablePersistentKernelCache() {
+  ::tt::tt_metal::detail::DisablePersistentKernelCache();
 }
 
 size_t getNumAvailableDevices() {

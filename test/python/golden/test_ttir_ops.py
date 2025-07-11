@@ -30,27 +30,57 @@ def abs(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     return builder.abs(in0, unit_attrs=unit_attrs)
 
 
+def logical_not(
+    in0: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    randn_tensor = torch.randn(shape, dtype=torch.float32)
+    input_tensor = randn_tensor.uniform_(-10.0, 10.0)
+    input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
+    input_tensor = input_tensor.to(dtype)
+    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype
+    golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
+    builder.set_graph_input_output(
+        [input_tensor], [golden_output_tensor], override=True
+    )
+    return builder.logical_not(in0, unit_attrs=unit_attrs)
+
+
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
-    def logical_not(
+    def logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        randn_tensor = torch.randn(shape, dtype=torch.float32)
-        input_tensor = randn_tensor.uniform_(-10.0, 10.0)
-        input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
-        input_tensor = input_tensor.to(dtype)
-        # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype
-        golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
-        return builder.logical_not(in0, unit_attrs=unit_attrs)
+        return logical_not(in0, builder, shape, dtype, unit_attrs)
 
     compile_to_flatbuffer(
-        logical_not,
+        logical_not_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
+    def hoisted_logical_not_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return logical_not(in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+
+    compile_to_flatbuffer(
+        hoisted_logical_not_wrapper,
         [shape],
         [dtype],
         test_base=request.node.name,
@@ -482,29 +512,63 @@ def lt(
     return builder.lt(in0, in1, unit_attrs=unit_attrs)
 
 
+def div(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    dividend_tensor = torch.randn(shape, dtype=dtype)
+    divisor_tensor = torch.randn(shape, dtype=dtype)
+    dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
+    divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
+    output_golden = torch.div(dividend_tensor, divisor_tensor)
+    builder.set_graph_input_output(
+        [dividend_tensor, divisor_tensor], [output_golden], override=True
+    )
+    return builder.div(in0, in1, unit_attrs=unit_attrs)
+
+
 # TODO (wenbinlyuTT): fix f32 accuracy issue for small values
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
-    def div(
+    def div_wrapper(
         in0: Operand,
         in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        dividend_tensor = torch.randn(shape, dtype=dtype)
-        divisor_tensor = torch.randn(shape, dtype=dtype)
-        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
-        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
-        output_golden = torch.div(dividend_tensor, divisor_tensor)
-        builder.set_graph_input_output(
-            [dividend_tensor, divisor_tensor], [output_golden], override=True
-        )
-        return builder.div(in0, in1, unit_attrs=unit_attrs)
+        return div(in0, in1, builder, shape, dtype, unit_attrs)
 
     compile_to_flatbuffer(
-        div,
+        div_wrapper,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
+    def hoisted_div_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return div(in0, in1, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+
+    compile_to_flatbuffer(
+        hoisted_div_wrapper,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -541,6 +605,25 @@ def minimum(
     return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    randn_base_tensor = torch.randn(shape, dtype=dtype)
+    randn_exponent_tensor = torch.randn(shape, dtype=dtype)
+    if torch.is_floating_point(randn_exponent_tensor):
+        randn_base_tensor = torch.abs(randn_base_tensor)
+    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+    builder.set_graph_input_output(
+        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    )
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
 @pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
 def test_linear(shapes: List[Shape], request):
     def linear(
@@ -566,24 +649,40 @@ def test_linear(shapes: List[Shape], request):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
-    def pow(
+    def pow_wrapper(
         in0: Operand,
         in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        randn_base_tensor = torch.randn(shape, dtype=dtype)
-        randn_exponent_tensor = torch.randn(shape, dtype=dtype)
-        if torch.is_floating_point(randn_exponent_tensor):
-            randn_base_tensor = torch.abs(randn_base_tensor)
-        output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-        builder.set_graph_input_output(
-            [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
-        )
-        return builder.pow(in0, in1, unit_attrs=unit_attrs)
+        return pow(in0, in1, builder, shape, dtype, unit_attrs)
 
     compile_to_flatbuffer(
-        pow,
+        pow_wrapper,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.fails_golden
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request):
+    def hoisted_pow_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return pow(in0, in1, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+
+    compile_to_flatbuffer(
+        hoisted_pow_wrapper,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -1610,6 +1709,61 @@ def create_hoisted_concat_op(op_func, name):
     return hoisted_op
 
 
+# Create a function for hoisted where operation
+def create_hoisted_where_op(op_func, name):
+    """Create a hoisted version of the where operation"""
+
+    def hoisted_op(condition, x, y, builder, **kwargs):
+        return op_func(
+            condition, x, y, builder, unit_attrs=["ttir.should_hoist"], **kwargs
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+# Create a function for hoisted slice operation
+def create_hoisted_slice_op(op_func, name):
+    """Create a hoisted version of the slice operation"""
+
+    def hoisted_op(in0, builder, **kwargs):
+        # Default slice parameters
+        begins = DenseI32ArrayAttr.get([0, 0])
+        ends = DenseI32ArrayAttr.get([10, 10])
+        steps = DenseI32ArrayAttr.get([1, 1])
+        return op_func(
+            in0,
+            begins,
+            ends,
+            steps,
+            builder,
+            unit_attrs=["ttir.should_hoist"],
+            **kwargs,
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+# Create a function for hoisted reduce operations
+def create_hoisted_reduce_op(op_func, name):
+    """Create a hoisted version of a reduce operation that requires dimension arguments"""
+
+    def hoisted_op(in0, builder, **kwargs):
+        # Default dimension arguments for the hoisted version
+        default_dim_args = [0]  # Use first dimension as default
+        return op_func(
+            in0,
+            builder,
+            dim_args=default_dim_args,
+            unit_attrs=["ttir.should_hoist"],
+            **kwargs,
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
 # Create hoisted versions of all hoistable operations with proper names
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
@@ -1619,30 +1773,39 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(tanh, "tanh"),
     create_hoisted_unary_op(reciprocal, "reciprocal"),
     create_hoisted_unary_op(neg, "neg"),
-    pytest.param(
-        create_hoisted_unary_op(softmax, "softmax"),
-        marks=pytest.mark.xfail(
-            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
-        ),
-    ),
-    pytest.param(
-        create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
-    ),
+    create_hoisted_unary_op(sigmoid, "sigmoid"),
+    create_hoisted_unary_op(sin, "sin"),
+    create_hoisted_unary_op(cos, "cos"),
     pytest.param(
         create_hoisted_unary_op(max, "max"),
         marks=pytest.mark.skip(
             reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
         ),
     ),
+    create_hoisted_unary_op(sum, "sum"),
+    pytest.param(
+        create_hoisted_unary_op(softmax, "softmax"),
+        marks=pytest.mark.xfail(
+            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
+        ),
+    ),
+    create_hoisted_unary_op(reshape, "reshape"),
     create_hoisted_unary_op(transpose, "transpose"),
 ]
+
 
 hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
+    create_hoisted_binary_op(eq, "equal"),
+    create_hoisted_binary_op(ne, "not_equal"),
+    create_hoisted_binary_op(gt, "greater_than"),
+    create_hoisted_binary_op(ge, "greater_equal"),
+    create_hoisted_binary_op(lt, "less_than"),
+    create_hoisted_binary_op(le, "less_equal"),
 ]
+
 
 hoisted_ternary_ops = [
     create_hoisted_concat_op(concat, "concat"),
@@ -1726,6 +1889,121 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
     compile_to_flatbuffer(
         permute_wrapper,
         shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,begins,ends,step",
+    [
+        ((64, 64), [0, 0], [32, 32], None),
+        ((128, 128), [10, 20], [50, 60], [1, 1]),
+        ((32, 64, 64), [5, 10, 15], [25, 50, 55], [2, 2, 1]),
+    ],
+    ids=["basic_slice", "explicit_step", "3d_slice"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_slice(
+    shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    target: str,
+    request,
+):
+    def slice_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        # Now use the slice operation with the CPU hoisting attribute
+        return builder.slice(in0, begins, ends, step, unit_attrs=["ttir.should_hoist"])
+
+    compile_to_flatbuffer(
+        slice_wrapper,
+        [shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Add test for hoisted where operation
+@pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_where(shapes, request, target: str):
+    def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
+        return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
+
+    where_wrapper.__name__ = "hoisted_where"
+
+    compile_to_flatbuffer(
+        where_wrapper,
+        shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # [input_shape, output_shape]
+        [(2, 3, 4), (24,)],
+        [(128, 128), (16384,)],
+        [(128, 64, 32), (128, 2048)],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_reshape(shapes, request, target: str):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+        return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
+
+    reshape_wrapper.__name__ = "hoisted_reshape"
+
+    compile_to_flatbuffer(
+        reshape_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes_and_dims",
+    [
+        # [(input_shape, output_shape), permutation]
+        [[(2, 3, 4), (2, 4, 3)], [2, 1]],
+        [[(128, 128), (128, 128)], [1, 0]],
+        [[(128, 64, 32), (32, 64, 128)], [0, 2]],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_transpose(shapes_and_dims, request, target: str):
+    shapes, dims = shapes_and_dims
+
+    def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
+        # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
+        # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
+        dim0 = dims[0]
+        dim1 = dims[1]
+        return builder.transpose(
+            in0, dim0=dim0, dim1=dim1, unit_attrs=["ttir.should_hoist"]
+        )
+
+    transpose_wrapper.__name__ = "hoisted_transpose"
+
+    compile_to_flatbuffer(
+        transpose_wrapper,
+        [shapes[0]],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -1872,6 +2150,104 @@ def test_unique_ops(
     )
 
 
+def slice(
+    in0: Operand,
+    begins: List[int],
+    ends: List[int],
+    step: Optional[List[int]] = None,
+    builder: TTIRBuilder = None,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize(
+    "shape,begins,ends,step",
+    [
+        ((64, 64), [0, 0], [32, 32], None),
+        ((64, 64), [10, 20], [50, 60], [1, 1]),
+        ((64, 64, 64), [10, 20, 30], [50, 60, 64], [2, 2, 1]),
+    ],
+    ids=["basic_slice", "explicit_step", "3d_slice"],
+)
+def test_slice(
+    shape: Shape, begins: List[int], ends: List[int], step: List[int], request
+):
+    def slice_op(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return slice(in0, begins, ends, step, builder, unit_attrs)
+
+    compile_to_flatbuffer(
+        slice_op,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("dim_args", [[0]])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.skip("Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883")
+def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
+    """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
+
+    def hoisted_reduce_or_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return reduce_or(
+            in0, builder, dim_args, keep_dim=True, unit_attrs=["ttir.should_hoist"]
+        )
+
+    compile_to_flatbuffer(
+        hoisted_reduce_or_wrapper,
+        inputs_shapes=[shape],
+        inputs_types=[torch.float32],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes_and_broadcast_dims",
+    [
+        # [(input_shape, output_shape), broadcast_dimensions]
+        [[(1, 1, 32), (1, 16, 32)], [1, 16, 1]],
+        [[(128, 1), (128, 64)], [1, 64]],
+        [[(1, 128), (64, 128)], [64, 1]],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
+    """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
+    shapes, broadcast_dimensions = shapes_and_broadcast_dims
+
+    def broadcast_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return broadcast(
+            in0, in1, builder, broadcast_dimensions, unit_attrs=["ttir.should_hoist"]
+        )
+
+    broadcast_wrapper.__name__ = "hoisted_broadcast"
+
+    compile_to_flatbuffer(
+        broadcast_wrapper,
+        inputs_shapes=shapes,
+        test_base=f"{request.node.name}",
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 def gather(
     in0: Operand,
     builder: TTIRBuilder,
@@ -1993,7 +2369,7 @@ def test_hoisted_gather(
             start_index_map,
             offset_dims,
             slice_sizes,
-            unit_attrs=["should_hoist"],
+            unit_attrs=["ttir.should_hoist"],
         )
 
     compile_to_flatbuffer(
@@ -2046,7 +2422,7 @@ def test_hoisted_dot_general(
             contract_dims_lhs,
             batch_dims_rhs,
             contract_dims_rhs,
-            unit_attrs=["should_hoist"],
+            unit_attrs=["ttir.should_hoist"],
         )
 
     compile_to_flatbuffer(

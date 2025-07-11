@@ -2,17 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <optional>
-#include <stdexcept>
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "llvm/ADT/ArrayRef.h"
+
+#include <cstdint>
+#include <optional>
+#include <stdexcept>
 
 namespace mlir::tt::op_model::ttnn {
 
@@ -275,10 +277,6 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
 
   ::ttnn::operations::conv::conv2d::Conv2dConfig config;
 
-  if (conv2dConfig->getDtype()) {
-    config.dtype = getDataType(*conv2dConfig->getDtype());
-  }
-
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
   }
@@ -415,14 +413,17 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context,
       getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
 
-  ttcore::GridAttr grid = mlir::tt::ttcore::GridAttr::get(
-      context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-      ::mlir::tt::ttnn::optimizer_utils::
-          createSingleDeviceVirtualToPhysicalAffineMap(
-              context, memoryLayoutAttr.getValue(), deviceGrid));
+  ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
+  if (isL1BufferType(bufferType)) {
+    gridAttr = mlir::tt::ttcore::GridAttr::get(
+        context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
+        ::mlir::tt::ttnn::optimizer_utils::
+            createSingleDeviceVirtualToPhysicalAffineMap(
+                context, memoryLayoutAttr.getValue(), deviceGrid));
+  }
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
-      context, shape, elementType, bufferType, grid, memoryLayoutAttr);
+      context, shape, elementType, bufferType, gridAttr, memoryLayoutAttr);
 }
 
 } // namespace conversion

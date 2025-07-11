@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -87,18 +88,22 @@ public:
       BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout) {
     TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
         TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout);
+    mlir::tt::ttcore::GridAttr gridAttr =
+        mlir::tt::ttcore::GridAttr::get(&context);
+    if (isL1BufferType(memorySpace)) {
+      gridAttr = mlir::tt::ttcore::GridAttr::get(&context, {8, 8});
+    }
+
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayoutAttr)};
+          gridAttr, tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayoutAttr));
+          gridAttr, tensorMemoryLayoutAttr));
     }
   }
 

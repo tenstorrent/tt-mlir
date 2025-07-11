@@ -8,7 +8,7 @@ import re
 
 os.chdir("src")
 autogen_dialect_mds = glob.glob("autogen/*/Dialect/*.md", recursive=True)
-autogen_module_mds = glob.glob("autogen/*/Module/*.md", recursive=True)
+autogen_module_mds = glob.glob("autogen/*/Module/ttir-builder/*.md", recursive=True)
 match_d = re.compile(f"(?P<dialect>\w+)(?P<kind>(Dialect|Op|Type|Attr)).md").match
 match_mod = re.compile(r"(?P<module>\w+)\.md").match
 

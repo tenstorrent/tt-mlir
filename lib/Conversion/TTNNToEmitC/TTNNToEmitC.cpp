@@ -831,7 +831,6 @@ public:
         /*output=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
-        /*compute_kernel_config=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
@@ -988,11 +987,72 @@ public:
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
             srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PrepareConv2dBias op conversion pattern
+//
+namespace {
+class PrepareConv2dBiasOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConv2dBiasOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv2d_bias";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::conv::conv2d::prepare_conv_bias";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConv2dBiasOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConv2dBiasOp srcOp,
+                  mlir::tt::ttnn::PrepareConv2dBiasOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PrepareConv2dBiasOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getBiasTensor()),
+        emitter.emit(srcOp.getInputMemoryConfig()),
+        emitter.emit(srcOp.getInputTensorLayout()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
+        /*compute_config_=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
@@ -1036,11 +1096,11 @@ public:
             srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()) |
-            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1086,11 +1146,11 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit<
             std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()) |
-            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -2050,6 +2110,37 @@ public:
 };
 } // namespace
 
+// Sort op conversion pattern
+//
+namespace {
+class SortOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SortOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::SortOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getDescending()),
+        emitter.emit(srcOp.getStable()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getValues()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // BatchNormOp conversion pattern
 //
 namespace {
@@ -2228,7 +2319,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
                RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
-               PermuteOpConversionPattern,
+               SortOpConversionPattern, PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
                                                                   ctx);
 
@@ -2261,6 +2352,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Convolution ops
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 

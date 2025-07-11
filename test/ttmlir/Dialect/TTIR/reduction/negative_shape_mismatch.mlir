@@ -32,7 +32,7 @@ module {
 
 // -----
 module {
-  // CHECK: error: 'ttir.sum' op Expected output shape (1), got (128, 16, 1)
+  // CHECK: error: 'ttir.sum' op Expected output shape (), got (128, 16, 1)
   func.func public @shape_mismatch_3(%arg0: tensor<128x16x32xf32>) -> tensor<128x16x1xf32> {
     %0 = ttir.empty() : tensor<128x16x1xf32>
     %1 = "ttir.sum"(%arg0, %0) <{keep_dim = false}> : (tensor<128x16x32xf32>, tensor<128x16x1xf32>) -> tensor<128x16x1xf32>

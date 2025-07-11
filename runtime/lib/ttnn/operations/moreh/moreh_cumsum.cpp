@@ -23,8 +23,7 @@ void run(const ::tt::target::ttnn::MorehCumSumOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   ::ttnn::Tensor out =
-      ::ttnn::moreh_cumsum(in, op->dim(), std::nullopt, outputMemoryConfig,
-                           /*computeKernelConfig*/ std::nullopt);
+      ::ttnn::moreh_cumsum(in, op->dim(), std::nullopt, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

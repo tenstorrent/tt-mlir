@@ -336,12 +336,6 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
       .getTensor();
 }
 
-void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  ::tt::tt_metal::HostBuffer hostBuffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
-  return static_cast<void *>(hostBuffer.view_bytes().data());
-}
-
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
                                     const ::ttnn::DataType &dataType,
                                     const ::ttnn::Layout &layout,
@@ -349,6 +343,12 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   ::ttnn::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
+}
+
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 } // namespace tt::runtime::ttnn::utils
