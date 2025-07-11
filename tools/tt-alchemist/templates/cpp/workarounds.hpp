@@ -11,7 +11,6 @@
 
 #include "tt-metalium/buffer.hpp"
 #include "ttnn/distributed/distributed_tensor.hpp"
-#include "ttnn/tensor/xtensor/partition.hpp"
 
 // Workaround for missing ShardSpec in ttnn namespace.
 namespace ttnn {
@@ -20,6 +19,7 @@ using tt::tt_metal::ShardSpec;
 
 namespace tt::runtime::ttnn::operations::ccl::mesh_shard {
 
+using ::ttnn::distributed::MeshComposerConfig;
 using ::ttnn::distributed::MeshMapperConfig;
 using ::ttnn::distributed::MeshToTensor;
 using ::ttnn::distributed::TensorToMesh;
@@ -40,83 +40,7 @@ enum class MeshShardType : uint32_t {
   MAX = Devices
 };
 
-inline ::ttnn::Tensor FullToShardShape(const ::ttnn::Tensor &input,
-                                       ::ttnn::MeshDevice &meshDevice,
-                                       const MeshShardType &shardType,
-                                       const std::vector<int64_t> &shardShape,
-                                       const std::vector<int64_t> &shardDims) {
-  if (shardType == MeshShardType::Replicate) {
-    return ::ttnn::distributed::distribute_tensor(
-        input,
-        *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
-  }
-
-  MeshMapperConfig config{.placements = {MeshMapperConfig::Replicate(),
-                                         MeshMapperConfig::Replicate()}};
-
-  if (shardDims[0] >= 0) {
-    config.placements[0] = MeshMapperConfig::Shard(shardDims[0]);
-  }
-  if (shardDims[1] >= 0) {
-    config.placements[1] = MeshMapperConfig::Shard(shardDims[1]);
-  }
-
-  std::unique_ptr<TensorToMesh> meshMapper =
-      ::ttnn::distributed::create_mesh_mapper(meshDevice, config);
-
-  return ::ttnn::distributed::distribute_tensor(input, *meshMapper,
-                                                /*meshDevice=*/std::nullopt);
-}
-
-inline ::ttnn::Tensor ShardToFullShape(const ::ttnn::Tensor &input,
-                                       ::ttnn::MeshDevice &meshDevice,
-                                       const MeshShardType &shardType,
-                                       const std::vector<int64_t> &shardShape,
-                                       const std::vector<int64_t> &shardDims) {
-  std::vector<::ttnn::Tensor> input_tensors =
-      ::ttnn::distributed::get_device_tensors(input);
-  if (shardType == MeshShardType::Replicate) {
-    return input_tensors[0];
-  }
-  bool bFullConcat = std::all_of(shardDims.begin(), shardDims.end(),
-                                 [](int n) { return n >= 0; });
-  if (bFullConcat) {
-    // Full multi-device storage concatenation.
-    ::ttnn::distributed::MeshComposerConfig composerConfig{
-        .dims = {static_cast<int>(shardDims[0]),
-                 static_cast<int>(shardDims[1])}};
-
-    std::unique_ptr<MeshToTensor> meshComposer =
-        ::ttnn::distributed::create_mesh_composer(meshDevice, composerConfig);
-
-    return ::ttnn::distributed::aggregate_tensor(input, *meshComposer);
-  }
-  // Partial multi-device storage concatenation.
-  // Current ttnn api does not support partial multi-device storage
-  // concatenation. Thus, xtensor APIs are being called directly from here.
-  size_t stride = 0;
-  int targetDim = 0;
-  size_t iteration = 0;
-  if (shardDims[0] >= 0) {
-    targetDim = shardDims[0];
-    iteration = shardShape[targetDim];
-    stride = meshDevice.num_cols();
-  } else {
-    targetDim = shardDims[1];
-    iteration = shardShape[targetDim];
-    stride = 1;
-  }
-  std::vector<::ttnn::Tensor> target_tensors;
-  for (size_t i = 0; i < iteration; ++i) {
-    target_tensors.push_back(input_tensors[i * stride]);
-  }
-  return ::ttnn::experimental::xtensor::concat(target_tensors, targetDim);
-}
-
-// TODO(wooseoklee): This file is used for code sharing between runtime and
-// ttnn-standalone. Once these functions are stabilized, remove this file and
-// emitC will directly generate stable function code.
-// https://github.com/tenstorrent/tt-mlir/issues/2936
+// This workaround is for emitC to use mesh_shard op.
 inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
                                  ::ttnn::MeshDevice &meshDevice,
                                  const MeshShardDirection &shardDirection,
@@ -130,11 +54,69 @@ inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
     return input;
   }
 
+  auto fullMeshShape = meshDevice.shape();
+  ::ttnn::Tensor out;
   if (shardDirection == MeshShardDirection::FullToShardShape) {
-    return FullToShardShape(input, meshDevice, shardType, shardShape,
-                            shardDims);
+    // Nd Sharding
+    MeshMapperConfig meshMapperConfig;
+    meshMapperConfig.placements.resize(fullMeshShape.dims(),
+                                       MeshMapperConfig::Replicate{});
+    if (shardType == MeshShardType::Devices) {
+      std::transform(shardDims.cbegin(), shardDims.cend(),
+                     meshMapperConfig.placements.begin(),
+                     [](const int dim) -> MeshMapperConfig::Placement {
+                       if (dim >= 0) {
+                         return MeshMapperConfig::Shard{dim};
+                       }
+                       return MeshMapperConfig::Replicate{};
+                     });
+    }
+    std::unique_ptr<TensorToMesh> meshMapper =
+        ::ttnn::distributed::create_mesh_mapper(meshDevice, meshMapperConfig);
+    out = ::ttnn::distributed::distribute_tensor(input, *meshMapper);
+  } else {
+    // Nd (partial) Concat
+    MeshComposerConfig meshComposerConfig;
+    if (shardType == MeshShardType::Replicate) {
+      meshComposerConfig.dims.push_back(static_cast<int>(1));
+      meshComposerConfig.mesh_shape_override = ::ttnn::MeshShape({1});
+    } else {
+      // meshComposerConfig.dims must be unique, and thus, we need to find
+      // non-overlapping dim.
+      auto getNonOverlappingDim = [&]() -> int {
+        int inputRank = static_cast<int>(input.logical_shape().rank());
+        const auto &dims = meshComposerConfig.dims;
+        for (int d = inputRank - 1; d >= 0; --d) {
+          if (std::find(shardDims.cbegin(), shardDims.cend(), d) ==
+                  shardDims.cend() &&
+              std::find(dims.cbegin(), dims.cend(), d) == dims.cend()) {
+            return d;
+          }
+        }
+        assert(false && "All dimensions are overlapping, cannot find "
+                        "non-overlapping dimension for mesh composer.");
+        return -1;
+      };
+      ttsl::SmallVector<uint32_t> targetSubMeshShape;
+      for (size_t dimIdx = 0; dimIdx < shardDims.size(); ++dimIdx) {
+        auto dim = shardDims[dimIdx];
+        if (dim >= 0) {
+          meshComposerConfig.dims.push_back(static_cast<int>(dim));
+          targetSubMeshShape.push_back(fullMeshShape[dimIdx]);
+        } else {
+          meshComposerConfig.dims.push_back(getNonOverlappingDim());
+          targetSubMeshShape.push_back(1);
+        }
+      }
+      meshComposerConfig.mesh_shape_override =
+          ::ttnn::MeshShape(targetSubMeshShape);
+    }
+    std::unique_ptr<MeshToTensor> meshComposer =
+        ::ttnn::distributed::create_mesh_composer(meshDevice,
+                                                  meshComposerConfig);
+    out = ::ttnn::distributed::aggregate_tensor(input, *meshComposer);
   }
-  return ShardToFullShape(input, meshDevice, shardType, shardShape, shardDims);
+  return out;
 }
 } // namespace tt::runtime::ttnn::operations::ccl::mesh_shard
 
