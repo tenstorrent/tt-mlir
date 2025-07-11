@@ -933,6 +933,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToMemoryConfigOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    abort(); // I don't care
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
@@ -1152,6 +1156,10 @@ getOpInputRefs(OpContext opContextHandle,
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::ArangeOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    abort(); // I don't care
     break;
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
