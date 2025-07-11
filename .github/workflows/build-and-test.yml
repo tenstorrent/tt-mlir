@@ -347,7 +347,8 @@ jobs:
       if: ${{ matrix.build.type == 'tt_alchemist' && matrix.build.suite == 'run' }}
       run: |
         source env/activate
-        cmake --build build -- tt-alchemist
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
         tt-alchemist generate ${{ matrix.build.path }}/test/models/mnist.mlir /tmp/test-solution
         cd /tmp/test-solution
         ./run
