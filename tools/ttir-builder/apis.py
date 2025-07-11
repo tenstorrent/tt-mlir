@@ -694,7 +694,7 @@ class TTIRBuilder(TTIRBuilderOps):
 
         elemType = F32Type.get(ctx)
 
-        if tilize:
+        if tiled:
             elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
             extended_shape[-2] //= 32
             extended_shape[-1] //= 32
