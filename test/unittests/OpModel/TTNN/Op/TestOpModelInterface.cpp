@@ -4,6 +4,7 @@
 
 #include "OpModelFixture.h"
 
+#include "TTNNOpsModelCache.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -12,7 +13,6 @@
 
 #include "mlir/IR/AffineExpr.h"
 #include "llvm/ADT/SmallVector.h"
-
 #include <cstdint>
 
 namespace mlir::tt::ttnn {
@@ -142,19 +142,20 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
   auto outputType = createRankedTensorType(tensorShape);
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
                                   ::mlir::ValueRange{input});
-  // Test constraints
-  auto constraintsExp = getOpConstraints(op);
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
-    EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
-  } else {
-    FAIL() << "Missing L1 constraints for " << params.testName
-           << "; Error=" << llvm::toString(constraintsExp.takeError());
+  for (size_t i = 0; i < 100; i++) {
+    // Test constraints
+    auto constraintsExp = getOpConstraints(op);
+    if (constraintsExp) {
+      auto l1 = constraintsExp.get();
+      const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+      EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+      EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+      EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
+    } else {
+      FAIL() << "Missing L1 constraints for " << params.testName
+             << "; Error=" << llvm::toString(constraintsExp.takeError());
+    }
   }
-
   // Test runtime
   auto runtimeExp = getOpRuntime(op);
   if (runtimeExp) {
@@ -528,20 +529,20 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
   op.setKeepDim(true);
   op.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
-
-  // Test operation constraints
-  auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
-    EXPECT_EQ(outputSize, expectedOutputSize);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  for (size_t i = 0; i < 100; i++) {
+    // Test operation constraints
+    auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
+    if (constraintsExp) {
+      auto l1 = constraintsExp.get();
+      const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    } else {
+      FAIL() << "Missing L1 constraints; Error="
+             << llvm::toString(constraintsExp.takeError()) << std::endl;
+    }
   }
-
   // Test operation runtime
   auto runtimeExp = (testFixture->*getOpRuntimeFn)(op.getOperation());
   if (runtimeExp) {
@@ -606,6 +607,19 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+  for (size_t i = 0; i < 100; i++) {
+    auto constraintsExp2 = getOpConstraints(reshape.getOperation());
+    if (constraintsExp2) {
+      auto l1 = constraintsExp2.get();
+      const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+      EXPECT_EQ(cbSize, 5120);
+      EXPECT_EQ(peakSize, 2048);
+      EXPECT_EQ(outputSize, 2048);
+    } else {
+      FAIL() << "Missing L1 constraints; Error="
+             << llvm::toString(constraintsExp.takeError()) << std::endl;
+    }
   }
 }
 
@@ -713,19 +727,20 @@ TEST_F(OpModelBase, concatOp) {
       builder.getUnknownLoc(), output.getType(),
       ::mlir::ValueRange{inputTensor1, inputTensor2, inputTensor3}, 2, nullptr);
 
-  // test concat Op interface
-  auto constraintsExp = getOpConstraints(concatOp.getOperation());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
-    EXPECT_GT(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  for (size_t i = 0; i < 100; i++) {
+    // test concat Op interface
+    auto constraintsExp = getOpConstraints(concatOp.getOperation());
+    if (constraintsExp) {
+      auto l1 = constraintsExp.get();
+      const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+      EXPECT_GT(cbSize, 0);
+      EXPECT_GT(peakSize, 0);
+      EXPECT_GT(outputSize, 0);
+    } else {
+      FAIL() << "Missing L1 constraints; Error="
+             << llvm::toString(constraintsExp.takeError()) << std::endl;
+    }
   }
-
   auto runtimeExp = getOpRuntime(concatOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1593,6 +1608,101 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsTest) {
+  // create SubtractOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
+                                        ::mlir::ValueRange{input1, input2});
+
+  // test SubtractOp interface
+  auto constraintsExp = getOpConstraints(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 1);
+
+  // If getOpConstraints is called again, it will always produce the same result
+  // without calculation:
+  for (size_t i = 1; i <= 100; i++) {
+    auto cachedConstraintsExp = getOpConstraints(sub.getOperation());
+    ASSERT_TRUE(static_cast<bool>(cachedConstraintsExp));
+
+    stats = opConstraintsCache().getStats();
+    EXPECT_EQ(stats.hits, i);
+    // Only the first call is a miss:
+    EXPECT_EQ(stats.misses, 1);
+  }
+
+  // Clear the cache and verify that it is empty:
+  opConstraintsCache().clear();
+  stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 0);
+  EXPECT_TRUE(opConstraintsCache().empty());
+
+  // test the runtime cache:
+  auto runtimeExp = getOpRuntime(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  auto statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 1);
+
+  // If getOpRuntime is called again, it will always produce the same result
+  // without calculation:
+  for (size_t i = 1; i <= 100; i++) {
+    auto cachedRuntimeExp = getOpRuntime(sub.getOperation());
+    ASSERT_TRUE(static_cast<bool>(cachedRuntimeExp));
+
+    statsRuntime = opRuntimeCache().getStats();
+    EXPECT_EQ(statsRuntime.hits, i);
+    // Only the first call is a miss:
+    EXPECT_EQ(statsRuntime.misses, 1);
+  }
+
+  // Clear the cache and verify that it is empty:
+  opRuntimeCache().clear();
+  statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 0);
+  EXPECT_TRUE(opRuntimeCache().empty());
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsTest2) {
+  // create Two add ops with different input sizes:
+  llvm::SmallVector<int64_t> tensorShape1 = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape1);
+  auto input2 = createEmptyTensor(tensorShape1);
+  auto outputType1 = createRankedTensorType(tensorShape1);
+  auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
+                                    ::mlir::ValueRange{input1, input2});
+
+  llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
+  auto input3 = createEmptyTensor(tensorShape2);
+  auto input4 = createEmptyTensor(tensorShape2);
+  auto outputType2 = createRankedTensorType(tensorShape2);
+  auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
+                                    ::mlir::ValueRange{input3, input4});
+
+  // test AddOp interface
+  auto constraintsExp1 = getOpConstraints(add1.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp1));
+  auto stats1 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats1.hits, 0);
+  EXPECT_EQ(stats1.misses, 1);
+
+  auto constraintsExp2 = getOpConstraints(add2.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp2));
+  auto stats2 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats2.hits, 0);
+  // The input sizes are different, so it should be a miss:
+  EXPECT_EQ(stats2.misses, 2);
 }
 
 } // namespace mlir::tt::ttnn
