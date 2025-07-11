@@ -28,7 +28,7 @@ def test_tilize(shape: Shape, request):
 
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, tiled=True),
+            output_type=builder.metal_tensor_layout(shape, tiled=False),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )

@@ -2404,44 +2404,10 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 //===----------------------------------------------------------------------===//
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
-
-// Helper function to evaluate affine expression on given dimensions.
-static int64_t evaluateAffineExpr(mlir::AffineExpr expr,
-                                  mlir::ArrayRef<int64_t> dims) {
-  switch (expr.getKind()) {
-  case mlir::AffineExprKind::Constant:
-    return mlir::cast<mlir::AffineConstantExpr>(expr).getValue();
-  case mlir::AffineExprKind::DimId:
-    return dims[mlir::cast<mlir::AffineDimExpr>(expr).getPosition()];
-  case mlir::AffineExprKind::Add: {
-    auto binExpr = mlir::cast<mlir::AffineBinaryOpExpr>(expr);
-    return evaluateAffineExpr(binExpr.getLHS(), dims) +
-           evaluateAffineExpr(binExpr.getRHS(), dims);
-  }
-  case mlir::AffineExprKind::Mul: {
-    auto binExpr = mlir::cast<mlir::AffineBinaryOpExpr>(expr);
-    return evaluateAffineExpr(binExpr.getLHS(), dims) *
-           evaluateAffineExpr(binExpr.getRHS(), dims);
-  }
-  case mlir::AffineExprKind::FloorDiv: {
-    auto binExpr = mlir::cast<mlir::AffineBinaryOpExpr>(expr);
-    return evaluateAffineExpr(binExpr.getLHS(), dims) /
-           evaluateAffineExpr(binExpr.getRHS(), dims);
-  }
-  case mlir::AffineExprKind::Mod: {
-    auto binExpr = mlir::cast<mlir::AffineBinaryOpExpr>(expr);
-    return evaluateAffineExpr(binExpr.getLHS(), dims) %
-           evaluateAffineExpr(binExpr.getRHS(), dims);
-  }
-  default:
-    llvm_unreachable("Unsupported affine expression kind");
-  }
-}
-
 // Calculate a reblocking affine map from inputShape to outputShape.
-mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
-    mlir::ArrayRef<int64_t> inputShape, mlir::ArrayRef<int64_t> outputShape,
-    mlir::MLIRContext *ctx) {
+static mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
+                                           mlir::ArrayRef<int64_t> outputShape,
+                                           mlir::MLIRContext *ctx) {
   assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
   // Assume the shapes are sharded s.t. first half is grid dims, second half is
@@ -2454,7 +2420,7 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
   mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
   mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
 
-  SmallVector<AffineExpr> mapExprs(rank);
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
 
   // Convert grid/shard coordinates to a flat canonical representation.
   for (size_t i = 0; i < halfRank; i++) {
@@ -2465,7 +2431,7 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
     auto dS = getAffineDimExpr(j, ctx);
     mapExprs[j] = dG * outputShardShape[i] + dS;
   }
-  auto outputToCanonical = AffineMap::get(rank, 0, mapExprs, ctx);
+  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
   // Converts from flat canonical back to grid/shard coordinates.
   for (size_t i = 0; i < halfRank; i++) {
@@ -2474,7 +2440,7 @@ mlir::AffineMap mlir::tt::ttir::ViewLayoutOp::calculateReblockMap(
     mapExprs[i] = dS.floorDiv(inputShardShape[i]);
     mapExprs[j] = dS % inputShardShape[i];
   }
-  auto canonicalToInput = AffineMap::get(rank, 0, mapExprs, ctx);
+  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
   // Compose the maps: input -> canonical -> output.
   return canonicalToInput.compose(outputToCanonical);
@@ -2484,35 +2450,34 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   auto inputType = mlir::cast<mlir::ShapedType>(getInput().getType());
   auto resultType = mlir::cast<mlir::ShapedType>(getResult().getType());
 
-  mlir::AffineMap viewMap = getViewMap();
+  if (getReinterpretLayout()) {
+    // For reinterpret, verify grid doesn't change; only shard (for tilizing
+    // etc).
+    if (auto inputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
+      auto resultTensor = mlir::cast<mlir::RankedTensorType>(resultType);
+      auto inputLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+      auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          resultTensor.getEncoding());
 
-  auto inputShape = inputType.getShape();
-  auto resultShape = resultType.getShape();
+      if (inputLayout.getGridShape(inputType) !=
+          resultLayout.getGridShape(resultType)) {
+        return emitOpError("reinterpret_layout cannot change grid shape");
+      }
+    }
+    // Can change shard shape for tiled <-> untiled
+  } else {
+    // For regular reblocking, verify it's valid; total elements must match.
+    int64_t inputElements = 1, outputElements = 1;
+    for (auto d : inputType.getShape()) {
+      inputElements *= d;
+    }
+    for (auto d : resultType.getShape()) {
+      outputElements *= d;
+    }
 
-  if (viewMap.getNumDims() != resultShape.size()) {
-    return emitOpError("view map dimension count must match output rank");
-  }
-
-  if (viewMap.getNumResults() != inputShape.size()) {
-    return emitOpError("view map result count must match input rank");
-  }
-
-  // Verify a test point at the boundary gets mapped from input to output
-  // correctly.
-  mlir::SmallVector<int64_t> testPoint(resultShape);
-  for (size_t i = 0; i < testPoint.size(); i++) {
-    testPoint[i] = testPoint[i] > 0 ? testPoint[i] - 1 : 0;
-  }
-
-  mlir::SmallVector<int64_t> mappedPoint;
-  for (auto expr : viewMap.getResults()) {
-    mappedPoint.push_back(evaluateAffineExpr(expr, testPoint));
-  }
-
-  for (size_t i = 0; i < mappedPoint.size(); i++) {
-    if (mappedPoint[i] < 0 || mappedPoint[i] >= inputShape[i]) {
-      return emitOpError("view_layout's view map does not correctly map input "
-                         "shape to output shape");
+    if (inputElements != outputElements) {
+      return emitOpError("view must preserve total number of elements");
     }
   }
 
@@ -2521,8 +2486,7 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
 
 static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
                                        mlir::Value input,
-                                       mlir::ArrayRef<int64_t> outputShape,
-                                       mlir::AffineMap view) {
+                                       mlir::ArrayRef<int64_t> outputShape) {
   auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
   mlir::Type elementType = inputType.getElementType();
 
@@ -2546,6 +2510,8 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
   } else {
     auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
+    mlir::AffineMap view = calculateReblockMap(
+        inputType.getShape(), outputShape, builder.getContext());
     auto viewAttr =
         mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
     result = mlir::MemRefType::get(outputShape, elementType, viewAttr,
@@ -2559,27 +2525,10 @@ void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
                                          OperationState &state, Value input,
                                          ArrayRef<int64_t> reblockedShape,
                                          bool reinterpretLayout) {
-  auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
-
-  AffineMap view = calculateReblockMap(inputType.getShape(), reblockedShape,
-                                       builder.getContext());
-
-  Type outputType = createViewOutputType(builder, input, reblockedShape, view);
+  Type outputType = createViewOutputType(builder, input, reblockedShape);
 
   // Build with the view map stored as an attribute.
-  build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
-        builder.getBoolAttr(reinterpretLayout));
-}
-
-// Builder with explicit AffineMap and output shape.
-void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
-                                         OperationState &state, Value input,
-                                         ArrayRef<int64_t> outputShape,
-                                         AffineMap view,
-                                         bool reinterpretLayout) {
-  Type outputType = createViewOutputType(builder, input, outputShape, view);
-
-  build(builder, state, outputType, input, mlir::AffineMapAttr::get(view),
+  build(builder, state, outputType, input,
         builder.getBoolAttr(reinterpretLayout));
 }
 
@@ -2617,12 +2566,9 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
   auto outputType = mlir::cast<mlir::ShapedType>(getResult().getType());
   auto outputShape = outputType.getShape();
 
-  mlir::AffineMap viewMap = getViewMapAttr().getValue();
-
-  // Create new bufferized ViewLayoutOp with the same view map.
   mlir::bufferization::replaceOpWithNewBufferizedOp<
       mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, outputShape,
-                                    viewMap, getReinterpretLayout());
+                                    getReinterpretLayout());
 
   return mlir::success();
 }

@@ -352,16 +352,11 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
     let arguments = (ins
       AnyRankedTensorOrMemRef:$input,
-      AffineMapAttr:$viewMap,
       DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout
     );
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let builders = [
-      // Builder with explicit AffineMap
-      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$outputShape, "AffineMap":$view, CArg<"bool", "false">:$reinterpretLayout)>,
-
-      // Builder with reblocked shape (calculates map automatically)
       OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
                      CArg<"bool", "false">:$reinterpretLayout)>,
     ];
@@ -372,13 +367,6 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
     let hasVerifier = 1;
     let hasFolder = 1;
-
-    let extraClassDeclaration = [{
-      // Helper method to calculate reblock map
-      static AffineMap calculateReblockMap(ArrayRef<int64_t> inputShape,
-                                          ArrayRef<int64_t> outputShape,
-                                          MLIRContext *ctx);
-    }];
 }
 
 //===----------------------------------------------------------------------===//

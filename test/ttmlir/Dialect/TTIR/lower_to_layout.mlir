@@ -32,7 +32,7 @@ func.func @reblock(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout2>) -
 
   // CHECK-LABEL: @reblock
   // Reblocking should use view_layout and datamovement threads since it's just redistributing already tiled data
-  // CHECK: ttir.view_layout %arg0 {{{.*}}} : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
+  // CHECK: ttir.view_layout %arg0 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
   // CHECK: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#ttir.thread<datamovement>]
 
