@@ -44,7 +44,6 @@ message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 # Directories to search for headers
 #
-#
 set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
     ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
