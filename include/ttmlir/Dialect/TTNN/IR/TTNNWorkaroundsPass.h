@@ -297,6 +297,10 @@ public:
   static TTNNOperandsWorkarounds
   createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
                                         bool allDimensions);
+
+  // Create workarounds for repeat op operands.
+  static TTNNOperandsWorkarounds
+  createRepeatOpOperandsWorkarounds(RankedTensorType inputType);
 };
 
 } // namespace mlir::tt::ttnn::wa

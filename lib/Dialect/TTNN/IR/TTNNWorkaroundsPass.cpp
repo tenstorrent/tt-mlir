@@ -691,4 +691,25 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
+
+
+// Factory method to create a set of workarounds for repeat op operands.
+// tt-metal only supports repeat op for bfloat16, float32, and int32 data type.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRepeatOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+  bool isDataTypeWARequired = dataType != mlir::tt::ttcore::DataType::BFloat16 && dataType != mlir::tt::ttcore::DataType::Float32 && dataType != mlir::tt::ttcore::DataType::Int32;
+  if (isDataTypeWARequired) {
+    typeWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::BFloat16;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
+}
+
 } // namespace mlir::tt::ttnn::wa
