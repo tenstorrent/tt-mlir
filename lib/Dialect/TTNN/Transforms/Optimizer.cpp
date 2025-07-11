@@ -966,14 +966,14 @@ private:
       }
 
       // Let's check first if the op can be executed with the current layout.
-      if (auto expectedOutputLayout =
+      if (auto actualOutputLayout =
               checkOpConstraints(op, inputLayouts, l1CacheSize,
                                  /*convertInputToRowMajor=*/false)) {
         // If output layout is different from the expected one, we need to
         // convert the output type to the expected one.
-        if (expectedOutputLayout != resultLayout) {
+        if (actualOutputLayout != resultLayout) {
           op->getResult(0).setType(
-              resultType.cloneWithEncoding(expectedOutputLayout));
+              resultType.cloneWithEncoding(actualOutputLayout));
         }
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                      "Successfully passed constraints, no conversion needed");
