@@ -47,11 +47,27 @@ class TTAlchemistAPI:
         self.lib.tt_alchemist_TTAlchemist_generate.restype = ctypes.c_bool
 
     def _load_library(self):
-        """Load the tt-alchemist shared library."""
-        # TT_MLIR_HOME must be set
+        """Load the tt-alchemist shared library.
+
+        First tries to load from the package directory, then falls back to TT_MLIR_HOME.
+        """
+        # First try to load from the package directory
+        package_dir = os.path.dirname(os.path.abspath(__file__))
+        lib_path = os.path.join(package_dir, "lib", "libtt-alchemist-lib.so")
+
+        if os.path.exists(lib_path):
+            try:
+                return ctypes.CDLL(lib_path)
+            except Exception:
+                # Fall back to TT_MLIR_HOME if loading from package fails
+                pass
+
+        # Fall back to TT_MLIR_HOME
         tt_mlir_home = os.environ.get("TT_MLIR_HOME")
         if not tt_mlir_home:
-            raise RuntimeError("TT_MLIR_HOME environment variable is not set")
+            raise RuntimeError(
+                "Library not found in package and TT_MLIR_HOME environment variable is not set"
+            )
 
         # Get the build directory name from environment or use default "build"
         build_dir = os.environ.get("BUILD_DIR", "build")
@@ -99,7 +115,9 @@ class TTAlchemistAPI:
             bool: True if successful, False otherwise.
         """
         return self.lib.tt_alchemist_TTAlchemist_generate(
-            self.instance_ptr, input_file.encode("utf-8"), output_dir.encode("utf-8")
+            self.instance_ptr,
+            input_file.encode("utf-8"),
+            output_dir.encode("utf-8"),
         )
 
 
