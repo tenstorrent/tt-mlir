@@ -59,6 +59,16 @@ enum class DispatchCoreType {
   ETH,
 };
 
+enum class FabricConfig {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS,
+  FABRIC_2D_DYNAMIC,
+  CUSTOM,
+};
+
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
@@ -167,6 +177,7 @@ struct MeshDeviceOptions {
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+  std::optional<FabricConfig> fabricConfig = std::nullopt;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {
@@ -252,15 +263,17 @@ private:
 struct Device : public detail::RuntimeCheckedObjectImpl {
 
   Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
-         DeviceRuntime runtime)
+         DeviceRuntime runtime, bool fabricEnabled = false)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
-        traceCache(traceCache) {}
+        traceCache(traceCache), fabricEnabled(fabricEnabled) {}
 
   std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
+  bool isFabricEnabled() { return fabricEnabled; }
 
 private:
   // The trace cache associated with this device.
   std::shared_ptr<TraceCache> traceCache;
+  bool fabricEnabled;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

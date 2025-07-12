@@ -198,6 +198,28 @@ def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
     return torch_tensor
 
 
+def parse_fabric_config(fabric_config_str: str):
+    import ttrt.runtime
+
+    key = fabric_config_str.strip().lower().replace("-", "_")
+    if key == "disabled":
+        return ttrt.runtime.FabricConfig.DISABLED
+    elif key == "fabric_1d":
+        return ttrt.runtime.FabricConfig.FABRIC_1D
+    elif key == "fabric_1d_ring":
+        return ttrt.runtime.FabricConfig.FABRIC_1D_RING
+    elif key == "fabric_2d":
+        return ttrt.runtime.FabricConfig.FABRIC_2D
+    elif key == "fabric_2d_torus":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS
+    elif key == "fabric_2d_dynamic":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_DYNAMIC
+    elif key == "custom":
+        return ttrt.runtime.FabricConfig.CUSTOM
+    else:
+        raise ValueError(f"unknown fabric config '{fabric_config_str}'.")
+
+
 class Logger:
     def __init__(self, file_name=""):
         import logging
