@@ -989,9 +989,7 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
-        emitter.emit<
-            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
@@ -1049,9 +1047,7 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
-        emitter.emit<
-            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
     };
 
@@ -1098,9 +1094,7 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit<
-            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1148,9 +1142,7 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit<
-            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
-            srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
