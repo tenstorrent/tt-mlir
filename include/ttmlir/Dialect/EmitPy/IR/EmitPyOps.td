@@ -119,12 +119,12 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
 
   let arguments = (ins
     Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
-    Index:$indices);
+    Index:$index);
 
   let results = (outs EmitPy_OpaqueType:$result);
 
   // TODO (amilovanovic) : add custom verify method
-  let assemblyFormat = "$value `[` $indices `]` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_AssignOp : EmitPy_Op<"assign"> {
@@ -148,8 +148,6 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
     EmitPy_OpaqueType:$value);
 
   let results = (outs AnyType:$result);
-
-  //let assemblyFormat = "$result `=` $value attr-dict";
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {

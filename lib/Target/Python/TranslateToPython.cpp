@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Target/Python/PythonEmitter.h"
+
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
-#include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/IndentedOstream.h"
@@ -154,7 +155,7 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   ss << getOrCreateName(op.getValue());
-  auto index = op.getIndices();
+  auto index = op.getIndex();
   ss << "[" << getOrCreateName(index) << "]";
   return name;
 }

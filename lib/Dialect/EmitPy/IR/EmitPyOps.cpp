@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
@@ -111,40 +113,34 @@ LogicalResult CallOpaqueOp::verify() {
 //===----------------------------------------------------------------------===//
 
 void ImportOp::print(OpAsmPrinter &p) {
-  auto moduleName = getModuleName();
+  StringAttr moduleName = getModuleNameAttr();
   p << " ";
   if (getImportAll()) {
-    p << "from "
-      << "\"" << moduleName << "\""
-      << " import *";
+    // Print 'from <moduleName> import *' case.
+    p << "from " << moduleName << " import *";
   } else if (getMembersToImport()) {
-    auto membersToImport = *getMembersToImport();
-    p << "from "
-      << "\"" << moduleName << "\""
-      << " import ";
-    p << "\"" << membersToImport[0] << "\"";
+    // Print 'from <moduleName> import <membersToImport> [as <memberAliases>]'
+    // case.
+    ArrayAttr membersToImport = *getMembersToImport();
+    p << "from " << moduleName << " import " << membersToImport[0];
     ArrayAttr member_aliases = nullptr;
     if (getMemberAliases()) {
       member_aliases = *getMemberAliases();
-      if (member_aliases[0]) {
-        p << " as "
-          << "\"" << member_aliases[0] << "\"";
+      if (!dyn_cast<StringAttr>(member_aliases[0]).empty()) {
+        p << " as " << member_aliases[0];
       }
     }
     for (size_t i = 1; i < membersToImport.size(); i++) {
-      p << ", "
-        << "\"" << membersToImport[i] << "\"";
-      if (!member_aliases.empty() && member_aliases[i]) {
-        p << " as "
-          << "\"" << member_aliases[i] << "\"";
+      p << ", " << membersToImport[i];
+      if (member_aliases && !dyn_cast<StringAttr>(member_aliases[i]).empty()) {
+        p << " as " << member_aliases[i];
       }
     }
   } else {
-    p << "import "
-      << "\"" << moduleName << "\"";
+    // Print 'import <moduleName> [as <moduleAlias>]' case.
+    p << "import " << moduleName;
     if (getModuleAlias()) {
-      p << " as "
-        << "\"" << *getModuleAlias() << "\"";
+      p << " as " << getModuleAliasAttr();
     }
   }
 }
@@ -268,13 +264,13 @@ LogicalResult ImportOp::verify() {
   // Verify 'from <moduleName> import *' case.
   if (hasImportAll) {
     if (hasModuleAlias) {
-      return emitOpError("cannot specify 'module alias' with *");
+      return emitOpError("cannot specify module alias with *");
     }
     if (hasMembersToImport) {
-      return emitOpError("cannot specify 'members to import' with *");
+      return emitOpError("cannot specify members to import with *");
     }
     if (hasMemberAliases) {
-      return emitOpError("cannot specify 'member aliases' with *");
+      return emitOpError("cannot specify members' aliases with *");
     }
     return success();
   }
@@ -282,11 +278,10 @@ LogicalResult ImportOp::verify() {
   // Verify 'import <moduleName> as <moduleAlias>' case.
   if (hasModuleAlias) {
     if (hasMembersToImport) {
-      return emitOpError(
-          "cannot specify 'members to import' with 'module alias'");
+      return emitOpError("cannot specify members to import with module alias");
     }
     if (hasMemberAliases) {
-      return emitOpError("cannot specify 'member aliases' with 'module alias'");
+      return emitOpError("cannot specify members' aliases with module alias");
     }
     return success();
   }
@@ -295,7 +290,7 @@ LogicalResult ImportOp::verify() {
   // case.
   if (hasMembersToImport) {
     // Check individual members' names are not empty.
-    for (auto member : *membersToImport) {
+    for (Attribute member : *membersToImport) {
       StringAttr memberName = dyn_cast<StringAttr>(member);
       if (memberName.empty()) {
         return emitOpError("imported member name cannot be empty");
@@ -306,21 +301,14 @@ LogicalResult ImportOp::verify() {
     // <membersToImport> count.
     if (hasMemberAliases) {
       if (membersToImport->size() != memberAliases->size()) {
-        return emitOpError("number of member aliases must be equal to "
+        return emitOpError("the number of members' aliases must be equal to "
                            "the number of members to import");
-      }
-      // Check individual members' aliases are not empty if specified.
-      for (Attribute memberAlias : *memberAliases) {
-        StringAttr memberAliasName = dyn_cast<StringAttr>(memberAlias);
-        if (!memberAliasName) {
-          return emitOpError("member alias must be a string attribute");
-        }
       }
     }
     return success();
   }
 
-  // Case 'import module'
+  // Verify 'import <moduleName>' case.
   return success();
 }
 
