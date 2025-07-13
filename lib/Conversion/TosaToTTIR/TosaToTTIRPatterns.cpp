@@ -8,12 +8,14 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/SmallVector.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRUtils.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -91,22 +93,12 @@ public:
   matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    mlir::OpBuilder builder(getContext());
-
-    std::vector<int32_t> new_shape_i32;
+    llvm::SmallVector<int32_t> newShape;
     for (int64_t dim : outputType.getShape()) {
-      new_shape_i32.push_back(static_cast<int32_t>(dim));
+      newShape.push_back(static_cast<int32_t>(dim));
     }
-    ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32); 
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
-        srcOp, outputType, adaptor.getInput1(), outputTensor, new_shape_attr,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
+    ttir::utils::replaceOpWithNewDPSOp(rewriter, srcOp, outputType, adaptor.getInput1(), newShapeAttr);
     return success();
   }
 };
