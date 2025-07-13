@@ -10,7 +10,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNUniqueLocs.cpp
-        TTNNPrepareConv2dWeights.cpp
+        TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
