@@ -187,7 +187,6 @@ class PyKernelOp:
                 arg_idx += 1
             elif isinstance(arg, list):
                 # Make sure it's a list of lists
-                print(arg)
                 if not arg:
                     raise IndexError("Empty list provided as positional argument.")
                 if not isinstance(arg[0], (list, tuple)):
@@ -241,8 +240,6 @@ class PyKernelOp:
 
         if common_rt_args:
             kernel_desc_args["common_runtime_args"] = common_rt_args
-
-        print(kernel.__name__, kernel_desc_args)
 
         kernel_desc = self.ttnn.KernelDescriptor(**kernel_desc_args)
 
