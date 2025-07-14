@@ -122,8 +122,9 @@ inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
 
 namespace tt::runtime::ttnn::operations::ccl::point_to_point {
 inline ::ttnn::Tensor
-point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
-               const uint32_t receiverId,
+point_to_point(const ::ttnn::Tensor &inputTensor,
+               const ::ttnn::MeshCoordinate &sendCoord,
+               const ::ttnn::MeshCoordinate &receiveCoord,
                const std::optional<::ttnn::Tensor> &accumTensor) {
 
   auto extractShardsToHost = [](const ::ttnn::Tensor &deviceTensor) {
@@ -142,7 +143,18 @@ point_to_point(const ::ttnn::Tensor &inputTensor, const uint32_t senderId,
     outputTensorsHost = inputTensorsHost;
   }
 
-  outputTensorsHost[receiverId] = inputTensorsHost[senderId];
+  ::ttnn::MeshShape meshShape = inputTensor.mesh_device()->shape();
+
+  auto calcIdFromCoords = [&](const ::ttnn::MeshCoordinate *coords) -> size_t {
+    size_t id = 0;
+    for (size_t i = 0; i < meshShape.dims(); i++) {
+      id = id * meshShape[i] + (*coords)[i];
+    }
+    return id;
+  };
+
+  outputTensorsHost[calcIdFromCoords(&receiveCoord)] =
+      inputTensorsHost[calcIdFromCoords(&sendCoord)];
 
   ::ttnn::Tensor outputTensor = ::ttnn::to_device(
       ::ttnn::distributed::from_host_shards(outputTensorsHost,

@@ -2235,10 +2235,11 @@ public:
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getSenderId()),
-        emitter.emit(srcOp.getReceiverId()),
+        emitter.emitMeshCoordinate(srcOp.getSendCoord()),
+        emitter.emitMeshCoordinate(srcOp.getReceiveCoord()),
         emitter.emit(srcOp.getAccumTensor()),
     };
+    // ::ttsl::SmallVector<int64_t>>(srcOp.getSendCoord())
     emitter.replaceOp(*this, args);
     return success();
   }

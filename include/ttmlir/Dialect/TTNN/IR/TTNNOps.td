@@ -2221,8 +2221,8 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let description = [{
     Performs point-to-point communication by copying a tensor shard from one device to another
     within a multi-device mesh. This operation is typically used for explicit data movement in
-    distributed tensor computations, where a specific device (sender_id) sends its local tensor
-    data to a target device (receiver_id).
+    distributed tensor computations, where a specific device (send_coord) sends its local tensor
+    data to a target device (receive_coord).
 
     If `accum_tensor` is not provided, a new output tensor will be allocated automatically
     at the receiver. If provided, the data will be written into the specified accum tensor.
@@ -2231,8 +2231,8 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                         UI32Attr:$sender_id,
-                         UI32Attr:$receiver_id,
+                         DenseI64ArrayAttr:$send_coord,
+                         DenseI64ArrayAttr:$receive_coord,
                          Optional<AnyRankedTensor>:$accum_tensor);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;

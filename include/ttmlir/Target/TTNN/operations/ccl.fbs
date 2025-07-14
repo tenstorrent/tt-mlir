@@ -42,7 +42,7 @@ table ReduceScatterOp {
 table PointToPointOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  sender_id: int32;
-  receiver_id: int32;
+  send_coord: [uint32];
+  receive_coord: [uint32];
   accum_tensor: tt.target.ttnn.TensorRef;
 }

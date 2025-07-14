@@ -16,9 +16,9 @@ module @point_to_point_test attributes {} {
     %3 = "ttnn.to_device"(%2, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x128x128xf32, #ttnn_layout3>, !ttnn.device) -> tensor<1x1x128x128xf32, #ttnn_layout4>
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout3>) -> ()
     %4 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<1x1x128x128>}> : (!ttnn.device) -> tensor<1x1x128x128xf32, #ttnn_layout4>
-    %5 = "ttnn.point_to_point"(%3, %4) <{receiver_id = 1 : ui32, sender_id = 0 : ui32}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
+    %5 = "ttnn.point_to_point"(%3, %4) <{receive_coord = array<i64: 0, 1>, send_coord = array<i64: 0, 0>}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
     "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> ()
-    %6 = "ttnn.point_to_point"(%3, %5) <{receiver_id = 0 : ui32, sender_id = 1 : ui32}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
+    %6 = "ttnn.point_to_point"(%3, %5) <{receive_coord = array<i64: 0, 0>, send_coord = array<i64: 0, 1>}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
     "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> ()
     %7 = "ttnn.from_device"(%6) : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout3>
     "ttnn.deallocate"(%6) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> ()
@@ -36,8 +36,8 @@ module @point_to_point_test attributes {} {
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout2>) -> ()
     %3 = "ttnn.to_device"(%2, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x128x128xf32, #ttnn_layout3>, !ttnn.device) -> tensor<1x1x128x128xf32, #ttnn_layout4>
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout3>) -> ()
-    %5 = "ttnn.point_to_point"(%3) <{receiver_id = 1 : ui32, sender_id = 0 : ui32}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
-    %6 = "ttnn.point_to_point"(%3, %5) <{receiver_id = 0 : ui32, sender_id = 1 : ui32}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
+    %5 = "ttnn.point_to_point"(%3) <{receive_coord = array<i64: 0, 1>, send_coord = array<i64: 0, 0>}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
+    %6 = "ttnn.point_to_point"(%3, %5) <{receive_coord = array<i64: 0, 0>, send_coord = array<i64: 0, 1>}> : (tensor<1x1x128x128xf32, #ttnn_layout4>, tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout4>
     "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> ()
     %7 = "ttnn.from_device"(%6) : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> tensor<1x1x128x128xf32, #ttnn_layout3>
     "ttnn.deallocate"(%6) <{force = false}> : (tensor<1x1x128x128xf32, #ttnn_layout4>) -> ()
