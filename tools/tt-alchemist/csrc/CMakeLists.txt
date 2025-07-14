@@ -111,17 +111,25 @@ add_custom_command(
   COMMENT "Creating lib directory in Python package"
 )
 
-# Copy the shared library to the Python package
+# Copy the tt-alchemist shared library to the Python package
 add_custom_command(
   OUTPUT ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
   DEPENDS ${LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMENT "Copying shared library to Python package"
+  COMMENT "Copying tt-alchemist shared library to Python package"
+)
+
+# Copy the tt_metal shared library to the Python package
+add_custom_command(
+  OUTPUT ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
+  DEPENDS ${PYTHON_BUILD_DIR}/tt_alchemist/lib
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/runtime/tools/ttrt/ttrt/runtime/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMENT "Copying tt_metal shared library to Python package"
 )
 
 # Build wheel
 add_custom_target(build-wheel-tt-alchemist
-  DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+  DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
   # COMMAND ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}

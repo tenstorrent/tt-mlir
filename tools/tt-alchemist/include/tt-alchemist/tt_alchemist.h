@@ -30,6 +30,7 @@ public:
   TTAlchemist(TTAlchemist &&) = delete;
   TTAlchemist &operator=(TTAlchemist &&) = delete;
 
+  // Convert MLIR model to C++ code
   bool modelToCpp(const std::string &input_file);
 
   // Generate a standalone solution with the generated C++ code
