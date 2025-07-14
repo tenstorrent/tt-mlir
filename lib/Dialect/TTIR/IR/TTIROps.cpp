@@ -4516,6 +4516,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                          << outputShape[OUTPUT_SEQ];
   }
 
+
   // Verify that num_heads * head_size equals the output hidden dimension.
   int64_t expectedHiddenSize =
       inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];

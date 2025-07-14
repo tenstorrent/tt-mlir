@@ -249,6 +249,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
@@ -351,10 +355,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     return operations::ccl::run(op->type_as_PointToPointOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
-    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
-                                        getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",

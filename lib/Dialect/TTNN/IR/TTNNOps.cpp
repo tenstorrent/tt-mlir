@@ -2933,7 +2933,7 @@ void CaptureOrExecuteTraceOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ConcatenateHeadsOp::verify() {
-  const ::mlir::RankedTensorType inputType = this->getInputs().getType();
+  const ::mlir::RankedTensorType inputType = this->getInput().getType();
   const ::mlir::RankedTensorType outputType = this->getResult().getType();
 
   const ::mlir::tt::ttcore::DataType inputDataType =
@@ -2942,64 +2942,69 @@ void CaptureOrExecuteTraceOp::getEffects(
       ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
 
   if (inputDataType != outputDataType) {
-    return emitOpError(
-        "Input and output tensors must have the same dtype. "
-        "Got input dtype = " +
-        DataTypeEnumToString(inputDataType) +
-        ", output dtype = " + DataTypeEnumToString(outputDataType));
+    return emitOpError()
+           << "input and output tensors must have the same dtype, "
+           << "got input dtype = " << DataTypeEnumToString(inputDataType)
+           << ", output dtype = " << DataTypeEnumToString(outputDataType);
   }
 
   if (inputType.getRank() != 4) {
-    return emitOpError("Input tensor must be a 4D tensor");
+    return emitOpError() << "input tensor must be a 4D tensor";
   }
 
-  if (outputType.getRank() != 2 && outputType.getRank() != 3) {
-    return emitOpError("Output tensor must be a 2D or 3D tensor");
+  if (outputType.getRank() != 3) {
+    return emitOpError() << "output tensor must be a 3D tensor";
   }
 
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  // If output is 2D, add dimension 1 at the beginning for comparison
-  llvm::SmallVector<int64_t> adjustedOutputShape;
-  if (outputType.getRank() == 2) {
-    adjustedOutputShape = {1, outputShape[0], outputShape[1]};
-  } else {
-    adjustedOutputShape = {outputShape[0], outputShape[1], outputShape[2]};
-  }
-
   // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
   // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+  // Requirement coming from
+  // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/transformer/concatenate_heads/concatenate_heads.cpp
+  if (inputShape[INPUT_HEAD_SIZE] % 32 != 0) {
+    return emitOpError() << "expected input head_size dimension to be a "
+                            "multiple of 32, got "
+                         << inputShape[INPUT_HEAD_SIZE];
+  }
 
   // Verify batch_size dimension matches
-  if (inputShape[0] != adjustedOutputShape[0]) {
-    return emitOpError(
-        "Input and output batch dimensions must match. "
-        "Got input batch size = " +
-        std::to_string(inputShape[0]) +
-        ", output batch size = " + std::to_string(adjustedOutputShape[0]));
+  if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
+    return emitOpError() << "input and output batch dimensions must match,"
+                            "got input batch size = "
+                         << inputShape[INPUT_BATCH] << ", output batch size = "
+                         << outputShape[OUTPUT_BATCH];
   }
 
   // Verify sequence_size dimension matches
-  if (inputShape[2] != adjustedOutputShape[1]) {
-    return emitOpError(
-        "Input sequence dimension must match output sequence dimension. "
-        "Got input sequence size = " +
-        std::to_string(inputShape[2]) +
-        ", output sequence size = " + std::to_string(adjustedOutputShape[1]));
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[INPUT_SEQ]
+           << ", output sequence size = " << outputShape[OUTPUT_SEQ];
   }
 
   // Verify that num_heads * head_size equals the output hidden dimension
-  int64_t expectedHiddenSize = inputShape[1] * inputShape[3];
-  if (expectedHiddenSize != adjustedOutputShape[2]) {
-    return emitOpError(
-        "Output hidden dimension must equal num_heads * head_size. "
-        "Got num_heads = " +
-        std::to_string(inputShape[1]) +
-        ", head_size = " + std::to_string(inputShape[3]) +
-        ", expected hidden size = " + std::to_string(expectedHiddenSize) +
-        ", actual output hidden size = " +
-        std::to_string(adjustedOutputShape[2]));
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[INPUT_NUM_HEADS]
+           << ", head_size = " << inputShape[INPUT_HEAD_SIZE]
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = " << outputShape[OUTPUT_HIDDEN];
   }
 
   return success();

@@ -1868,14 +1868,12 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
-createConcatenateHeadsOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
+createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInputs()));
+      getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConcatenateHeadsOp(*cache.fbb, in, out,
                                                       memoryConfig);
@@ -2375,8 +2373,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
       concatenateHeadsOp) {
-    return createOperation(cache,
-                           createConcatenateHeadsOp(cache, concatenateHeadsOp),
+    return createOperation(cache, createOp(cache, concatenateHeadsOp),
                            debugString, locInfo);
   }
 
