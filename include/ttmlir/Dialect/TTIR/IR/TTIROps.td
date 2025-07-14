@@ -350,7 +350,14 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let assemblyFormat = [{ $input attr-dict `:` type($input) `->` type($result) }];
+    let builders = [
+      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
+                     CArg<"bool", "false">:$reinterpretLayout)>,
+    ];
+
+    let assemblyFormat = [{
+      $input attr-dict `:` type($input) `->` type($result)
+    }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
