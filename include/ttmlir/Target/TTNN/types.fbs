@@ -12,7 +12,6 @@ enum TensorMemoryLayout: ushort {
 enum StorageType: ushort {
     Host,
     Device,
-    MultiDeviceHost,
 }
 
 enum MeshShardDirection: uint32 {
