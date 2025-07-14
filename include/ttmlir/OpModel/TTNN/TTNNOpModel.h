@@ -368,6 +368,8 @@ llvm::Expected<OpConstraints> getOpConstraints(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
@@ -384,6 +386,8 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
              llvm::ArrayRef<int32_t> dilation, uint32_t groups,
              std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+             std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+                 deviceComputeKernelConfig,
              llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
