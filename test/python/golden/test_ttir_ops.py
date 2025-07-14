@@ -1893,7 +1893,9 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
 # Test hoisted max separately because it requires more complex parameters combination.
 @pytest.mark.parametrize("dim_arg", [None, 0, 1])
 @pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 128)])
+@pytest.mark.parametrize(
+    "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)]
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
