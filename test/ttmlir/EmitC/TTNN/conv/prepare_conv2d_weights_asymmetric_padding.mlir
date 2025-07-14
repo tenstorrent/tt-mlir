@@ -6,7 +6,7 @@
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 24 + d1 * 3 + d2, d3), <1x1>, memref<384x3xbf16, #system_memory>>
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 96 + d1 * 96 + d2, d3), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 96 + d1 * 96 + d2, d3), <1x1>, memref<3x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 func.func @prepare_conv2d_weights(%arg0: tensor<16x8x3x3xbf16, #ttnn_layout>) -> tensor<1x1x72x16xbf16, #ttnn_layout1> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
@@ -20,11 +20,14 @@ func.func @prepare_conv2d_weights(%arg0: tensor<16x8x3x3xbf16, #ttnn_layout>) ->
           input_height = 32 : i32,
           input_memory_config = #ttnn.memory_config<#dram, <interleaved>>,
           input_tensor_layout = #ttnn.layout<tile>,
-          input_width = 32 : i32, kernel_size = array<i32: 3, 3>,
+          input_width = 32 : i32,
+          kernel_size = array<i32: 3, 3>,
           out_channels = 16 : i32,
-          padding = array<i32: 0, 1, 2, 3>,
+          padding = array<i32: 0, 2, 1, 3>,
           stride = array<i32: 2, 2>,
-          weights_format = "OIHW"
+          weights_format = "OIHW",
+          input_dtype = #ttcore.supportedDataTypes<bf16>,
+          output_dtype = #ttcore.supportedDataTypes<bf16>
       }> : (tensor<16x8x3x3xbf16, #ttnn_layout>, !ttnn.device) -> tensor<1x1x72x16xbf16, #ttnn_layout1>
   return %1 : tensor<1x1x72x16xbf16, #ttnn_layout1>
 }

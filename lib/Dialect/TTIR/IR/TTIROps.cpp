@@ -1205,11 +1205,6 @@ static mlir::LogicalResult verifyPoolingOp(
   auto shape = getShape();
   int64_t shapeSize = static_cast<int64_t>(shape.size());
 
-  // Check that the shape attribute is non-empty.
-  if (shapeSize == 0) {
-    return emitOpError("Shape attribute must be non-empty");
-  }
-
   // Check that the shape size matches the rank of the output tensor.
   if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
     return emitOpError() << "Shape attribute size " << shapeSize
@@ -2409,14 +2404,136 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 //===----------------------------------------------------------------------===//
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
+// Calculate a reblocking affine map from inputShape to outputShape.
+static mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
+                                           mlir::ArrayRef<int64_t> outputShape,
+                                           mlir::MLIRContext *ctx) {
+  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
-// ViewLayoutOp verificatin
+  // Assume the shapes are sharded s.t. first half is grid dims, second half is
+  // shard dims.
+  size_t rank = inputShape.size();
+  assert(rank % 2 == 0);
+  size_t halfRank = rank / 2;
+
+  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
+  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
+  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
+
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
+
+  // Convert grid/shard coordinates to a flat canonical representation.
+  for (size_t i = 0; i < halfRank; i++) {
+    auto dG = getAffineDimExpr(i, ctx);
+    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
+
+    size_t j = i + halfRank;
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[j] = dG * outputShardShape[i] + dS;
+  }
+  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  // Converts from flat canonical back to grid/shard coordinates.
+  for (size_t i = 0; i < halfRank; i++) {
+    size_t j = i + halfRank;
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
+    mapExprs[j] = dS % inputShardShape[i];
+  }
+  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  // Compose the maps: input -> canonical -> output.
+  return canonicalToInput.compose(outputToCanonical);
+}
+
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
-  return verifyLayoutOp(
-      *this, getInput().getType(), getResult().getType(),
-      /*allowFormatChange - reinterpretLayout allows format change */
-      getReinterpretLayout(),
-      /*allowMemorySpaceChange*/ false);
+  auto inputType = mlir::cast<mlir::ShapedType>(getInput().getType());
+  auto resultType = mlir::cast<mlir::ShapedType>(getResult().getType());
+
+  if (getReinterpretLayout()) {
+    // For reinterpret, verify grid doesn't change; only shard (for tilizing
+    // etc).
+    if (auto inputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
+      auto resultTensor = mlir::cast<mlir::RankedTensorType>(resultType);
+      auto inputLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+      auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          resultTensor.getEncoding());
+
+      if (inputLayout.getGridShape(inputType) !=
+          resultLayout.getGridShape(resultType)) {
+        return emitOpError("reinterpret_layout cannot change grid shape");
+      }
+    }
+    // Can change shard shape for tiled <-> untiled
+  } else {
+    // For regular reblocking, verify it's valid; total elements must match.
+    int64_t inputElements = 1, outputElements = 1;
+    for (auto d : inputType.getShape()) {
+      inputElements *= d;
+    }
+    for (auto d : resultType.getShape()) {
+      outputElements *= d;
+    }
+    if (inputElements != outputElements) {
+      return emitOpError("view must preserve total number of elements");
+    }
+
+    // We also should not change element type unless reinterpretting.
+    if (inputType.getElementType() != resultType.getElementType()) {
+      return emitOpError("view must not change dtype");
+    }
+  }
+
+  return mlir::success();
+}
+
+static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
+                                       mlir::Value input,
+                                       mlir::ArrayRef<int64_t> outputShape) {
+  auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
+  mlir::Type elementType = inputType.getElementType();
+
+  mlir::Type result;
+  if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
+    auto inputEncoding =
+        mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+
+    // For reblocking, extract grid shape from outputShape.
+    const size_t halfRank = outputShape.size() / 2;
+    mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
+
+    // Create new encoding with the output grid shape.
+    auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
+        builder.getContext(), inputEncoding.getLogicalShape(),
+        outputGridShape.size(), inputEncoding.getOobVal(),
+        inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
+        inputEncoding.getDimAlignments());
+
+    result =
+        mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
+  } else {
+    auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
+    mlir::AffineMap view = calculateReblockMap(
+        inputType.getShape(), outputShape, builder.getContext());
+    auto viewAttr =
+        mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
+    result = mlir::MemRefType::get(outputShape, elementType, viewAttr,
+                                   memrefType.getMemorySpace());
+  }
+  return result;
+}
+
+// Builder with reblocked shape.
+void mlir::tt::ttir::ViewLayoutOp::build(OpBuilder &builder,
+                                         OperationState &state, Value input,
+                                         ArrayRef<int64_t> reblockedShape,
+                                         bool reinterpretLayout) {
+  Type outputType = createViewOutputType(builder, input, reblockedShape);
+
+  // Build with the view map stored as an attribute.
+  build(builder, state, outputType, input,
+        builder.getBoolAttr(reinterpretLayout));
 }
 
 void mlir::tt::ttir::ViewLayoutOp::getAsmResultNames(
@@ -2449,11 +2566,14 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
-  ::llvm::SmallVector<mlir::Value> invocationStack;
+  // Get the output shape from the current op's result type
+  auto outputType = mlir::cast<mlir::ShapedType>(getResult().getType());
+  auto outputShape = outputType.getShape();
+
   mlir::bufferization::replaceOpWithNewBufferizedOp<
-      mlir::tt::ttir::ViewLayoutOp>(
-      rewriter, *this, *getBufferType(getResult(), options, invocationStack),
-      *maybeInput, getReinterpretLayout());
+      mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, outputShape,
+                                    getReinterpretLayout());
+
   return mlir::success();
 }
 
@@ -2525,9 +2645,9 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
+  // the purpose of the matrix multiplication. After the matrix
+  // multiplication, the prepended dimension is removed. Otherwise, check if
+  // the LHS needs to be transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
   } else if (getTransposeA()) {
@@ -2536,8 +2656,8 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
+  // the purpose of the matrix-vector product and removed afterwards.
+  // Otherwise, check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
   } else if (getTransposeB()) {
@@ -2555,8 +2675,8 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
-  // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape. If either of input A or input B is at most 2D
+  // Verify that the batch dimensions are broadcast compatible and construct
+  // the expected output shape. If either of input A or input B is at most 2D
   // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
     llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
@@ -2612,8 +2732,9 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  // Check the case of a vector-vector product. At this moment we don't support
-  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  // Check the case of a vector-vector product. At this moment we don't
+  // support scalars in IR, hence check that the output is at least 1D tensor
+  // of size 1.
   if (expectedOutputShape.size() == 0) {
     if (outputType.getRank() < 1) {
       return emitOpError("Scalar output is not supported, output must be at "
@@ -2661,8 +2782,8 @@ getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
   }
 
   int64_t rank = value.getType().getRank();
-  // If the rank is less than two than it is impossible for this permute to be a
-  // transpose
+  // If the rank is less than two than it is impossible for this permute to be
+  // a transpose
   bool rankIsLessThan2 = rank < 2;
   // Ensure that the rightmost two dims are swapped by the permute
   bool XYDimsTransposed =
@@ -2753,9 +2874,9 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   }
 
   // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
+  // the purpose of the matrix multiplication. After the matrix
+  // multiplication, the prepended dimension is removed. Otherwise, check if
+  // the LHS needs to be transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
   } else if (getTransposeA()) {
@@ -2764,8 +2885,8 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   }
 
   // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
+  // the purpose of the matrix-vector product and removed afterwards.
+  // Otherwise, check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
   } else if (getTransposeB()) {
@@ -2783,8 +2904,8 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
-  // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape. If either of input A or input B is at most 2D
+  // Verify that the batch dimensions are broadcast compatible and construct
+  // the expected output shape. If either of input A or input B is at most 2D
   // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
     llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
@@ -2820,8 +2941,9 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
   }
 
-  // Check the case of a vector-vector product. At this moment we don't support
-  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  // Check the case of a vector-vector product. At this moment we don't
+  // support scalars in IR, hence check that the output is at least 1D tensor
+  // of size 1.
   if (expectedOutputShape.size() == 0) {
     if (outputType.getRank() < 1) {
       return emitOpError("Scalar output is not supported, output must be at "
@@ -3119,6 +3241,34 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+// SortOp verification
+::mlir::LogicalResult mlir::tt::ttir::SortOp::verify() {
+  auto dim = getDim();
+  auto input = getInput();
+  auto rank = input.getType().getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [")
+           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+  }
+
+  auto indicesType =
+      mlir::cast<RankedTensorType>(getResults().back().getType());
+  auto values = getResults().front();
+  if (input.getType() != values.getType()) {
+    return emitOpError("Sorted tensor type does not match with input tensor.");
+  }
+
+  if (input.getType().getShape() != indicesType.getShape()) {
+    return emitOpError("Indices shape does not match with input tensor shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
@@ -3129,7 +3279,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 
   if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
     return emitOpError(
-               "Invalid dimension for all gather op. Gather dimension must be "
+               "Invalid dimension for all gather op. Gather dimension must "
+               "be "
                ">= to "
                "input tensor rank or < -input tensor rank, got gather_dim = ")
            << gatherDim;
@@ -3203,7 +3354,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   }
 
   /* Check that the 'src' values and 'dest' values in sourceTargetPairs is
-  unique. Given a 2D rank tensor of source target pairs eg. [['src', 'target'],
+  unique. Given a 2D rank tensor of source target pairs eg. [['src',
+  'target'],
   ['src', 'target'] ...], we need to ensure that each 'src' is unique and each
   'target' is unique.
   */
@@ -3357,8 +3509,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   if (inputType.getShape()[2] > cacheType.getShape()[2]) {
     return emitOpError(
         "Input tensor requires that dim 2 have a size which is less than or "
-        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 size "
-        "= " +
+        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 "
+        "size = " +
         std::to_string(cacheType.getShape()[2]) +
         ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
   }
@@ -3652,8 +3804,8 @@ static mlir::LogicalResult verifyAffineBlocking(
   // Its inverse is:
   //   (m, n) -> (m, n, 0)
   //
-  // We take this inverse and multiply out the blocking factors to calculate the
-  // expected operand grid shapes.
+  // We take this inverse and multiply out the blocking factors to calculate
+  // the expected operand grid shapes.
   auto inverseOpGridMap =
       inverseAndBroadcastProjectedPermutation(opGridIndexingMap);
   mlir::SmallVector<int64_t> factors = inverseOpGridMap.compose(opGridShape);
@@ -3732,8 +3884,8 @@ static mlir::LogicalResult verifyAffineBlocking(
           auto [out, op] = pair;
           return out % op == 0;
         })) {
-      return emitOpError(
-          "output grid shape must be divisible by the generic op's grid shape");
+      return emitOpError("output grid shape must be divisible by the generic "
+                         "op's grid shape");
     }
   }
 
@@ -3994,9 +4146,8 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
   SmallVector<AffineMap> affineMapsReversed =
       llvm::to_vector(llvm::reverse(affineMaps));
   AffineMap concat = concatAffineMaps(affineMapsReversed, getContext());
-  // Invert the permutation to get a map that we can use to get the loop bounds.
-  // Above example becomes:
-  // (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
+  // Invert the permutation to get a map that we can use to get the loop
+  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
   AffineMap inverse = inversePermutation(concat);
 
   // Eval the affine map to get the loop bounds.
@@ -4159,11 +4310,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     }
   }
 
-  // Cover edge case where all dims are reduced, and keepDim==false.
-  if (expectedOutputShape.empty() && !keepDim) {
-    expectedOutputShape.push_back(1);
-  }
-
   // Finally, compare shapes.
   if (!llvm::equal(specifiedOutputShape, expectedOutputShape)) {
     return emitOpError() << "Expected output shape ("
@@ -4254,9 +4400,9 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   auto dimArg = getDimArg();
   if (dimArg && dimArg->size() > 1) {
-    return emitOpError()
-           << "can only reduce one dimension; number of specified dimensions: "
-           << dimArg->size() << ".";
+    return emitOpError() << "can only reduce one dimension; number of "
+                            "specified dimensions: "
+                         << dimArg->size() << ".";
   }
 
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),

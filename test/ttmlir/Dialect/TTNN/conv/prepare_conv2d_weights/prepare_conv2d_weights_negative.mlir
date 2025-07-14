@@ -21,7 +21,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3xbf16>, !ttnn.device) -> tensor<64x64x3xbf16>
     return %1 : tensor<64x64x3xbf16>
   }
@@ -48,7 +50,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OHWI"
+              weights_format = "OHWI",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -75,7 +79,9 @@ module {
               out_channels = 128 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -101,7 +107,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -127,7 +135,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -153,7 +163,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -180,7 +192,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -206,7 +220,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -232,7 +248,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }
@@ -258,7 +276,9 @@ module {
               out_channels = 64 : i32,
               padding = array<i32: 0, 0, 1>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<64x64x3x3xbf16>
     return %1 : tensor<64x64x3x3xbf16>
   }

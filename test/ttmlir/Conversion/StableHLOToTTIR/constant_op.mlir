@@ -2,9 +2,9 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
 module @jit_constant attributes {} {
   func.func public @test_boolean_scalar() -> tensor<i1> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<true> : tensor<1xi1>}> : () -> tensor<1xi1>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<true> : tensor<i1>}> : () -> tensor<i1>
     %0 = stablehlo.constant dense<true> : tensor<i1>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi1>
+    // CHECK: return %{{[0-9]+}} : tensor<i1>
     return %0 : tensor<i1>
   }
 
@@ -25,9 +25,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_bfloat16_scalar() -> tensor<bf16> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xbf16>}> : () -> tensor<1xbf16>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<bf16>}> : () -> tensor<bf16>
     %0 = stablehlo.constant dense<3.0> : tensor<bf16>
-    // CHECK: return %{{[0-9]+}} : tensor<1xbf16>
+    // CHECK: return %{{[0-9]+}} : tensor<bf16>
     return %0 : tensor<bf16>
   }
 
@@ -48,9 +48,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_float16_scalar() -> tensor<f16> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<f16>}> : () -> tensor<f16>
     %0 = stablehlo.constant dense<3.0> : tensor<f16>
-    // CHECK: return %{{[0-9]+}} : tensor<1xf16>
+    // CHECK: return %{{[0-9]+}} : tensor<f16>
     return %0 : tensor<f16>
   }
 
@@ -71,9 +71,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_float_scalar() -> tensor<f32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<1xf32>}> : () -> tensor<1xf32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<f32>}> : () -> tensor<f32>
     %0 = stablehlo.constant dense<0.3> : tensor<f32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xf32>
+    // CHECK: return %{{[0-9]+}} : tensor<f32>
     return %0 : tensor<f32>
   }
 
@@ -94,9 +94,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_f64_scalar() -> tensor<f64> {
-    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<1xf64>}> : () -> tensor<1xf64>
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<f64>}> : () -> tensor<f64>
     %0 = stablehlo.constant dense<0.3> : tensor<f64>
-    // CHECK: return %[[VAL]] : tensor<1xf64>
+    // CHECK: return %[[VAL]] : tensor<f64>
     return %0 : tensor<f64>
   }
 
@@ -117,16 +117,16 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_f64_inf() -> tensor<f64> {
-    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<0xFFF0000000000000> : tensor<1xf64>}> : () -> tensor<1xf64>
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<0xFFF0000000000000> : tensor<f64>}> : () -> tensor<f64>
     %0 = stablehlo.constant dense<0xFFF0000000000000> : tensor<f64>
-    // CHECK: return %[[VAL]] : tensor<1xf64>
+    // CHECK: return %[[VAL]] : tensor<f64>
     return %0 : tensor<f64>
   }
 
   func.func public @test_int8_scalar() -> tensor<i8> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi8>}> : () -> tensor<1xi8>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<i8>}> : () -> tensor<i8>
     %0 = stablehlo.constant dense<3> : tensor<i8>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi8>
+    // CHECK: return %{{[0-9]+}} : tensor<i8>
     return %0 : tensor<i8>
   }
 
@@ -147,9 +147,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_int16_scalar() -> tensor<i16> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi16>}> : () -> tensor<1xi16>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<i16>}> : () -> tensor<i16>
     %0 = stablehlo.constant dense<3> : tensor<i16>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi16>
+    // CHECK: return %{{[0-9]+}} : tensor<i16>
     return %0 : tensor<i16>
   }
 
@@ -170,9 +170,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_int32_scalar() -> tensor<i32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi32>}> : () -> tensor<1xi32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<i32>}> : () -> tensor<i32>
     %0 = stablehlo.constant dense<3> : tensor<i32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi32>
+    // CHECK: return %{{[0-9]+}} : tensor<i32>
     return %0 : tensor<i32>
   }
 
@@ -193,9 +193,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_int64_scalar() -> tensor<i64> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi64>}> : () -> tensor<1xi64>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<i64>}> : () -> tensor<i64>
     %0 = stablehlo.constant dense<3> : tensor<i64>
-    // CHECK: return %{{[0-9]+}} : tensor<1xi64>
+    // CHECK: return %{{[0-9]+}} : tensor<i64>
     return %0 : tensor<i64>
   }
 
@@ -216,9 +216,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_uint8_scalar() -> tensor<ui8> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xui8>}> : () -> tensor<1xui8>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<ui8>}> : () -> tensor<ui8>
     %0 = stablehlo.constant dense<3> : tensor<ui8>
-    // CHECK: return %{{[0-9]+}} : tensor<1xui8>
+    // CHECK: return %{{[0-9]+}} : tensor<ui8>
     return %0 : tensor<ui8>
   }
 
@@ -239,9 +239,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_uint16_scalar() -> tensor<ui16> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xui16>}> : () -> tensor<1xui16>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<ui16>}> : () -> tensor<ui16>
     %0 = stablehlo.constant dense<3> : tensor<ui16>
-    // CHECK: return %{{[0-9]+}} : tensor<1xui16>
+    // CHECK: return %{{[0-9]+}} : tensor<ui16>
     return %0 : tensor<ui16>
   }
 
@@ -262,9 +262,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_uint32_scalar() -> tensor<ui32> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xui32>}> : () -> tensor<1xui32>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<ui32>}> : () -> tensor<ui32>
     %0 = stablehlo.constant dense<3> : tensor<ui32>
-    // CHECK: return %{{[0-9]+}} : tensor<1xui32>
+    // CHECK: return %{{[0-9]+}} : tensor<ui32>
     return %0 : tensor<ui32>
   }
 
@@ -285,9 +285,9 @@ module @jit_constant attributes {} {
   }
 
   func.func public @test_uint64_scalar() -> tensor<ui64> {
-    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xui64>}> : () -> tensor<1xui64>
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<ui64>}> : () -> tensor<ui64>
     %0 = stablehlo.constant dense<3> : tensor<ui64>
-    // CHECK: return %{{[0-9]+}} : tensor<1xui64>
+    // CHECK: return %{{[0-9]+}} : tensor<ui64>
     return %0 : tensor<ui64>
   }
 
@@ -309,9 +309,9 @@ module @jit_constant attributes {} {
 
   func.func public @test_int8_negative_scalar() -> tensor<i8> {
     // CHECK-LABEL: func.func public @test_int8_negative_scalar
-    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<-3> : tensor<1xi8>}> : () -> tensor<1xi8>
+    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<-3> : tensor<i8>}> : () -> tensor<i8>
     %0 = stablehlo.constant dense<-3> : tensor<i8>
-    // CHECK: return %[[CONSTANT]] : tensor<1xi8>
+    // CHECK: return %[[CONSTANT]] : tensor<i8>
     return %0 : tensor<i8>
   }
 
@@ -334,9 +334,9 @@ module @jit_constant attributes {} {
 
   func.func public @test_int64_negative_min_scalar() -> tensor<i64> {
     // CHECK-LABEL: func.func public @test_int64_negative_min_scalar
-    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<-9223372036854775808> : tensor<1xi64>}> : () -> tensor<1xi64>
+    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<-9223372036854775808> : tensor<i64>}> : () -> tensor<i64>
     %0 = stablehlo.constant dense<9223372036854775808> : tensor<i64>
-    // CHECK: return %[[CONSTANT]] : tensor<1xi64>
+    // CHECK: return %[[CONSTANT]] : tensor<i64>
     return %0 : tensor<i64>
   }
 

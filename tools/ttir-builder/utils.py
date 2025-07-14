@@ -188,11 +188,24 @@ def build_mlir_module(
     inputs_shapes : *List[Shape]*
         Shapes of the respective ranked tensor inputs of the test function.
 
+    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
+        Data types of the input tensors
+
+    mesh_shape: *Optional[Tuple[int, int]]*
+        A list that contains shape of the mesh to be applied on ttir to ttnn
+        conversion path.
+
     module_dump : bool
         Set to True to print out generated MLIR module.
 
     golden_dump : bool
         Set to True to dump golden info to flatbuffer file.
+
+    base : *Optional[str]*
+        Output file name
+
+    output_root: str = ".",
+        Output file path
 
     Returns
     -------
@@ -296,7 +309,7 @@ def build_mlir_module(
 def run_pipeline(
     module,
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
-    pipeline_options: List[str] = None,
+    pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
@@ -308,14 +321,26 @@ def run_pipeline(
 
     Arguments
     ---------
-    pipeline_fn: Callable
+    module :
+        TTIR module on which pipeline is run
+
+    pipeline_fn : Callable
         Pipeline function to run. pipeline_fn(module, options)
 
-    dump_to_file: bool
+    pipeline_options : *Optional[List[str]]*
+        Pipeline options to be added to the pass
+
+    dump_to_file : bool
         Flag which indicates that generated TTNN module will be dumped to file.
 
-    output_file_name: str
+    output_file_name : str
         Name of the output file.
+
+    mesh_shape : *Optional[Tuple[int, int]]*
+        A list that contains shape of the mesh to be applied on ttir to ttnn
+        conversion path.
+
+    argument_types_string : *Optional[str]*
 
     Returns
     -------
@@ -399,8 +424,10 @@ def compile_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : str
+    target : *Literal["ttnn", "ttmetal"]*
         Either "ttnn" or "ttmetal". This controls which backend to use.
+
+    argument_types_string : *Optional[str]*
 
     custom_pipeline : *Union[Callable, str]*, optional
         Pipeline function to run.
@@ -414,9 +441,12 @@ def compile_to_flatbuffer(
         conversion path.
         Default is None.
 
-    module_dump : bool, optional
+    module_dump : bool
         Set to True to print out generated TTIR MLIR module.
         Default is False.
+
+    pipeline_options : *Optional[List[str]]*
+        Pipeline options to be added to the pass
 
     print_ir : *Union[bool, str]*, optional
         Set to True to print IR to stdout. Set to dir path to print IR after

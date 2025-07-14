@@ -350,7 +350,14 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let assemblyFormat = [{ $input attr-dict `:` type($input) `->` type($result) }];
+    let builders = [
+      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
+                     CArg<"bool", "false">:$reinterpretLayout)>,
+    ];
+
+    let assemblyFormat = [{
+      $input attr-dict `:` type($input) `->` type($result)
+    }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
@@ -2780,6 +2787,36 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTIR_SortOp : TTIR_NamedOp<"sort"> {
+  let summary = "Sort operation.";
+  let description = [{
+    Sorts elements of a tensor along a given dimension.
+
+    Input:
+      - input: AnyRankedTensor
+
+    Attributes:
+      - dim (int32): The dimension to sort along (default: -1, the last dim).
+      - descending (bool): If True, sort in descending order (default: False).
+      - stable (bool): If True, ensures stable sort (equal elements keep order).
+
+    Returns a tuple:
+      - values: the sorted tensor.
+      - indices: the original indices of the sorted values.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Variadic<AnyRankedTensor>:$output,
+                       DefaultValuedAttr<SI32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
 }
 
 def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {

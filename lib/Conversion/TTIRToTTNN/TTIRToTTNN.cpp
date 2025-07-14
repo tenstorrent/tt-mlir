@@ -495,6 +495,27 @@ public:
 } // namespace
 
 namespace {
+class SortOpConversionPattern : public OpConversionPattern<ttir::SortOp> {
+public:
+  using OpConversionPattern<ttir::SortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::SortOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getDim(),
+        adaptor.getDescending(), adaptor.getStable(), ttnn::MemoryConfigAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy>
 class ClampOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
@@ -994,12 +1015,18 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*compute_config=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
@@ -1092,6 +1119,11 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     // Transposed convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C).
     llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
@@ -1106,7 +1138,8 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*memoryConfig=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1622,6 +1655,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
+           SortOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,

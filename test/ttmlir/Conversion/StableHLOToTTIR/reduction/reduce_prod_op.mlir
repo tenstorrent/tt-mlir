@@ -20,7 +20,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xbf16>
-    // CHECK-SAME: -> tensor<1xbf16>
+    // CHECK-SAME: -> tensor<bf16>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1, 2, 3] : (tensor<128x10x32x4xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -42,7 +42,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x4xbf16>
-    // CHECK-SAME: -> tensor<1xbf16>
+    // CHECK-SAME: -> tensor<bf16>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1, 2] : (tensor<128x10x4xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -64,7 +64,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK-SAME: dim_arg = [0 : i32, 1 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10xbf16>
-    // CHECK-SAME: -> tensor<1xbf16>
+    // CHECK-SAME: -> tensor<bf16>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0, 1] : (tensor<128x10xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }
@@ -75,7 +75,7 @@ module @jit_reduce_prod attributes {} {
     // CHECK-SAME: dim_arg = [0 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128xbf16>
-    // CHECK-SAME: -> tensor<1xbf16>
+    // CHECK-SAME: -> tensor<bf16>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [0] : (tensor<128xbf16>, tensor<bf16>) -> tensor<bf16>
     return %0 : tensor<bf16>
   }

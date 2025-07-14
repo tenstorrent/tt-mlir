@@ -106,8 +106,8 @@ public:
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape, mlir::tt::ttcore::TileType::get(dtypeSelected),
         bufferType,
-        CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
-                   physicalGrid),
+        CreateGrid(&context, bufferType, tensorMemoryLayout,
+                   virtualGridSelected, physicalGrid),
         memLayoutAttr);
   }
 
@@ -133,13 +133,14 @@ public:
 
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape, dtypeSelected, bufferType,
-        CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
-                   physicalGrid),
+        CreateGrid(&context, bufferType, tensorMemoryLayout,
+                   virtualGridSelected, physicalGrid),
         memLayoutAttr);
   }
 
   mlir::tt::ttcore::GridAttr
   CreateGrid(::mlir::MLIRContext *context,
+             const mlir::tt::ttnn::BufferType bufferType,
              const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
              const llvm::ArrayRef<int64_t> virtualGridSize,
              const llvm::ArrayRef<int64_t> physicalGridSize) {
@@ -148,7 +149,11 @@ public:
         createSingleDeviceVirtualToPhysicalAffineMap(
             context, tensorMemoryLayout, physicalGridSize);
 
-    return mlir::tt::ttcore::GridAttr::get(context, virtualGridSize, affineMap);
+    llvm::SmallVector<int64_t> gridShape(virtualGridSize);
+    if (!mlir::tt::ttnn::isL1BufferType(bufferType)) {
+      gridShape = {1, 1};
+    }
+    return mlir::tt::ttcore::GridAttr::get(context, gridShape, affineMap);
   }
 
   mlir::tt::ttcore::GridAttr CreateWorkerGrid(

@@ -4,7 +4,6 @@
 
 #include "operations/ccl/collective_permute.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
@@ -88,12 +87,8 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
 
   // Combine all host tensor shards into a single host tensor with
   // multi device host storage.
-  const auto &config = input.distributed_tensor_config();
-  ::ttnn::MeshShape meshShape =
-      utils::getMeshShapeFromConfig(config, newHostTensors);
-
-  ::ttnn::Tensor out =
-      ::ttnn::distributed::from_host_shards(newHostTensors, meshShape);
+  ::ttnn::Tensor out = ::ttnn::distributed::from_host_shards(
+      newHostTensors, meshDevice->shape());
 
   out = ::ttnn::to_device(out, meshDevice, input.memory_config());
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

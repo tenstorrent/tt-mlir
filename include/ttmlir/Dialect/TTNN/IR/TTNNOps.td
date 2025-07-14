@@ -68,7 +68,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast",
@@ -1033,6 +1033,36 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
+def TTNN_SortOp : TTNN_Op<"sort"> {
+  let summary = "Sort op.";
+  let description = [{
+    Sorts elements of a tensor along a given dimension.
+
+    Input:
+      - input: AnyRankedTensor
+
+    Attributes:
+      - dim (int8): The dimension to sort along (default: -1, the last dim).
+      - descending (bool): If True, sort in descending order (default: False).
+      - stable (bool): If True, ensures stable sort (equal elements keep order).
+
+    Returns a tuple:
+      - values: the sorted tensor.
+      - indices: the original indices of the sorted values.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<SI8Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TransposeOp : TTNN_Op<"transpose",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1207,7 +1237,9 @@ def TTNN_SliceOp: TTNN_Op<"slice",
     let hasVerifier = 1;
 }
 
-def TTNN_LinearOp : TTNN_Op<"linear"> {
+def TTNN_LinearOp : TTNN_Op<"linear",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Linear transformation of inputs.";
 
     let description = [{
@@ -1254,7 +1286,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDTypeTrait]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1273,6 +1305,34 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
                          BoolAttr:$has_bias,
                          I32Attr:$groups,
                          TTNN_Device:$device,
+                         TTCore_DataTypeAttr:$input_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [HasOutputDTypeTrait]> {
+    let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
+
+    let arguments = (ins AnyRankedTensor:$bias_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         TTCore_DataTypeAttr:$input_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1281,7 +1341,7 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
 }
 
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputDTypeTrait]
       > {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1354,6 +1414,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
@@ -1374,7 +1435,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputDTypeTrait]
       > {
     let summary = "ConvTranspose2d operation.";
     let description = [{
@@ -1448,6 +1509,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
                          DenseI32ArrayAttr:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
