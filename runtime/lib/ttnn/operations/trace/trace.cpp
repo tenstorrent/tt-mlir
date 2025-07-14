@@ -20,14 +20,16 @@ copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
            const ::ttnn::QueueId &queueId = ::ttnn::DefaultQueueId) {
 
   if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, queueId);
+    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false,
+                                 queueId);
     return;
   }
 
   LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
              "traceImplicitFromDevice workaround must be enabled.");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, queueId);
+  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false,
+                               queueId);
 }
 
 static void executeTraceProgramAndCaptureTrace(

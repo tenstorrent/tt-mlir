@@ -5,6 +5,7 @@
 #include "ttmlir/RegisterAll.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -54,7 +55,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
       mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect>();
+      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect,
+      mlir::tt::emitpy::EmitPyDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);

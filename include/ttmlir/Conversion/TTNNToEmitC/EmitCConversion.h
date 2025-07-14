@@ -1455,13 +1455,54 @@ public:
       return conv2dExpr;
     }
 
+    // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
+    // [0] = sorted tensor, [1] = corresponding indices.
+    // Extract both elements to replace the original SortOp.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp>) {
+      assert(op.getNumResults() == 2 &&
+             "Expected two outputs for SortOp (sorted tensor and indices).");
+      using ReturnTy = std::vector<::ttnn::Tensor>;
+      auto sortOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        // Create index to access i-th element.
+        auto indexType = rewriter.getIndexType();
+        auto indexOp = rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType,
+                                                         std::to_string(i));
+        Value indexVal = indexOp.getResult();
+
+        // Create LValue type for the tensor reference.
+        auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
+
+        // Get reference to the i-th element in the result vector.
+        auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+            op.getLoc(), lvalueType, sortOp.getResult(0), indexVal);
+
+        // Load the actual tensor value from the reference.
+        auto loadOp = rewriter.create<emitc::LoadOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(),
+                                   TypeNameV<ReturnTy::value_type>),
+            subscriptOp.getResult());
+        results.push_back(loadOp.getResult());
+      }
+
+      rewriter.replaceOp(op, results);
+      return sortOp.getResult(0);
+    }
+
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
-        rewriter.getArrayAttr(args), nullptr, operands);
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
 
     assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
     if (callOpaqueOp.getNumResults() == 0) {
