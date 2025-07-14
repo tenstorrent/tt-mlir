@@ -180,8 +180,7 @@ jobs:
           # # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           # {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           # {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          # {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "tt-alchemist",    path: "tools/tt-alchemist"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
           # {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -278,19 +277,6 @@ jobs:
           pip install pytest
         fi
 
-    - name: Download tt-alchemist whl
-      uses: actions/download-artifact@v4
-      with:
-        name: tt-alchemist-whl-${{ matrix.build.image }}
-
-    - name: Install tt-alchemist whl
-      if: ${{ matrix.build.type == 'tt-alchemist' && matrix.build.suite == 'run' }}
-      shell: bash
-      run: |
-        source env/activate
-        pip show tt-alchemist && pip uninstall -y tt-alchemist
-        pip install tt_alchemist-*.whl --force-reinstall
-
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:
@@ -354,20 +340,6 @@ jobs:
         export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
         ./run
-
-    - name: Run tt-alchemist API test - model-to-cpp
-      run: |
-        source env/activate
-        tt-alchemist model-to-cpp ${{ matrix.build.path }}/test/models/mnist.mlir
-
-    - name: Run tt-alchemist API test - generate
-      run: |
-        source env/activate
-        rm -rf /tmp/test-mlir
-        tt-alchemist generate ${{ matrix.build.path }}/test/models/mnist.mlir /tmp/test-mlir
-        cd /tmp/test-mlir
-        [ -d /tmp/test-mlir ] || { echo "Directory not found: /tmp/test-mlir" >&2; exit 1; }
-        # ./run  # TODO: enable when fixed
 
     - name: Builder Tests
       if: matrix.build.type == 'builder'
@@ -462,6 +434,111 @@ jobs:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
         check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
 
+
+  # Dedicated job for tt-alchemist tests
+  test-tt-alchemist:
+    timeout-minutes: 45
+    needs:
+      - build-image
+      - build-ttmlir
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: n150
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: '--device /dev/tenstorrent'
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "test-tt-alchemist"
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      env:
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Use install artifacts
+      uses: ./.github/actions/download-artifact
+      with:
+        name: install-artifacts-speedy
+        path: install
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download Build Artifacts
+      uses: ./.github/actions/download-artifact
+      with:
+        name: build-artifacts-speedy
+        path: build
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download tt-alchemist wheel
+      uses: actions/download-artifact@v4
+      with:
+        name: tt-alchemist-whl-speedy
+
+    - name: Install tt-alchemist wheel
+      shell: bash
+      run: |
+        pwd
+        python -m venv testenv
+        source testenv/bin/activate
+        pip install tt_alchemist-*.whl --force-reinstall
+        echo "Wheel installed successfully"
+
+    - name: Run tt-alchemist API test - model-to-cpp
+      run: |
+        pwd
+        ls -lahF
+        source testenv/bin/activate
+        tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
+
+    - name: Run tt-alchemist API test - generate
+      run: |
+        pwd
+        ls -lahF
+        source testenv/bin/activate
+        rm -rf /tmp/test-mlir
+        tt-alchemist generate tools/tt-alchemist/test/models/mnist.mlir /tmp/test-mlir
+        cd /tmp/test-mlir
+        [ -d /tmp/test-mlir ] || { echo "Directory not found: /tmp/test-mlir" >&2; exit 1; }
+        # ./run  # TODO: enable when fixed
+
+    - name: Upload Test Report xml
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-tt-alchemist-${{ steps.fetch-job-id.outputs.job_id }}
+        path: ${{ steps.strings.outputs.test_report_path }}
+        if-no-files-found: 'ignore'
+
+    - name: Show Test Report
+      continue-on-error: true
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
+        check_name: tt-alchemist Tests
 
   lint:
     if: github.event_name == 'pull_request'
