@@ -10,6 +10,7 @@
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -571,9 +572,35 @@ private:
     }
 
     int cacheUpdateSize = updateShape[2];
-    if (scatterIdxShape.size() == 1) {
-      if (scatterIdxShape[0] != cacheUpdateSize) {
+    // Check if scatter indices is effectively 1D (either truly 1D or has only one non-unary dimension)
+    bool isEffectively1D = false;
+    int64_t effectiveSize = 1;
+    int64_t nonUnaryDims = 0;
+    for (int64_t dim : scatterIdxShape) {
+      if (dim != 1) {
+        nonUnaryDims++;
+        effectiveSize *= dim;
+      }
+    }
+    isEffectively1D = (nonUnaryDims <= 1);
+
+    if (isEffectively1D) {
+      if (effectiveSize != cacheUpdateSize) {
         return std::nullopt;
+      }
+      if (scatterIdxShape.size() > 1) {
+        // If it's effectively 1D, but not truly 1D, we need to check if the
+        // producer is a reshape, if so, ensure it's input is 1d and return that op
+        auto op = scatterIndices.getDefiningOp<ttir::ReshapeOp>();
+        if (!op) {
+          return std::nullopt;
+        }
+        auto input = op.getInput();
+        auto inputShape = mlir::cast<RankedTensorType>(input.getType()).getShape();
+        if (inputShape.size() != 1) {
+          return std::nullopt;
+        }
+        return input;
       }
       auto op = scatterIndices.getDefiningOp<ttir::MeshShardOp>();
       if (!op) {
