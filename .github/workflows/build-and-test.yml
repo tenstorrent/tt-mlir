@@ -507,6 +507,7 @@ jobs:
         echo "Wheel installed successfully"
 
     - name: Run tt-alchemist API test - model-to-cpp
+      shell: bash
       run: |
         pwd
         ls -lahF
@@ -514,6 +515,7 @@ jobs:
         tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
 
     - name: Run tt-alchemist API test - generate
+      shell: bash
       run: |
         pwd
         ls -lahF
