@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -275,7 +276,6 @@ public:
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
-
     if (!enabledOps->count(op.getOperation()->getName().getStringRef())) {
       return failure();
     }
@@ -733,14 +733,6 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::SumOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MaxOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MeanOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MinOp, /*keepDimUnsupported*/ false>,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
@@ -749,6 +741,9 @@ public:
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>,
+          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
+          workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern>(
           &getContext());
 

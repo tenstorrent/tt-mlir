@@ -128,6 +128,14 @@ Arch getArch() {
   return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
 }
 
+void enablePersistentKernelCache() {
+  ::tt::tt_metal::detail::EnablePersistentKernelCache();
+}
+
+void disablePersistentKernelCache() {
+  ::tt::tt_metal::detail::DisablePersistentKernelCache();
+}
+
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,

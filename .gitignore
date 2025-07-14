@@ -1,7 +1,6 @@
 .local
 **/build
 third_party/tt-metal
-third_party/ttnn-python
 .DS_STORE
 .vscode/*
 .cache

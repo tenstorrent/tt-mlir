@@ -24,7 +24,7 @@ module @jit_clamp attributes {} {
     %3 = stablehlo.reshape %2 : (tensor<1xbf16>) -> tensor<bf16>
     // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<1x16xbf16>
     // CHECK: %{{[0-9]+}} = "ttir.clamp_tensor"(%arg0, %{{[0-9]+}}, %{{[0-9]+}}, %[[EMPTY]])
-    // CHECK-SAME: : (tensor<1x16xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1x16xbf16>) -> tensor<1x16xbf16>
+    // CHECK-SAME: : (tensor<1x16xbf16>, tensor<bf16>, tensor<bf16>, tensor<1x16xbf16>) -> tensor<1x16xbf16>
     %4 = stablehlo.clamp %1, %arg0, %3 : (tensor<bf16>, tensor<1x16xbf16>, tensor<bf16>) -> tensor<1x16xbf16>
     return %4 : tensor<1x16xbf16>
   }
@@ -59,11 +59,11 @@ module @jit_clamp attributes {} {
     // CHECK-SAME: (tensor<1xf64>, tensor<1xbf16>) -> tensor<1xbf16>
     %0 = stablehlo.convert %cst : (tensor<1xf64>) -> tensor<1xbf16>
     // CHECK: %[[MIN:[0-9]+]] = "ttir.reshape"(%[[CAST]],
-    // CHECK-SAME: shape = [1 : i32]
-    // CHECK-SAME: (tensor<1xbf16>, tensor<1xbf16>) -> tensor<1xbf16>
+    // CHECK-SAME: shape = []
+    // CHECK-SAME: (tensor<1xbf16>, tensor<bf16>) -> tensor<bf16>
     %1 = stablehlo.reshape %0 : (tensor<1xbf16>) -> tensor<bf16>
     // CHECK: = "ttir.clamp_tensor"(%arg0, %[[MIN]], %arg1, %{{[0-9]+}})
-    // CHECK-SAME: (tensor<1x16xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1x16xbf16>) -> tensor<1x16xbf16>
+    // CHECK-SAME: (tensor<1x16xbf16>, tensor<bf16>, tensor<bf16>, tensor<1x16xbf16>) -> tensor<1x16xbf16>
     %2 = stablehlo.clamp %1, %arg0, %arg1 : (tensor<bf16>, tensor<1x16xbf16>, tensor<bf16>) -> tensor<1x16xbf16>
     return %2 : tensor<1x16xbf16>
   }

@@ -15,7 +15,7 @@ set(METAL_REQUIREMENTS_PATH ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-me
 add_custom_target(pykernel-demo
     COMMENT "Setting up and running PyKernel demo"
     COMMAND ${GREP_EXEC} -vE '${GREP_PATTERN}' ${METAL_REQUIREMENTS_PATH} > ${CMAKE_CURRENT_BINARY_DIR}/requirements.txt
-    DEPENDS TTMLIRRuntime TTMLIRPythonModules ttnn-python)
+    DEPENDS TTMLIRRuntime TTMLIRPythonModules)
 
 add_custom_command(TARGET pykernel-demo
     COMMENT "Installing Requirements for Demo"

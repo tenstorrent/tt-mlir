@@ -24,7 +24,7 @@ inline bool isDeviceBufferType(BufferType bufferType) {
 }
 
 inline bool isL1BufferType(BufferType bufferType) {
-  return bufferType == BufferType::L1;
+  return bufferType == BufferType::L1 || bufferType == BufferType::L1Small;
 }
 
 inline bool isDRAMBufferType(BufferType bufferType) {

@@ -56,7 +56,9 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::func::ReturnOp>();
     target.addLegalOp<mlir::func::CallOp>();
 
-    StablehloTypeConverter typeConverter(&getContext());
+    TypeConverter typeConverter;
+    // All types map 1:1.
+    typeConverter.addConversion([](Type type) { return type; });
     RewritePatternSet patterns(&getContext());
 
     // Func type conversions

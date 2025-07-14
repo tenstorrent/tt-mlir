@@ -42,6 +42,29 @@ table PrepareConv2dWeightsOp {
   has_bias: bool;
   groups: uint32;
   device: tt.target.DeviceRef;
+  input_dtype: tt.target.DataType;
+  output_dtype: tt.target.DataType = null;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
+}
+
+table PrepareConv2dBiasOp {
+  bias_tensor: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  input_memory_config: tt.target.ttnn.MemoryConfig;
+  input_tensor_layout: tt.target.TensorLayout;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+  device: tt.target.DeviceRef;
+  input_dtype: tt.target.DataType;
+  output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
 }
 
@@ -61,6 +84,7 @@ table Conv2dOp {
   padding: [int32];
   dilation: [int32];
   groups: uint32;
+  output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
@@ -82,6 +106,7 @@ table ConvTranspose2dOp {
   output_padding: [int32];
   dilation: [int32];
   groups: uint32;
+  output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }

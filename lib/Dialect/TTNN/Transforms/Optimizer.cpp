@@ -420,11 +420,20 @@ public:
 
           // Set specific Conv2d Op configuration if it is exists.
           //
+
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            if (auto conv2dConfig =
-                    mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
-              conv2dOp.setConv2dConfigAttr(conv2dConfig);
+            auto opAttributes = opConfigAnalysis.getResult().at(op);
+            if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                    opAttributes.opSpecificAttrs)) {
+              ttnn::Conv2dAttrs conv2dAttrs =
+                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
+              if (conv2dAttrs.conv2dConfig.has_value()) {
+                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
+              }
+              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                conv2dOp.setComputeConfigAttr(
+                    conv2dAttrs.deviceComputeKernelConfig.value());
+              }
             }
           }
         }
@@ -609,6 +618,7 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
+        toLayoutOp.setLayout(producerOpLayout.getLayout());
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
@@ -754,11 +764,14 @@ private:
     }
   }
 
-  // Check if the op can be executed with row major layout on the input.
+  // Check if the op can be executed with row major layout on the input. Returns
+  // expected output layout if constraints are satisfied, otherwise returns
+  // `nullptr`.
   // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3972
-  bool checkOpConstraints(Operation *op,
-                          std::vector<TTNNLayoutAttr> inputLayouts,
-                          size_t l1CacheSize, bool convertInputToRowMajor) {
+  TTNNLayoutAttr checkOpConstraints(Operation *op,
+                                    std::vector<TTNNLayoutAttr> inputLayouts,
+                                    size_t l1CacheSize,
+                                    bool convertInputToRowMajor) {
 
     if (convertInputToRowMajor) {
       inputLayouts[0] = utils::convertTTNNLayoutToRowMajor(
@@ -772,7 +785,9 @@ private:
     // Empty consumerConfig with conv2d config if conv2d op.
     OpConfig consumerConfig;
     if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-      consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+      Conv2dAttrs conv2dAttrs = {conv2dOp.getConv2dConfigAttr(),
+                                 conv2dOp.getComputeConfigAttr()};
+      consumerConfig.opSpecificAttrs = conv2dAttrs;
     }
 
     auto opConstraintsResult =
@@ -783,7 +798,7 @@ private:
                    "Failed constraints call after: {}", op->getLoc());
       op->emitWarning("Failed constraints call after: " +
                       llvm::toString(opConstraintsResult.takeError()));
-      return false;
+      return nullptr;
     }
 
     auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
@@ -797,10 +812,10 @@ private:
                       " out of " + std::to_string(l1CacheSize) +
                       " scaled down to " +
                       std::to_string(tensorL1UsageCap * l1CacheSize));
-      return false;
+      return nullptr;
     }
 
-    return true;
+    return outputLayout;
   }
 
   // Surround op with memory reconfig ops that convert tensor to row major
@@ -855,7 +870,8 @@ private:
     // input.
     TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
         inputRowMajorLayout.getElementType(),
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+
     Type newTensorType = RankedTensorType::get(
         outputType.getShape(), outputRowMajorLayout.getElementType(),
         outputRowMajorLayout);
@@ -938,8 +954,12 @@ private:
       }
       assert(inputLayouts.size() > 0 && "Expected at least one input");
 
-      if (!inputLayouts[0].isTiled() ||
-          inputLayouts[0].hasShardedTensorMemoryLayout()) {
+      // Both input and output layout has to be checked otherwise some
+      // inconsistencies may arise:
+      // https://github.com/tenstorrent/tt-mlir/issues/4051
+      if ((!inputLayouts[0].isTiled() ||
+           inputLayouts[0].hasShardedTensorMemoryLayout()) &&
+          !resultLayout.isTiled()) {
         // Input is already in RowMajor or has sharded tensor memory layout, no
         // need to convert.
         return;
@@ -957,8 +977,15 @@ private:
       }
 
       // Let's check first if the op can be executed with the current layout.
-      if (checkOpConstraints(op, inputLayouts, l1CacheSize,
-                             /*convertInputToRowMajor=*/false)) {
+      if (auto actualOutputLayout =
+              checkOpConstraints(op, inputLayouts, l1CacheSize,
+                                 /*convertInputToRowMajor=*/false)) {
+        // If output layout is different from the expected one, we need to
+        // convert the output type to the expected one.
+        if (actualOutputLayout != resultLayout) {
+          op->getResult(0).setType(
+              resultType.cloneWithEncoding(actualOutputLayout));
+        }
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                      "Successfully passed constraints, no conversion needed");
         return;

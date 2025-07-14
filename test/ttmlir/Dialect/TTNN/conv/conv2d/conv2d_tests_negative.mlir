@@ -17,7 +17,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -39,7 +40,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -61,7 +63,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -83,7 +86,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x900x64xbf16>
     return %1 : tensor<1x900x64xbf16>
   }
@@ -106,7 +110,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -128,7 +133,8 @@ module {
               stride = array<i32: 1, 1, 3>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -150,7 +156,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -173,7 +180,8 @@ module {
               stride = array<i32: 2, -2>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -195,7 +203,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: -1, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -217,7 +226,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: -2, -2>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -239,7 +249,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x32x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -261,7 +272,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x32xbf16>
     return %1 : tensor<1x1x900x32xbf16>
   }
@@ -283,7 +295,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x32xbf16>
     return %1 : tensor<1x1x900x32xbf16>
   }
@@ -305,7 +318,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x32xbf16>
     return %1 : tensor<1x1x900x32xbf16>
   }
@@ -328,7 +342,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -350,7 +365,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 1: i32
+              groups = 1: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
@@ -372,7 +388,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
-              groups = 3: i32
+              groups = 3: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x1x1024x64xbf16>, tensor<96x64x3x3xbf16>, tensor<1x1x1x96xbf16>, !ttnn.device) -> tensor<1x1x900x96xbf16>
     return %1 : tensor<1x1x900x96xbf16>
   }
@@ -394,7 +411,8 @@ module {
               stride = array<i32: 1, 1>,
               padding = array<i32: 2, 4>,
               dilation = array<i32: 6, 12>,
-              groups = 2: i32
+              groups = 2: i32,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<4x1x1024x64xbf16>, tensor<64x32x12x12xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<4x1x900x64xbf16>
     return %1 : tensor<4x1x900x64xbf16>
   }

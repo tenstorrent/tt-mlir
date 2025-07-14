@@ -1110,10 +1110,13 @@ class TTIRBuilderOps:
         -------
         (*OpView*)
         """
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.ne,
             ttir.NotEqualOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -4750,6 +4753,123 @@ class TTIRBuilderOps:
             output_shape=output_shape,
             unit_attrs=unit_attrs,
             ttir_kwargs=ttir_kwargs,
+        )
+
+    def slice(
+        self,
+        in0: Operand,
+        begins: List[int],
+        ends: List[int],
+        step: List[int] = None,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        # If step is not provided, use 1 for each dimension
+        if step is None:
+            step = [1] * len(begins)
+
+        # Ensure begins, ends, and step have the same length
+        assert (
+            len(begins) == len(ends) == len(step)
+        ), "begins, ends, and step must have the same length"
+
+        # Get the input shape
+        input_shape = self.get_shape(in0)
+
+        # Ensure we're not slicing more dimensions than exist
+        assert len(begins) <= len(
+            input_shape
+        ), "Cannot slice more dimensions than input has"
+
+        # Calculate the output shape
+        output_shape = []
+
+        # Process dimensions that are being sliced
+        for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+            # Handle negative indices
+            dim_size = input_shape[i]
+            if b < 0:
+                b += dim_size
+            if e < 0:
+                e += dim_size
+
+            # Clamp to valid range
+            b = max(0, min(b, dim_size))
+            e = max(0, min(e, dim_size))
+
+            # Calculate dimension size using correct formula
+            # For positive step: ceil((e - b) / s)
+            if s > 0:
+                if e > b:
+                    size = (e - b + s - 1) // s
+                else:
+                    size = 0
+            else:
+                # Negative step not typically supported in MLIR/TOSA
+                raise ValueError("Negative step not supported")
+
+            output_shape.append(size)
+
+        # Add remaining dimensions that aren't being sliced
+        for i in range(len(begins), len(input_shape)):
+            output_shape.append(input_shape[i])
+
+        # Create the attributes
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create integer attributes for each value
+        begins_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
+        ]
+        ends_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), e) for e in ends
+        ]
+        step_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+        ]
+
+        # Create array attributes
+        begins_attr = ArrayAttr.get(begins_int_attrs, self._ctx)
+        ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
+        step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
+
+        # Golden function for slicing
+        def slice_golden_fn(x):
+            # Build slice objects for each dimension
+            slices = []
+
+            # Add slices for dimensions being sliced
+            for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+                # Handle negative indices
+                dim_size = x.shape[i]
+                if b < 0:
+                    b += dim_size
+                if e < 0:
+                    e += dim_size
+
+                # Clamp to valid range
+                b = max(0, min(b, dim_size))
+                e = max(0, min(e, dim_size))
+
+                # Create slice object
+                slices.append(slice(b, e, s))
+
+            # Add full slices for remaining dimensions
+            for i in range(len(begins), len(x.shape)):
+                slices.append(slice(None))
+
+            # Apply the slice
+            return x[tuple(slices)]
+
+        # Use op_proxy
+        return self.op_proxy(
+            slice_golden_fn,
+            ttir.SliceOp,
+            [in0],
+            golden_kwargs={},  # No kwargs needed - closure captures begins/ends/step
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+            ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
         )
 
 

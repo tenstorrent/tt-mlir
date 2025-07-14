@@ -25,7 +25,9 @@ func.func @prepare_conv2d_weights(%arg0: tensor<64x64x3x3xbf16, #ttnn_layout>) -
               out_channels = 64 : i32,
               padding = array<i32: 0, 0>,
               stride = array<i32: 1, 1>,
-              weights_format = "OIHW"
+              weights_format = "OIHW",
+              input_dtype = #ttcore.supportedDataTypes<bf16>,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<64x64x3x3xbf16, #ttnn_layout>, !ttnn.device) -> tensor<1x1x576x64xbf16, #ttnn_layout1>
   return %1 : tensor<1x1x576x64xbf16, #ttnn_layout1>
 }

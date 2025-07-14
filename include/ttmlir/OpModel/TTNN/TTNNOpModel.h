@@ -274,6 +274,35 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace TransposeOpInterface
 
 //===----------------------------------------------------------------------===//
+// LinearOp
+//===----------------------------------------------------------------------===//
+
+namespace LinearOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                 std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+                 bool transposeB);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+             llvm::ArrayRef<int64_t> inputShapeB,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+             std::optional<llvm::ArrayRef<int64_t>> biasShape,
+             std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+             bool transposeB);
+}; // namespace LinearOpInterface
+
+//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 
@@ -339,6 +368,8 @@ llvm::Expected<OpConstraints> getOpConstraints(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
@@ -355,6 +386,8 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
              llvm::ArrayRef<int32_t> dilation, uint32_t groups,
              std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+             std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+                 deviceComputeKernelConfig,
              llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 

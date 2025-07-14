@@ -63,9 +63,8 @@ static TTNNLayoutAttr createLayoutAttr(
     MLIRContext *ctx, ttcore::GridAttr deviceGrid, RankedTensorType type,
     BufferType bufferType = g_defaultMemorySpaceDevice, bool isTiled = true) {
 
-  std::int64_t deviceGridRank = deviceGrid.getShape().size();
-  // Default to single core grid
-  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx, deviceGridRank);
+  // Default to single core grid.
+  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx);
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
@@ -264,10 +263,11 @@ public:
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
       if (!isDPSResult && (mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(
                               op.getOperation()))) {
-        // For the weight input of the conv2d op, it specifically needs to be on
-        // host, so we create a host to layout op (issue
+        // For the weight and bias input of the conv2d op, they specifically
+        // need to be on host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
-        if (operand.getOperandNumber() == 1) {
+        if (operand.getOperandNumber() == 1 ||
+            operand.getOperandNumber() == 2) {
           modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
         }
         continue;
@@ -332,15 +332,6 @@ private:
       return mlir::isa<ttcore::TileType>(inputLayout.getElementType());
     }
 
-    // These ops constrain to ROW_MAJOR on their operands
-    //
-    // For conv2d, the result tensor is tilized by default in runtime
-    // unless we specify an override in the Conv2dConfig (which we don't
-    // currently). Therefore we don't force row major if the operand is a DPS
-    // result
-    if (mlir::isa<ttir::Conv2dOp>(operation) && !isDPSResult) {
-      return false;
-    }
     return true;
   }
 };
@@ -539,11 +530,14 @@ private:
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
-      // For the weight input of the conv2d op, it specifically needs to be on
-      // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
-      if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user)) &&
-          user->getOperand(1) == arg) {
-        return true;
+
+      if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user))) {
+        // For the weight and bias input of the conv2d op, they specifically
+        // need to be on host (issue
+        // https://github.com/tenstorrent/tt-mlir/issues/1528).
+        if (user->getOperand(1) == arg || user->getOperand(2) == arg) {
+          return true;
+        }
       }
     }
 
