@@ -23,9 +23,8 @@ table AllToAllOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
-  split_dim: int32;
-  concat_dim: int32;
-  cluster_axis: uint32;
+  in_dim: int32;
+  out_dim: int32;
 }
 
 table MeshShardOp {

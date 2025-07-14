@@ -1486,13 +1486,11 @@ public:
 
     auto id2coord = [&](size_t id) {
       llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
-      for (size_t d = 0; d < meshShape.size(); d++) {
-        coord[d] = id % meshShape[d];
-        id /= meshShape[d];
+      for (size_t i = meshShape.size(); i-- > 0;) {
+        coord[i] = id % meshShape[i];
+        id /= meshShape[i];
       }
-      ttnn::MeshCoordinateAttr coordAttr =
-          ttnn::MeshCoordinateAttr::get(op.getContext(), coord);
-      return coordAttr;
+      return ttnn::MeshCoordinateAttr::get(op.getContext(), coord);
     };
 
     for (size_t gIdx = 0; gIdx < deviceIds.size(); gIdx += devicesInGroup) {

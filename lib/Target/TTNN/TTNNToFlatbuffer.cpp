@@ -781,7 +781,7 @@ createOp(FlatbufferObjectCache &cache, AllToAllOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateAllToAllOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getSplitDim(), op.getConcatDim(), op.getClusterAxis());
+      op.getInDim(), op.getOutDim());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
