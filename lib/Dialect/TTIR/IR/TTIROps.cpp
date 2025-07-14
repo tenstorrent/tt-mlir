@@ -2475,9 +2475,13 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
     for (auto d : resultType.getShape()) {
       outputElements *= d;
     }
-
     if (inputElements != outputElements) {
       return emitOpError("view must preserve total number of elements");
+    }
+
+    // We also should not change element type unless reinterpretting.
+    if (inputType.getElementType() != resultType.getElementType()) {
+      return emitOpError("view must not change dtype");
     }
   }
 
