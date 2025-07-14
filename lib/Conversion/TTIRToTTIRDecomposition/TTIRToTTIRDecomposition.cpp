@@ -1240,10 +1240,6 @@ private:
     const int64_t SPATIAL_W = -2;
     const int64_t NON_SPATIAL = -1;
 
-    // Each input must have a corresponding output.
-    assert(adaptor.getInputs().size() == adaptor.getOutputs().size() &&
-           "Number of inputs and outputs must be the same");
-
     auto inputType =
         mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
     assert(inputType.getRank() == 4 && "Input must be 4D tensor");
