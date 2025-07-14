@@ -31,7 +31,7 @@ struct TypeName<::ttnn::Tensor> {
 
 template <typename T>
 struct TypeName<std::vector<T>> {
-  inline static const std::string value = "vector<" + TypeNameV<T> + ">";
+  inline static const std::string value = "list<" + TypeNameV<T> + ">";
 };
 } // namespace ttnn_to_emitpy
 } // namespace tt

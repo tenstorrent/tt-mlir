@@ -196,13 +196,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     return success();
   };
 
-  // Handle constant operation.
-  if (callee == "constant") {
-    if (failed(emitter.emitAttribute(op.getLoc(),
-                                     callOpaqueOp.getArgs()->getValue()[0]))) {
-      return failure();
-    }
-  } else if (callee == "util_create_list") {
+  if (callee == "util_create_list") {
     os << "[";
     if (failed(emitter.emitOperands(op))) {
       return failure();
