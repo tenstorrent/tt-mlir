@@ -998,7 +998,7 @@ public:
 //    must satisfy specific window/padding rules (see isCumSum()).
 // This conversion is tailored toward cases like maxpool2d, avgpool2d (via
 // sum+div), and cumulative sum.
-// TODOs:
+// TODO(anusingh):
 //  - Support initialization via function arguments
 //  - Generalize to other reduction ops
 //  - Extract and match nested operations in reduction blocks
@@ -1081,9 +1081,9 @@ public:
       std::optional<int64_t> dimension =
           isCumSum(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
       if (dimension) {
-        auto resultType = cast<RankedTensorType>(
+        mlir::RankedTensorType resultType = cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-        auto output = rewriter.create<ttir::EmptyOp>(
+        ttir::EmptyOp output = rewriter.create<ttir::EmptyOp>(
             srcOp.getLoc(), resultType.getShape(), resultType.getElementType(),
             resultType.getEncoding());
         rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
@@ -1096,7 +1096,7 @@ public:
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
-      auto resultType = cast<RankedTensorType>(
+      mlir::RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
       Value output = rewriter.create<ttir::EmptyOp>(
           srcOp.getLoc(), resultType.getShape(), resultType.getElementType(),
@@ -1107,11 +1107,24 @@ public:
       if (isMaxPool(srcOp, initVal, frontOp)) {
         method = ttir::PoolingMethod::Max;
       } else if (isSumPool(srcOp, initVal, frontOp)) {
-        method = ttir::PoolingMethod::Sum;
+        std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
+        if (divOp && i == 0) {
+          method = ttir::PoolingMethod::Average;
+          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
+              srcOp.getLoc(), resultType, ValueRange{input}, ValueRange{output},
+              method, windowDimensions, windowStrides, baseDilations,
+              window_dilations, padding);
+          resultVals.push_back(poolingOp->getResult(0));
+          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp->getResult(0));
+          rewriter.eraseOp(*divOp);
+          continue;
+        } else {
+          method = ttir::PoolingMethod::Sum;
+        }
       } else {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
-      auto poolingOp = rewriter.create<ttir::PoolingOp>(
+      ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
           srcOp.getLoc(), resultType, ValueRange{input}, ValueRange{output},
           method, windowDimensions, windowStrides, baseDilations,
           window_dilations, padding);
