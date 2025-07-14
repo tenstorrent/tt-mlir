@@ -1118,9 +1118,8 @@ public:
           (*divOp)->getResult(0).replaceAllUsesWith(poolingOp->getResult(0));
           rewriter.eraseOp(*divOp);
           continue;
-        } else {
-          method = ttir::PoolingMethod::Sum;
         }
+        method = ttir::PoolingMethod::Sum;
       } else {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
