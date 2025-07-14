@@ -33,3 +33,12 @@ table ReductionProdOp {
   keep_dim: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
+
+table SortOp {
+  in: tt.target.ttnn.TensorRef;
+  dim: int8;
+  descending: bool;
+  stable: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  outputs: [tt.target.ttnn.TensorRef];
+}

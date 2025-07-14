@@ -231,7 +231,15 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (op->getNumResults() == 0) {
+          return;
+        }
+
+        if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+          return;
+        }
+
+        if (llvm::isa<ttnn::EmptyOp>(op)) {
           return;
         }
 
@@ -978,10 +986,8 @@ private:
           op->getResult(0).setType(
               resultType.cloneWithEncoding(actualOutputLayout));
         }
-        TTMLIR_DEBUG(
-            ttmlir::LogComponent::Optimizer,
-            "Op {} successfully passed constraints, no conversion needed",
-            op->getName());
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Successfully passed constraints, no conversion needed");
         return;
       }
 
@@ -997,8 +1003,7 @@ private:
 
       // Row major input passed constraints, let's add necessary conversions.
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Op {} successfully passed constraints after inserting RM",
-                   op->getName());
+                   "Successfully passed constraints after inserting RM");
       convertOpToRowMajorAndBack(op);
     });
   }

@@ -287,9 +287,7 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
-                         std::is_same_v<SourceOp,
-                                        ttkernel::GetCommonArgValOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
       SmallVector<Attribute, 1> template_args;
 
       template_args.push_back(
@@ -572,7 +570,6 @@ public:
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetCommonArgValOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,

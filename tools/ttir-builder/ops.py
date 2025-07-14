@@ -1889,24 +1889,16 @@ class TTIRBuilderOps:
         """
         # Handle ttir and golden function arguments for edge cases
         golden_kwargs = {}
-        ttir_kwargs = {"keep_dim": True}
-        input_shape = list(self.get_shape(in0))
-        ndim = len(input_shape)
-        if dim_arg is not None:
-            golden_kwargs = {"dim": dim_arg, "keepdim": True}
+        ttir_kwargs = {"keep_dim": keep_dim}
+        output_shape = [1] * len(self.get_shape(in0))
+        if dim_arg:
+            golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
             ttir_kwargs["dim_arg"] = [dim_arg]
-
-            output_shape = input_shape.copy()
-            output_shape[dim_arg] = 1
-            golden_fn = lambda x, *args, **kwargs: torch.max(
-                x, dim=kwargs["dim"], keepdim=kwargs["keepdim"]
-            )
-        else:
-            output_shape = [1] * ndim
-            golden_fn = lambda x, *args, **kwargs: torch.max(x).reshape(*output_shape)
+        if not keep_dim:
+            output_shape = torch.Size([1])
 
         return self.op_proxy(
-            golden_fn,
+            torch.max,
             ttir.MaxOp,
             [in0],
             golden_kwargs=golden_kwargs,

@@ -12,8 +12,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
-from .types import *
-
 
 def get_supported_nodes():
     return [
@@ -134,7 +132,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         for arg in args:
             if hasattr(arg, "value") and hasattr(arg, "key"):
-                # This is a CompileTimeValue
+                # This is a CompiledValue
                 self.ct_args[arg.key] = arg.value
 
         # Get rid of appended metadata sent into compiler
@@ -214,7 +212,6 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         arg_types = []
         rt_args = []
-        common_rt_args = []
         ct_args = []
         cb_args = []
         cb_idx = []
@@ -228,23 +225,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             if not arg.annotation:
                 # This is a runtime arg now, wire it up into the function statement
                 # Add the name and the index
-
-                # This must be inputted as a RuntimeArgument, initialize as such, if it's an int it's always not common rt_args
-                if isinstance(self.args[i], int):
-                    # This is not a common_rt_arg for sure
-                    rt_args.append((arg.arg, len(rt_args)))
-                elif isinstance(self.args[i], Arguments):
-                    _arg = self.args[i]
-                    if _arg.is_common:
-                        common_rt_args.append((arg.arg, len(common_rt_args)))
-                    else:
-                        rt_args.append((arg.arg, len(rt_args)))
-                else:
-                    raise TypeError(
-                        "Got Positional Argument in IR, unexpected argument type provided."
-                    )
+                rt_args.append((arg.arg, len(rt_args)))
                 continue
-            elif arg.annotation.id == "CompileTimeValue":
+            elif arg.annotation.id == "CompiledValue":
                 # This is a CT Arg, we can package the metadata needed for passing this value in
                 if arg.arg not in self.ct_args:
                     raise ValueError(
@@ -307,11 +290,6 @@ class TTKernelCompiler(ast.NodeVisitor):
             for name, idx in rt_args:
                 _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
                 res = ttkernel.get_arg_val(int_type, _idx)
-                self.symbol_tables[-1][name] = res
-
-            for name, idx in common_rt_args:
-                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
-                res = ttkernel.get_common_arg_val(int_type, _idx)
                 self.symbol_tables[-1][name] = res
 
             for name, value in ct_args:

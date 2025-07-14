@@ -684,7 +684,7 @@ mlir::AffineMap collapsedLinearAffineMap(
     map = map.insertResult(getAffineConstantExpr(0, context), 0);
   }
 
-  return mlir::simplifyAffineMap(map);
+  return map;
 }
 
 mlir::SmallVector<std::int64_t>

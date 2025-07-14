@@ -989,7 +989,9 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
-        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
@@ -1047,7 +1049,9 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
-        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
     };
 
@@ -1094,7 +1098,9 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1142,7 +1148,9 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -2130,6 +2138,12 @@ public:
 
     return success();
   }
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.sort"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::sort";
+  }
 };
 } // namespace
 
@@ -2194,39 +2208,6 @@ public:
 
     emitter.replaceOp(*this, args);
 
-    return success();
-  }
-};
-} // namespace
-
-// PointToPointOp conversion pattern
-//
-namespace {
-class PointToPointOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::PointToPointOp> {
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::PointToPointOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(tt::ttnn::PointToPointOp srcOp,
-                  tt::ttnn::PointToPointOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.create<emitc::VerbatimOp>(
-        srcOp.getLoc(),
-        "assert(0 && \"PointToPoint  operation is "
-        "not supported in emitc yet.\"); // ::ttnn::PointToPoint");
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PointToPointOp> emitter(
-        srcOp, adaptor, rewriter);
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emitMeshCoordinate(srcOp.getSendCoord()),
-        emitter.emitMeshCoordinate(srcOp.getReceiveCoord()),
-        emitter.emit(srcOp.getAccumTensor()),
-    };
-    // ::ttsl::SmallVector<int64_t>>(srcOp.getSendCoord())
-    emitter.replaceOp(*this, args);
     return success();
   }
 };
@@ -2393,7 +2374,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
-  patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
   //

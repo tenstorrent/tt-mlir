@@ -8,7 +8,6 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
@@ -28,7 +27,6 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
@@ -58,6 +56,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )

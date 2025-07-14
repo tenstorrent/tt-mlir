@@ -253,22 +253,17 @@ bool incompatibleWithOverride(
   return false;
 }
 
-// Skip operations that don't have nontrivial output tensors.
-bool LegalLayoutAnalysis::isValidAnalysisTarget(Operation *op) {
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-  if (!llvm::isa<mlir::RankedTensorType>(op->getResult(0).getType())) {
-    return false;
-  }
-  if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
-    return false;
-  }
-  return true;
-}
-
 void LegalLayoutAnalysis::analysisImplementation() {
-  if (!isValidAnalysisTarget(op)) {
+  // Skip operations that don't have output tensors.
+  if (op->getNumResults() == 0) {
+    return;
+  }
+
+  if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+    return;
+  }
+
+  if (llvm::isa<ttnn::EmptyOp>(op)) {
     return;
   }
 
