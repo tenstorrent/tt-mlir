@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -366,6 +367,15 @@ public:
 
           op->getResult(0).setType(newTensorType);
 
+          // Update output data type for ops that have output data type
+          // attribute.
+          if (op->hasTrait<HasOutputDTypeTrait>()) {
+            ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
+                op->getContext(), layoutAttr.getDataType());
+            op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                        newDataTypeAttr);
+          }
+
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
@@ -541,37 +551,6 @@ private:
     assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
-  static mlir::TypedValue<DeviceType>
-  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
-    Block *block = contextOp->getBlock();
-    for (auto &op : block->getOperations()) {
-      if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
-        return deviceOp.getResult();
-      }
-    }
-
-    // Device op does not exist in the block, hence we need to create it.
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(contextOp);
-    auto currentInsertionPoint = builder.saveInsertionPoint();
-    builder.setInsertionPoint(block, block->begin());
-    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
-    if (meshShape.empty()) {
-      meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
-    }
-    // TODO (jnie): Currently hardcoding the mesh offset to 0x0
-    // Need a proper plan to dynamically determine this.
-    llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
-
-    auto deviceOp = builder.create<ttnn::GetDeviceOp>(
-        contextOp->getLoc(), builder.getType<DeviceType>(),
-        ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
-                                 meshShape[1]),
-        ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
-                                  meshOffset[1]));
-    builder.restoreInsertionPoint(currentInsertionPoint);
-    return deviceOp;
-  }
-
   static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       ttcore::GridAttr deviceGrid) {
@@ -639,6 +618,7 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
+        toLayoutOp.setLayout(producerOpLayout.getLayout());
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
@@ -653,7 +633,7 @@ private:
                             producerOpLayout.getLayout()),
             ttcore::DataTypeAttr::get(consumerOp->getContext(),
                                       producerOpLayout.getDataType()),
-            outputMemConfigAttr, getOrCreateDeviceOpValue(consumerOp, builder));
+            outputMemConfigAttr);
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -716,7 +696,7 @@ private:
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
           loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr, getOrCreateDeviceOpValue(spilledOp, builder));
+          memConfigAttr);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -784,11 +764,14 @@ private:
     }
   }
 
-  // Check if the op can be executed with row major layout on the input.
+  // Check if the op can be executed with row major layout on the input. Returns
+  // expected output layout if constraints are satisfied, otherwise returns
+  // `nullptr`.
   // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3972
-  bool checkOpConstraints(Operation *op,
-                          std::vector<TTNNLayoutAttr> inputLayouts,
-                          size_t l1CacheSize, bool convertInputToRowMajor) {
+  TTNNLayoutAttr checkOpConstraints(Operation *op,
+                                    std::vector<TTNNLayoutAttr> inputLayouts,
+                                    size_t l1CacheSize,
+                                    bool convertInputToRowMajor) {
 
     if (convertInputToRowMajor) {
       inputLayouts[0] = utils::convertTTNNLayoutToRowMajor(
@@ -815,7 +798,7 @@ private:
                    "Failed constraints call after: {}", op->getLoc());
       op->emitWarning("Failed constraints call after: " +
                       llvm::toString(opConstraintsResult.takeError()));
-      return false;
+      return nullptr;
     }
 
     auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
@@ -829,10 +812,10 @@ private:
                       " out of " + std::to_string(l1CacheSize) +
                       " scaled down to " +
                       std::to_string(tensorL1UsageCap * l1CacheSize));
-      return false;
+      return nullptr;
     }
 
-    return true;
+    return outputLayout;
   }
 
   // Surround op with memory reconfig ops that convert tensor to row major
@@ -875,8 +858,7 @@ private:
         MemoryConfigAttr::get(
             op->getContext(), inputLayout.getMemLayout(),
             BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-            /*shardSpec=*/std::nullopt),
-        getOrCreateDeviceOpValue(op, builder));
+            /*shardSpec=*/std::nullopt));
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Inserted memory reconfig before, type: {}",
                  memoryReconfigOpBefore->getResult(0).getType());
@@ -888,7 +870,8 @@ private:
     // input.
     TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
         inputRowMajorLayout.getElementType(),
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+
     Type newTensorType = RankedTensorType::get(
         outputType.getShape(), outputRowMajorLayout.getElementType(),
         outputRowMajorLayout);
@@ -916,8 +899,7 @@ private:
         MemoryConfigAttr::get(
             op->getContext(), outputLayout.getMemLayout(),
             BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-            /*shardSpec=*/std::nullopt),
-        getOrCreateDeviceOpValue(op, builder));
+            /*shardSpec=*/std::nullopt));
 
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Inserted memory reconfig after, type: {}",
@@ -972,8 +954,12 @@ private:
       }
       assert(inputLayouts.size() > 0 && "Expected at least one input");
 
-      if (!inputLayouts[0].isTiled() ||
-          inputLayouts[0].hasShardedTensorMemoryLayout()) {
+      // Both input and output layout has to be checked otherwise some
+      // inconsistencies may arise:
+      // https://github.com/tenstorrent/tt-mlir/issues/4051
+      if ((!inputLayouts[0].isTiled() ||
+           inputLayouts[0].hasShardedTensorMemoryLayout()) &&
+          !resultLayout.isTiled()) {
         // Input is already in RowMajor or has sharded tensor memory layout, no
         // need to convert.
         return;
@@ -991,8 +977,15 @@ private:
       }
 
       // Let's check first if the op can be executed with the current layout.
-      if (checkOpConstraints(op, inputLayouts, l1CacheSize,
-                             /*convertInputToRowMajor=*/false)) {
+      if (auto actualOutputLayout =
+              checkOpConstraints(op, inputLayouts, l1CacheSize,
+                                 /*convertInputToRowMajor=*/false)) {
+        // If output layout is different from the expected one, we need to
+        // convert the output type to the expected one.
+        if (actualOutputLayout != resultLayout) {
+          op->getResult(0).setType(
+              resultType.cloneWithEncoding(actualOutputLayout));
+        }
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                      "Successfully passed constraints, no conversion needed");
         return;

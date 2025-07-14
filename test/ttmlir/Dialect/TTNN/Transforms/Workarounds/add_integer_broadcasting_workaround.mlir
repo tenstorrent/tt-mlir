@@ -6,13 +6,12 @@
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 128 + d2, d3), <1x1>, memref<4x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 module attributes {} {
   func.func @add_integer_broadcast(%arg0: tensor<1x1x1x128xsi32,#ttnn_layout1>, %arg1: tensor<1x1x128x128xsi32,#ttnn_layout>) -> tensor<1x1x128x128xbf16,#ttnn_layout2> {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: "ttnn.add"
     // CHECK-SAME: tensor<1x1x1x128xbf16
     // CHECK-SAME: tensor<1x1x128x128xbf16
     // CHECK-SAME: tensor<1x1x128x128xbf16
-    %1 = "ttnn.add"(%arg0, %arg1) : (tensor<1x1x1x128xsi32,#ttnn_layout1>, tensor<1x1x128x128xsi32,#ttnn_layout>) -> tensor<1x1x128x128xsi32,#ttnn_layout>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #ttcore.supportedDataTypes<si32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x128x128xsi32, #ttnn_layout>, !ttnn.device) -> tensor<1x1x128x128xbf16, #ttnn_layout2>
-    return %2 : tensor<1x1x128x128xbf16,#ttnn_layout2>
+    %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<1x1x1x128xsi32,#ttnn_layout1>, tensor<1x1x128x128xsi32,#ttnn_layout>) -> tensor<1x1x128x128xsi32,#ttnn_layout>
+    %1 = "ttnn.to_layout"(%0) <{dtype = #ttcore.supportedDataTypes<si32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x128x128xsi32, #ttnn_layout>) -> tensor<1x1x128x128xbf16, #ttnn_layout2>
+    return %1 : tensor<1x1x128x128xbf16,#ttnn_layout2>
   }
 }

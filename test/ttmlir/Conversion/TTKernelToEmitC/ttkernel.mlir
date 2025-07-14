@@ -385,6 +385,78 @@ module {
       return
     }
 
+    // CHECK-LABEL: func.func @add_binary_tile_init
+    func.func @add_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "add_binary_tile_init"()
+      "ttkernel.add_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @test_add_binary_tile
+    func.func @test_add_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "add_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.add_binary_tile"(%c0, %c1) : (index, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @mul_binary_tile_init
+    func.func @mul_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "mul_binary_tile_init"()
+      "ttkernel.mul_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @test_mul_binary_tile
+    func.func @test_mul_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "mul_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.mul_binary_tile"(%c0, %c1) : (index, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @sub_binary_tile_init
+    func.func @sub_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sub_binary_tile_init"()
+      "ttkernel.sub_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @test_sub_binary_tile
+    func.func @test_sub_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "sub_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.sub_binary_tile"(%c0, %c1) : (index, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @copy_dest_values_init
+    func.func @copy_dest_values_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "copy_dest_values_init"()
+      "ttkernel.copy_dest_values_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func.func @test_copy_dest_values
+    func.func @test_copy_dest_values() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "copy_dest_values"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.copy_dest_values"(%c0, %c1) : (index, index) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @div_binary_tile_init
     func.func @div_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "div_binary_tile_init"()
@@ -453,6 +525,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @log_tile_init
+    func.func @log_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "log_tile_init"()
+      "ttkernel.log_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @log_tile
+    func.func @log_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "log_tile"(%[[DST_INDEX]])
+      "ttkernel.log_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @negative_tile_init
     func.func @negative_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "negative_tile_init"()
@@ -482,6 +570,38 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "cos_tile"(%[[DST_INDEX]])
       "ttkernel.cos_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tan_tile_init
+    func.func @tan_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "tan_tile_init"()
+      "ttkernel.tan_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tan_tile
+    func.func @tan_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "tan_tile"(%[[DST_INDEX]])
+      "ttkernel.tan_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sqrt_tile_init
+    func.func @sqrt_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sqrt_tile_init"()
+      "ttkernel.sqrt_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sqrt_tile
+    func.func @sqrt_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "sqrt_tile"(%[[DST_INDEX]])
+      "ttkernel.sqrt_tile"(%dst_index) : (i32) -> ()
       return
     }
 
@@ -555,6 +675,74 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "ceil_tile_float32"(%[[DST0_INDEX]])
       "ttkernel.ceil_tile_float32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @floor_tile
+    func.func @floor_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "floor_tile"(%[[DST0_INDEX]])
+      "ttkernel.floor_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @floor_tile_float32
+    func.func @floor_tile_float32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "floor_tile_float32"(%[[DST0_INDEX]])
+      "ttkernel.floor_tile_float32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @abs_tile_init
+    func.func @abs_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "abs_tile_init"()
+      "ttkernel.abs_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @abs_tile
+    func.func @abs_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "abs_tile"(%[[DST0_INDEX]])
+      "ttkernel.abs_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @abs_tile_int32
+    func.func @abs_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "abs_tile_int32"(%[[DST0_INDEX]])
+      "ttkernel.abs_tile_int32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @logical_not_unary_tile_init
+    func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()
+      "ttkernel.logical_not_unary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @logical_not_unary_tile
+    func.func @logical_not_unary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "logical_not_unary_tile"(%[[DST0_INDEX]])
+      "ttkernel.logical_not_unary_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @logical_not_unary_tile_int32
+    func.func @logical_not_unary_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "logical_not_unary_tile_int32"(%[[DST0_INDEX]])
+      "ttkernel.logical_not_unary_tile_int32"(%dst0_index) : (i32) -> ()
       return
     }
 

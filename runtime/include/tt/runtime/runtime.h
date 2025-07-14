@@ -76,13 +76,15 @@ Tensor createMultiDeviceHostTensor(
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 // Creates multi-device host tensor from already existing host tensor shards.
 // Tensor shards can be host tensors with either owned or borrowed storage.
 Tensor createMultiDeviceHostTensor(
     const std::vector<Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
@@ -102,9 +104,11 @@ inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
 
 inline Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data, const TensorDesc &desc,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   return ::tt::runtime::createMultiDeviceHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy,
+      meshShape);
 }
 
 inline Tensor createEmptyTensor(Device device, Layout layout,
@@ -125,6 +129,9 @@ bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
 Arch getArch();
+
+void enablePersistentKernelCache();
+void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 

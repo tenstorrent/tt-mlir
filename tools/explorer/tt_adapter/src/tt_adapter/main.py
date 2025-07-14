@@ -112,14 +112,6 @@ def settings_to_overrides(settings, artifacts_dir):
                         )
                     case "output_layout":
                         conv2d_config_override.set_output_layout_from_str(attr["value"])
-                    case "preprocess_weights_on_device":
-                        conv2d_config_override.set_preprocess_weights_on_device_from_str(
-                            attr["value"]
-                        )
-                    case "always_preprocess_weights":
-                        conv2d_config_override.set_always_preprocess_weights_from_str(
-                            attr["value"]
-                        )
                     case "enable_act_double_buffer":
                         conv2d_config_override.set_enable_act_double_buffer_from_str(
                             attr["value"]

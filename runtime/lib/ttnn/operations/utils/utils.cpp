@@ -122,7 +122,7 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::SubUnarySfpu, TTNNUnaryOpType::SUB_UNARY_SFPU},
       {FbUnaryOpType::MulUnarySfpu, TTNNUnaryOpType::MUL_UNARY_SFPU},
       {FbUnaryOpType::DivUnarySfpu, TTNNUnaryOpType::DIV_UNARY_SFPU},
-      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY_UINT32},
+      {FbUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY},
       {FbUnaryOpType::UnaryNe, TTNNUnaryOpType::UNARY_NE},
       {FbUnaryOpType::UnaryGt, TTNNUnaryOpType::UNARY_GT},
       {FbUnaryOpType::UnaryLt, TTNNUnaryOpType::UNARY_LT},
@@ -261,15 +261,8 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
 
-  if (config->dtype()) {
-    conv2dConfig.dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->dtype());
-  }
-
-  if (config->weights_dtype()) {
-    conv2dConfig.weights_dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
-  }
+  conv2dConfig.weights_dtype =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
 
   if (config->activation()) {
     conv2dConfig.activation = config->activation()->str();
@@ -317,16 +310,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   if (config->output_layout()) {
     conv2dConfig.output_layout =
         ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
-  }
-
-  if (config->preprocess_weights_on_device()) {
-    conv2dConfig.preprocess_weights_on_device =
-        *config->preprocess_weights_on_device();
-  }
-
-  if (config->always_preprocess_weights()) {
-    conv2dConfig.always_preprocess_weights =
-        *config->always_preprocess_weights();
   }
 
   if (config->enable_act_double_buffer()) {
@@ -429,9 +412,12 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::TensorSpec tensorSpec(
+      ttnnShape,
+      ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
+                           *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::ttnn::operations::core::allocate_tensor_on_device(
-          ttnnShape, ttnnDataType, ttnnLayout, &meshDevice, memoryConfig);
+      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

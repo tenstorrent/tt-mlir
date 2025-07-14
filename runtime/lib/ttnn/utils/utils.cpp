@@ -20,15 +20,13 @@ using ::tt::runtime::DeviceRuntime;
 // directly from the TTNN tensor. Ideally, we should be able to get all of this
 // info directly from the flatbuffer using the "inSystemMemory" API below
 bool isOnHost(const ::ttnn::StorageType &storageType) {
-  return storageType == ::ttnn::StorageType::HOST ||
-         storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
+  return storageType == ::ttnn::StorageType::HOST;
 }
 
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
       tensorRef->desc()->layout()->memory_desc()->storage_type();
-  return (storageType == ::tt::target::ttnn::StorageType::Host) ||
-         (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
+  return storageType == ::tt::target::ttnn::StorageType::Host;
 }
 
 bool isOnDevice(const ::ttnn::StorageType &storageType) {
@@ -207,8 +205,6 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
     return ::ttnn::StorageType::HOST;
   case ::tt::target::ttnn::StorageType::Device:
     return ::ttnn::StorageType::DEVICE;
-  case ::tt::target::ttnn::StorageType::MultiDeviceHost:
-    return ::ttnn::StorageType::MULTI_DEVICE_HOST;
   }
 }
 
@@ -336,12 +332,6 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
       .getTensor();
 }
 
-void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  ::tt::tt_metal::HostBuffer hostBuffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
-  return static_cast<void *>(hostBuffer.view_bytes().data());
-}
-
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
                                     const ::ttnn::DataType &dataType,
                                     const ::ttnn::Layout &layout,
@@ -349,6 +339,12 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   ::ttnn::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
+}
+
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 } // namespace tt::runtime::ttnn::utils

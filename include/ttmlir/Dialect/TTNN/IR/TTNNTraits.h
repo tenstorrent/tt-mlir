@@ -5,11 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTNN_IR_TTNNTRAITS_H
 #define TTMLIR_DIALECT_TTNN_IR_TTNNTRAITS_H
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/OpDefinition.h"
-#include "llvm/ADT/STLExtras.h"
 
 namespace mlir::tt::ttnn {
 
@@ -79,6 +77,59 @@ public:
                << ") must match memory config shard spec shape ("
                << memoryConfigAttr.getShardSpec()->getShape().getShape() << ")";
       }
+    }
+
+    return mlir::success();
+  }
+};
+
+class HasOutputDTypeTraitBase {
+public:
+  static constexpr ::llvm::StringLiteral getOutputDTypeAttributeName() {
+    return "output_dtype";
+  }
+};
+
+template <typename ConcreteType>
+class HasOutputDTypeTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, HasOutputDTypeTrait>,
+      public HasOutputDTypeTraitBase {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    // Check if the operation defines output data type attribute.
+    auto attributeNames = ConcreteType::getAttributeNames();
+    if (std::find(attributeNames.begin(), attributeNames.end(),
+                  getOutputDTypeAttributeName()) == attributeNames.end()) {
+      return op->emitOpError(
+          "Operation must define output data type attribute.");
+    }
+
+    // Retrieve output layout.
+    RankedTensorType output =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    TTNNLayoutAttr outputLayoutAttr =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(output.getEncoding());
+
+    // If output layout isn't present, skip the verification.
+    if (!outputLayoutAttr) {
+      return mlir::success();
+    }
+
+    // Retrieve output data type attribute.
+    auto outputDTypeAttr =
+        op->getAttrOfType<ttcore::DataTypeAttr>(getOutputDTypeAttributeName());
+    if (!outputDTypeAttr) {
+      return op->emitOpError("Output data type attribute is not defined for op "
+                             "that has output layout attribute.");
+    }
+
+    // Compare output data type attribute with output tensor data type.
+    if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
+      return op->emitOpError()
+             << "Output tensor layout data type "
+             << DataTypeEnumToString(outputLayoutAttr.getDataType())
+             << " must match output data type attribute "
+             << DataTypeEnumToString(outputDTypeAttr.getValue());
     }
 
     return mlir::success();

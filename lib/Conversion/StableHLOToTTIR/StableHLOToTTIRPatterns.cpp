@@ -709,7 +709,7 @@ public:
                   mlir::stablehlo::GetDimensionSizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     IntegerType intType = IntegerType::get(getContext(), 32);
-    RankedTensorType outputType = RankedTensorType::get({1}, intType);
+    RankedTensorType outputType = RankedTensorType::get({}, intType);
     mlir::OpBuilder builder(getContext());
     IntegerAttr dimension_attr = builder.getIntegerAttr(
         intType, static_cast<int32_t>(srcOp.getDimension()));

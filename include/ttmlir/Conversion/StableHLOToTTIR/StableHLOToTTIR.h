@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_STABLEHLOTOTTIR_STABLEHLOTOTTIR_H
 #define TTMLIR_CONVERSION_STABLEHLOTOTTIR_STABLEHLOTOTTIR_H
 
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 

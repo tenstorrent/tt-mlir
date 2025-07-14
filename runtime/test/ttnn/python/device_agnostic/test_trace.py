@@ -44,7 +44,7 @@ def test_trace_matmul_add_no_consteval(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=16384
+        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=18432
     ) as device:
 
         for i in range(num_loops):

@@ -96,7 +96,8 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     if (!onlyShardedLayouts) {
       // DRAM
       allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-          ctx, tensorShape, elementType, BufferType::DRAM, maxGrid,
+          ctx, tensorShape, elementType, BufferType::DRAM,
+          ttcore::GridAttr::get(ctx),
           TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
 
       // L1 Interleaved - It must be tiled.

@@ -18,6 +18,17 @@ let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::arith::ArithDialect"];
 }
+def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Legalize StableHLO composite operations directly to TTIR.";
+  let constructor = "createLegalizeStableHLOCompositeToTTIRPass()";
+  let description = [{
+    This pass legalizes StableHLO composite operations based on the name attribute
+    directly to the corresponding TTIR operations.
+    This allows us to avoid the need for brittle fusion patterns.
+  }];
+
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
+}
 #endif
 
 def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
@@ -131,6 +142,12 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTNN dialect to EmitPy dialect.";
+  let constructor = "createConvertTTNNToEmitPyPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
@@ -165,7 +182,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
 }
 
 

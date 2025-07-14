@@ -8,6 +8,7 @@
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
@@ -18,6 +19,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"

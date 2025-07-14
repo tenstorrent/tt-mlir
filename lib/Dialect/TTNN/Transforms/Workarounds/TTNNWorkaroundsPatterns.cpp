@@ -7,13 +7,16 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -196,6 +199,15 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       op->setAttr("dtype", updatedDataTypeAttr);
     }
 
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->hasTrait<ttnn::HasOutputDTypeTrait>()) {
+      ttcore::DataTypeAttr updatedDataTypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(
+              outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                  updatedDataTypeAttr);
+    }
+
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
          outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
         op->getAttrDictionary().get("memory_config")) {
@@ -257,11 +269,16 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 class TTNNOperandsWorkaroundsRewriter
     : public OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface> {
 public:
-  TTNNOperandsWorkaroundsRewriter(MLIRContext *ctx)
-      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx) {}
+  TTNNOperandsWorkaroundsRewriter(MLIRContext *ctx,
+                                  const std::set<mlir::StringRef> *enabledOps)
+      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx),
+        enabledOps(enabledOps) {}
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
+    if (!enabledOps->count(op.getOperation()->getName().getStringRef())) {
+      return failure();
+    }
 
     // To layout op is a special case, we don't want to rewrite it. We use it
     // to apply workarounds to the operands and results of TTNN operations.
@@ -313,6 +330,10 @@ public:
     // Return success if the transformations were applied.
     return modified ? success() : failure();
   }
+
+private:
+  // Set of ops that are enabled for workarounds.
+  const std::set<mlir::StringRef> *enabledOps;
 };
 
 // Currently, TTNN does not support AllGather when the gather is happening on
@@ -712,14 +733,6 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::SumOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MaxOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MeanOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-              ttnn::MinOp, /*keepDimUnsupported*/ false>,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
@@ -727,7 +740,12 @@ public:
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
-              ttnn::MinOp>>(&getContext());
+              ttnn::MinOp>,
+          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
+          workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern,
+          workarounds::decomposition::MultiplyOpDecompositionRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
@@ -740,7 +758,15 @@ public:
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
+
+      std::set<mlir::StringRef> enabledOps;
+      if (optimizerEnabled) {
+        enabledOps = enabledOpsForWorkaroundWithOptimizer;
+      } else {
+        enabledOps = utils::getAllTTNNDialectOps(&getContext());
+      }
+
+      patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext(), &enabledOps);
 
       // All layout workarounds should be applied during the first iteration.
       // If the workarounds are not applied in the first iteration, it
@@ -770,5 +796,12 @@ private:
       return;
     }
   }
+
+  static const std::set<mlir::StringRef> enabledOpsForWorkaroundWithOptimizer;
 };
+
+const std::set<mlir::StringRef>
+    TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
+        ttnn::WhereOp::getOperationName()};
+
 } // namespace mlir::tt::ttnn

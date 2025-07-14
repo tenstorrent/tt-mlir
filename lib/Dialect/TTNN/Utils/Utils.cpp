@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
@@ -89,6 +90,18 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  Layout layout) {
+  // If the tensor is quantized, only update the layout in the encoding.
+  if (auto quantType =
+          dyn_cast<mlir::quant::QuantizedType>(tensorType.getElementType())) {
+    ttcore::DataType dataType =
+        mlir::tt::ttcore::elementTypeToDataType(quantType);
+    Type memrefElementType =
+        utils::getElementType(tensorType.getContext(), layout, dataType);
+    TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+    TTNNLayoutAttr newEncoding =
+        oldEncoding.withElementType(memrefElementType, tensorType.getShape());
+    return RankedTensorType::get(tensorType.getShape(), quantType, newEncoding);
+  }
   ttcore::DataType dataType =
       mlir::tt::ttcore::elementTypeToDataType(tensorType.getElementType());
   Type memrefElementType =
@@ -171,9 +184,12 @@ std::string getOpLocName(Operation *op) {
 
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
   llvm::SmallVector<int64_t, 4> tiledShape(shape);
-  tiledShape[shape.size() - 1] =
-      ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
-  if (shape.size() > 1) {
+  const size_t rank = shape.size();
+  if (rank > 0) {
+    tiledShape[shape.size() - 1] =
+        ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
+  }
+  if (rank > 1) {
     tiledShape[shape.size() - 2] =
         ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 2], TILE_HEIGHT);
   }
@@ -219,6 +235,22 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
   Type elementType =
       utils::getElementType(context, Layout::RowMajor, layout.getDataType());
   return layout.withElementType(elementType, shape);
+}
+
+std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
+  std::set<mlir::StringRef> opNames;
+  TTNNDialect *dialect = context->getLoadedDialect<TTNNDialect>();
+
+  // We should use getRegisteredOperationsByDialect but it has a bug in MLIR.
+  // See https://github.com/llvm/llvm-project/issues/146940.
+  for (mlir::RegisteredOperationName opName :
+       context->getRegisteredOperations()) {
+    if (opName.getDialectNamespace() != dialect->getNamespace()) {
+      continue;
+    }
+    opNames.insert(opName.getStringRef());
+  }
+  return opNames;
 }
 
 } // namespace mlir::tt::ttnn::utils

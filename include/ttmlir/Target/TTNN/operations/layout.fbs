@@ -26,7 +26,6 @@ table ToLayoutOp {
   layout: tt.target.TensorLayout;
   dtype: tt.target.DataType = null;
   memcfg: tt.target.ttnn.MemoryConfig;
-  device: tt.target.DeviceRef;
   out: tt.target.ttnn.TensorRef;
 }
 

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -56,8 +57,10 @@ void createTTNNPipelineTTIRPasses(
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
-  // Add pass to erase inverse ops. This is enabled by default
-  // while the pass is experimental.
+  // Add pass to erase inverse ops. We will explicate TMs so that
+  // erase inverse ops can commute TMs through otherwise implicit
+  // broadcasts, and handle rank-changing reshape ops which are
+  // also otherwise implicit.
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
@@ -87,7 +90,8 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-    pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeights());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
   }
 }
 
@@ -110,10 +114,10 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
       options.repeatFoldingWorkaroundEnabled};
 
-  // Optimizer solves layout constraints using graph capture.
   if (options.optimizerPassEnabled) {
-    workaroundOptions.layoutWorkaroundsEnabled = false;
+    workaroundOptions.optimizerEnabled = true;
   }
+
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
 }
@@ -211,6 +215,15 @@ void createTTIRToEmitCSOPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
+void createTTIRToEmitPyPipeline(OpPassManager &pm,
+                                const TTIRToEmitPyPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(createTTNNTuplifyTensors());
+  pm.addPass(createTTNNCreateInputGenerators());
+  pm.addPass(createConvertTTNNToEmitPyPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -241,5 +254,14 @@ void registerTTNNPipelines() {
       "with emitted C++ code packaged so that it's suitable for compiling into "
       "a shared object.",
       mlir::tt::ttnn::createTTIRToEmitCSOPipeline);
+
+  // TTIR to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
+      "ttir-to-emitpy-pipeline",
+      "Pipeline lowering TTIR to EmitPy. Under the hood, it runs "
+      "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
+      "dialect to EmitPy.",
+      mlir::tt::ttnn::createTTIRToEmitPyPipeline);
 }
 } // namespace mlir::tt::ttnn

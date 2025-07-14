@@ -1022,11 +1022,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 
     bool firstElement = true;
     rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
-    if (attr.getDtype()) {
-      rso << (firstElement ? "" : ", ") << ".dtype = "
-          << EmitCTypeConverter<::ttnn::DataType>::convert(*attr.getDtype());
-      firstElement = false;
-    }
     if (attr.getWeightsDtype()) {
       rso << (firstElement ? "" : ", ") << ".weights_dtype = "
           << EmitCTypeConverter<::ttnn::DataType>::convert(
@@ -1091,12 +1086,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".output_layout = "
           << EmitCTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
-      firstElement = false;
-    }
-    if (attr.getPreprocessWeightsOnDevice()) {
-      rso << (firstElement ? "" : ", ") << ".preprocess_weights_on_device = "
-          << EmitCTypeConverter<bool>::convert(
-                 attr.getPreprocessWeightsOnDevice());
     }
     rso << "}";
     return buf;
@@ -1466,13 +1455,54 @@ public:
       return conv2dExpr;
     }
 
+    // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
+    // [0] = sorted tensor, [1] = corresponding indices.
+    // Extract both elements to replace the original SortOp.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp>) {
+      assert(op.getNumResults() == 2 &&
+             "Expected two outputs for SortOp (sorted tensor and indices).");
+      using ReturnTy = std::vector<::ttnn::Tensor>;
+      auto sortOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        // Create index to access i-th element.
+        auto indexType = rewriter.getIndexType();
+        auto indexOp = rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType,
+                                                         std::to_string(i));
+        Value indexVal = indexOp.getResult();
+
+        // Create LValue type for the tensor reference.
+        auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
+
+        // Get reference to the i-th element in the result vector.
+        auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+            op.getLoc(), lvalueType, sortOp.getResult(0), indexVal);
+
+        // Load the actual tensor value from the reference.
+        auto loadOp = rewriter.create<emitc::LoadOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(),
+                                   TypeNameV<ReturnTy::value_type>),
+            subscriptOp.getResult());
+        results.push_back(loadOp.getResult());
+      }
+
+      rewriter.replaceOp(op, results);
+      return sortOp.getResult(0);
+    }
+
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
-        rewriter.getArrayAttr(args), nullptr, operands);
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
 
     assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
     if (callOpaqueOp.getNumResults() == 0) {
@@ -1500,31 +1530,6 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
-  }
-
-  // TODO (azecevic): This is a temporary solution for handling the case when
-  // the value of the Conv2dConfigAttr is nullptr. This should be removed once
-  // https://github.com/tenstorrent/tt-mlir/issues/2852 lands.
-  mlir::Attribute getConv2dConfig(mlir::Value input, mlir::Value weight) {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-
-    auto inputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-    auto weightLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
-
-    ttcore::DataType inputDataType = inputLayoutAttr.getDataType();
-    ttcore::DataType weightDataType = weightLayoutAttr.getDataType();
-
-    std::string buf;
-    llvm::raw_string_ostream rso(buf);
-    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
-    rso << ".dtype = " << convert(inputDataType) << ", ";
-    rso << ".weights_dtype = " << convert(weightDataType);
-    rso << "}";
-
-    return rewriter.getType<emitc::OpaqueAttr>(buf);
   }
 
 private:

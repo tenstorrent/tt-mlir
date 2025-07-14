@@ -12,6 +12,7 @@
 #include "tt-metalium/host_buffer.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
@@ -33,6 +34,7 @@
 #include "ttnn/operations/eltwise/ternary/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/reduction/sort/sort.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
@@ -78,13 +80,15 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 // Creates multi-device host tensor from already existing host tensor shards.
 // Tensor shards can be host tensors with either owned or borrowed storage.
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
@@ -104,9 +108,11 @@ inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
 
 inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data, const TensorDesc &desc,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy,
+      meshShape);
 }
 
 inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
@@ -127,6 +133,9 @@ bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
 Arch getArch();
+
+void enablePersistentKernelCache();
+void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 

@@ -23,8 +23,6 @@
   core_grid = #ttnn.core_range_set<>,
   transpose_shards = true,
   output_layout = tile,
-  preprocess_weights_on_device = true,
-  always_preprocess_weights = true,
   enable_act_double_buffer = false,
   enable_weights_double_buffer = false,
   enable_split_reader = false,
@@ -34,7 +32,7 @@
 module attributes {} {
   func.func @forward(%arg0: tensor<3x8x8x256xbf16, #ttnn_layout>, %arg1: tensor<256x256x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x256xbf16, #ttnn_layout2>) -> tensor<3x10x10x256xbf16, #ttnn_layout3> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{layout = #ttnn.layout<row_major>}> : (tensor<3x8x8x256xbf16, #ttnn_layout>, !ttnn.device) -> tensor<3x8x8x256xbf16, #ttnn_layout4>
+    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<3x8x8x256xbf16, #ttnn_layout>) -> tensor<3x8x8x256xbf16, #ttnn_layout4>
     "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<3x8x8x256xbf16, #ttnn_layout>) -> ()
     %2 = "ttnn.conv_transpose2d"(%1, %arg1, %arg2, %0)
             <{
@@ -49,7 +47,8 @@ module attributes {} {
               output_padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
               groups = 1 : i32,
-              conv2d_config = #conv2d_config
+              conv2d_config = #conv2d_config,
+              output_dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<3x8x8x256xbf16, #ttnn_layout4>, tensor<256x256x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x256xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x300x256xbf16, #ttnn_layout3>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<3x8x8x256xbf16, #ttnn_layout4>) -> ()
     "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x256xbf16, #ttnn_layout2>) -> ()

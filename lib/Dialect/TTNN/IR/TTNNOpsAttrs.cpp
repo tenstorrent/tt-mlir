@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -68,6 +69,26 @@ bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
 bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
   return hasDRAMBufferType() &&
          (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
+}
+
+// Checks:
+// 1. If buffer type is L1, then any grid shape is allowed.
+// 2. Otherwise, unit grid is expected.
+llvm::LogicalResult
+verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+                mlir::tt::ttcore::GridAttr gridAttr, BufferType bufferType) {
+  if (isL1BufferType(bufferType)) {
+    return llvm::success();
+  }
+
+  llvm::SmallVector<int64_t> expectedGridShape({1, 1});
+  if (llvm::equal(gridAttr.getShape(), expectedGridShape)) {
+    return llvm::success();
+  }
+  return emitError() << "expected (" << expectedGridShape
+                     << ") grid shape for non-L1 buffer type, got ("
+                     << gridAttr.getShape() << ") for "
+                     << stringifyBufferType(bufferType) << " buffer type";
 }
 
 // Checks:
@@ -576,15 +597,24 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
              tensorMeshSharding, ignorePhysicalLayout);
 }
 
-::llvm::LogicalResult TTNNLayoutAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
-    mlir::tt::ttcore::GridAttr, MemRefType memref,
+llvm::LogicalResult TTNNLayoutAttr::verify(
+    llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
+    mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
     mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
     bool ignorePhysicalLayout) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
-  return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
+
+  llvm::LogicalResult status = ::llvm::success();
+  if (llvm::failed(verifyGridShape(emitError, grid, bufferType))) {
+    status = llvm::failure();
+  }
+  if (llvm::failed(
+          verifyBufferAndMemoryLayout(emitError, bufferType, memLayout))) {
+    status = llvm::failure();
+  }
+  return status;
 }
 
 // Construct a new MemoryConfig
@@ -698,8 +728,6 @@ struct Conv2dConfigAttrParams {
   CoreRangeSetAttr coreGrid;
   mlir::BoolAttr transposeShards;
   Layout outputLayout;
-  mlir::BoolAttr preprocessWeightsOnDevice;
-  mlir::BoolAttr alwaysPreprocessWeights;
   mlir::BoolAttr enableActDoubleBuffer;
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
@@ -730,9 +758,6 @@ struct Conv2dConfigAttrParams {
     transposeShards =
         getOrDefault(attr.getTransposeShards(), /*defaultValue=*/true);
     outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
-    preprocessWeightsOnDevice =
-        getOrDefault(attr.getPreprocessWeightsOnDevice());
-    alwaysPreprocessWeights = getOrDefault(attr.getAlwaysPreprocessWeights());
     enableActDoubleBuffer = getOrDefault(attr.getEnableActDoubleBuffer());
     enableWeightsDoubleBuffer =
         getOrDefault(attr.getEnableWeightsDoubleBuffer());
@@ -745,18 +770,31 @@ struct Conv2dConfigAttrParams {
         ctx, dtype, weightsDtype, activation, deallocateActivation,
         reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
         reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
-        transposeShards, outputLayout, preprocessWeightsOnDevice,
-        alwaysPreprocessWeights, enableActDoubleBuffer,
+        transposeShards, outputLayout, enableActDoubleBuffer,
         enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }
 };
 
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
-  auto convConfig = Conv2dConfigAttr::get(
-      context, std::nullopt, std::nullopt, nullptr, nullptr, nullptr,
-      std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt, nullptr,
-      nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr);
+  auto convConfig =
+      Conv2dConfigAttr::get(context,
+                            std::nullopt, // dtype
+                            std::nullopt, // weights_dtype
+                            nullptr,      // activation
+                            nullptr,      // deallocate_activation
+                            nullptr,      // reallocate_halo_output
+                            std::nullopt, // act_block_h_override
+                            std::nullopt, // act_block_w_div
+                            nullptr,      // reshard_if_not_optimal
+                            nullptr,      // override_sharding_config
+                            std::nullopt, // shard_layout
+                            nullptr,      // core_grid
+                            nullptr,      // transpose_shards
+                            std::nullopt, // output_layout
+                            nullptr,      // enable_act_double_buffer
+                            nullptr,      // enable_weights_double_buffer
+                            nullptr,      // enable_split_reader
+                            nullptr);     // enable_subblock_padding
   return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
 }
 
@@ -839,20 +877,6 @@ Conv2dConfigAttr Conv2dConfigAttr::withTransposeShards(bool value) const {
 Conv2dConfigAttr Conv2dConfigAttr::withOutputLayout(Layout layout) const {
   Conv2dConfigAttrParams params(*this);
   params.outputLayout = layout;
-  return params.buildConv2dConfig(getContext());
-}
-
-Conv2dConfigAttr
-Conv2dConfigAttr::withPreprocessWeightsOnDevice(bool value) const {
-  Conv2dConfigAttrParams params(*this);
-  params.preprocessWeightsOnDevice = BoolAttr::get(getContext(), value);
-  return params.buildConv2dConfig(getContext());
-}
-
-Conv2dConfigAttr
-Conv2dConfigAttr::withAlwaysPreprocessWeights(bool value) const {
-  Conv2dConfigAttrParams params(*this);
-  params.alwaysPreprocessWeights = BoolAttr::get(getContext(), value);
   return params.buildConv2dConfig(getContext());
 }
 

@@ -218,8 +218,6 @@ public:
 
     ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
 
-    bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
-
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
     ttnn::LayoutAttr outputLayout =
@@ -232,10 +230,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
-        outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost
-            ? nullptr
-            : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
+        outputLayout, outputDataType, outputMemConfigAttr);
 
     return success();
   }
@@ -283,10 +278,7 @@ public:
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getLhs(), adaptor.getRhs(),
-        tt::ttir_to_ttnn::utils::getDataTypeAttrFromTensorLayout(
-            op.getResult().getType(), rewriter),
-        nullptr);
+        adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
 };
@@ -497,6 +489,27 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDimension());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SortOpConversionPattern : public OpConversionPattern<ttir::SortOp> {
+public:
+  using OpConversionPattern<ttir::SortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::SortOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getDim(),
+        adaptor.getDescending(), adaptor.getStable(), ttnn::MemoryConfigAttr());
     return success();
   }
 };
@@ -1002,12 +1015,18 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*compute_config=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
@@ -1100,6 +1119,11 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     // Transposed convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C).
     llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
@@ -1114,7 +1138,8 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*conv2d_config=*/nullptr, /*memoryConfig=*/nullptr);
+        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1254,10 +1279,7 @@ public:
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-          tt::ttir_to_ttnn::utils::getDataTypeAttrFromTensorLayout(
-              srcOp.getResult().getType(), rewriter),
-          nullptr);
+          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1633,6 +1655,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
+           SortOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,

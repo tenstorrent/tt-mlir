@@ -43,12 +43,15 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   std::copy_n(op->output_padding()->begin(), 2, outputPadding.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
+  std::optional<::ttnn::DataType> outputDtype;
+  if (op->output_dtype()) {
+    outputDtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
   auto conv2dConfig = ::ttnn::operations::conv::Conv2dConfig();
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
-  } else {
-    conv2dConfig.dtype = utils::getDataType(op->input());
-    conv2dConfig.weights_dtype = utils::getDataType(op->weight());
   }
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
@@ -60,8 +63,9 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   ResultWithOptions result = ::ttnn::conv_transpose2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, outputPadding, dilation, op->groups(), bias,
-      conv2dConfig, /*compute_config*/ std::nullopt, memoryConfig);
+      stride, padding, outputPadding, dilation, op->groups(), outputDtype, bias,
+      conv2dConfig,
+      /*compute_config*/ std::nullopt, memoryConfig);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 

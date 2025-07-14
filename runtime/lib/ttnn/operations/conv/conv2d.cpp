@@ -49,12 +49,15 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     padding = asymPadding;
   }
 
+  std::optional<::ttnn::DataType> outputDtype;
+  if (op->output_dtype()) {
+    outputDtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
   ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
-  } else {
-    conv2dConfig.dtype = utils::getDataType(op->input());
-    conv2dConfig.weights_dtype = utils::getDataType(op->weight());
   }
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
@@ -75,8 +78,8 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   ResultWithOptions result = ::ttnn::conv2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, dilation, op->groups(), bias, conv2dConfig,
-      computeConfig, outputMemoryConfig, std::nullopt);
+      stride, padding, dilation, op->groups(), outputDtype, bias, conv2dConfig,
+      computeConfig, outputMemoryConfig, /*dram_slice_config_=*/std::nullopt);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 

@@ -17,4 +17,4 @@ ttrt query --save-artifacts
 import ttir_builder
 import ttir_builder.utils
 ```
-To get started, refer to `ttir-builder` [documentation](../../docs/src/ttir-builder.md#getting-started).
+To get started, refer to `ttir-builder` [documentation](../../docs/src/ttir-builder/ttir-builder.md#getting-started).

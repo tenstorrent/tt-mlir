@@ -6,13 +6,18 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
-#include <algorithm>
-
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult
 TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
                                              PatternRewriter &rewriter) const {
+  auto inputType = mlir::cast<RankedTensorType>(op.getOperand().getType());
+  auto inputLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  if (inputLayoutAttr.getDataType() != ttcore::DataType::Int32) {
+    return failure();
+  }
+
   Value device;
   if (op.getOperand().getDefiningOp()) {
     device = ttnn::utils::getOrInsertDevice(rewriter,
@@ -34,13 +39,9 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
       ttmlir::utils::appendLocationSuffix(op->getLoc(), "_zeros"), resultType,
       shapeAttr, dTypeAttr, layout, device, ttnn::MemoryConfigAttr());
 
-  SmallVector<Value> addInputs;
-  addInputs.push_back(op.getOperand());
-  addInputs.push_back(zerosOp.getResult());
-
   // Replace the RepeatOp with an AddOp to perform implicit repeat.
-  rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
-                                           addInputs);
+  rewriter.replaceOpWithNewOp<ttnn::AddOp>(
+      op, op.getResult().getType(), op.getOperand(), zerosOp.getResult());
 
   return success();
 }

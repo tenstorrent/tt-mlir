@@ -184,6 +184,13 @@ class Run:
             help="disable trace from implicitly bouncing tensors off of host",
         )
         Run.register_arg(
+            name="--disable-blackhole-workarounds",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable blackhole workarounds",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -516,6 +523,7 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
+                not self["--disable-blackhole-workarounds"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {
@@ -783,7 +791,7 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
-                            start = time.perf_counter_ns()
+                            start_submit = time.perf_counter_ns()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
@@ -792,16 +800,20 @@ class Run:
                             )
 
                             ttrt.runtime.wait(runtime_outputs)
-                            end = time.perf_counter_ns()
-                            e2e_duration_nanoseconds = end - start
-                            bin.add_program_results(
-                                program_index, loop, e2e_duration_nanoseconds
-                            )
+                            end_submit = time.perf_counter_ns()
+                            e2e_duration_nanoseconds_submit = end_submit - start_submit
 
+                            e2e_duration_nanoseconds_output = 0
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
+                                start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
                                 )[0]
+                                end_get_output = time.perf_counter_ns()
+                                e2e_duration_nanoseconds_output += (
+                                    end_get_output - start_get_output
+                                )
+
                                 ttrt.runtime.memcpy(
                                     outputs[i],
                                     output_host,
@@ -945,6 +957,13 @@ class Run:
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            )
+
+                            bin.add_program_results(
+                                program_index,
+                                loop,
+                                e2e_duration_nanoseconds_submit,
+                                e2e_duration_nanoseconds_output,
                             )
 
                         if event is not None:

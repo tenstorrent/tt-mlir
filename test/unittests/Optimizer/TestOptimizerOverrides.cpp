@@ -45,8 +45,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "shard_layout#block_sharded:"
                     "transpose_shards#true:"
                     "output_layout#row_major:"
-                    "preprocess_weights_on_device#false:"
-                    "always_preprocess_weights#false:"
                     "enable_act_double_buffer#false:"
                     "enable_weights_double_buffer#false:"
                     "enable_split_reader#false:"
@@ -83,10 +81,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(params.transposeShards.value());
   ASSERT_TRUE(params.outputLayout.has_value());
   ASSERT_EQ(params.outputLayout.value(), Layout::RowMajor);
-  ASSERT_TRUE(params.preprocessWeightsOnDevice.has_value());
-  ASSERT_FALSE(params.preprocessWeightsOnDevice.value());
-  ASSERT_TRUE(params.alwaysPreprocessWeights.has_value());
-  ASSERT_FALSE(params.alwaysPreprocessWeights.value());
   ASSERT_TRUE(params.enableActDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableActDoubleBuffer.value());
   ASSERT_TRUE(params.enableWeightsDoubleBuffer.has_value());
@@ -177,7 +171,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseInvalidShardLayout) {
 }
 
 TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
-  std::string arg = "op1=2x2:dram:interleaved:tile:f32";
+  std::string arg = "op1=1x1:dram:interleaved:tile:f32";
 
   bool result = parser.parse(OverrideOutputLayoutOption,
                              "override-output-layout", arg, parsedOverride);
@@ -188,8 +182,8 @@ TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
   const auto &params = parsedOverride["op1"];
   ASSERT_TRUE(params.grid.has_value());
   ASSERT_EQ(params.grid->size(), 2);
-  ASSERT_EQ((*params.grid)[0], 2);
-  ASSERT_EQ((*params.grid)[1], 2);
+  ASSERT_EQ((*params.grid)[0], 1);
+  ASSERT_EQ((*params.grid)[1], 1);
   ASSERT_TRUE(params.bufferType.has_value());
   ASSERT_EQ(params.bufferType.value(), BufferType::DRAM);
   ASSERT_TRUE(params.tensorMemoryLayout.has_value());
@@ -239,7 +233,7 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleInstancesOfSameParameter) {
 }
 
 TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
-  std::string arg = "op1=2x2:dram:interleaved:tile:f32,op2=4x4:l1:block_"
+  std::string arg = "op1=1x1:dram:interleaved:tile:f32,op2=4x4:l1:block_"
                     "sharded:row_major:f16";
 
   bool result = parser.parse(OverrideOutputLayoutOption,
@@ -252,8 +246,8 @@ TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
   const auto &params1 = parsedOverride["op1"];
   ASSERT_TRUE(params1.grid.has_value());
   ASSERT_EQ(params1.grid->size(), 2);
-  ASSERT_EQ((*params1.grid)[0], 2);
-  ASSERT_EQ((*params1.grid)[1], 2);
+  ASSERT_EQ((*params1.grid)[0], 1);
+  ASSERT_EQ((*params1.grid)[1], 1);
   ASSERT_TRUE(params1.bufferType.has_value());
   ASSERT_EQ(params1.bufferType.value(), BufferType::DRAM);
   ASSERT_TRUE(params1.tensorMemoryLayout.has_value());
@@ -340,12 +334,12 @@ public:
     OutputLayoutOverrideParams outputLayoutOverrideParams;
 
     // Output 0 has
-    //      - grid size 2x2,
+    //      - grid size 1x1,
     //      - buffer type dram
     //      - tensor memory layout interleaved
     //      - memory layout tile
     //      - data type fp16.
-    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({2, 2});
+    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({1, 1});
     outputLayoutOverrideParams.bufferType = BufferType::DRAM;
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::Interleaved;
@@ -396,12 +390,12 @@ public:
     OutputLayoutOverrideParams outputLayoutOverrideParams;
 
     // Output 2 has
-    //      - grid size 3x6,
+    //      - grid size 1x1,
     //      - buffer type system
     //      - tensor memory layout height_sharded
     //      - memory layout tile
     //      - data type fp16.
-    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({3, 6});
+    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({1, 1});
     outputLayoutOverrideParams.bufferType = BufferType::SystemMemory;
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::HeightSharded;
@@ -625,9 +619,9 @@ TEST_F(TestOptimizerOverrideHandler, TestAddOutputLayoutOverrideParams) {
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides =
       createOutputLayoutOverrides();
 
-  llvm::SmallVector<int64_t> grid1 = {2, 2};
+  llvm::SmallVector<int64_t> grid1 = {1, 1};
   llvm::SmallVector<int64_t> grid2 = {8, 4};
-  llvm::SmallVector<int64_t> grid3 = {3, 6};
+  llvm::SmallVector<int64_t> grid3 = {1, 1};
 
   optimizerOverridesHandler.addOutputLayoutOverride(
       "output0", grid1, BufferType::DRAM, TensorMemoryLayout::Interleaved,
