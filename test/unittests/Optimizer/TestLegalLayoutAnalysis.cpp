@@ -11,18 +11,19 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/FormatVariadic.h"
 
 #include "gtest/gtest.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/FormatVariadic.h"
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -128,20 +129,6 @@ protected:
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
                                          relu.getResult());
   }
-
-  // Check if the operation is relevant for layout analysis
-  bool isRelevantOp(mlir::Operation *op) {
-    if (op->getNumResults() == 0) {
-      return false;
-    }
-    if (!llvm::isa<mlir::RankedTensorType>(op->getResult(0).getType())) {
-      return false;
-    }
-    if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
-      return false;
-    }
-    return true;
-  }
 };
 
 // Test that LegalLayoutAnalysis correctly filters layouts based on RowMajor
@@ -170,19 +157,18 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
   // Step 2: Walk function ops and their sub-ops
   module->walk([&](mlir::func::FuncOp funcOp) {
     funcOp->walk([&](mlir::Operation *op) {
-      if (!isRelevantOp(op)) {
+      if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
         return;
       }
 
       auto resultType =
           mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
       auto it = allLayoutsResult.find(resultType);
-      if (it == allLayoutsResult.end()) {
-        return;
-      }
+      // Verify that layouts exist for this tensor type
+      ASSERT_NE(it, allLayoutsResult.end());
       auto layoutsForTensor = it->second;
 
-      // Verify that layouts exist for this tensor type
+      // Verify that layouts are not empty
       EXPECT_FALSE(layoutsForTensor.empty());
       // Step 3: Run LegalLayoutAnalysis for this tensor type
       LegalLayoutAnalysisInput legalLayoutsInput(&layoutsForTensor,
@@ -233,4 +219,5 @@ INSTANTIATE_TEST_SUITE_P(
         // RowMajor enabled/disabled
         testing::Values(true, false),
         // Different max sharded configs
-        testing::Values(1, 5, 10)));
+        testing::Values(0, 1, 8, 16, 32, 64, 128,
+                        std::numeric_limits<int64_t>::max())));
