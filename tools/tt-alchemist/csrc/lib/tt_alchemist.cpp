@@ -23,10 +23,22 @@
 #include "mlir/Target/Cpp/CppEmitter.h"
 
 #include <cstdlib>
+#include <dlfcn.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+
+// Fetch the path to the templates directory
+//
+std::filesystem::path get_templates_dir() {
+  // Templates dir location is relative to the shared library
+  //
+  Dl_info info;
+  dladdr(reinterpret_cast<void *>(&get_templates_dir), &info);
+  std::filesystem::path so_path = std::filesystem::canonical(info.dli_fname);
+  return so_path.parent_path().parent_path() / "templates";
+}
 
 namespace fs = std::filesystem;
 
@@ -148,14 +160,7 @@ bool TTAlchemist::generate(const std::string &input_file,
 
   // Get the path to the templates directory
   //
-  char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
-  if (!tt_mlir_home) {
-    std::cout << "TT_MLIR_HOME environment variable is not set" << std::endl;
-    return false;
-  }
-
-  fs::path templatesPath(tt_mlir_home);
-  templatesPath /= "tools/tt-alchemist/templates/cpp";
+  fs::path templatesPath = get_templates_dir() / "cpp";
 
   if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {
     std::cout << "Templates directory does not exist: " << templatesPath

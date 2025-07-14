@@ -61,6 +61,14 @@ target_compile_definitions(${LIBRARY_NAME}
     TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
 )
 
+# Set RPATH for the library
+# At runtime, libtt-alchemist-lib.so will look in its own directory for
+# dependencies (libtt_metal.so, etc.)
+set_target_properties(${LIBRARY_NAME} PROPERTIES
+  BUILD_WITH_INSTALL_RPATH TRUE
+  INSTALL_RPATH "$ORIGIN"
+)
+
 # Install the library
 install(TARGETS ${LIBRARY_NAME}
   EXPORT ${LIBRARY_NAME}Targets
@@ -111,25 +119,37 @@ add_custom_command(
   COMMENT "Creating lib directory in Python package"
 )
 
-# Copy the tt-alchemist shared library to the Python package
+# Copy all required shared libraries to the Python package
 add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+  OUTPUT
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
   DEPENDS ${LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMENT "Copying tt-alchemist shared library to Python package"
+  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMENT "Copying shared libraries to Python package"
 )
 
-# Copy the tt_metal shared library to the Python package
-add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
-  DEPENDS ${PYTHON_BUILD_DIR}/tt_alchemist/lib
-  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/runtime/tools/ttrt/ttrt/runtime/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMENT "Copying tt_metal shared library to Python package"
+# Always copy all templates
+add_custom_target(tt_alchemist_copy_templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
+  COMMENT "Copying templates into Python package"
 )
 
 # Build wheel
 add_custom_target(build-wheel-tt-alchemist
-  DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
+  DEPENDS
+    ${PYTHON_BUILD_DIR}/pyproject.toml
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
+    tt_alchemist_copy_templates
   # COMMAND ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}

@@ -58,32 +58,11 @@ class TTAlchemistAPI:
         if os.path.exists(lib_path):
             try:
                 return ctypes.CDLL(lib_path)
-            except Exception:
+            except Exception as e:
+                print(f"Failed to load library from: {lib_path}")
+                print(f"Exception: {e}")
                 # Fall back to TT_MLIR_HOME if loading from package fails
                 pass
-
-        # Fall back to TT_MLIR_HOME
-        tt_mlir_home = os.environ.get("TT_MLIR_HOME")
-        if not tt_mlir_home:
-            raise RuntimeError(
-                "Library not found in package and TT_MLIR_HOME environment variable is not set"
-            )
-
-        # Get the build directory name from environment or use default "build"
-        build_dir = os.environ.get("BUILD_DIR", "build")
-
-        # Load the tt-alchemist shared library
-        lib_dir = os.path.join(tt_mlir_home, build_dir, "tools", "tt-alchemist", "csrc")
-
-        if not lib_dir or not os.path.exists(lib_dir):
-            raise RuntimeError(
-                f"Could not find tt-alchemist library on path: {lib_dir}"
-            )
-
-        try:
-            return ctypes.CDLL(f"{lib_dir}/libtt-alchemist-lib.so")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load tt-alchemist library: {e}")
 
     def model_to_cpp(self, input_file):
         """Convert MLIR model to C++ code.
