@@ -1619,7 +1619,6 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(tanh, "tanh"),
     create_hoisted_unary_op(reciprocal, "reciprocal"),
     create_hoisted_unary_op(neg, "neg"),
-    create_hoisted_unary_op(max, "max"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
         marks=pytest.mark.xfail(
@@ -1725,6 +1724,29 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
         target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Test hoisted max separately because it requires more complex parameters combination.
+@pytest.mark.parametrize("dim_arg", [None, 0, 1])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 128)])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.max(
+            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+        )
+
+    max.__name__ = "hoisted_max"
+    compile_to_flatbuffer(
+        max,
+        [shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        # pipeline_options=["enable-const-eval=false"],
     )
 
 
