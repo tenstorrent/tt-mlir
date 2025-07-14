@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -91,10 +92,12 @@ void createTTIRToTTMetalMiddleendPipeline(
         llvm::to_vector(options.matmulInterchange);
   }
   pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(ttir::createTTIRGenericTileComputeLoops());
   pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
-  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
+  pm.addPass(memref::createFoldMemRefAliasOpsPass());
+  pm.addPass(mlir::createLowerAffinePass());
+  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
   pm.addPass(ttir::createTTIRGenericLowerDMAs());
   pm.addPass(ttir::createTTIRGenericHWThreadSelection());
