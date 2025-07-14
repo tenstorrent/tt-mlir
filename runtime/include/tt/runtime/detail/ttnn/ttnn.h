@@ -80,13 +80,15 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 // Creates multi-device host tensor from already existing host tensor shards.
 // Tensor shards can be host tensors with either owned or borrowed storage.
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
-    const std::unordered_map<std::string, std::string> &strategy);
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
@@ -106,9 +108,11 @@ inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
 
 inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data, const TensorDesc &desc,
-    const std::unordered_map<std::string, std::string> &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
   return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy,
+      meshShape);
 }
 
 inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,

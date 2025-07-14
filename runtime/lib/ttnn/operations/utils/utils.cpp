@@ -261,15 +261,8 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
 
-  if (config->dtype()) {
-    conv2dConfig.dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->dtype());
-  }
-
-  if (config->weights_dtype()) {
-    conv2dConfig.weights_dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
-  }
+  conv2dConfig.weights_dtype =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
 
   if (config->activation()) {
     conv2dConfig.activation = config->activation()->str();
@@ -419,9 +412,12 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::TensorSpec tensorSpec(
+      ttnnShape,
+      ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
+                           *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::ttnn::operations::core::allocate_tensor_on_device(
-          ttnnShape, ttnnDataType, ttnnLayout, &meshDevice, memoryConfig);
+      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

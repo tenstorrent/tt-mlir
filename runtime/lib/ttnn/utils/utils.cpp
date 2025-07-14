@@ -20,15 +20,13 @@ using ::tt::runtime::DeviceRuntime;
 // directly from the TTNN tensor. Ideally, we should be able to get all of this
 // info directly from the flatbuffer using the "inSystemMemory" API below
 bool isOnHost(const ::ttnn::StorageType &storageType) {
-  return storageType == ::ttnn::StorageType::HOST ||
-         storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
+  return storageType == ::ttnn::StorageType::HOST;
 }
 
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
       tensorRef->desc()->layout()->memory_desc()->storage_type();
-  return (storageType == ::tt::target::ttnn::StorageType::Host) ||
-         (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
+  return storageType == ::tt::target::ttnn::StorageType::Host;
 }
 
 bool isOnDevice(const ::ttnn::StorageType &storageType) {
@@ -207,8 +205,6 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
     return ::ttnn::StorageType::HOST;
   case ::tt::target::ttnn::StorageType::Device:
     return ::ttnn::StorageType::DEVICE;
-  case ::tt::target::ttnn::StorageType::MultiDeviceHost:
-    return ::ttnn::StorageType::MULTI_DEVICE_HOST;
   }
 }
 
@@ -334,31 +330,6 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
   return tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
       .getTensor();
-}
-
-::ttnn::MeshShape
-getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
-                       const std::vector<::ttnn::Tensor> &tensorShards) {
-  // Extract mesh shape based on the active variant type in config
-  // See tt-metal/ttnn/core/tensor/serialization.cpp
-  if (auto *shard2d_strategy =
-          std::get_if<::tt::tt_metal::ShardTensor2D>(&config)) {
-    return ::ttnn::MeshShape(shard2d_strategy->shard_mesh.y,
-                             shard2d_strategy->shard_mesh.x);
-  }
-
-  if (auto *replicate_strategy =
-          std::get_if<::tt::tt_metal::ReplicateTensor>(&config)) {
-    return ::ttnn::MeshShape(replicate_strategy->replication_factor);
-  }
-
-  if (std::get_if<::tt::tt_metal::ShardTensor>(&config)) {
-    // For ShardTensor, use the number of tensor shards as the mesh size
-    return ::ttnn::MeshShape(tensorShards.size());
-  }
-
-  // For AllGatherTensor or any other case, use the number of tensor shards
-  return ::ttnn::MeshShape(tensorShards.size());
 }
 
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,

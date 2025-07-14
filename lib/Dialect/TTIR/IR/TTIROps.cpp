@@ -1205,11 +1205,6 @@ static mlir::LogicalResult verifyPoolingOp(
   auto shape = getShape();
   int64_t shapeSize = static_cast<int64_t>(shape.size());
 
-  // Check that the shape attribute is non-empty.
-  if (shapeSize == 0) {
-    return emitOpError("Shape attribute must be non-empty");
-  }
-
   // Check that the shape size matches the rank of the output tensor.
   if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
     return emitOpError() << "Shape attribute size " << shapeSize
@@ -4185,11 +4180,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     } else if (keepDim) {
       expectedOutputShape.push_back(1);
     }
-  }
-
-  // Cover edge case where all dims are reduced, and keepDim==false.
-  if (expectedOutputShape.empty() && !keepDim) {
-    expectedOutputShape.push_back(1);
   }
 
   // Finally, compare shapes.
