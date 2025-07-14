@@ -25,6 +25,10 @@ namespace mlir::tt::ttkernel {
 void registerTTKernelToCpp();
 } // namespace mlir::tt::ttkernel
 
+namespace mlir::tt::emitpy {
+void registerToPythonTranslation();
+} // namespace mlir::tt::emitpy
+
 // Place to register all the custom translations
 static void registerCustomTranslations() {
   static bool initOnce = []() {
@@ -32,6 +36,7 @@ static void registerCustomTranslations() {
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
     mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     mlir::tt::ttkernel::registerTTKernelToCpp();
+    mlir::tt::emitpy::registerToPythonTranslation();
     return true;
   }();
   (void)initOnce;

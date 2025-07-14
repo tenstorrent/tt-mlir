@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
+        TTNNToPython.cpp
         TTNNUniqueLocs.cpp
         TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNFusing.cpp
