@@ -501,7 +501,7 @@ jobs:
       shell: bash
       run: |
         pwd
-        python -m venv testenv
+        python3 -m venv testenv
         source testenv/bin/activate
         pip install tt_alchemist-*.whl --force-reinstall
         echo "Wheel installed successfully"
