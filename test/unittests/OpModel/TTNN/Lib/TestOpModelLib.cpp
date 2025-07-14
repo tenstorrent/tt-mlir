@@ -1456,12 +1456,11 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // backend correctly.
   ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr deviceConfig =
       ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-          &context, ::mlir::tt::ttnn::MathFidelity::LoFi, // mathFidelity
-          ::mlir::BoolAttr::get(&context, true),          // mathApproxMode
-          ::mlir::BoolAttr::get(&context, true),          // fp32DestAccEn
-          ::mlir::BoolAttr::get(&context, true),          // packerL1Acc
-          ::mlir::BoolAttr::get(&context, true)           // dstFullSyncEn
-      );
+          &context, /*mathFidelity=*/::mlir::tt::ttnn::MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
 
   auto constraintsExp = Conv2dOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,

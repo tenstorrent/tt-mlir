@@ -37,13 +37,17 @@ struct Conv2dAttrs {
   }
   bool operator!=(const Conv2dAttrs &other) const { return !(*this == other); }
   void dump() const {
+    llvm::outs() << "Conv2dAttrs{";
     if (conv2dConfig.has_value() && conv2dConfig.value()) {
+      llvm::outs() << "\n\tconv2dConfig=";
       conv2dConfig->dump();
     }
     if (deviceComputeKernelConfig.has_value() &&
         deviceComputeKernelConfig.value()) {
+      llvm::outs() << "\tdeviceComputeKernelConfig=";
       deviceComputeKernelConfig->dump();
     }
+    llvm::outs() << "}";
   }
 };
 
