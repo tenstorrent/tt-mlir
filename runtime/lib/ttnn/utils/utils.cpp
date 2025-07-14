@@ -20,15 +20,13 @@ using ::tt::runtime::DeviceRuntime;
 // directly from the TTNN tensor. Ideally, we should be able to get all of this
 // info directly from the flatbuffer using the "inSystemMemory" API below
 bool isOnHost(const ::ttnn::StorageType &storageType) {
-  return storageType == ::ttnn::StorageType::HOST ||
-         storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
+  return storageType == ::ttnn::StorageType::HOST;
 }
 
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
       tensorRef->desc()->layout()->memory_desc()->storage_type();
-  return (storageType == ::tt::target::ttnn::StorageType::Host) ||
-         (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
+  return storageType == ::tt::target::ttnn::StorageType::Host;
 }
 
 bool isOnDevice(const ::ttnn::StorageType &storageType) {
@@ -207,8 +205,6 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
     return ::ttnn::StorageType::HOST;
   case ::tt::target::ttnn::StorageType::Device:
     return ::ttnn::StorageType::DEVICE;
-  case ::tt::target::ttnn::StorageType::MultiDeviceHost:
-    return ::ttnn::StorageType::MULTI_DEVICE_HOST;
   }
 }
 

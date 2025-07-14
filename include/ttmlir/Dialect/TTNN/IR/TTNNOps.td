@@ -1314,6 +1314,32 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDT
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [HasOutputDTypeTrait]> {
+    let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
+
+    let arguments = (ins AnyRankedTensor:$bias_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         TTCore_DataTypeAttr:$input_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputDTypeTrait]
       > {

@@ -10,7 +10,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_uint32_scalar
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 3 : i32
-    // CHECK-SAME: -> tensor<1xui32
+    // CHECK-SAME: -> tensor<ui32
     %0 = stablehlo.constant dense<3> : tensor<ui32>
     return %0 : tensor<ui32>
   }
@@ -19,7 +19,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_uint32_scalar_empty
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 0 : i32
-    // CHECK-SAME: -> tensor<1xui32
+    // CHECK-SAME: -> tensor<ui32
     %0 = stablehlo.constant dense<0> : tensor<ui32>
     return %0 : tensor<ui32>
   }

@@ -12,6 +12,16 @@ module attributes {} {
     return %1 : tensor<13x31xf32>
   }
 
+  func.func @equal_scalars(%arg0: tensor<f32>, %arg1: tensor<f32>) -> tensor<f32> {
+    %0 = ttir.empty() : tensor<f32>
+    %1 = "ttir.eq"(%arg0, %arg1, %0) : (tensor<f32>, tensor<f32>, tensor<f32>) -> tensor<f32>
+    // CHECK: "ttnn.eq"
+    // CHECK-SAME: tensor<f32
+    // CHECK-SAME: tensor<f32
+    // CHECK-SAME: -> tensor<f32
+    return %1 : tensor<f32>
+  }
+
   func.func @not_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %0 = ttir.empty() : tensor<13x31xf32>
     %1 = "ttir.ne"(%arg0, %arg1, %0) : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
