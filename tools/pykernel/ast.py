@@ -134,7 +134,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         for arg in args:
             if hasattr(arg, "value") and hasattr(arg, "key"):
-                # This is a CompiledValue
+                # This is a CompileTimeValue
                 self.ct_args[arg.key] = arg.value
 
         # Get rid of appended metadata sent into compiler
@@ -244,7 +244,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                         "Got Positional Argument in IR, unexpected argument type provided."
                     )
                 continue
-            elif arg.annotation.id == "CompiledValue":
+            elif arg.annotation.id == "CompileTimeValue":
                 # This is a CT Arg, we can package the metadata needed for passing this value in
                 if arg.arg not in self.ct_args:
                     raise ValueError(
@@ -311,7 +311,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
             for name, idx in common_rt_args:
                 _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
-                res = ttkernel.get_common_arg_val(_idx)
+                res = ttkernel.get_common_arg_val(int_type, _idx)
                 self.symbol_tables[-1][name] = res
 
             for name, value in ct_args:

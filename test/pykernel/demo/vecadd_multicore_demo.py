@@ -56,7 +56,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompiledValue,
+        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
@@ -83,8 +83,8 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         src_addr1,
         num_tiles,
         start_id,
-        src0_is_dram: CompiledValue,
-        src1_is_dram: CompiledValue,
+        src0_is_dram: CompileTimeValue,
+        src1_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes0 = get_tile_size(cb_in0)

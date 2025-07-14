@@ -114,7 +114,7 @@ class PyKernelOp:
                 )
 
     def make_ct_args(self, **ct_args):
-        return [CompiledValue(k, v) for k, v in ct_args.items()]
+        return [CompileTimeValue(k, v) for k, v in ct_args.items()]
 
     def get_buffer_addr(self, tensor):
         return tensor.buffer_address()

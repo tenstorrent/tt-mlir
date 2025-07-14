@@ -287,13 +287,9 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
-      SmallVector<Attribute, 1> template_args;
-
-      template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
-      return ArrayAttr::get(op.getContext(), template_args);
-    } else if (std::is_same_v<SourceOp, ttkernel::GetCommonArgValOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
+                         std::is_same_v<SourceOp,
+                                        ttkernel::GetCommonArgValOp>) {
       SmallVector<Attribute, 1> template_args;
 
       template_args.push_back(

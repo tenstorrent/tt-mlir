@@ -39,7 +39,7 @@ class Kernel:
         return file_path
 
 
-class CompiledValue:
+class CompileTimeValue:
     def __init__(self, key, value):
         self.key = key
         self.value = value
