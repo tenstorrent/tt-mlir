@@ -135,7 +135,12 @@ public:
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
     mlir::PassManager pm(context);
-
+    
+    bool sdyAnnotationsExist = sdy_utils::sdyAnnotationsExist(rootModule);
+    if (!sdyAnnotationsExist) {
+      rootModule.emitWarning("Could not find sdy annotations. Skipping pass.\n");
+      return;
+    }
     // If the module has gspmd annotations, we skip this pass.
     bool gspmdAnnotationsExist = sdy_utils::gspmdAnnotationsExist(rootModule);
     if (gspmdAnnotationsExist) {
