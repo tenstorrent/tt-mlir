@@ -856,13 +856,13 @@ public:
     auto reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
 
-    Value inputTensor = srcOp.getOperand(0); // %arg0
+    Value inputTensor = srcOp.getOperand(0);
 
-    // Replace reshape op with concatenate heads op using DPS utility
+    // Replace reshape op with concatenate heads op using DPS utility.
     utils::replaceOpWithNewDPSOp<ConcatenateHeadsOp>(
         rewriter, reshapeOp, reshapeOp.getResult().getType(), inputTensor);
 
-    // Erase permute op
+    // Erase permute op.
     rewriter.eraseOp(srcOp);
 
     return mlir::success();
@@ -870,26 +870,27 @@ public:
 
 private:
   bool isFusable(PermuteOp permuteOp) const {
+
+    // The sequence of operations without a 'concatenate_heads' op is:
+    // 1. **Input Tensor:** `tensor<#batch_size, #num_heads, #sequence_size,
+    // #head_size>`
+    // 2. **`tensor.permute` op:** Applied  with a **permutation attribute** of
+    // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
+    // #sequence_size, #num_heads, #head_size>`.
+    // 3. **`reshape` op:** `tensor.reshape(<permuted_tensor>, [#batch_size,
+    // #sequence_size, #num_heads * #head_size])`
+
+    // Check if the permutation is {0, 2, 1, 3}.
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    llvm::SmallVector<int64_t> expectedPermutation = {0, 2, 1, 3};
+
+    if (!llvm::equal(permutation, expectedPermutation)) {
+      return false;
+    }
     // Permute should only have one use and that use should be a reshape op.
     if (!permuteOp.getResult().hasOneUse() ||
         !ttmlir::utils::allUsersOfType<ReshapeOp>(permuteOp)) {
       return false;
-    }
-
-    // Check if the permutation attribute is {0, 2, 1, 3}
-    auto permutationAttr = permuteOp.getPermutation();
-    if (permutationAttr.empty()) {
-      return false;
-    }
-    llvm::SmallVector<int64_t> expectedPermutation = {0, 2, 1, 3};
-
-    if (permutationAttr.size() != expectedPermutation.size()) {
-      return false;
-    }
-    for (size_t i = 0; i < expectedPermutation.size(); ++i) {
-      if (permutationAttr[i] != expectedPermutation[i]) {
-        return false;
-      }
     }
 
     ReshapeOp reshapeOp =
@@ -899,21 +900,23 @@ private:
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
 
-    // Handle reshape output shape - if it's 2D, prepend 1 to make it 3D
+    // Handle reshape output shape - if it's 2D, prepend 1 to make it 3D.
+    // Example:
+    // %arg0 = "ttir.permute"(%0, %1) <{permutation = array<i64: 0, 2, 1, 3>}> :
+    // (tensor<1x24x32x128xbf16>, tensor<1x32x24x128xbf16>) ->
+    // tensor<1x32x24x128xbf16> %arg1 = ttir.empty() : tensor<32x3072xbf16>
+    // %result = "ttir.reshape"(%arg0, %arg1) <{shape = [32 : i32, 3072 : i32]}>
+    // : (tensor<1x32x24x128xbf16>, tensor<32x3072xbf16>) ->
+    // tensor<32x3072xbf16>
+    // This can be expressed as:
+    // %result = "ttir.concatenate_heads"(%0) : (tensor<1x24x32x128xbf16>) ->
+    // tensor<32x3072xbf16>
 
-    llvm::SmallVector<int64_t> adjustedReshapeShape;
+    llvm::SmallVector<int64_t> adjustedReshapeShape(reshapeOutputShape);
 
-    if (reshapeOutputShape.size() == 2) {
-      adjustedReshapeShape.push_back(1);
-      for (auto dim : reshapeOutputShape) {
-        adjustedReshapeShape.push_back(dim);
-      }
-    } else if (reshapeOutputShape.size() == 3) {
-      for (auto dim : reshapeOutputShape) {
-        adjustedReshapeShape.push_back(dim);
-      }
-
-    } else {
+    if (adjustedReshapeShape.size() == 2) {
+      adjustedReshapeShape.insert(adjustedReshapeShape.begin(), 1);
+    } else if (adjustedReshapeShape.size() != 3) {
       return false;
     }
 
@@ -924,13 +927,28 @@ private:
     }
 
     // Check that input shape: [batch_size, num_heads, sequence_size, head_size]
-    // output shape: [batch_size, sequence_size, num_heads * head_size]
-    if (inputShape[0] != adjustedReshapeShape[0] ||
-        inputShape[2] != adjustedReshapeShape[1]) {
+    // output shape: [batch_size, sequence_size, num_heads * head_size
+    // (hidden)].
+
+    enum InputDimensions {
+      INPUT_BATCH = 0,
+      INPUT_NUM_HEADS = 1,
+      INPUT_SEQ = 2,
+      INPUT_HEAD_SIZE = 3
+    };
+    enum OutputDimensions {
+      OUTPUT_BATCH = 0,
+      OUTPUT_SEQ = 1,
+      OUTPUT_HIDDEN = 2
+    };
+
+    if (inputShape[INPUT_BATCH] != adjustedReshapeShape[OUTPUT_BATCH] ||
+        inputShape[INPUT_SEQ] != adjustedReshapeShape[OUTPUT_SEQ]) {
       return false;
     }
 
-    if (inputShape[1] * inputShape[3] != adjustedReshapeShape[2]) {
+    if (inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE] !=
+        adjustedReshapeShape[OUTPUT_HIDDEN]) {
       return false;
     }
     return true;

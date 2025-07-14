@@ -2715,7 +2715,7 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ConcatenateHeadsOp::verify() {
-  const ::mlir::RankedTensorType inputType = this->getInputs().getType();
+  const ::mlir::RankedTensorType inputType = this->getInput().getType();
   const ::mlir::RankedTensorType outputType = this->getResult().getType();
 
   const ::mlir::tt::ttcore::DataType inputDataType =
@@ -2724,19 +2724,18 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
       ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
 
   if (inputDataType != outputDataType) {
-    return emitOpError(
-        "Input and output tensors must have the same dtype. "
-        "Got input dtype = " +
-        DataTypeEnumToString(inputDataType) +
-        ", output dtype = " + DataTypeEnumToString(outputDataType));
+    return emitOpError()
+           << "input and output tensors must have the same dtype, "
+           << "got input dtype = " << DataTypeEnumToString(inputDataType)
+           << ", output dtype = " << DataTypeEnumToString(outputDataType);
   }
 
   if (inputType.getRank() != 4) {
-    return emitOpError("Input tensor must be a 4D tensor");
+    return emitOpError() << "input tensor must be a 4D tensor";
   }
 
   if (outputType.getRank() != 2 && outputType.getRank() != 3) {
-    return emitOpError("Output tensor must be a 2D or 3D tensor");
+    return emitOpError() << "output tensor must be a 2D or 3D tensor";
   }
 
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
@@ -2755,33 +2754,40 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
 
   // Verify batch_size dimension matches
   if (inputShape[0] != adjustedOutputShape[0]) {
-    return emitOpError(
-        "Input and output batch dimensions must match. "
-        "Got input batch size = " +
-        std::to_string(inputShape[0]) +
-        ", output batch size = " + std::to_string(adjustedOutputShape[0]));
+    return emitOpError() << "input and output batch dimensions must match,"
+                            "got input batch size = "
+                         << inputShape[0]
+                         << ", output batch size = " << adjustedOutputShape[0];
   }
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
 
   // Verify sequence_size dimension matches
-  if (inputShape[2] != adjustedOutputShape[1]) {
-    return emitOpError(
-        "Input sequence dimension must match output sequence dimension. "
-        "Got input sequence size = " +
-        std::to_string(inputShape[2]) +
-        ", output sequence size = " + std::to_string(adjustedOutputShape[1]));
+  if (inputShape[INPUT_SEQ] != adjustedOutputShape[OUTPUT_SEQ]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[INPUT_SEQ]
+           << ", output sequence size = " << adjustedOutputShape[OUTPUT_SEQ];
   }
 
   // Verify that num_heads * head_size equals the output hidden dimension
-  int64_t expectedHiddenSize = inputShape[1] * inputShape[3];
-  if (expectedHiddenSize != adjustedOutputShape[2]) {
-    return emitOpError(
-        "Output hidden dimension must equal num_heads * head_size. "
-        "Got num_heads = " +
-        std::to_string(inputShape[1]) +
-        ", head_size = " + std::to_string(inputShape[3]) +
-        ", expected hidden size = " + std::to_string(expectedHiddenSize) +
-        ", actual output hidden size = " +
-        std::to_string(adjustedOutputShape[2]));
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != adjustedOutputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[INPUT_NUM_HEADS]
+           << ", head_size = " << inputShape[INPUT_HEAD_SIZE]
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = "
+           << adjustedOutputShape[OUTPUT_HIDDEN];
   }
 
   return success();
