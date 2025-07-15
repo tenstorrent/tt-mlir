@@ -120,4 +120,49 @@ inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
 }
 } // namespace tt::runtime::ttnn::operations::ccl::mesh_shard
 
+namespace tt::runtime::ttnn::operations::ccl::point_to_point {
+inline ::ttnn::Tensor
+point_to_point(const ::ttnn::Tensor &inputTensor,
+               const ::ttnn::MeshCoordinate &sendCoord,
+               const ::ttnn::MeshCoordinate &receiveCoord,
+               const std::optional<::ttnn::Tensor> &accumTensor) {
+
+  auto extractShardsToHost = [](const ::ttnn::Tensor &deviceTensor) {
+    return ::ttnn::distributed::get_device_tensors(
+        ::ttnn::from_device(deviceTensor));
+  };
+  std::vector<::ttnn::Tensor> inputTensorsHost =
+      extractShardsToHost(inputTensor);
+
+  std::vector<::ttnn::Tensor> outputTensorsHost;
+  bool hasUserProvidedAccumTensor = accumTensor.has_value();
+
+  if (hasUserProvidedAccumTensor) {
+    outputTensorsHost = extractShardsToHost(accumTensor.value());
+  } else {
+    outputTensorsHost = inputTensorsHost;
+  }
+
+  ::ttnn::MeshShape meshShape = inputTensor.mesh_device()->shape();
+
+  auto calcIdFromCoords = [&](const ::ttnn::MeshCoordinate *coords) -> size_t {
+    size_t id = 0;
+    for (size_t i = 0; i < meshShape.dims(); i++) {
+      id = id * meshShape[i] + (*coords)[i];
+    }
+    return id;
+  };
+
+  outputTensorsHost[calcIdFromCoords(&receiveCoord)] =
+      inputTensorsHost[calcIdFromCoords(&sendCoord)];
+
+  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
+      ::ttnn::distributed::from_host_shards(outputTensorsHost,
+                                            inputTensor.mesh_device()->shape()),
+      inputTensor.mesh_device(), inputTensor.memory_config());
+
+  return outputTensor;
+}
+} // namespace tt::runtime::ttnn::operations::ccl::point_to_point
+
 #endif // TTMLIR_TOOLS_TTNN_STANDALONE_WORKAROUNDS_HPP

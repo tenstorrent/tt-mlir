@@ -940,6 +940,32 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
                                                     &rawVector);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PointToPointOp>
+createOp(FlatbufferObjectCache &cache, PointToPointOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+
+  llvm::ArrayRef<int64_t> sendCoord = op.getSendCoordAttr();
+  std::vector<uint32_t> sendCoordVec(sendCoord.begin(), sendCoord.end());
+  auto sendVec = cache.fbb->CreateVector<uint32_t>(sendCoordVec);
+
+  llvm::ArrayRef<int64_t> receiveCoord = op.getReceiveCoordAttr();
+  std::vector<uint32_t> receiveCoordVec(receiveCoord.begin(),
+                                        receiveCoord.end());
+  auto receiveVec = cache.fbb->CreateVector<uint32_t>(receiveCoordVec);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> accumTensor = 0;
+  if (op.getAccumTensor()) {
+    accumTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAccumTensor()));
+  }
+
+  return ::tt::target::ttnn::CreatePointToPointOp(
+      *cache.fbb, input, output, sendVec, receiveVec, accumTensor);
+}
+
 template <typename EltwiseBinaryOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryOp>
 createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
@@ -2226,6 +2252,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto traceOp = dyn_cast<TraceOp>(op); traceOp) {
     return createOperation(cache, createOp(cache, traceOp, programIndexMap),
                            debugString, locInfo);
+  }
+  if (auto pointToPointOp = dyn_cast<PointToPointOp>(op); pointToPointOp) {
+    return createOperation(cache, createOp(cache, pointToPointOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
