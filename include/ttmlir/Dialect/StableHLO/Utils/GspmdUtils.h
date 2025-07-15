@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_GSPMDUTILS_H
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -54,12 +54,23 @@ inline constexpr llvm::StringRef kXlaShardingAttr = "mhlo.sharding";
 llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
 parseMeshesFromGspmdModule(mlir::ModuleOp &module);
 
-class GSPMDMeshSharding : public mesh_sharding_utils::MeshSharding {
+// Update @Sharding custom call with the shard status for the argument.
+void updateShardStatusForArgument(MLIRContext *context,
+                                  mlir::BlockArgument &arg,
+                                  mlir::NamedAttribute shardStatusNamedAttr);
+
+// Update @Sharding custom call with the shard status for the result.
+void updateShardStatusForResult(MLIRContext *context, func::FuncOp &funcOp,
+                                uint32_t resultIdx,
+                                mlir::NamedAttribute shardStatusNamedAttr);
+
+class GSPMDMeshSharding : public sharding_utils::MeshSharding {
 public:
   // Static factory method
   static llvm::Expected<GSPMDMeshSharding>
   generate(llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr,
-           mlir::tt::ttcore::ShardStatus shardStatus);
+           mlir::tt::ttcore::ShardStatus shardStatus,
+           mlir::tt::ttcore::MeshShardDirection shardDirection);
   GSPMDMeshSharding(mlir::tt::ttcore::MeshShardDirection shardDirection,
                     mlir::tt::ttcore::MeshShardType shardType,
                     llvm::SmallVector<int64_t> shardShape,

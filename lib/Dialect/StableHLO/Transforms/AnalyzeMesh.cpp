@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GspmdUtils.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -287,7 +287,7 @@ public:
       }
 
       // Check for validity of the mesh.
-      if (failed(mesh_sharding_utils::checkValidMesh(newMeshShape))) {
+      if (failed(sharding_utils::checkValidMesh(newMeshShape))) {
         rootModule.emitError("Mesh is not valid.\n");
         signalPassFailure();
         return;

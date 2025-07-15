@@ -17,7 +17,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
-namespace mlir::tt::mesh_sharding_utils {
+namespace mlir::tt::sharding_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
@@ -27,7 +27,7 @@ inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 6>
 // Check if the meshMap is valid.
 inline mlir::LogicalResult
 checkValidMesh(llvm::SmallVector<int64_t> meshShape) {
-  if (!llvm::is_contained(mesh_sharding_utils::SupportedMeshes, meshShape)) {
+  if (!llvm::is_contained(sharding_utils::SupportedMeshes, meshShape)) {
     return mlir::failure();
   }
 
@@ -73,6 +73,6 @@ private:
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
-} // namespace mlir::tt::mesh_sharding_utils
+} // namespace mlir::tt::sharding_utils
 
 #endif // TTMLIR_CONVERSION_STABLEHLOTOTTIR_SHARDINGUTILS_H

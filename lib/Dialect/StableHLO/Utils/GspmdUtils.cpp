@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Utils/GspmdUtils.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -44,6 +44,14 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module) {
         return WalkResult::advance();
       }
 
+      // Set the shard direction.
+      mlir::tt::ttcore::MeshShardDirection shardDirection =
+          mlir::tt::ttcore::MeshShardDirection::ShardToFull;
+      if (callTargetName ==
+          mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
+        shardDirection = mlir::tt::ttcore::MeshShardDirection::FullToShard;
+      }
+
       // We want to extract the mhlo.sharding attribute from the
       // CustomCallOp.
       auto opShardingAttr = dyn_cast_if_present<mlir::StringAttr>(
@@ -66,19 +74,33 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module) {
         return WalkResult::interrupt();
       }
 
+      // We also extract the shard status from the @Sharding op.
+      auto shardStatusAttr =
+          dyn_cast_if_present<mlir::tt::ttcore::ShardStatusAttr>(
+              definingOp.getOperation()->getAttr(
+                  mlir::tt::ttcore::ShardStatusAttr::name));
+
+      // Insert default sharding status if not present.
+      if (!shardStatusAttr) {
+        shardStatusAttr = mlir::tt::ttcore::ShardStatusAttr::get(
+            customCallOp.getContext(),
+            mlir::tt::ttcore::ShardStatus::Unsharded);
+      }
+
       // Once extracted, we can generate the GSPMDMeshSharding object.
       llvm::Expected<mlir::tt::gspmd_utils::GSPMDMeshSharding>
           gspmdMeshSharding =
               mlir::tt::gspmd_utils::GSPMDMeshSharding::generate(
                   opShardingAttr.getValue(), operandShardingAttr.getValue(),
-                  mlir::tt::ttcore::ShardStatus::Unsharded);
+                  shardStatusAttr.getValue(), shardDirection);
       if (auto err = gspmdMeshSharding.takeError()) {
         return WalkResult::interrupt();
       }
 
       // Some stablehlo custom calls may not have a mesh shape, so we
       // skip those.
-      if (!gspmdMeshSharding->getMeshShape().empty()) {
+      if (!gspmdMeshSharding->getMeshShape().empty() &&
+          gspmdMeshSharding->getMeshShape() != llvm::ArrayRef<int64_t>({-1})) {
         meshes.push_back(
             llvm::SmallVector<int64_t>(gspmdMeshSharding->getMeshShape()));
       }
@@ -99,6 +121,67 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module) {
   }
 
   return meshes;
+}
+
+// Update @Sharding custom call with the shard status for the argument.
+void updateShardStatusForArgument(MLIRContext *context,
+                                  mlir::BlockArgument &arg,
+                                  mlir::NamedAttribute shardStatusNamedAttr) {
+  // Check all users of the argument. If the user is a stablehlo.custom_call
+  // op, we want to update the @Sharding op with the shard status.
+  for (auto *user : arg.getUsers()) {
+    if (!mlir::isa<mlir::stablehlo::CustomCallOp>(user)) {
+      return;
+    }
+
+    // Skip non @Sharding custom calls.
+    mlir::stablehlo::CustomCallOp shardingOp =
+        mlir::cast<mlir::stablehlo::CustomCallOp>(user);
+    if (shardingOp.getCallTargetName() !=
+        mlir::tt::gspmd_utils::kShardingCustomCallTargetName) {
+      return;
+    }
+
+    llvm::SmallVector<mlir::NamedAttribute> newCustomOpAttrs(
+        shardingOp->getAttrDictionary().getValue());
+    newCustomOpAttrs.push_back(shardStatusNamedAttr);
+    shardingOp->setAttrs(mlir::DictionaryAttr::get(context, newCustomOpAttrs));
+  }
+}
+
+// Update @Sharding custom call with the shard status for the result.
+void updateShardStatusForResult(MLIRContext *context, func::FuncOp &funcOp,
+                                uint32_t resultIdx,
+                                mlir::NamedAttribute shardStatusNamedAttr) {
+  // Check all users of the result. If the user is a stablehlo.custom_call
+  // op, we want to update the @Sharding op with the shard status.
+  auto resultDefiningOp = funcOp.getBody()
+                              .front()
+                              .getTerminator()
+                              ->getOperands()[resultIdx]
+                              .getDefiningOp();
+  if (!mlir::isa<mlir::stablehlo::CustomCallOp>(resultDefiningOp)) {
+    return;
+  }
+
+  // When iterating through the results, we will run into @SPMD* calls, who's
+  // operands will be the @Sharding call.
+  mlir::stablehlo::CustomCallOp customCallOp =
+      mlir::cast<mlir::stablehlo::CustomCallOp>(resultDefiningOp);
+  if (customCallOp.getCallTargetName() !=
+          mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName &&
+      customCallOp.getCallTargetName() !=
+          mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
+    return;
+  }
+
+  mlir::stablehlo::CustomCallOp shardingOp =
+      customCallOp->getOperand(0)
+          .getDefiningOp<mlir::stablehlo::CustomCallOp>();
+  llvm::SmallVector<mlir::NamedAttribute> newCustomOpAttrs(
+      shardingOp->getAttrDictionary().getValue());
+  newCustomOpAttrs.push_back(shardStatusNamedAttr);
+  shardingOp->setAttrs(mlir::DictionaryAttr::get(context, newCustomOpAttrs));
 }
 
 // Parse GSPMD devices string and fill out MeshSharding info.
@@ -261,10 +344,9 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
 llvm::Expected<gspmd_utils::GSPMDMeshSharding>
 gspmd_utils::GSPMDMeshSharding::generate(
     llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr,
-    mlir::tt::ttcore::ShardStatus shardStatus) {
+    mlir::tt::ttcore::ShardStatus shardStatus,
+    mlir::tt::ttcore::MeshShardDirection shardDirection) {
   // Need to parse GSPMD sharding string and fill out MeshSharding info.
-  mlir::tt::ttcore::MeshShardDirection shardDirection =
-      mlir::tt::ttcore::MeshShardDirection::ShardToFull;
   mlir::tt::ttcore::MeshShardType shardType =
       mlir::tt::ttcore::MeshShardType::Identity;
   llvm::SmallVector<int64_t> shardShape = {-1};
@@ -379,7 +461,7 @@ gspmd_utils::GSPMDMeshSharding::generate(
 
   // Check if the input is already pre-sharded. If it is, override shardType to
   // Identity.
-  shardType = shardType == ttcore::MeshShardType::Identity
+  shardType = shardStatus == mlir::tt::ttcore::ShardStatus::Presharded
                   ? ttcore::MeshShardType::Identity
                   : shardType;
 

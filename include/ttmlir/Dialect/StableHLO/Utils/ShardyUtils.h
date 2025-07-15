@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -68,6 +68,10 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
                      std::string firstAxisName, std::string secondAxisName,
                      int64_t firstAxisSize, int64_t secondAxisSize);
 
+// Create a TTMeshAttr from a sdy::meshOp.
+mlir::tt::ttcore::MeshAttr
+createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp);
+
 // Check if the module has any sdy tensor sharding annotations.
 bool sdyAnnotationsExist(mlir::ModuleOp &module);
 
@@ -128,6 +132,36 @@ FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
 // Copy nested regions between srcOp and destOp
 void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
                        mlir::Operation *destOp);
+
+class ShardyMeshSharding : public sharding_utils::MeshSharding {
+public:
+  // Static factory method
+  static llvm::Expected<ShardyMeshSharding>
+  generate(sdy::MeshAttr meshAttr, sdy::TensorShardingAttr sdySharding,
+           mlir::tt::ttcore::ShardStatus shardStatus,
+           ttcore::MeshShardDirection shardDirection);
+  ShardyMeshSharding(mlir::tt::ttcore::MeshShardDirection shardDirection,
+                     mlir::tt::ttcore::MeshShardType shardType,
+                     llvm::SmallVector<int64_t> shardShape,
+                     llvm::SmallVector<int64_t> shardDims,
+                     llvm::SmallVector<int64_t> meshShape,
+                     llvm::SmallVector<int64_t> deviceIds,
+                     mlir::tt::ttcore::ShardStatus shardStatus,
+                     sdy::MeshAttr meshAttr,
+                     sdy::TensorShardingAttr sdySharding)
+      : MeshSharding(shardDirection, shardType, shardShape, shardDims,
+                     meshShape, deviceIds, shardStatus),
+        meshAttr(meshAttr), sdySharding(sdySharding) {}
+
+  // Getters
+  mlir::sdy::MeshAttr getMeshAttr() const { return meshAttr; }
+  mlir::sdy::TensorShardingAttr getSdySharding() const { return sdySharding; }
+
+private:
+  // Member variables
+  mlir::sdy::MeshAttr meshAttr;
+  mlir::sdy::TensorShardingAttr sdySharding;
+};
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
