@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -15,7 +14,7 @@ from tt_alchemist.api import model_to_cpp, generate
 
 @click.group()
 def cli():
-    """TT-Alchemist - Model conversion and optimization tool."""
+    """tt-alchemist - Model conversion and optimization tool."""
     pass
 
 
@@ -30,12 +29,6 @@ def model_to_cpp_cmd(input_file, verbose):
 
         success = model_to_cpp(input_file)
 
-        # if success:
-        #     click.echo("Conversion successful!")
-        #     return 0
-        # else:
-        #     click.echo("Conversion failed!")
-        #     return 1
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
         return 1
