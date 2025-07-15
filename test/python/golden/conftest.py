@@ -100,10 +100,7 @@ def pytest_collection_modifyitems(config, items):
 
                 board_id = get_board_id(system_desc)
 
-                # TODO: figure out how to fetch backend programattically
-                if platform_config.intersection(set([current_target, board_id])) == set(
-                    platform_config
-                ):
+                if platform_config <= set([current_target, board_id]):
                     item.add_marker(
                         pytest.mark.skip(
                             reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
