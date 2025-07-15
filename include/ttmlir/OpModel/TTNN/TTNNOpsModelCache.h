@@ -94,7 +94,7 @@ public:
     // The following line attempts to combine the arguments into a single
     // hash_code. For user-defined types it attempts to call a hash_value
     // overload (via ADL) for the type (provided at the end of this file).
-    llvm::hash_code hashValue = llvm::hash_combine(args...);
+    llvm::hash_code hashValue = llvm::hash_combine(std::forward<Args>(args)...);
 
     // Try to read from cache first.
     if (auto cached = tryGetFromCache(op, hashValue)) {
