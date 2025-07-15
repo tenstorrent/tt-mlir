@@ -522,7 +522,9 @@ def div(
 ):
     dividend_tensor = builder._get_golden_tensor(in0)
     divisor_tensor = builder._get_golden_tensor(in1)
-    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(divisor_tensor):
+    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(
+        divisor_tensor
+    ):
         dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
         divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
     output_golden = torch.div(dividend_tensor, divisor_tensor)
@@ -2275,7 +2277,7 @@ def slice(
 )
 def test_slice(
     shape: Shape, begins: List[int], ends: List[int], step: List[int], request
-):    
+):
     def slice_op(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
