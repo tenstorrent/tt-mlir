@@ -221,13 +221,13 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
-  // This override is because we don't have a way to get the true worker grid
-  // shape from a memref. This issue manifests when we do multi-core blocking,
-  // where the "grid shape" of the memref may be greater than the worker grid
-  // shape. auto memrefGridShape = shardLayout.getGridShape(memref);
-  auto cbGridShape = SmallVector<int64_t, 2>{8, 8};
+  // We use device.getWorkerGrid().getShape() as the tensorGrid because we
+  // don't have a way to get the true worker grid shape from a memref. This
+  // issue manifests when we do multi-core blocking, where the "grid shape" of
+  // the memref may be greater than the worker grid shape.
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, cbGridShape, device.getWorkerGrid().getMapping());
+      toFlatbuffer(cache, device.getWorkerGrid().getShape(),
+                   device.getWorkerGrid().getMapping());
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
