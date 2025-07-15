@@ -846,7 +846,8 @@ private:
     Operation *memoryReconfigOpBefore = builder.create<ttnn::ToLayoutOp>(
         loc, newInputTensorType, operand,
         LayoutAttr::get(op->getContext(), Layout::RowMajor),
-        ttcore::DataTypeAttr::get(op->getContext(), inputLayout.getDataType()),
+        ttcore::DataTypeAttr::get(op->getContext(),
+                                  inputRowMajorLayout.getDataType()),
         MemoryConfigAttr::get(
             op->getContext(), inputLayout.getMemLayout(),
             BufferTypeAttr::get(op->getContext(), BufferType::DRAM),

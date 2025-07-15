@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
@@ -48,8 +49,8 @@ public:
       mlir::RankedTensorType weightType = conv2dOp.getWeight().getType();
       ttnn::TTNNLayoutAttr weightLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
-      auto weightDtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
-          weightLayoutAttr.getDataType());
+      auto weightDtypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(ttcore::DataType::BFP_BFloat8);
       assert(weightLayoutAttr.getBufferType() ==
                  ttnn::BufferType::SystemMemory &&
              weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
@@ -78,7 +79,7 @@ public:
         ttnn::TTNNLayoutAttr biasLayoutAttr =
             mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
         auto biasDtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
-            biasLayoutAttr.getDataType());
+            ttcore::DataType::BFP_BFloat8);
         assert(biasLayoutAttr.getBufferType() ==
                    ttnn::BufferType::SystemMemory &&
                biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
@@ -133,7 +134,10 @@ private:
   ::mlir::RankedTensorType getPreparedWeightsType(ttnn::Conv2dOp conv2dOp) {
     // We use graph capture to retrieve the output type of the PrepareConv2dOp
     // for now until metal exposes an API.
-    return op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
+    RankedTensorType rtt =
+        op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
+    return utils::RankedTensorTypeFactory::create(
+        rtt, ttcore::DataType::BFP_BFloat8);
   }
 
   ::mlir::RankedTensorType getPreparedBiasType(ttnn::Conv2dOp conv2dOp) {
@@ -150,9 +154,10 @@ private:
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
 
-    return mlir::RankedTensorType::get(oldType.getShape(),
-                                       oldType.getElementType(), newLayout);
-    ;
+    RankedTensorType rtt = mlir::RankedTensorType::get(
+        oldType.getShape(), oldType.getElementType(), newLayout);
+    return utils::RankedTensorTypeFactory::create(
+        rtt, ttcore::DataType::BFP_BFloat8);
   }
 };
 } // namespace mlir::tt::ttnn

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -129,6 +130,75 @@ private:
   }
 };
 
+class FuncBodyTypeCast : public ConversionPattern {
+public:
+  FuncBodyTypeCast(const TypeConverter &converter, MLIRContext *ctx)
+      : ConversionPattern(converter, MatchAnyOpTypeTag(), 1, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Remap original operands to converted operands
+    IRMapping mapping;
+    mapping.map(op->getOperands(), operands);
+
+    // Clone the original operation with the new operands
+    Operation *newOp = rewriter.clone(*op, mapping);
+
+    // Convert the result types using the type converter
+    SmallVector<Type> convertedTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                convertedTypes))) {
+      return op->emitOpError("failed to convert result types");
+    }
+
+    // Update result types in-place on the new operation
+    rewriter.modifyOpInPlace(newOp, [&]() {
+      for (auto [newResult, newType] :
+           llvm::zip(newOp->getResults(), convertedTypes)) {
+        newResult.setType(newType);
+      }
+    });
+
+    // Replace the old op with the new one
+    rewriter.replaceOp(op, newOp);
+    return success();
+  }
+
+  struct FuncBodyTypeConverter : mlir::TypeConverter {
+    FuncBodyTypeConverter() {
+      addConversion([](Type type) -> Type {
+        assert(false && "Unsupported type in FuncBodyTypeConverter");
+        return type;
+      });
+      addConversion([](RankedTensorType type) -> RankedTensorType {
+        Type elementType = type.getElementType();
+        if (isa<ttcore::BFloat8BType>(elementType)) {
+          return type;
+        }
+
+        assert(isa<BFloat16Type>(elementType) &&
+               "Only bfloat16 is supported in FuncBodyTypeConverter");
+        assert(type.getEncoding() == nullptr &&
+               "Encoding should be null for FuncBodyTypeConverter");
+        return type.clone(ttcore::BFloat8BType::get(type.getContext()));
+      });
+
+      auto materializeFunc = [](OpBuilder &builder, Type type,
+                                ValueRange inputs, Location loc) -> Value {
+        RankedTensorType rankedType = cast<RankedTensorType>(type);
+        return ttir::utils::createDPSOp<ttir::TypecastOp>(builder, loc,
+                                                          rankedType, inputs);
+      };
+
+      addSourceMaterialization(materializeFunc);
+      addTargetMaterialization(materializeFunc);
+    }
+  };
+};
+
+using FuncBodyTypeConverter = FuncBodyTypeCast::FuncBodyTypeConverter;
+
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -140,13 +210,38 @@ struct ElementTypeNormalization
       signalPassFailure();
       return;
     }
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<UniformTypeRewriter>(converter, &getContext());
+      patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      ConversionTarget target(getContext());
+      FuncBodyTypeConverter funcBodyConverter;
+      target.markUnknownOpDynamicallyLegal([&funcBodyConverter](Operation *op) {
+        if (!isa<TTIRDialect>(op->getDialect())) {
+          return true;
+        }
+        if (llvm::all_of(op->getResultTypes(), [&funcBodyConverter](Type type) {
+              return funcBodyConverter.isLegal(type);
+            })) {
+          return true;
+        }
+        return false;
+      });
 
-    RewritePatternSet patterns(&getContext());
-    patterns.add<UniformTypeRewriter>(converter, &getContext());
-    patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
+      RewritePatternSet patterns(&getContext());
+
+      patterns.add<FuncBodyTypeCast>(funcBodyConverter, &getContext());
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 

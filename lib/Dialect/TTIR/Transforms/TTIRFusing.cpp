@@ -299,6 +299,25 @@ private:
     return std::nullopt;
   }
 
+  static bool isConstant(const llvm::SmallPtrSet<BlockArgument, 4> &constParams,
+                         Conv2dOp conv2dOp, mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      return constParams.contains(blockArg);
+    }
+
+    Operation *op = value.getDefiningOp();
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
+        op->isBeforeInBlock(conv2dOp)) {
+      return true;
+    }
+
+    if (auto typecastOp = mlir::dyn_cast<TypecastOp>(op)) {
+      return isConstant(constParams, conv2dOp, typecastOp.getInput());
+    }
+
+    return false;
+  }
+
   // We can commute only if both scale and weight are constant.
   static bool isCommutable(Conv2dOp conv2dOp,
                            mlir::TypedValue<RankedTensorType> scale) {
@@ -310,17 +329,20 @@ private:
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
-    auto isConstant = [&constParams](mlir::Value value) {
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
-        return constParams.contains(blockArg);
-      }
+    // auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
+    //   if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+    //     return constParams.contains(blockArg);
+    //   }
+    //
+    //   Operation *op = value.getDefiningOp();
+    //   return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()
+    //   &&
+    //          op->isBeforeInBlock(conv2dOp);
+    // };
 
-      Operation *defOp = value.getDefiningOp();
-      return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
-    };
-
-    // If weight is not constant, we cannot commute.
-    if (!isConstant(conv2dOp.getWeight())) {
+    // Both scale and weight must be constant.
+    if (!isConstant(constParams, conv2dOp, scale) ||
+        !isConstant(constParams, conv2dOp, conv2dOp.getWeight())) {
       return false;
     }
 
@@ -343,7 +365,9 @@ private:
     SetVector<Value> useDefChain = ttmlir::utils::getUseDefChain(scale);
     SetVector<BlockArgument> useDefChainBlockArgs =
         ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    if (!all_of(useDefChainBlockArgs, isConstant)) {
+    if (!all_of(useDefChainBlockArgs, [&](mlir::BlockArgument blockArg) {
+          return isConstant(constParams, conv2dOp, blockArg);
+        })) {
       return false;
     }
 
@@ -441,10 +465,20 @@ public:
   Conv2dTagWeights(MLIRContext *context)
       : OpRewritePattern(context, PatternBenefit(2)) {}
 
+  static BlockArgument getBlockArg(mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      return blockArg;
+    }
+    if (auto typecastOp = mlir::dyn_cast<TypecastOp>(value.getDefiningOp())) {
+      return getBlockArg(typecastOp.getInput());
+    }
+    return BlockArgument();
+  }
+
   mlir::LogicalResult
   matchAndRewrite(Conv2dOp conv2d,
                   mlir::PatternRewriter &rewriter) const final {
-    if (BlockArgument blockArg = dyn_cast<BlockArgument>(conv2d.getWeight())) {
+    if (auto blockArg = getBlockArg(conv2d.getWeight())) {
       // Get the function that owns this block argument.
       func::FuncOp owningFunc =
           cast<func::FuncOp>(blockArg.getOwner()->getParentOp());

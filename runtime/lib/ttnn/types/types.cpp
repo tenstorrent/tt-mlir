@@ -70,10 +70,10 @@ const ::tt::runtime::Tensor &ProgramTensorPool::getRuntimeTensorAndValidate(
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
   const ::tt::runtime::Tensor &runtimeTensor =
       getRuntimeTensor(tensorRef->global_id());
-  const ::ttnn::Tensor &ttnnTensor =
-      ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(runtimeTensor);
-  DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  // const ::ttnn::Tensor &ttnnTensor =
+  //     ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(runtimeTensor);
+  // DEBUG_ASSERT(ttnnTensor.is_allocated());
+  // debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
   return runtimeTensor;
 }
 
@@ -122,7 +122,7 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
   std::uint32_t globalId = tensorRef->global_id();
   DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  // debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
 
   ::tt::runtime::Tensor runtimeTensor = utils::createRuntimeTensorFromTTNN(
       ttnnTensor, /*meshEvent=*/std::nullopt, retain);

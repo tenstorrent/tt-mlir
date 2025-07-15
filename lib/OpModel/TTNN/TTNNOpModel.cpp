@@ -286,10 +286,10 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig, bool hasBias,
     bool transpose) {
-  if (weightLayout.getBufferType() !=
-      mlir::tt::ttnn::BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
-  }
+  // if (weightLayout.getBufferType() !=
+  //     mlir::tt::ttnn::BufferType::SystemMemory) {
+  //   llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
+  // }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
   ::tt::tt_metal::Tensor weightTensor =

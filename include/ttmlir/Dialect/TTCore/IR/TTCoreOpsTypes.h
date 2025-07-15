@@ -117,103 +117,6 @@ inline mlir::ParseResult parseVargDimensionList(mlir::AsmParser &odsParser,
   return result;
 }
 
-inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
-  if (auto quant = dyn_cast<quant::QuantizedType>(elementType)) {
-    elementType = quant.getStorageType();
-  }
-
-  if (isa<BFloat16Type>(elementType)) {
-    return DataType::BFloat16;
-  }
-
-  if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
-    switch (floatType.getWidth()) {
-    // Treat f64 as f32.
-    case 32:
-    case 64:
-      return DataType::Float32;
-    case 16:
-      return DataType::Float16;
-    default:
-      return {};
-    }
-  } else if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
-    switch (intType.getWidth()) {
-    // Booleans treated as bfloat16.
-    case 1:
-      return DataType::BFloat16;
-    case 8:
-      return DataType::UInt8;
-    case 16:
-      return DataType::UInt16;
-    case 32:
-    case 64:
-      return (intType.isSigned() || intType.isSignless()) ? DataType::Int32
-                                                          : DataType::UInt32;
-    default:
-      return {};
-    }
-  }
-
-  return {};
-}
-
-inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return Float32Type::get(context);
-  case DataType::Float16:
-    return BFloat16Type::get(context);
-  case DataType::BFloat16:
-    return BFloat16Type::get(context);
-  case DataType::BFP_Float8:
-    return Float16Type::get(context);
-  case DataType::BFP_BFloat8:
-    return BFloat16Type::get(context);
-  case DataType::BFP_Float4:
-    return Float16Type::get(context);
-  case DataType::BFP_BFloat4:
-    return BFloat16Type::get(context);
-  case DataType::BFP_Float2:
-    return Float16Type::get(context);
-  case DataType::BFP_BFloat2:
-    return BFloat16Type::get(context);
-  case DataType::UInt32:
-    return IntegerType::get(context, 32,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt16:
-    return IntegerType::get(context, 16,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt8:
-    return IntegerType::get(context, 8,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::Int32:
-    return IntegerType::get(context, 32,
-                            IntegerType::SignednessSemantics::Signed);
-  }
-}
-
-// Convenience function to convert any type to TTMLIR supported type.
-inline mlir::Type toTTMLIRSupportedDataType(Type elementType) {
-  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
-
-  if (dataType) {
-    return dataTypeToElementType(elementType.getContext(), *dataType);
-  }
-
-  return {};
-}
-
-inline DataType elementTypeToDataType(Type elementType) {
-  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
-
-  if (dataType) {
-    return *dataType;
-  }
-
-  llvm_unreachable("Unsupported element type.");
-}
-
 // The BFP formats are TT home-brew, if not for them we could have used MLIR's
 // built-in FloatTypes and getWidth()/getFPMantissaWidth().
 inline bool isSignedInteger(const DataType dtype) {
@@ -305,6 +208,7 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
 } // namespace mlir::tt::ttcore
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.h.inc"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTypeInterfaces.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsAttrDefs.h.inc"
@@ -359,6 +263,107 @@ inline MemorySpace getMemorySpace(Type memrefType) {
 
 inline MemorySpace getMemorySpace(Value memrefTypedValue) {
   return getMemorySpace(memrefTypedValue.getType());
+}
+
+inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
+  if (auto quant = dyn_cast<quant::QuantizedType>(elementType)) {
+    elementType = quant.getExpressedType();
+  }
+
+  if (isa<BFloat16Type>(elementType)) {
+    return DataType::BFloat16;
+  }
+
+  if (isa<BFloat8BType>(elementType)) {
+    return DataType::BFP_BFloat8;
+  }
+
+  if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
+    switch (floatType.getWidth()) {
+    // Treat f64 as f32.
+    case 32:
+    case 64:
+      return DataType::Float32;
+    case 16:
+      return DataType::Float16;
+    default:
+      return {};
+    }
+  } else if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
+    switch (intType.getWidth()) {
+    // Booleans treated as bfloat16.
+    case 1:
+      return DataType::BFloat16;
+    case 8:
+      return DataType::UInt8;
+    case 16:
+      return DataType::UInt16;
+    case 32:
+    case 64:
+      return (intType.isSigned() || intType.isSignless()) ? DataType::Int32
+                                                          : DataType::UInt32;
+    default:
+      return {};
+    }
+  }
+
+  return {};
+}
+
+inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return Float32Type::get(context);
+  case DataType::Float16:
+    return Float16Type::get(context);
+  case DataType::BFloat16:
+    return BFloat16Type::get(context);
+  case DataType::BFP_Float8:
+    return BFloat16Type::get(context);
+  case DataType::BFP_BFloat8:
+    return BFloat8BType::get(context);
+  case DataType::BFP_Float4:
+    return Float16Type::get(context);
+  case DataType::BFP_BFloat4:
+    return BFloat16Type::get(context);
+  case DataType::BFP_Float2:
+    return Float16Type::get(context);
+  case DataType::BFP_BFloat2:
+    return BFloat16Type::get(context);
+  case DataType::UInt32:
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Unsigned);
+  case DataType::UInt16:
+    return IntegerType::get(context, 16,
+                            IntegerType::SignednessSemantics::Unsigned);
+  case DataType::UInt8:
+    return IntegerType::get(context, 8,
+                            IntegerType::SignednessSemantics::Unsigned);
+  case DataType::Int32:
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Signed);
+  }
+}
+
+// Convenience function to convert any type to TTMLIR supported type.
+inline mlir::Type toTTMLIRSupportedDataType(Type elementType) {
+  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
+
+  if (dataType) {
+    return dataTypeToElementType(elementType.getContext(), *dataType);
+  }
+
+  return {};
+}
+
+inline DataType elementTypeToDataType(Type elementType) {
+  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
+
+  if (dataType) {
+    return *dataType;
+  }
+
+  llvm_unreachable("Unsupported element type.");
 }
 
 } // namespace mlir::tt::ttcore

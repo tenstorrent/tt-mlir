@@ -241,8 +241,12 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
 TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
                                            TTNNLayoutAttr layout,
                                            llvm::ArrayRef<int64_t> shape) {
-  Type elementType =
-      utils::getElementType(context, Layout::RowMajor, layout.getDataType());
+  // If input is bfp8 convert it to bfloat16.
+  ttcore::DataType dataType = layout.getDataType();
+  if (layout.getDataType() == ttcore::DataType::BFP_BFloat8) {
+    dataType = ttcore::DataType::BFloat16;
+  }
+  Type elementType = utils::getElementType(context, Layout::RowMajor, dataType);
   return layout.withElementType(elementType, shape);
 }
 

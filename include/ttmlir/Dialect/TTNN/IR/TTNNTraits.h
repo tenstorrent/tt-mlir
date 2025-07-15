@@ -146,6 +146,45 @@ public:
   }
 };
 
+template<typename ConcreteType>
+class CheckBFloat8BTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, CheckBFloat8BTrait> {
+public:
+  static LogicalResult verifyTrait(Operation *op) {
+    if (op->getNumResults() == 0) {
+      return mlir::success();
+    }
+
+    auto resultType = dyn_cast<RankedTensorType>(op->getResult(0).getType());
+    if (!resultType) {
+      return mlir::success();
+    }
+
+    TTNNLayoutAttr layoutAttr =
+        mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+    Type elementType = resultType.getElementType();
+    Type scalarElementType = layoutAttr.getScalarElementType();
+
+    if (elementType != scalarElementType) {
+      return op->emitOpError()
+             << "Expected element type to match scalar element type, but got "
+             << elementType << " and " << scalarElementType;
+    }
+
+    if (!isa<ttcore::BFloat8BType>(elementType)) {
+      return mlir::success();
+    }
+
+    if (layoutAttr.getLayout() != Layout::Tile) {
+      return op->emitOpError()
+             << "BFloat8BType is only supported with Tile layout, but got "
+             << stringifyLayout(layoutAttr.getLayout());
+    }
+
+    return mlir::success();
+  }
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif

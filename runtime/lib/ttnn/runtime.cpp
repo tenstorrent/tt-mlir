@@ -775,6 +775,9 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
+  LOG_DEBUG("Converting tensor with shape: ", ttnnTensor.logical_shape(),
+            " from layout: ", tensorLayoutDesc.layout,
+            " to desired layout: ", desiredLayoutDesc.layout);
   bool shouldRetain = retain.value_or(tensorWrapper.shouldRetain());
 
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
