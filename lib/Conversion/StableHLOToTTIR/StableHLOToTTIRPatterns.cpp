@@ -112,6 +112,25 @@ static bool checkInitValue(stablehlo::ConstantOp initValueOp,
   return false;
 }
 
+bool shouldSkipConversion(Operation *op) {
+  for (Value operand : op->getOperands()) {
+    if (RankedTensorType type = cast<RankedTensorType>(operand.getType())) {
+      if (type.getElementType().getIntOrFloatBitWidth() > 32) {
+        return true;
+      }
+    }
+  }
+
+  for (Value result : op->getResults()) {
+    if (RankedTensorType type = cast<RankedTensorType>(result.getType())) {
+      if (type.getElementType().getIntOrFloatBitWidth() > 32) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -124,6 +143,9 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -146,6 +168,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
@@ -231,6 +256,9 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::ReduceOp &srcOp,
                           mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                           ConversionPatternRewriter &rewriter) const {
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes().front()));
 
@@ -249,6 +277,9 @@ private:
   matchAndRewriteInternalArgMax(mlir::stablehlo::ReduceOp &srcOp,
                                 mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                                 ConversionPatternRewriter &rewriter) const {
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
     ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
@@ -605,6 +636,9 @@ public:
   matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -631,6 +665,9 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     ::mlir::RankedTensorType outputType = mlir::cast<mlir::RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -657,6 +694,9 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
@@ -682,6 +722,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReshapeOp srcOp,
                   mlir::stablehlo::ReshapeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -708,6 +751,9 @@ public:
   matchAndRewrite(mlir::stablehlo::GetDimensionSizeOp srcOp,
                   mlir::stablehlo::GetDimensionSizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     IntegerType intType = IntegerType::get(getContext(), 32);
     RankedTensorType outputType = RankedTensorType::get({}, intType);
     mlir::OpBuilder builder(getContext());
@@ -733,6 +779,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // Check legality of the conversion.
     if (failed(checkConversionLegality(srcOp, rewriter))) {
       return failure();
@@ -807,6 +856,9 @@ public:
   matchAndRewrite(mlir::stablehlo::UniformQuantizeOp srcOp,
                   mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
 
@@ -861,6 +913,9 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::UniformQuantizeOp srcOp,
                           mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     // Replace the StableHLO UniformQuantizeOp with the TTIR QuantizeOp or
     // RequantizeOp.
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
@@ -885,6 +940,9 @@ public:
   matchAndRewrite(mlir::stablehlo::UniformDequantizeOp srcOp,
                   mlir::stablehlo::UniformDequantizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
     if (!legalityResult.succeeded()) {
@@ -924,6 +982,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ConvolutionOp srcOp,
                   mlir::stablehlo::ConvolutionOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -992,6 +1053,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // Check basic structure of the ReduceWindowOp
     if (!hasValidOpStructure(srcOp)) {
       return rewriter.notifyMatchFailure(
@@ -1374,6 +1438,9 @@ public:
   matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
                   mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
@@ -1469,6 +1536,9 @@ public:
   matchAndRewrite(mlir::stablehlo::CompareOp srcOp,
                   mlir::stablehlo::CompareOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // StableHLO has one 'compare' op to do all type of comparison (EQ, NE, GE,
     // GT, LE, and LT) and use direction to determine the type of comparison.
     mlir::stablehlo::ComparisonDirection direction =
@@ -1515,6 +1585,9 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
                           mlir::stablehlo::CompareOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     mlir::RankedTensorType outputType =
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
@@ -1539,6 +1612,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ConcatenateOp srcOp,
                   mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
@@ -1605,6 +1681,10 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (shouldSkipConversion(srcOp.getOperation())) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -1747,6 +1827,9 @@ public:
   matchAndRewrite(mlir::stablehlo::AllReduceOp srcOp,
                   mlir::stablehlo::AllReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
@@ -1825,6 +1908,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
                   mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // Create the output tensor type based on inputs
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -1875,6 +1961,9 @@ public:
   matchAndRewrite(mlir::stablehlo::AllGatherOp srcOp,
                   mlir::stablehlo::AllGatherOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
@@ -1925,6 +2014,9 @@ public:
   matchAndRewrite(mlir::stablehlo::CollectivePermuteOp srcOp,
                   mlir::stablehlo::CollectivePermuteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     // Create the output tensor type based on inputs
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -1962,6 +2054,9 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
@@ -2122,6 +2217,9 @@ public:
   matchAndRewrite(mlir::stablehlo::SliceOp srcOp,
                   mlir::stablehlo::SliceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     // Create the output tensor type based on inputs
     auto outputType = mlir::cast<RankedTensorType>(
@@ -2152,6 +2250,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ClampOp srcOp,
                   mlir::stablehlo::ClampOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -2173,6 +2274,9 @@ public:
   matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
                   mlir::stablehlo::GatherOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -2205,6 +2309,9 @@ public:
   LogicalResult
   matchAndRewrite(SrcIotaOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -2237,6 +2344,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
@@ -2283,6 +2393,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReverseOp srcOp,
                   mlir::stablehlo::ReverseOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -2305,6 +2418,9 @@ public:
   matchAndRewrite(mlir::stablehlo::PadOp srcOp,
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (shouldSkipConversion(srcOp)) {
+      return failure();
+    }
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {

@@ -5,10 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTIR_UTILS_UNIFORMTYPEREWRITER_H
 #define TTMLIR_DIALECT_TTIR_UTILS_UNIFORMTYPEREWRITER_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include <stablehlo/dialect/StablehloOps.h>
 
 namespace mlir::tt::ttir {
 class UniformTypeRewriter : public RewritePattern {
@@ -19,17 +21,57 @@ public:
 
   template <typename ValueRange>
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
+    // for (Value val : valueRange) {
+    //   for (Operation *user : val.getUsers()) {
+    //     if (isa<mlir::stablehlo::StablehloDialect>(user->getDialect())) {
+    //       return false;
+    //     }
+    //   }
+
+    //   if (Operation *op = val.getDefiningOp()) {
+    //     if (isa<mlir::stablehlo::StablehloDialect>(op->getDialect())) {
+    //       return false;
+    //     }
+    //   }
+    // }
+
     bool updated = false;
-    auto result = converter.convertTypes(valueRange.getTypes(), newTypes);
-    if (result.failed()) {
-      return false;
-    }
-    for (auto [operand, newType] : llvm::zip_equal(valueRange, newTypes)) {
-      if (operand.getType() == newType) {
+    for (Value val : valueRange) {
+      bool doConversion = true;
+      for (Operation *user : val.getUsers()) {
+        if (isa<mlir::stablehlo::StablehloDialect>(user->getDialect())) {
+          doConversion = false;
+        }
+      }
+
+      if (Operation *op = val.getDefiningOp()) {
+        if (isa<mlir::stablehlo::StablehloDialect>(op->getDialect())) {
+          doConversion = false;
+        }
+      }
+
+      if (!doConversion) {
+        newTypes.push_back(val.getType());
         continue;
       }
-      operand.setType(newType);
+
+      Type newType = converter.convertType(val.getType());
+      if (!newType) {
+        return false;
+      }
+      newTypes.push_back(newType);
+      if (val.getType() == newType) {
+        continue;
+      }
+      val.setType(newType);
       updated = true;
+      // for (auto [operand, newType] : llvm::zip_equal(valueRange, newTypes)) {
+      //   if (operand.getType() == newType) {
+      //     continue;
+      //   }
+      //   operand.setType(newType);
+      //   updated = true;
+      // }
     }
     return updated;
   }
@@ -39,14 +81,17 @@ public:
     if (!funcOp) {
       return false;
     }
-    SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
+    SmallVector<Type> inputTypes; //(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
-    for (Type &ty : inputTypes) {
-      ty = converter.convertType(ty);
-    }
+    // for (Type &ty : inputTypes) {
+    //   ty = converter.convertType(ty);
+    // }
     for (Type &ty : outputTypes) {
       ty = converter.convertType(ty);
     }
+
+    convertTypes(funcOp.getArguments(), inputTypes);
+
     auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
     if (funcOp.getFunctionType() == newType) {
       return false;
@@ -68,7 +113,8 @@ public:
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     // Skip if we're inside a GenericOp.
-    if (mlir::isa<GenericOp>(op->getParentOp())) {
+    if (mlir::isa<GenericOp>(op->getParentOp()) ||
+        isa<mlir::stablehlo::StablehloDialect>(op->getDialect())) {
       return failure();
     }
     bool updated = false;

@@ -144,6 +144,9 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   RankedTensorType ty = mlir::cast<RankedTensorType>(input.getType());
 
   // Get ttnn layout from the type
+  // if (!ty.getEncoding()) {
+  //   return std::nullopt;
+  // }
   TTNNLayoutAttr ttnnLayoutAttr = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
@@ -613,6 +616,7 @@ public:
     // we construct a ttnn layout attribute with default values:
     // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
+      getOperation()->dumpPretty();
       ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
@@ -633,6 +637,7 @@ public:
       }
     }
     {
+      getOperation()->dumpPretty();
       RewritePatternSet patterns(&getContext());
       // Takes all TTIR ops which have DPS operands
       // and rewrites its operands and result to have the correct layout

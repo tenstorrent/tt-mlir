@@ -14,6 +14,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include <stablehlo/dialect/StablehloOps.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
@@ -51,6 +52,15 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   for (auto operand : op->getOperands()) {
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+      uniqueName += "_";
+      llvm::raw_svector_ostream os(uniqueName);
+      llvm::interleave(tensorType.getShape(), os, "x");
+    }
+  }
+
+  for (auto result : op->getResults()) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
       uniqueName += "_";
       llvm::raw_svector_ostream os(uniqueName);
       llvm::interleave(tensorType.getShape(), os, "x");
@@ -96,10 +106,16 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Type> operandTypes;
   llvm::SmallVector<mlir::Value> convertedOperands;
 
+  mlir::stablehlo::RngBitGeneratorOp bitgen;
+  if (isa<mlir::stablehlo::RngBitGeneratorOp>(opToHoist)) {
+    bitgen = cast<mlir::stablehlo::RngBitGeneratorOp>(opToHoist);
+  }
+  (void)bitgen;
   for (auto operand : opToHoist->getOperands()) {
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      if (!tensorType.getElementType().isF32()) {
+      if (isa<FloatType>(tensorType.getElementType()) &&
+          !tensorType.getElementType().isF32()) {
         // Create f32 version of tensor type
         auto f32TensorType = RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding());
@@ -125,7 +141,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Type> resultTypes;
   for (auto result : opToHoist->getResultTypes()) {
     if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
-      if (!tensorType.getElementType().isF32()) {
+      if (isa<FloatType>(tensorType.getElementType()) &&
+          !tensorType.getElementType().isF32()) {
         resultTypes.push_back(RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding()));
       } else {
@@ -186,7 +203,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        if (!tensorType.getElementType().isF32()) {
+        if (isa<FloatType>(tensorType.getElementType()) &&
+            !tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
           operand.setType(newType);
@@ -198,7 +216,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        if (!tensorType.getElementType().isF32()) {
+        if (isa<FloatType>(tensorType.getElementType()) &&
+            !tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
           result.setType(newType);
@@ -293,8 +312,11 @@ public:
 
   TTIRHoistAnalyze(mlir::ModuleOp moduleOp) {
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name)) {
+      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name) ||
+          isa<mlir::stablehlo::StablehloDialect>(nestedOp->getDialect())) {
         llvm::SmallSet<mlir::Operation *, 4> opSet;
+        auto name = nestedOp->getName().getStringRef();
+        (void)name;
         opSet.insert(nestedOp);
         hoistedOps.push_back(opSet);
       }
@@ -319,6 +341,7 @@ public:
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
+    rootModule->print(llvm::outs());
 
     // We must run this transform on the root ModuleOp, since we are creating
     // new Op's within the root.

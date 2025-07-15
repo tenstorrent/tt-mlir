@@ -139,6 +139,7 @@ struct TTIRQuantDataTypeConversionPass
 
   void runOnOperation() final {
     MLIRContext *context = &getContext();
+    return;
 
     IntegerType targetIntType = getIntegerTypeFromBitWidth(
         context, targetBitWidth, getOperation()->getLoc());

@@ -44,17 +44,29 @@ struct ConvertStableHLOToTTIRPass
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
 
-    target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
+    // target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
     target.addIllegalDialect<mlir::sdy::SdyDialect>();
     target.addIllegalOp<mlir::tensor::EmptyOp>();
 
     target.addLegalDialect<mlir::quant::QuantDialect>();
+    // target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
     target.addLegalOp<mlir::func::CallOp>();
+
+    // target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+    //   for (auto operand : op->getOperands()) {
+    //     if (RankedTensorType type =
+    //     cast<RankedTensorType>(operand.getType())) {
+    //       if (type.getElementType().getIntOrFloatBitWidth() > 32) return
+    //       true;
+    //     }
+    //   }
+    //   return false;
+    // });
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -81,9 +93,11 @@ struct ConvertStableHLOToTTIRPass
     populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
 
     // Apply conversion.
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
+    ConversionConfig config;
+    config.allowPatternRollback = false;
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(patterns)))) {
+      // signalPassFailure();
       return;
     }
   }

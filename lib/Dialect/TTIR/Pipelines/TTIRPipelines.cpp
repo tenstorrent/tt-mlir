@@ -26,6 +26,7 @@
 #include "ttmlir/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/conversions/linalg/transforms/Passes.h"
 #include "stablehlo/transforms/Passes.h"
 #include "stablehlo/transforms/optimization/Passes.h"
 #endif
@@ -124,6 +125,7 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
+  cpuPm.addPass(mlir::stablehlo::createStablehloLegalizeToLinalgPass());
   cpuPm.addPass(createConvertTTIRToLinalgPass());
 
   // Lower Tosa to linalg/tensor/arith, which we can lower to LLVM.
