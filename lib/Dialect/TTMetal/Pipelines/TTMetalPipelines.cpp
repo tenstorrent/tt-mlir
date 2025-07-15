@@ -132,6 +132,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   pm.addPass(tt::createConvertTTIRToTTMetalPass());
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
