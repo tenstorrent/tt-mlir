@@ -116,6 +116,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttkernel::createTTKernelControlDstSection());
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
   pm.addPass(ttmetal::createApplyHostMemrefCallingConventionPass());
