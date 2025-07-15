@@ -157,7 +157,7 @@ install(
 )
 
 # `tt_metal` directory is installed with two commands, since we need special handling of `third_party` directory.
-# We only need `tt_llk_*" and `umd` files from `third_party` directory.
+# We only need `tt_llk" and `umd` files from `third_party` directory.
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
@@ -175,7 +175,7 @@ install(
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
   FILES_MATCHING
-  REGEX "third_party/tt_llk_*"
+  REGEX "third_party/tt_llk/"
   REGEX "third_party/umd/"
 )
 
