@@ -38,3 +38,11 @@ table ReduceScatterOp {
   cluster_axis: uint32;
   num_links: uint32;
 }
+
+table PointToPointOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  send_coord: [uint32];
+  receive_coord: [uint32];
+  accum_tensor: tt.target.ttnn.TensorRef;
+}
