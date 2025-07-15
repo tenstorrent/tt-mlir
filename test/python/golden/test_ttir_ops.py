@@ -329,7 +329,6 @@ def get_dimension_size(
     return builder.get_dimension_size(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -2013,28 +2012,28 @@ def test_hoisted_transpose(shapes_and_dims, request, target: str):
 
 unary_ops = [
     exp,
-    expm1 | Marks(pytest.mark.skip_target("ttmetal")),
+    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor | Marks(pytest.mark.fails_golden),
     abs,
     neg,
-    sign | Marks(pytest.mark.skip_target("ttmetal")),
+    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
     cos,
     sin,
-    atan | Marks(pytest.mark.skip_target("ttmetal")),
-    tanh | Marks(pytest.mark.skip_target("ttmetal")),
-    relu | Marks(pytest.mark.skip_target("ttmetal")),
-    gelu | Marks(pytest.mark.skip_target("ttmetal")),
-    leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
-    cbrt | Marks(pytest.mark.skip_target("ttmetal")),
+    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     sigmoid | Marks(pytest.mark.fails_golden),
     reciprocal,
-    is_finite | Marks(pytest.mark.skip_target("ttmetal")),
-    ceil | Marks(pytest.mark.fails_golden),
-    sum | Marks(pytest.mark.skip_target("ttmetal")),
-    mean | Marks(pytest.mark.skip_target("ttmetal")),
-    max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    min | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    get_dimension_size | Marks(pytest.mark.skip_target("ttmetal")),
+    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
+    ceil | Marks(pytest.mark.skip_config(["ttmetal", "p150"])),
+    sum | Marks(pytest.mark.skip_config(["ttmetal"])),
+    mean | Marks(pytest.mark.skip_config(["ttmetal"])),
+    max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
+    min | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
+    get_dimension_size | Marks(pytest.mark.skip_config(["ttmetal"])),
 ]
 
 
@@ -2067,19 +2066,19 @@ def test_unary_ops(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.skip_target("ttmetal")),
-        ne | Marks(pytest.mark.skip_target("ttmetal")),
-        le | Marks(pytest.mark.skip_target("ttmetal")),
-        lt | Marks(pytest.mark.skip_target("ttmetal")),
-        ge | Marks(pytest.mark.skip_target("ttmetal")),
-        gt | Marks(pytest.mark.skip_target("ttmetal")),
-        remainder | Marks(pytest.mark.skip_target("ttmetal")),
+        eq | Marks(pytest.mark.skip_config(["ttmetal"])),
+        ne | Marks(pytest.mark.skip_config(["ttmetal"])),
+        le | Marks(pytest.mark.skip_config(["ttmetal"])),
+        lt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        ge | Marks(pytest.mark.skip_config(["ttmetal"])),
+        gt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
         maximum,
-        minimum | Marks(pytest.mark.skip_target("ttmetal")),
-        matmul | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_and | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_or | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_xor | Marks(pytest.mark.skip_target("ttmetal")),
+        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(
