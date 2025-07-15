@@ -187,6 +187,7 @@ void createTTIRToTTMetalBackendPipeline(
   if (options.insertProfilerTraces) {
     pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
   }
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::emitc::createFormExpressionsPass());

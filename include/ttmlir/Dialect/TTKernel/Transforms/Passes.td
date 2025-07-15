@@ -24,5 +24,12 @@ def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::M
   }];
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttkernel::TTKernelDialect"];
 }
+def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::ModuleOp"> {
+  let summary = "Hoist inits";
+  let description = [{
+    Analyze the graph and maximally hoist init ops to respective loop nests.
+  }];
+  let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
+}
 
 #endif
