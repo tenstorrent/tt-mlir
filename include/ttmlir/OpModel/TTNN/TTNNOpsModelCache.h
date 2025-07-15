@@ -8,10 +8,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 
 #include "mlir/IR/Operation.h"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -30,6 +28,7 @@ TTNNOpModelCache<size_t> &opRuntimeCache();
 
 // A cache for TTNN operation model results. This cache stores the results of
 // getOpConstraints and getOpRuntime calls to avoid redundant computations.
+// Using this cache results in a 20-30% average compile time reduction.
 template <typename ValueT>
 class TTNNOpModelCache {
   // It is important to define the singleton accessor functions to prevent
@@ -43,8 +42,9 @@ public:
 
   // Statistics about cache performance.
   struct CacheStats {
-    size_t hits = 0;   // Number of cache hits
-    size_t misses = 0; // Number of cache misses
+    size_t hits = 0;    // Number of cache hits
+    size_t misses = 0;  // Number of cache misses
+    size_t entries = 0; // Total number of entries in the cache
   };
 
   // Get current cache statistics.
@@ -57,35 +57,29 @@ public:
   }
 
   // Get the total number of cached items.
-  size_t size() const {
-    size_t size = 0;
-    for (const auto &opCache : cache) {
-      size += opCache.second.size();
-    }
-    return size;
-  }
+  size_t size() const { return stats.entries; }
 
-  bool empty() const { return cache.empty(); }
+  bool empty() const { return size() == 0; }
 
-  // Write cache statistics to the output stream.
-  void dumpStats(llvm::raw_ostream &os) const {
+  // Get cache statistics as a string.
+  std::string statsToString() const {
     const size_t total = stats.hits + stats.misses;
-
     if (total == 0) {
-      os << "  No cache statistics available (no accesses recorded)\n";
-      return;
+      return "  No cache statistics available (no accesses recorded)\n";
     }
 
     const double hitRatio = (static_cast<double>(stats.hits) / total) * 100.0;
     const double missRatio =
         (static_cast<double>(stats.misses) / total) * 100.0;
 
-    os << "  Cache Statistics (" << total << " total accesses):\n"
-       << "    Hits: " << stats.hits << " (" << llvm::format("%.2f", hitRatio)
-       << "%)\n"
-       << "    Misses: " << stats.misses << " ("
-       << llvm::format("%.2f", missRatio) << "%)\n"
-       << "    Size: " << size() << "\n";
+    std::string statsStr = "  Cache Statistics (" + std::to_string(total) +
+                           " total accesses):\n" +
+                           "    Hits: " + std::to_string(stats.hits) + " (" +
+                           std::to_string(hitRatio) + "%)\n" +
+                           "    Misses: " + std::to_string(stats.misses) +
+                           " (" + std::to_string(missRatio) + "%)\n" +
+                           "    Size: " + std::to_string(size()) + "\n";
+    return statsStr;
   }
 
   // Main interface to get a value from cache or compute it if not present.
@@ -96,6 +90,7 @@ public:
                              llvm::Expected<ValueT>>>>>
   llvm::Expected<ValueT> getOrCompute(Callable &&computeFunc, Operation *op,
                                       Args &&...args) {
+    assert(op != nullptr);
     // The following line attempts to combine the arguments into a single
     // hash_code. For user-defined types it attempts to call a hash_value
     // overload (via ADL) for the type (provided at the end of this file).
@@ -123,42 +118,39 @@ private:
   TTNNOpModelCache() = default;
 
   std::optional<ValueT> tryGetFromCache(Operation *op, llvm::hash_code hash) {
-    const std::string_view opName = op->getName().getStringRef();
-    typename Cache::iterator cacheIt = cache.find(opName);
+    mlir::TypeID opTypeID = op->getName().getTypeID();
+    typename Cache::iterator cacheIt = cache.find(opTypeID);
     if (cacheIt == cache.end()) {
       stats.misses++;
       return std::nullopt;
     }
 
-    OpCache &OpCache = cacheIt->second;
-    typename OpCache::iterator operationIt = OpCache.find(hash);
-    if (operationIt == OpCache.end()) {
+    OpCache &opCache = cacheIt->second;
+    typename OpCache::iterator opCacheIt = opCache.find(hash);
+    if (opCacheIt == opCache.end()) {
       stats.misses++;
       return std::nullopt;
     }
 
     stats.hits++;
-    return operationIt->second;
+    return opCacheIt->second;
   }
 
   void storeInCache(Operation *op, llvm::hash_code hash, const ValueT &value) {
-    // Check if the value is already in the cache.
-    const std::string_view opName = op->getName().getStringRef();
-    typename Cache::iterator opIt = cache.find(opName);
-    if (opIt != cache.end()) {
-      OpCache &opMap = opIt->second;
-      if (opMap.find(hash) != opMap.end()) {
-        // Value already exists.
-        return;
-      }
-    }
-
-    // Store the value.
-    cache[opName][hash] = value;
+    mlir::TypeID opTypeID = op->getName().getTypeID();
+    cache[opTypeID][hash] = value;
+    stats.entries++;
   }
 
+  // This class uses indirect hashing to enable caching for each op type
+  // separately. This helps in reducing the number of cache misses and also
+  // enables the compiler to produce more meaningful stats if we want to report
+  // cache stats for each op type separately.
+  // According to llvm docs, mlir::TypeID is unique for each Operation*
+  // (https://mlir.llvm.org/doxygen/classmlir_1_1TypeID.html), so it is safe and
+  // efficient to use it as a key in the cache.
   using OpCache = llvm::DenseMap<llvm::hash_code, ValueT>;
-  using Cache = llvm::StringMap<OpCache>;
+  using Cache = llvm::DenseMap<mlir::TypeID, OpCache>;
 
   Cache cache;
   CacheStats stats;

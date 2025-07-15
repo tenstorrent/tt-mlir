@@ -15,6 +15,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
+
 #include <cstdint>
 
 namespace mlir::tt::ttnn {
@@ -638,6 +639,7 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
   op.setKeepDim(true);
   op.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
+
   // Test operation constraints
   auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
   if (constraintsExp) {

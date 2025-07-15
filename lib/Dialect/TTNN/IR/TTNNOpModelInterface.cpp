@@ -14,7 +14,6 @@
 
 #include "mlir/IR/Operation.h"
 
-#include "llvm/ADT/Hashing.h"
 #include <cassert>
 #include <cstdint>
 #include <optional>
@@ -716,9 +715,10 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
-  return op_model::ttnn::LinearOpInterface::getOpConstraints(
-      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape,
-      biasLayout, outputShape, opConfig.outputLayout, false, false);
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::LinearOpInterface::getOpConstraints, *this, deviceGrid,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
+      outputShape, opConfig.outputLayout, false, false);
 }
 
 llvm::Expected<size_t>
@@ -739,9 +739,10 @@ LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto outputShape = getType().getShape();
 
-  return op_model::ttnn::LinearOpInterface::getOpRuntime(
-      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      outputShape, opConfig.outputLayout, false, false);
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::LinearOpInterface::getOpRuntime, *this, inputShapeA,
+      inputs[0], inputShapeB, inputs[1], biasShape, biasLayout, outputShape,
+      opConfig.outputLayout, false, false);
 }
 
 //===----------------------------------------------------------------------===//
