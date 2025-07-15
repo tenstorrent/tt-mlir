@@ -500,7 +500,6 @@ jobs:
     - name: Install tt-alchemist wheel
       shell: bash
       run: |
-        pwd
         python3 -m venv testenv
         source testenv/bin/activate
         pip install tt_alchemist-*.whl --force-reinstall
@@ -509,16 +508,12 @@ jobs:
     - name: Run tt-alchemist API test - model-to-cpp
       shell: bash
       run: |
-        pwd
-        ls -lahF
         source testenv/bin/activate
         tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
 
     - name: Run tt-alchemist API test - generate
       shell: bash
       run: |
-        pwd
-        ls -lahF
         source testenv/bin/activate
         rm -rf /tmp/test-mlir
         tt-alchemist generate tools/tt-alchemist/test/models/mnist.mlir /tmp/test-mlir
