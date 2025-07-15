@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_GSPMDUTILS_H
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdefaulted-function-deleted"
@@ -33,18 +33,30 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module);
 // Check if the module has any gspmd annotations.
 bool gspmdAnnotationsExist(mlir::ModuleOp &module);
 
-class GSPMDMeshSharding : public mesh_sharding_utils::MeshSharding {
+// Update @Sharding custom call with the shard status for the argument.
+void updateShardStatusForArgument(MLIRContext *context,
+                                  mlir::BlockArgument &arg,
+                                  mlir::NamedAttribute shardStatusNamedAttr);
+
+// Update @Sharding custom call with the shard status for the result.
+void updateShardStatusForResult(MLIRContext *context, func::FuncOp &funcOp,
+                                uint32_t resultIdx,
+                                mlir::NamedAttribute shardStatusNamedAttr);
+
+class GSPMDMeshSharding : public sharding_utils::MeshSharding {
 public:
-  // Static factory method
+  // Static factory methods
+  static llvm::Expected<GSPMDMeshSharding> generateDefault();
   static llvm::Expected<GSPMDMeshSharding>
   generate(llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr,
-           mlir::tt::ttcore::ShardStatus shardStatus);
+           mlir::tt::ttcore::ShardStatus shardStatus,
+           mlir::tt::ttcore::MeshShardDirection shardDirection);
   GSPMDMeshSharding(mlir::tt::ttcore::MeshShardDirection shardDirection,
                     mlir::tt::ttcore::MeshShardType shardType,
-                    llvm::ArrayRef<int64_t> shardShape,
-                    llvm::ArrayRef<int64_t> shardDims,
-                    llvm::ArrayRef<int64_t> meshShape,
-                    llvm::ArrayRef<int64_t> deviceIds,
+                    llvm::SmallVector<int64_t> shardShape,
+                    llvm::SmallVector<int64_t> shardDims,
+                    llvm::SmallVector<int64_t> meshShape,
+                    llvm::SmallVector<int64_t> deviceIds,
                     mlir::tt::ttcore::ShardStatus shardStatus,
                     llvm::StringRef opShardingStr,
                     std::string operandShardingStr, bool lastTileDimReplicate)

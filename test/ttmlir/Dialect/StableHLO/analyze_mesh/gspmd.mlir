@@ -31,3 +31,13 @@ module {
     return %4 : tensor<1x1x8192x512xf32>
   }
 }
+
+// -----
+
+// CHECK-LABEL: module {
+module {
+  // CHECK: sdy.mesh @mesh = <["x"=1, "y"=1]>
+  func.func public @main(%arg0: tensor<ui8> {mhlo.sharding = "{replicated}"}) -> (tensor<ui8> {jax.result_info = "result"}) {
+    return %arg0 : tensor<ui8>
+  }
+}

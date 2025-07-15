@@ -326,6 +326,15 @@ public:
     // Check if the graph is already solved by shardy. If so, we will remove
     // all sdy tensor shardings from the arguments and results.
     if (shardy_utils::isGraphSolved(rootModule)) {
+      // Run conversion pattern to convert all sdy ccl operations into stablehlo
+      // ccl operations
+      if (failed(convertShardyCCLToStableHLOCCL(context, rootModule))) {
+        rootModule.emitError(
+            "Could not convert shardy ccl ops into stablehlo ccl ops.\n");
+        signalPassFailure();
+        return;
+      }
+
       rootModule.walk([&](func::FuncOp funcOp) {
         shardy_utils::removeSdyTensorShardings(context, funcOp);
       });
