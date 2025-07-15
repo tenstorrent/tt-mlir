@@ -96,7 +96,7 @@ bool ShardSolver::resolveStep() {
   }
 
   for (const auto &shardSpec : *shardSpecs) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resolving constraints for: {}", shardSpec.op->getName());
 
     Operation *consumerOp = shardSpec.op;
@@ -356,7 +356,9 @@ bool ShardSolver::preprocessFirstOp() {
     // https://github.com/tenstorrent/tt-mlir/issues/3749
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Interleaved to sharded not possible for config idx {}", i);
+                   "Interleaved to sharded not possible for config idx {} "
+                   "\n\tlayout: {}",
+                   i, firstOpLayout);
       // Invalidate this config.
       firstOpBitset->reset(i);
       continue;
@@ -485,6 +487,9 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   if (!validConfigExists) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resharding failed for edge: {}", edge);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "=== Debug start ===");
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Input layouts: {}",
+                 inputLayouts.size());
     for ([[maybe_unused]] auto &layout : inputLayouts) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}", layout);
     }
@@ -504,6 +509,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}", layout);
       }
     }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "=== End of debug dump ===");
 
     earlyExit = true;
     return false;
@@ -878,8 +884,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
 
-  bool l1UsageValid = (producerL1OutputUsage + outputTensorUsage +
-                       cBUsagePeak) < tensorL1UsageCap * usableL1CacheSize;
+  bool l1UsageValid = (producerL1OutputUsage + tensorUsage + cBUsagePeak) <
+                      tensorL1UsageCap * usableL1CacheSize;
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
