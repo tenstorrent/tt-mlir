@@ -15,4 +15,12 @@ def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::Mod
   let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
+def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::ModuleOp"> {
+  let summary = "Hoist inits";
+  let description = [{
+    Analyze the graph and maximally hoist init ops to respective loop nests.
+  }];
+  let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
+}
+
 #endif
