@@ -143,7 +143,8 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
   // Step 1: Run AllPossibleLayoutsAnalysis
   auto scalarTypes = createScalarTypeSet();
   auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
-  AllPossibleLayoutsAnalysisInput allLayoutsInput(gridAttr, &scalarTypes, true);
+  AllPossibleLayoutsAnalysisInput allLayoutsInput(gridAttr, &scalarTypes,
+                                                  /*rowMajorAllowed=*/true);
   AllPossibleLayoutsAnalysis allLayoutsAnalysis(module.get());
   allLayoutsAnalysis.init(allLayoutsInput);
   auto allLayoutsResult = allLayoutsAnalysis.getResult();
@@ -171,9 +172,10 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
       // Verify that layouts are not empty
       EXPECT_FALSE(layoutsForTensor.empty());
       // Step 3: Run LegalLayoutAnalysis for this tensor type
-      LegalLayoutAnalysisInput legalLayoutsInput(&layoutsForTensor,
-                                                 maxShardedConfigs, nullptr,
-                                                 nullptr, rowMajorEnabled);
+      LegalLayoutAnalysisInput legalLayoutsInput(
+          &layoutsForTensor, maxShardedConfigs,
+          /*outputLayoutOverrides=*/nullptr,
+          /*conv2dConfigOverrides=*/nullptr, rowMajorEnabled);
       LegalLayoutAnalysis legalLayoutsAnalysis(op);
       legalLayoutsAnalysis.init(legalLayoutsInput);
       auto legalLayoutsResult = legalLayoutsAnalysis.getResult();
@@ -187,9 +189,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
         const auto &layout = opConfig.outputLayout;
 
         // Check RowMajor-specific constraints
-        if (!rowMajorEnabled) {
-          EXPECT_TRUE(layout.isTiled());
-        }
+        EXPECT_TRUE(rowMajorEnabled || layout.isTiled());
 
         // Count sharded layouts
         if (layout.hasShardedTensorMemoryLayout()) {
