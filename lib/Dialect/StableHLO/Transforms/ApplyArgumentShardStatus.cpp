@@ -42,11 +42,19 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
       }
     }
 
-    newArgAttrs.push_back(
-        {mlir::tt::ttcore::ShardStatusAttr::name,
-         mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)});
+    mlir::NamedAttribute shardStatusNamedAttr = {
+        mlir::tt::ttcore::ShardStatusAttr::name,
+        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
+    newArgAttrs.push_back(shardStatusNamedAttr);
     funcOp.setArgAttrs(arg.getArgNumber(),
                        mlir::DictionaryAttr::get(context, newArgAttrs));
+
+    // Update the shard status for the @Sharding custom call if it exists for
+    // this arg.
+    if (!shardyAnnotationsExist) {
+      gspmd_utils::updateShardStatusForArgument(context, arg,
+                                                shardStatusNamedAttr);
+    }
   }
 
   // Iterate through all the results and determine whether they are
@@ -70,11 +78,19 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
       }
     }
 
-    newResultAttrs.push_back(
-        {mlir::tt::ttcore::ShardStatusAttr::name,
-         mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)});
+    mlir::NamedAttribute shardStatusNamedAttr = {
+        mlir::tt::ttcore::ShardStatusAttr::name,
+        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
+    newResultAttrs.push_back(shardStatusNamedAttr);
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
+
+    // Update the shard status for the @Sharding custom call if it exists for
+    // this result.
+    if (!shardyAnnotationsExist) {
+      gspmd_utils::updateShardStatusForResult(context, funcOp, i,
+                                              shardStatusNamedAttr);
+    }
   }
 
   return mlir::success();

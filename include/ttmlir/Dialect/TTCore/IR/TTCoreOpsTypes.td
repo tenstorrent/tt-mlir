@@ -480,46 +480,18 @@ def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_TensorMeshShardingAxisAttr : TTCore_Attr<"TensorMeshShardingAxis", "tensor_sharding", []> {
-  let summary = "Tensor mesh sharding axis info attribute in TT dialect.";
+def TTCore_TensorMeshAttr : TTCore_Attr<"TensorMesh", "tensor_mesh", []> {
+  let summary = "Tensor mesh in TT dialect.";
   let description = [{
-    Details per tensor dimension sharding and axes info.
-    - shard_shape: shard shape at a tensor dimension.
-    - (optional) axes: mesh shard dimensions. Axes may be empty if it is not being sharded.
+    Describes what mesh a tensor lives on.
   }];
-  let parameters = (ins "int64_t":$shard_shape,
-                        OptionalArrayRefParameter<"int64_t">:$axes);
-  let assemblyFormat = "$shard_shape (`(`$axes^`)`)?";
-}
-
-def TTCore_TensorMeshShardingAttr : TTCore_Attr<"TensorMeshSharding", "mesh_sharding", []> {
-  let summary = "Tensor mesh sharding attribute in TT dialect.";
-  let description = [{
-    Describes a tensor's multi-device status.
-    - Single device tensor has no TensorMeshShardingAttr.
-        tensor<784x16384xf32>
-
-    - Multi-device tensors have TensorMeshShardingAttr.
-      (i) multi-device tensor without tensor mesh shard axis indicates all devices in "mesh"
-          have full size tensors e.g., 784x16384 for
-            tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh">>
-
-      (ii) multi-device tensor with tensor mesh shard axis indicate all devices in "mesh"
-          have sharded tensor defined by the TensorMeshShardingAxisAttr. e.g., 192x16384 for
-            tensor<784x16384xf32, #ttcore.mesh_sharding<"mesh", [ 4(1),  1]>>.
-          Here, 4(1) indicates shard_shape(shard_dim), so 784 should be sharded by 4
-          at "mesh"'s second hardware dimension. 1 indicates no sharding, so 16384 is not
-          being sharded.
-  }];
-  let parameters = (ins "StringAttr":$name,
-                        OptionalArrayRefParameter<"TensorMeshShardingAxisAttr">:$tensor_mesh_sharding_axis);
-  let assemblyFormat = "`<` $name (`,` `[` $tensor_mesh_sharding_axis^ `]` )? `>`";
+  let parameters = (ins "StringAttr":$name);
+  let assemblyFormat = "`<` $name `>`";
 
   let extraClassDeclaration = [{
-      static TensorMeshShardingAttr get(::mlir::MLIRContext *context, StringRef name) {
+      static TensorMeshAttr get(::mlir::MLIRContext *context, StringRef name) {
         auto meshNameStrAttr = mlir::StringAttr::get(context, name);
-        ::llvm::SmallVector<TensorMeshShardingAxisAttr> tensor_mesh_sharding_axis;
-        return TensorMeshShardingAttr::get(context, meshNameStrAttr, tensor_mesh_sharding_axis);
+        return TensorMeshAttr::get(context, meshNameStrAttr);
       }
   }];
 }
