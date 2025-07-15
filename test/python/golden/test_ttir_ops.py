@@ -518,14 +518,13 @@ def div(
     in0: Operand,
     in1: Operand,
     builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    dividend_tensor = torch.randn(shape, dtype=dtype)
-    divisor_tensor = torch.randn(shape, dtype=dtype)
-    dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
-    divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
+    dividend_tensor = builder._get_golden_tensor(in0)
+    divisor_tensor = builder._get_golden_tensor(in1)
+    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(divisor_tensor):
+        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
+        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
     output_golden = torch.div(dividend_tensor, divisor_tensor)
     builder.set_graph_input_output(
         [dividend_tensor, divisor_tensor], [output_golden], override=True
@@ -539,16 +538,8 @@ def div(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
-    def div_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return div(in0, in1, builder, shape, dtype, unit_attrs)
-
     compile_to_flatbuffer(
-        div_wrapper,
+        div,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -568,7 +559,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return div(in0, in1, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+        return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
 
     compile_to_flatbuffer(
         hoisted_div_wrapper,
@@ -632,12 +623,10 @@ def pow(
     in0: Operand,
     in1: Operand,
     builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    randn_base_tensor = torch.randn(shape, dtype=dtype)
-    randn_exponent_tensor = torch.randn(shape, dtype=dtype)
+    randn_base_tensor = builder._get_golden_tensor(in0)
+    randn_exponent_tensor = builder._get_golden_tensor(in1)
     if torch.is_floating_point(randn_exponent_tensor):
         randn_base_tensor = torch.abs(randn_base_tensor)
     output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
@@ -652,16 +641,8 @@ def pow(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
-    def pow_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return pow(in0, in1, builder, shape, dtype, unit_attrs)
-
     compile_to_flatbuffer(
-        pow_wrapper,
+        pow,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -2161,7 +2142,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
@@ -2294,7 +2275,7 @@ def slice(
 )
 def test_slice(
     shape: Shape, begins: List[int], ends: List[int], step: List[int], request
-):
+):    
     def slice_op(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
