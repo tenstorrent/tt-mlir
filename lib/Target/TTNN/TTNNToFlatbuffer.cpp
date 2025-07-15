@@ -133,7 +133,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
   // Set meshShape to {1, 1} for single device tensor.
   std::vector<int32_t> meshShape = {1, 1};
-  if (layoutAttr.getTensorMeshSharding()) {
+  if (layoutAttr.getTensorMesh()) {
     meshShape.clear();
     // Set meshShape to {x, y} for multi device tensor.
     auto meshShapeInt64 = deviceAttr.getMeshShape();
@@ -322,9 +322,7 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
         distribution);
   };
 
-  // Skip single device tensors if it includes TensorMeshShardingAttr.
-  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
-  if (!deviceValue || !layoutAttr.isMeshDeviceTensor()) {
+  if (!deviceValue) {
     return noneDistributionStrategy();
   }
 
