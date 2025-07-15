@@ -118,6 +118,7 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
   list<Option> options = [
         ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
         Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+        ListOption<"matmulBlockFactors", "matmul-block-factors", "int64_t", "Override the block factors for matmul in M,N,K order. Use 0 if you want the algorithm to determine those values. i.e. 0,0,8 to set the k block factor to 8, and let Optimize Tensor Layout handle M,N.">
     ];
 }
 

@@ -57,6 +57,13 @@ struct TTIRToTTMetalPipelineOptions
           "maps and iterator types. The interchange indices here always "
           "correspond to the innermost 3 dims.")};
 
+  ListOption<int64_t> matmulBlockFactors{
+      *this, "matmul-block-factors",
+      llvm::cl::desc(
+          "Override the block factors for matmul in M,N,K order. Use 0 if you "
+          "want the algorithm to determine those values. i.e. 0,0,8 to set the "
+          "k block factor to 8, and let Optimize Tensor Layout handle M,N.")};
+
   // Option to control whether generic conversion uses 'tile_matmul'
   // (default) or 'tile_matmul_block'.
   //

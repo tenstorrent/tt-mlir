@@ -52,6 +52,7 @@ def test_matmul_ttnn(
     options = [
         f"max-dst-register-size-tiles={dst_register_size_tiles}",
         f"matmul-interchange=2,0,1",
+        f"matmul-block-factors=0,0,{shape[1] // 32 // 8 }",  # divide by tile size and grid shape to get k block factor. this simulates shard shape of k
     ]
     compile_to_flatbuffer(
         matmul_blocking,

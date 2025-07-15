@@ -75,6 +75,8 @@ void createTTIRToTTMetalFrontendPipeline(
         llvm::to_vector(options.overrideDeviceShape);
     optimizeTensorLayoutOptions.maxDstRegisterSizeTiles =
         options.maxDstRegisterSizeTiles;
+    optimizeTensorLayoutOptions.matmulBlockFactors =
+        llvm::to_vector(options.matmulBlockFactors);
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
