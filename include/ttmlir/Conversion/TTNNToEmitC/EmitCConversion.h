@@ -50,6 +50,8 @@ struct CoreCoord;
 struct DataType;
 struct TensorMemoryLayout;
 struct Layout;
+struct MemoryConfig;
+struct BufferType;
 
 namespace types {
 struct ShardOrientation;
@@ -271,6 +273,21 @@ struct TypeName<::ttnn::TensorMemoryLayout> {
 template <>
 struct TypeName<::ttnn::Layout> {
   inline static const std::string value = "::ttnn::Layout";
+};
+
+template <>
+struct TypeName<::ttnn::MemoryConfig> {
+  inline static const std::string value = "::ttnn::MemoryConfig";
+};
+
+template <>
+struct TypeName<::ttnn::BufferType> {
+  inline static const std::string value = "::ttnn::BufferType";
+};
+
+template <>
+struct TypeName<::ttnn::Shape> {
+  inline static const std::string value = "::ttnn::Shape";
 };
 
 template <>
@@ -656,6 +673,72 @@ struct EmitCTypeConverter<::ttnn::Layout> {
       rso << "INVALID";
       break;
     }
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::BufferType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto bufferTypeAttr =
+            mlir::dyn_cast_if_present<ttnn::BufferTypeAttr>(attr)) {
+      return convert(bufferTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::BufferTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::BufferType attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::BufferType> << "::";
+    switch (attr) {
+    case ttnn::BufferType::DRAM:
+      rso << "DRAM";
+      break;
+    case ttnn::BufferType::L1:
+      rso << "L1";
+      break;
+    case ttnn::BufferType::L1Small:
+      rso << "L1_SMALL";
+      break;
+    case ttnn::BufferType::SystemMemory:
+      rso << "SYSTEM_MEMORY";
+      break;
+    case ttnn::BufferType::Trace:
+      rso << "TRACE";
+      break;
+    }
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::Shape> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shapeAttr = mlir::dyn_cast_if_present<ttnn::ShapeAttr>(attr)) {
+      return convert(shapeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShapeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    auto shape = attr.getShape();
+    rso << TypeNameV<::ttnn::Shape> << "({";
+    llvm::interleaveComma(shape, rso);
+    rso << "})";
 
     return buf;
   }
@@ -1007,6 +1090,36 @@ struct EmitCTypeConverter<std::optional<T>> {
 };
 
 template <>
+struct EmitCTypeConverter<::ttnn::MemoryConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto memoryConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::MemoryConfigAttr>(attr)) {
+      return convert(memoryConfigAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::MemoryConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::MemoryConfig> << "{";
+    rso << EmitCTypeConverter<::ttnn::TensorMemoryLayout>::convert(
+               attr.getTensorMemoryLayout())
+        << ", ";
+    rso << EmitCTypeConverter<::ttnn::BufferType>::convert(attr.getBufferType())
+        << ", ";
+    rso << EmitCTypeConverter<std::optional<::ttnn::ShardSpec>>::convert(
+        attr.getShardSpec());
+    rso << "}";
+    return buf;
+  }
+};
+
+template <>
 struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto conv2dConfigAttr =
@@ -1112,108 +1225,75 @@ struct TTNNTarget<llvm::APFloat> {
   using type = float;
 };
 
-inline std::string convert(ttnn::ShapeAttr attr) {
-  if (!attr) {
-    return "::std::nullopt";
-  }
+template <>
+struct TTNNTarget<tt::ttnn::ShapeAttr> {
+  using type = ::ttnn::Shape;
+};
 
-  std::string buf;
-  llvm::raw_string_ostream rso(buf);
+template <>
+struct TTNNTarget<tt::ttcore::DataType> {
+  using type = ::ttnn::DataType;
+};
 
-  auto shape = attr.getShape();
-  rso << "::ttnn::Shape({";
-  llvm::interleaveComma(shape, rso);
-  rso << "})";
+template <>
+struct TTNNTarget<ttcore::DataTypeAttr> {
+  using type = ::ttnn::DataType;
+};
 
-  return buf;
-}
+template <>
+struct TTNNTarget<tt::ttnn::BufferType> {
+  using type = ::ttnn::BufferType;
+};
 
-inline std::string convert(ttcore::DataType attr) {
-  // TODO (azecevic): Will be deprecated!
-  // https://github.com/tenstorrent/tt-mlir/issues/3635
-  return EmitCTypeConverter<::ttnn::DataType>::convert(attr);
-}
+template <>
+struct TTNNTarget<tt::ttnn::BufferTypeAttr> {
+  using type = ::ttnn::BufferType;
+};
 
-inline std::string convert(ttcore::DataTypeAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
+template <>
+struct TTNNTarget<tt::ttnn::Layout> {
+  using type = ::ttnn::Layout;
+};
 
-  return convert(attr.getValue());
-}
+template <>
+struct TTNNTarget<tt::ttnn::LayoutAttr> {
+  using type = ::ttnn::Layout;
+};
 
-inline std::string convert(ttnn::Layout attr) {
-  // TODO (azecevic): Will be deprecated!
-  // https://github.com/tenstorrent/tt-mlir/issues/3635
-  return EmitCTypeConverter<::ttnn::Layout>::convert(attr);
-}
+template <>
+struct TTNNTarget<tt::ttnn::ShardSpecAttr> {
+  using type = ::ttnn::ShardSpec;
+};
 
-inline std::string convert(ttnn::LayoutAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
+template <>
+struct TTNNTarget<tt::ttnn::CoreRangeAttr> {
+  using type = ::ttnn::CoreRange;
+};
 
-  return convert(attr.getValue());
-}
+template <>
+struct TTNNTarget<tt::ttnn::CoreRangeSetAttr> {
+  using type = ::ttnn::CoreRangeSet;
+};
 
-inline std::string convert(ttnn::TensorMemoryLayout attr) {
-  // TODO (azecevic): Will be deprecated!
-  // https://github.com/tenstorrent/tt-mlir/issues/3635
-  return EmitCTypeConverter<::ttnn::TensorMemoryLayout>::convert(attr);
-}
+template <>
+struct TTNNTarget<tt::ttnn::TensorMemoryLayout> {
+  using type = ::ttnn::TensorMemoryLayout;
+};
 
-inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
-  // TODO (azecevic): There is a dissonance between the way we model
-  // TensorMemoryLayout in TTNN dialect and TTNN library. This should be fixed
-  // with https://github.com/tenstorrent/tt-mlir/issues/2521. For now, we
-  // default to Interleaved, which is default value in TTNN library.
-  if (!attr) {
-    return convert(ttnn::TensorMemoryLayout::Interleaved);
-  }
+template <>
+struct TTNNTarget<tt::ttnn::TensorMemoryLayoutAttr> {
+  using type = ::ttnn::TensorMemoryLayout;
+};
 
-  return convert(attr.getValue());
-}
+template <>
+struct TTNNTarget<tt::ttnn::MemoryConfigAttr> {
+  using type = ::ttnn::MemoryConfig;
+};
 
-inline std::string convert(ttnn::BufferType attr) {
-  switch (attr) {
-  case ttnn::BufferType::DRAM:
-    return "::ttnn::BufferType::DRAM";
-  case ttnn::BufferType::L1:
-    return "::ttnn::BufferType::L1";
-  case ttnn::BufferType::L1Small:
-    return "::ttnn::BufferType::L1_SMALL";
-  case ttnn::BufferType::SystemMemory:
-    return "::ttnn::BufferType::SYSTEM_MEMORY";
-  case ttnn::BufferType::Trace:
-    return "::ttnn::BufferType::TRACE";
-  }
-
-  llvm_unreachable("Unknown ttnn::BufferType");
-}
-
-inline std::string convert(ttnn::BufferTypeAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  return convert(attr.getValue());
-}
-
-inline std::string convert(ttnn::MemoryConfigAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  std::string buf;
-  llvm::raw_string_ostream rso(buf);
-  rso << "::ttnn::MemoryConfig{";
-  rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType()) << ", ";
-  rso << EmitCTypeConverter<std::optional<::ttnn::ShardSpec>>::convert(
-      attr.getShardSpec());
-  rso << "}";
-  return buf;
-}
+template <>
+struct TTNNTarget<tt::ttnn::Conv2dConfigAttr> {
+  using type = ::ttnn::operations::conv::conv2d::Conv2dConfig;
+};
 
 template <typename T>
 struct IsMLIRType {
@@ -1235,39 +1315,6 @@ public:
 
   EmitCTTNNEmitter(const EmitCTTNNEmitter &) = delete;
   EmitCTTNNEmitter &operator=(const EmitCTTNNEmitter &) = delete;
-
-  mlir::Attribute emit(tt::ttnn::ShapeAttr attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(ttcore::DataType attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(ttcore::DataTypeAttr attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(
-        tt::ttnn_to_emitc::convert(attr));
-  }
-
-  mlir::Attribute emit(tt::ttnn::Layout attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(tt::ttnn::LayoutAttr attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(ttnn::TensorMemoryLayout attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(ttnn::TensorMemoryLayoutAttr attr) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
-  }
-
-  mlir::Attribute emit(tt::ttnn::MemoryConfigAttr attr) {
-    return rewriter.getType<emitc::OpaqueAttr>(convert(attr));
-  }
 
   template <typename TargetTy = void, typename SourceTy>
   mlir::Attribute emit(std::optional<SourceTy> attr) {
@@ -1322,6 +1369,27 @@ public:
       return rewriter.getType<emitc::OpaqueAttr>(
           "static_cast<" + TypeNameV<TargetTy> + " *>(nullptr)");
     }
+  }
+
+  // Handles the case when source type is convertible to `mlir::Attribute` and
+  // there exists a `TTNNTypeConverter` specialization for the TTNN target type
+  // of the attribute.
+  template <
+      typename MLIRAttrTy, typename = std::void_t<TTNNTargetT<MLIRAttrTy>>,
+      typename =
+          std::enable_if_t<std::is_convertible_v<MLIRAttrTy, mlir::Attribute>>>
+  mlir::Attribute emit(MLIRAttrTy attr) {
+    auto convertedValue =
+        EmitCTypeConverter<TTNNTargetT<MLIRAttrTy>>::convert(attr);
+
+    if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
+      return rewriter.getType<emitc::OpaqueAttr>(convertedValue);
+    } else if (convertedValue) {
+      return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
+    }
+    // It's assumed that the conversion might fail, in which case the result
+    // will be `emitc::OpaqueAttr("::std::nullopt")`.
+    return emit(std::nullopt);
   }
 
   // Handles the case when source type is convertible to mlir::Attribute type
