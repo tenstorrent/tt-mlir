@@ -185,6 +185,7 @@ void createTTIRToTTMetalBackendPipeline(
     { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
     pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
   }
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
   if (options.insertProfilerTraces) {
