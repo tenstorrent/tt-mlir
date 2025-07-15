@@ -2710,4 +2710,77 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
   return walkResult.wasInterrupted() ? ::mlir::failure() : ::mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ConcatenateHeadsOp::verify() {
+  const ::mlir::RankedTensorType inputType = this->getInput().getType();
+  const ::mlir::RankedTensorType outputType = this->getResult().getType();
+
+  const ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  const ::mlir::tt::ttcore::DataType outputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
+
+  if (inputDataType != outputDataType) {
+    return emitOpError()
+           << "input and output tensors must have the same dtype, "
+           << "got input dtype = " << DataTypeEnumToString(inputDataType)
+           << ", output dtype = " << DataTypeEnumToString(outputDataType);
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  if (outputType.getRank() != 2 && outputType.getRank() != 3) {
+    return emitOpError() << "output tensor must be a 2D or 3D tensor";
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // If output is 2D, add dimension 1 at the beginning for comparison
+  llvm::SmallVector<int64_t> adjustedOutputShape;
+  if (outputType.getRank() == 2) {
+    adjustedOutputShape = {1, outputShape[0], outputShape[1]};
+  } else {
+    adjustedOutputShape = {outputShape[0], outputShape[1], outputShape[2]};
+  }
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
+  // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
+
+  // Verify batch_size dimension matches
+  if (inputShape[0] != adjustedOutputShape[0]) {
+    return emitOpError() << "input and output batch dimensions must match,"
+                            "got input batch size = "
+                         << inputShape[0]
+                         << ", output batch size = " << adjustedOutputShape[0];
+  }
+
+  // Verify sequence_size dimension matches
+  if (inputShape[2] != adjustedOutputShape[1]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[2]
+           << ", output sequence size = " << adjustedOutputShape[1];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize = inputShape[1] * inputShape[3];
+  if (expectedHiddenSize != adjustedOutputShape[2]) {
+    return emitOpError()
+           << "output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[1] << ", head_size = " << inputShape[3]
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = " << adjustedOutputShape[2];
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn

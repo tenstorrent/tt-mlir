@@ -21,6 +21,7 @@ include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
+include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
 namespace tt.target.ttnn;
 
@@ -79,7 +80,8 @@ union OpType {
   ReductionProdOp,
   LoadCachedOp,
   BatchNormOp,
-  TraceOp
+  TraceOp,
+  ConcatenateHeadsOp,
 }
 
 table Operation {

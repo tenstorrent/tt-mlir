@@ -56,6 +56,7 @@
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/sort.h"
 #include "operations/trace/trace.h"
+#include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/perf.h"
@@ -318,6 +319,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
     return operations::trace::run(op->type_as_TraceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
+                                        getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",

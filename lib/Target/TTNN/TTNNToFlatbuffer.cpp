@@ -1769,6 +1769,20 @@ createOp(FlatbufferObjectCache &cache, TraceOp op,
       op.getCallee().str().c_str(), programIdx, &inputs, &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
+createConcatenateHeadsOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateConcatenateHeadsOp(*cache.fbb, in, out,
+                                                      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2225,6 +2239,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto traceOp = dyn_cast<TraceOp>(op); traceOp) {
     return createOperation(cache, createOp(cache, traceOp, programIndexMap),
+                           debugString, locInfo);
+  }
+  if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
+      concatenateHeadsOp) {
+    return createOperation(cache,
+                           createConcatenateHeadsOp(cache, concatenateHeadsOp),
                            debugString, locInfo);
   }
 
