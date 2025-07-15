@@ -89,6 +89,8 @@ def pytest_collection_modifyitems(config, items):
                 # All of the operations we need to do on these are set membership based
                 platform_config = set(platform_config)
 
+                reason = marker.kwargs.get("reason", "")
+
                 # Verify this is a valid configuration
                 if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
                     outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
@@ -104,7 +106,7 @@ def pytest_collection_modifyitems(config, items):
                 ):
                     item.add_marker(
                         pytest.mark.skip(
-                            reason=f"Operation not supported on following platform/target combination: {platform_config}"
+                            reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
                         )
                     )
 

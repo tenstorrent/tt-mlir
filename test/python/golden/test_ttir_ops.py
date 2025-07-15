@@ -50,6 +50,7 @@ def logical_not(
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4079")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -253,6 +254,7 @@ def leaky_relu(
     return builder.leaky_relu(in0, unit_attrs=unit_attrs)
 
 
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4080")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -282,6 +284,7 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.cbrt(in0, unit_attrs=unit_attrs)
 
 
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4081")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -531,6 +534,7 @@ def div(
 
 
 # TODO (wenbinlyuTT): fix f32 accuracy issue for small values
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4082")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -2011,14 +2015,14 @@ def test_hoisted_transpose(shapes_and_dims, request, target: str):
 
 
 unary_ops = [
-    exp,
+    exp | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4078")),
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor | Marks(pytest.mark.fails_golden),
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos,
-    sin,
+    cos | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
+    sin | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2028,7 +2032,7 @@ unary_ops = [
     sigmoid | Marks(pytest.mark.fails_golden),
     reciprocal,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal", "p150"])),
+    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
@@ -2073,7 +2077,8 @@ def test_unary_ops(
         ge | Marks(pytest.mark.skip_config(["ttmetal"])),
         gt | Marks(pytest.mark.skip_config(["ttmetal"])),
         remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
-        maximum,
+        maximum
+        | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
         minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
