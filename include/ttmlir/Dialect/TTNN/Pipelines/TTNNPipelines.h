@@ -22,7 +22,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> optimizerPassEnabled{
       *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // If this option is true, run a pass that checks if all ops relevant
   // to the optimizer (e.g. toLayout is ignored) have unique named locations.
