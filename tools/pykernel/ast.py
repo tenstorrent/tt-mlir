@@ -114,6 +114,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
         "exp_tile_init": ttkernel.exp_tile_init,
         "exp_tile": ttkernel.exp_tile,
+        "make_tensor_accessor_args": ttkernel.make_tensor_accessor_args,
+        "make_tensor_accessor_from_args": ttkernel.make_tensor_accessor_from_args,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):

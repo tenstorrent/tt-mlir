@@ -196,6 +196,12 @@ public:
           // There is never a case in metal kernel code where template is false.
           return emitc::OpaqueType::get(ctx, "InterleavedAddrGenFast<true>");
         });
+    addConversion([ctx](mlir::tt::ttkernel::ArgsOffsetsType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "ArgsOffsets");
+    });
+    addConversion([ctx](mlir::tt::ttkernel::TensorAccessorType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "TensorAccessor");
+    });
   }
 };
 } // namespace
@@ -315,6 +321,13 @@ public:
           datatypeToDataformatEnumValue(builder, op.getInDtype()));
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<
+                             SourceOp,
+                             ttkernel::MakeTensorAccessorFromArgsOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "tensor_accessor::ArgsOffsets"));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -523,6 +536,49 @@ public:
 } // namespace
 
 namespace {
+class TTKernelMakeTensorAccessorArgsOpRewriter
+    : public OpConversionPattern<ttkernel::MakeTensorAccessorArgsOp> {
+  using Op = ttkernel::MakeTensorAccessorArgsOp;
+
+public:
+  TTKernelMakeTensorAccessorArgsOpRewriter(const TypeConverter &typeConverter,
+                                           MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(Op op, ttkernel::MakeTensorAccessorArgsOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      auto name = op.getOperation()->getName().getStringRef().drop_front(9);
+
+      // cta and crta are both passed through the template instead of operands
+      ValueRange operands;
+      SmallVector<Attribute, 2> template_args;
+      auto cta_base = op.getCtaBase();
+      auto crta_base = op.getCrtaBase();
+      auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
+      auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
+      if (!cta_base_attr || !crta_base_attr) {
+        llvm_unreachable(
+            "MakeTensorAccessorArgsOp should have constant operands");
+      }
+      template_args.push_back(cta_base_attr.getValue());
+      template_args.push_back(crta_base_attr.getValue());
+
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
+          name, nullptr, ArrayAttr::get(op.getContext(), template_args),
+          operands);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -699,7 +755,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MakeTensorAccessorFromArgsOp>>(
         typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
@@ -715,6 +772,9 @@ public:
 
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());
+
+    patterns.add<TTKernelMakeTensorAccessorArgsOpRewriter>(typeConverter,
+                                                           funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }
