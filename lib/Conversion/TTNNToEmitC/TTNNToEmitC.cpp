@@ -2133,9 +2133,7 @@ public:
 
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.sort"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::sort";
-  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::sort"; }
 };
 } // namespace
 
