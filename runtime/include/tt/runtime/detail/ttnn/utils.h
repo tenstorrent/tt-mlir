@@ -83,10 +83,6 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 
-::ttnn::MeshShape
-getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
-                       const std::vector<::ttnn::Tensor> &tensorShards);
-
 ::tt::runtime::TensorRef
 createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 
