@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
@@ -87,8 +88,8 @@ public:
         newConcatOperands.push_back(permuteOperand.getOperand(0));
         continue;
       }
-      auto *newOperand = getInverseTM(permuteOperand, operand, rewriter);
-      newConcatOperands.push_back(newOperand->getResult(0));
+      auto newOperand = getInverseTM(permuteOperand, operand, rewriter);
+      newConcatOperands.push_back(newOperand.getResult());
     }
 
     RankedTensorType newConcatType = RankedTensorType::get(
@@ -142,7 +143,7 @@ private:
       }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
                             permuteOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i))) {
+          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;
@@ -291,7 +292,7 @@ private:
       }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
                             reshapeOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i))) {
+          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;
