@@ -231,15 +231,7 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (op->getNumResults() == 0) {
-          return;
-        }
-
-        if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-          return;
-        }
-
-        if (llvm::isa<ttnn::EmptyOp>(op)) {
+        if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
           return;
         }
 

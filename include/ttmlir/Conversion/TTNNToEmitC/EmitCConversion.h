@@ -1361,6 +1361,15 @@ public:
     llvm_unreachable("Invalid operand range");
   }
 
+  mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords) {
+    std::string code = "::ttnn::MeshCoordinate(ttsl::Span<const uint32_t>{";
+    llvm::raw_string_ostream rso(code);
+    llvm::interleaveComma(coords, rso);
+    rso << "})";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+  }
+
   template <typename TargetTy = void>
   mlir::Attribute emit(std::nullptr_t) {
     if constexpr (std::is_void_v<TargetTy>) {
