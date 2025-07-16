@@ -66,14 +66,13 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
 }
 
 namespace {
-struct TTIRGenericTensorLayoutRewriter
-    : public OpRewritePattern<ttir::GenericOp> {
+struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
   TTIRGenericTensorLayoutRewriter(MLIRContext *context,
                                   SmallVector<int64_t> workerGridShape)
-      : OpRewritePattern<ttir::GenericOp>(context),
-        workerGridShape(workerGridShape) {}
+      : OpRewritePattern<GenericOp>(context), workerGridShape(workerGridShape) {
+  }
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
+  LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
 
     // Update output tensor type
@@ -103,9 +102,8 @@ struct TTIRGenericTensorLayoutRewriter
       auto newOperandType = calculateOptimalLayoutForTensorType(
           rewriter, operand.get(), workerGridShape);
       if (operand.get().getType() != newOperandType) {
-        auto emptyOp =
-            rewriter.create<ttir::EmptyOp>(op->getLoc(), newOperandType);
-        auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+        auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), newOperandType);
+        auto toLayoutOp = rewriter.create<ToLayoutOp>(
             op->getLoc(), operand.get(), emptyOp.getResult());
         rewriter.modifyOpInPlace(
             op, [&]() { operand.set(toLayoutOp.getResult(0)); });
@@ -120,8 +118,8 @@ struct TTIRGenericTensorLayoutRewriter
     }
 
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttir::EmptyOp>(op->getLoc(), originalType);
-    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+    auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
+    auto toLayoutOp = rewriter.create<ToLayoutOp>(
         op->getLoc(), op->getResult(0), emptyOp.getResult());
     rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
                                   toLayoutOp);
@@ -134,10 +132,10 @@ struct TTIRGenericTensorLayoutRewriter
 } // namespace
 
 namespace {
-struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
+struct TTIRMemrefLayoutRewriter : public OpRewritePattern<GenericOp> {
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
+  LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (auto &region : op->getRegions()) {
