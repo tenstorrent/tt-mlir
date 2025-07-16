@@ -47,7 +47,9 @@ private:
   bool
   isCommuteDownwardsFavorable(QuantizableOpInterface op,
                               ttir::DequantizeOp dequantOp) const override {
-    // Collects all the operands and calls op.isQuantizedRewriteFavorable
+    // Collects all the operands and calls op.isQuantizedRewriteFavorable.
+    // isQuantizedRewriteFavorable will check the basic constraints for
+    // the quantized version of the op based on the operands.
     quantOperands.clear();
     oldOpType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     DestinationStyleOpInterface dps =
@@ -56,8 +58,10 @@ private:
       auto dq = op->getOperand(operand->getOperandNumber())
                     .getDefiningOp<ttir::DequantizeOp>();
       if (dq) {
+        // push back the input -> dequantize -> op
         quantOperands.push_back(dq.getOperand(0));
       } else {
+        // push back the input -> op
         quantOperands.push_back(op->getOperand(operand->getOperandNumber()));
       }
     }
@@ -70,9 +74,13 @@ private:
                                  PatternRewriter &rewriter) const override {
     // Call rewriteWithQuantizedInputs which returns the new operation.
     // If the op is successfully rewritten in quantized form, dequantize the
-    // output and rewrite. We expect rewriteWithQuantizedOutput to identify
+    // output and rewrite. We expect rewriteWithQuantizedInputs to identify
     // whether the quantOperands set is sufficient to rewrite the op in
     // quantized form.
+    //
+    // If the op is not successfully rewritten in quantized form, we fall back
+    // to inserting:
+    //   Dequantize(Quantize(op(Dequantize(...))))
     DestinationStyleOpInterface dps =
         mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
     Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, quantOperands,
@@ -116,11 +124,11 @@ private:
             dequantOp.getInput().getType().getElementType());
         RankedTensorType quantizeType = RankedTensorType::get(
             originalType.getShape(), quantType, originalType.getEncoding());
-        // create quantize op
+        // create quantize op.
         mlir::tt::ttir::QuantizeOp quantize =
             mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::QuantizeOp>(
                 rewriter, op->getLoc(), quantizeType, result);
-        // now dequantize op
+        // now dequantize op, effectively commuting the original dequantize.
         mlir::tt::ttir::DequantizeOp dequantize =
             mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
                 rewriter, op->getLoc(), originalType, quantize);
