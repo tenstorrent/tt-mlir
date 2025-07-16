@@ -2138,6 +2138,9 @@ public:
 
     return success();
   }
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.sort"; }
 };
 } // namespace
 
