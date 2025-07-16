@@ -1346,7 +1346,9 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
       NocAsyncReadTile
     }];
 
-    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+    let arguments = (ins I32:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$dstLocalL1Addr);
 
     let assemblyFormat = [{
       `(` $id `,` $addrGenStruct `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
@@ -1409,7 +1411,9 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
       NocAsyncWriteTilie
     }];
 
-    let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+    let arguments = (ins IndexLike:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$srcLocalL1Addr);
 
     let assemblyFormat = [{
       `(` $id `,` $addrGenStruct `,` $srcLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
