@@ -16,6 +16,8 @@ set(LIBRARY_NAME tt-alchemist-lib)
 #
 set(LIB_SOURCES
   lib/tt_alchemist.cpp
+  lib/model_to_cpp.cpp
+  lib/generate.cpp
 )
 
 # Add library
@@ -33,7 +35,9 @@ add_dependencies(${LIBRARY_NAME} TTMLIRCompiler)
 # Include dirs
 target_include_directories(${LIBRARY_NAME}
   PUBLIC
-    ${TT_ALCHEMIST_HOME}/include
+    ${TT_ALCHEMIST_HOME}/include  # External headers
+  PRIVATE
+    ${TT_ALCHEMIST_HOME}/csrc/include  # Internal headers
     ${TT_MLIR_HOME}/include
 )
 
