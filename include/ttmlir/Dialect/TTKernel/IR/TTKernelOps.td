@@ -1661,6 +1661,26 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     }];
 }
 
+def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"make_tensor_accessor_args"> {
+  let summary = "MakeTensorAccessorArgs";
+  let description = [{
+    Helper function that returns ArgsOffsets, later used to create a TensorAccessor.
+  }];
+
+  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let results = (outs TTKernel_ArgsOffsets:$result);
+}
+
+def TTKernel_MakeTensorAccessorFromArgsOp : TTKernel_Op<"make_tensor_accessor_from_args"> {
+  let summary = "MakeTensorAccessorFromArgs";
+  let description = [{
+    Creates a TensorAccessor from the provided ArgsOffsets
+  }];
+
+  let arguments = (ins TTKernel_ArgsOffsets:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let results = (outs TTKernel_TensorAccessor:$result);
+}
+
 def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
     let summary = "MyX";
     let description = [{

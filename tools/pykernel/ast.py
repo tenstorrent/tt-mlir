@@ -116,6 +116,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "exp_tile": ttkernel.exp_tile,
         "mm_init": ttkernel.mm_init,
         "matmul_tiles": ttkernel.matmul_tiles,
+        "make_tensor_accessor_args": ttkernel.make_tensor_accessor_args,
+        "make_tensor_accessor_from_args": ttkernel.make_tensor_accessor_from_args,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):
