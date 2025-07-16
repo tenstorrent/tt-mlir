@@ -92,7 +92,12 @@ void createTTIRToTTMetalMiddleendPipeline(
         llvm::to_vector(options.matmulInterchange);
   }
   pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
-  pm.addPass(ttir::createTTIRGenericTileComputeLoops());
+  ttir::TTIRGenericTileComputeLoopsOptions tileComputeLoopsOptions;
+  {
+    tileComputeLoopsOptions.maxDstRegisterSizeTiles =
+        options.maxDstRegisterSizeTiles;
+  }
+  pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
   pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
