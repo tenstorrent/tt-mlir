@@ -100,8 +100,10 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]
 
     hooks = ttrt.runtime.DebugHooks.get(identity, postop)
-    print(hooks)
-    import pdb; pdb.set_trace()
+
+    if hooks is None:
+        # Hooks are not enabled
+        return
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         runtime_inputs = [

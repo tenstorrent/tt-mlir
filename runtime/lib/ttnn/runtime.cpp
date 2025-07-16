@@ -1454,7 +1454,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-  return hostTensors[0];
+return hostTensors[0];
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,
