@@ -62,6 +62,7 @@ private:
 
 public:
   LegalLayoutAnalysis(Operation *op) : TTNNAnalysis(op) {}
+  static bool isValidAnalysisTarget(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn
