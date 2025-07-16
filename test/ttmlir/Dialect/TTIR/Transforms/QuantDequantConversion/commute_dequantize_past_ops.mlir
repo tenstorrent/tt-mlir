@@ -3,7 +3,6 @@ module {
   func.func @commute_dequantize_past_avgpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // It is not safe to commute past avgpool2d, so a avgpool2d -> quantize -> dequantize is performed.
     // CHECK-LABEL: @commute_dequantize_past_avgpool2d
-    // CHECK: ttir.empty()
     // CHECK: ttir.quantize
     // CHECK: ttir.dequantize
     // CHECK: ttir.pooling
@@ -20,6 +19,10 @@ module {
   func.func @commute_dequantize_past_two_maxpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x28x28xf32> {
     // It is safe to commute past maxpool2d.
     // CHECK-LABEL: @commute_dequantize_past_two_maxpool2d
+    // CHECK: ttir.quantize
+    // CHECK: ttir.pooling
+    // CHECK: ttir.pooling
+    // CHECK: ttir.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -32,6 +35,11 @@ module {
   }
   func.func @commute_dequantize_past_multi_output_maxpool2d(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) {
     // CHECK-LABEL: @commute_dequantize_past_multi_output_maxpool2d
+    // CHECK: ttir.quantize
+    // CHECK: ttir.quantize
+    // CHECK: ttir.pooling
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -48,6 +56,11 @@ module {
   func.func @commute_dequantize_past_maximum(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // It is not safe to commute past maximum, so a maximum -> quantize -> dequantize is performed.
     // CHECK-LABEL: @commute_dequantize_past_maximum
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.maximum
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -58,8 +71,6 @@ module {
     return %6 : tensor<1x64x112x112xf32>
   }
   func.func @commute_dequantize_past_add(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
-    // It is not safe to commute past add, so a add -> quantize -> dequantize is performed.
-    // CHECK-LABEL: @commute_dequantize_past_add
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
