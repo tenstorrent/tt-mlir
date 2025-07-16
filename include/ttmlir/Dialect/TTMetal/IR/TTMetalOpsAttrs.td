@@ -77,9 +77,10 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                         "KernelArgsAttr":$kernel_args,
                         "MathFidelity":$math_fidelity,
                         "bool":$fp32_dest_acc_en,
+                        "bool":$dst_full_sync_en,
                         "bool":$math_approx_mode,
                         ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode);
-  let assemblyFormat =  "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
+  let assemblyFormat =  "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $math_fidelity`,` $fp32_dest_acc_en`,` $dst_full_sync_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
 
   let extraClassDeclaration = [{
     static ComputeConfigAttr get(mlir::MLIRContext *context,
@@ -94,6 +95,7 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                     kernelArgs,
                                     MathFidelity::HiFi4,
                                     fp32DestAccEn,
+                                    false,
                                     false,
                                     unpackToDestMode);
     };
