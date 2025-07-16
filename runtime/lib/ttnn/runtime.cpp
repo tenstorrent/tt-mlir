@@ -1073,6 +1073,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dWeightsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     tensorRef = opContext.type_as_BatchNormOp()->out();
     break;
@@ -1120,6 +1124,11 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::TraceOp: {
     break;
   }
+  case ::tt::target::ttnn::OpType::PointToPointOp: {
+    tensorRef = opContext.type_as_PointToPointOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
@@ -1306,6 +1315,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     tensorRefs = {opContext.type_as_BatchNormOp()->input(),
                   opContext.type_as_BatchNormOp()->running_mean(),
@@ -1357,6 +1370,14 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_LoadCachedOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    tensorRefs = {opContext.type_as_SortOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PointToPointOp: {
+    tensorRefs = {opContext.type_as_PointToPointOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
@@ -1428,33 +1449,8 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   if (hostTensors.size() != 1) {
     LOG_FATAL("Multi device tensor not supported when retrieving tensor");
   }
-  if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool");
-    return;
-  }
 
-  ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  ::ttnn::Tensor dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-  srcTensor = srcTensor.pad_to_tile(0.0f);
-  srcTensor = srcTensor.to_layout(dstTensor.layout());
-  srcTensor = srcTensor.to_device(dstTensor.device());
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
-}
-
-std::vector<::tt::runtime::Tensor>
-submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs) {
-
-  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                           inputs);
-  executor.execute();
-  std::vector<::tt::runtime::Tensor> outputTensors =
-      executor.gatherOutputTensors();
-
-  return outputTensors;
-}
-
-return hostTensors[0];
+  return hostTensors[0];
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,
