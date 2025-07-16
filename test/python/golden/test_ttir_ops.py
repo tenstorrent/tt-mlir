@@ -2015,14 +2015,14 @@ def test_hoisted_transpose(shapes_and_dims, request, target: str):
 
 
 unary_ops = [
-    exp | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4078")),
+    exp   | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4078")),
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor | Marks(pytest.mark.fails_golden),
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
-    sin | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
+    cos,# | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
+    sin,# | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
