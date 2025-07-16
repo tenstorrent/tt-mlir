@@ -1001,7 +1001,9 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
       NocAsyncReadTile
     }];
 
-    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+    let arguments = (ins I32:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$dstLocalL1Addr);
 }
 
 def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
@@ -1044,7 +1046,9 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
       NocAsyncWriteTilie
     }];
 
-    let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+    let arguments = (ins IndexLike:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$srcLocalL1Addr);
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
