@@ -1896,11 +1896,11 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
 @pytest.mark.parametrize(
     "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)]
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
-            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
         )
 
     max.__name__ = "hoisted_max"
