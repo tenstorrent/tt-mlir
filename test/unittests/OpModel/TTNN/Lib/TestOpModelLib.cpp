@@ -1451,11 +1451,22 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
 
+  // This is not configurable, as the backend doesn't support it for now.
+  // But this test shows that this information is parsed and passes to the
+  // backend correctly.
+  ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr deviceConfig =
+      ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/::mlir::tt::ttnn::MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   auto constraintsExp = Conv2dOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation, groups,
-      std::nullopt, outputShape, outputLayout);
+      std::nullopt, deviceConfig, outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1476,7 +1487,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
-      outputShape, outputLayout);
+      deviceConfig, outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);

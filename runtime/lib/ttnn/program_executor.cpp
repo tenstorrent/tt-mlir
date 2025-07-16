@@ -8,6 +8,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
 #include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
@@ -318,6 +319,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
     return operations::trace::run(op->type_as_TraceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PointToPointOp: {
+    return operations::ccl::run(op->type_as_PointToPointOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",
