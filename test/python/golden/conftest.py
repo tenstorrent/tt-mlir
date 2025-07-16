@@ -6,6 +6,9 @@ import ttrt
 from functools import reduce
 import operator
 
+ALL_BACKENDS = set(["ttnn", "ttmetal"])
+ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -27,19 +30,21 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_runtest_setup(item):
-    # Skip tests marked with skip_target when the current target matches
-    for marker in item.iter_markers(name="skip_target"):
-        target_to_skip = marker.args[0]
-        # Get the current target from the test's parametrization
-        current_target = None
-        for param in item.callspec.params.items():
-            if param[0] == "target":
-                current_target = param[1]
-                break
+def get_board_id(system_desc) -> str:
+    arch = system_desc["chip_descs"][0]["arch"]
+    num_chips = len(system_desc["chip_desc_indices"])
 
-        if current_target == target_to_skip:
-            pytest.skip(f"Operation not supported on {target_to_skip} target")
+    match arch, num_chips:
+        case "Blackhole", 1:
+            return "p150"
+        case "Blackhole", 2:
+            return "p300"
+        case "Wormhole_b0", 1:
+            return "n150"
+        case "Wormhole_b0", 2:
+            return "n300"
+        case _:
+            raise ValueError(f"Unknown architecture: {arch}")
 
 
 def filter_valid_mesh_shape(system_desc, params, allow_subset_mesh=False):
@@ -68,6 +73,39 @@ def pytest_collection_modifyitems(config, items):
                 deselected.append(item)
                 continue
         valid_items.append(item)
+
+        # Skip specific target / system combinations
+
+        # Fetch the current target of this test, if any
+        current_target = None
+        for param in item.callspec.params.items():
+            if param[0] == "target":
+                current_target = param[1]
+                break
+
+        for marker in item.iter_markers(name="skip_config"):
+            for platform_config in marker.args:
+
+                # All of the operations we need to do on these are set membership based
+                platform_config = set(platform_config)
+
+                reason = marker.kwargs.get("reason", "")
+
+                # Verify this is a valid configuration
+                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
+                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
+                    raise ValueError(
+                        f"Invalid skip config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
+                    )
+
+                board_id = get_board_id(system_desc)
+
+                if platform_config <= set([current_target, board_id]):
+                    item.add_marker(
+                        pytest.mark.skip(
+                            reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                        )
+                    )
 
     # Update the items list (collected tests)
     items[:] = valid_items
