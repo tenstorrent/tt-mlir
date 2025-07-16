@@ -133,17 +133,26 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
-        This interface denotes that an op can be rewritten to accept quantized inputs.
-        It is used by quant-dequant pattern passes to replace floating-point operations
-        with quantized equivalents when possible. The interface provides a hook for
-        rewriting the operation using quantized operands and an explicitly specified
-        quantized output type.
+        This interface method performs the rewrite of the op using quantized operands.
+        The method returns a nullptr if the op cannot be rewritten in quantized form given the operands.
       }],
       /*retTy=*/"mlir::Operation *",
       /*methodName=*/"rewriteWithQuantizedInputs",
-      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$quantizedOperands, "mlir::Type":$quantizedResultType),
+      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$quantizedOperands, "mlir::ValueRange":$outputOperands),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return nullptr;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface method denotes that an op can be rewritten to accept quantized inputs.
+        The quant-dequant pattern pass uses this function to verify basic legality; that the op can be rewritten
+        in quantized form given the operands passed in as parameters.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"isQuantizedRewriteFavorable",
+      /*args=*/(ins "ArrayRef<mlir::Value>":$quantizedOperands),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return true;"
     >,
   ];
 }

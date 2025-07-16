@@ -1016,33 +1016,43 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 //
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
-// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> quantizedOperands,
-    mlir::ArrayRef<mlir::Value> outputOperands,
-    mlir::Type quantizedResultType) {
+    mlir::ValueRange outputOperands) {
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
     return nullptr;
   }
-  // Can only commute in the per tensor quantized case.
-  if (auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-          quantizedResultType)) {
-    return nullptr;
+  SmallVector<Value> updatedOutputs;
+  SmallVector<Type> resultTypes;
+  for (auto [in, out] : llvm::zip(quantizedOperands, outputOperands)) {
+    // Can only commute in the per tensor quantized case.
+    if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+            in.getType())) {
+      return nullptr;
+    }
+    auto inType = mlir::cast<RankedTensorType>(in.getType());
+    auto outType = mlir::cast<RankedTensorType>(out.getType());
+    auto newResultType = RankedTensorType::get(
+        outType.getShape(), inType.getElementType(), outType.getEncoding());
+    resultTypes.push_back(newResultType);
+    if (auto empty = out.getDefiningOp<ttir::EmptyOp>()) {
+      auto newEmpty = rewriter.create<ttir::EmptyOp>(
+          empty.getLoc(), newResultType.getShape(),
+          newResultType.getElementType(), newResultType.getEncoding());
+      updatedOutputs.push_back(newEmpty);
+    } else {
+      // Fallback: preserve existing output
+      updatedOutputs.push_back(out);
+    }
   }
-  // get the inputs and outputs
-  mlir::ValueRange inputs = quantizedOperands;
-  mlir::ValueRange outputs = outputOperands;
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), mlir::TypeRange{quantizedResultType}, inputs, outputs,
+      getLoc(), resultTypes, quantizedOperands, updatedOutputs,
       getPoolingMethod(), getWindowDimensions(), getWindowStrides(),
       getBaseDilations(), getWindowDilations(), getPadding());
-  rewriter.replaceOp(*this, newOp.getResults());
   return newOp.getOperation();
 }
-// NOLINTEND(clang-analyzer-core.StackAddressEscape)
-
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
