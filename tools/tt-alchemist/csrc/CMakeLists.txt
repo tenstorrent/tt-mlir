@@ -17,7 +17,9 @@ set(LIBRARY_NAME tt-alchemist-lib)
 set(LIB_SOURCES
   lib/tt_alchemist.cpp
   lib/model_to_cpp.cpp
-  lib/generate.cpp
+  lib/model_to_python.cpp
+  lib/generate_cpp.cpp
+  lib/generate_python.cpp
 )
 
 # Add library
@@ -142,6 +144,7 @@ add_custom_command(
 add_custom_target(tt_alchemist_copy_templates
   COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
   COMMENT "Copying templates into Python package"
 )
 

@@ -5,14 +5,15 @@
 #include "tt_alchemist.hpp"
 
 #include "tt-alchemist/tt_alchemist_c_api.hpp"
+#include "utils.hpp"
 
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Target/Cpp/CppEmitter.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
+#include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <dlfcn.h>
 #include <filesystem>
@@ -24,17 +25,8 @@ namespace fs = std::filesystem;
 
 namespace tt::alchemist {
 
-std::filesystem::path get_templates_dir() {
-  // Templates dir location is relative to the shared library
-  //
-  Dl_info info;
-  dladdr(reinterpret_cast<void *>(&get_templates_dir), &info);
-  fs::path so_path = fs::canonical(info.dli_fname);
-  return so_path.parent_path().parent_path() / "templates";
-}
-
-bool TTAlchemist::generate(const std::string &input_file,
-                           const std::string &output_dir) {
+bool TTAlchemist::generatePython(const std::string &input_file,
+                                 const std::string &output_dir) {
   // Check if input file exists
   //
   if (!fs::exists(input_file)) {
@@ -53,23 +45,24 @@ bool TTAlchemist::generate(const std::string &input_file,
   }
 
   mlir::PassManager pm(&context);
-  mlir::tt::ttnn::createTTIRToEmitCPipeline(
-      pm, mlir::tt::ttnn::TTIRToEmitCPipelineOptions());
+  mlir::tt::ttnn::createTTIRToEmitPyPipeline(
+      pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
 
   if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run TTIR to EmitC pipeline" << std::endl;
+    std::cout << "Failed to run TTIR to EmitPy pipeline" << std::endl;
     return false;
   }
 
-  // Convert MLIR module to C++
+  // Convert MLIR module to Python
   //
-  std::string cppCode;
-  llvm::raw_string_ostream cppStream(cppCode);
-  if (mlir::failed(mlir::emitc::translateToCpp(*module, cppStream))) {
-    std::cout << "Failed to translate MLIR module to C++" << std::endl;
+  std::string pythonCode;
+  llvm::raw_string_ostream pythonStream(pythonCode);
+  if (mlir::failed(
+          mlir::tt::emitpy::translateToPython(*module, pythonStream))) {
+    std::cout << "Failed to translate MLIR module to Python" << std::endl;
     return false;
   }
-  cppStream.flush();
+  pythonStream.flush();
 
   // Create output directory if it doesn't exist
   //
@@ -84,7 +77,7 @@ bool TTAlchemist::generate(const std::string &input_file,
 
   // Get the path to the templates directory
   //
-  fs::path templatesPath = get_templates_dir() / "cpp";
+  fs::path templatesPath = get_templates_dir() / "python";
 
   if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {
     std::cout << "Templates directory does not exist: " << templatesPath
@@ -104,18 +97,19 @@ bool TTAlchemist::generate(const std::string &input_file,
     return false;
   }
 
-  // Create ttnn-standalone.cpp with the generated C++ code
+  // Create main.py with the generated Python code
   //
-  fs::path cppFilePath = outputPath / "ttnn-standalone.cpp";
-  std::ofstream cppFile(cppFilePath);
-  if (!cppFile.is_open()) {
-    std::cout << "Failed to create C++ file: " << cppFilePath << std::endl;
+  fs::path pythonFilePath = outputPath / "main.py";
+  std::ofstream pythonFile(pythonFilePath);
+  if (!pythonFile.is_open()) {
+    std::cout << "Failed to create Python file: " << pythonFilePath
+              << std::endl;
     return false;
   }
 
-  cppFile << cppCode;
+  pythonFile << pythonCode;
 
-  cppFile.close();
+  pythonFile.close();
 
   return true;
 }
@@ -126,10 +120,11 @@ bool TTAlchemist::generate(const std::string &input_file,
 extern "C" {
 
 // Generate a standalone solution
-bool tt_alchemist_TTAlchemist_generate(void *instance, const char *input_file,
-                                       const char *output_dir) {
+bool tt_alchemist_TTAlchemist_generatePython(void *instance,
+                                             const char *input_file,
+                                             const char *output_dir) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->generate(input_file, output_dir);
+  return alchemist->generatePython(input_file, output_dir);
 }
 
 } // extern "C"

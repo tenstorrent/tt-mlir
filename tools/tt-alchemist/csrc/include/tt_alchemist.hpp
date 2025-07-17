@@ -25,8 +25,16 @@ public:
   // Convert MLIR model to C++ code
   bool modelToCpp(const std::string &input_file);
 
+  // Convert MLIR model to Python code
+  bool modelToPython(const std::string &input_file);
+
   // Generate a standalone solution with the generated C++ code
-  bool generate(const std::string &input_file, const std::string &output_dir);
+  bool generateCpp(const std::string &input_file,
+                   const std::string &output_dir);
+
+  // Generate a standalone solution with the generated Python code
+  bool generatePython(const std::string &input_file,
+                      const std::string &output_dir);
 
 private:
   TTAlchemist();
