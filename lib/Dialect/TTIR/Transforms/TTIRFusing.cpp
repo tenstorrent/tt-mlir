@@ -856,18 +856,18 @@ public:
 
   mlir::LogicalResult
   matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
-    // Numerator must be poolingOp
+    // Numerator must be poolingOp.
     PoolingOp numerator = op.getLhs().getDefiningOp<PoolingOp>();
     if (!numerator) {
       return mlir::failure();
     }
 
-    // Numerator must have the Sum pooling method
+    // Numerator must have the Sum pooling method.
     if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
 
-    // Denominator must trace through first operands to pooling op
+    // Denominator must trace through first operands to pooling op.
     Value currentDenominator = op.getRhs();
     PoolingOp denominator;
     while (!currentDenominator.getDefiningOp<PoolingOp>()) {
@@ -877,7 +877,7 @@ public:
       // We expect that the pooling denominator is only reshaped (for rank
       // change) and broadcasted if any ops lies between at all. If any other
       // ops lie between the denominator pooling op and the div op, then we
-      // cannot fuse
+      // cannot fuse.
       if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
         return mlir::failure();
       }
@@ -885,18 +885,18 @@ public:
     }
     denominator = currentDenominator.getDefiningOp<PoolingOp>();
 
-    // The denominator must have the Sum pooling method
+    // The denominator must have the Sum pooling method.
     if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
 
-    // Denominator pooling op must have the same number of inputs as numerator
+    // Denominator pooling op must have the same number of inputs as numerator.
     if (numerator.getInputs().size() != denominator.getInputs().size()) {
       return mlir::failure();
     }
 
     // Denominator pooling op must have all inputs be either a FullOp or a
-    // ConstantOp
+    // ConstantOp.
     if (!llvm::all_of(denominator.getInputs(), [](Value v) {
           return isa<FullOp, ConstantOp>(v.getDefiningOp());
         })) {
@@ -904,7 +904,7 @@ public:
     }
 
     // Besides the padding attribute, all attributes of the denominator must
-    // match the rightmost sublist of the numerator's attributes
+    // match the rightmost sublist of the numerator's attributes.
     if (!matchRightMostSubList(numerator.getWindowDimensions(),
                                denominator.getWindowDimensions())) {
       return mlir::failure();
@@ -926,7 +926,7 @@ public:
     }
 
     // The padding attribute of the denominator must
-    // be all zeros
+    // be all zeros.
     if (denominator.getPadding().empty()) {
       return mlir::failure();
     }
@@ -939,11 +939,11 @@ public:
 
     // For each denominator input, if it is a FullOp, its fill value must be 1
     // If it is a constant op, its value must be a tensor filled with ones, and
-    // padded with zeroes according to the padding attribute of the numerator
+    // padded with zeroes according to the padding attribute of the numerator.
     for (Value input : denominator.getInputs()) {
       if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
         // If the denominator is a pool of a full op, then
-        // the numerator must have a padding attribute of all zeros
+        // the numerator must have a padding attribute of all zeros.
         if (numerator.getPadding().empty()) {
           return mlir::failure();
         }
