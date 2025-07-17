@@ -34,4 +34,3 @@ func.func @allocate_mixed() -> (!memreftype_l1, !memreftype_dram, !memreftype_l1
 
   return %alloc_0, %alloc_1, %alloc_2, %alloc_3, %alloc_4 : !memreftype_l1, !memreftype_dram, !memreftype_l1, !memreftype_dram, !memreftype_l1
 }
-
