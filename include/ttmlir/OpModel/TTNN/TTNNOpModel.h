@@ -655,6 +655,44 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace CosOpInterface
 
 //===----------------------------------------------------------------------===//
+// ExpOp
+//===----------------------------------------------------------------------===//
+namespace ExpOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 std::optional<bool> fastApproxMode,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             std::optional<bool> fastApproxMode,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ExpOpInterface
+
+//===----------------------------------------------------------------------===//
+// LogOp
+//===----------------------------------------------------------------------===//
+namespace LogOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace LogOpInterface
+
+//===----------------------------------------------------------------------===//
 // ReciprocalOp
 //===----------------------------------------------------------------------===//
 namespace ReciprocalOpInterface {

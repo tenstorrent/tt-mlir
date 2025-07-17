@@ -299,7 +299,9 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
     }];
 }
 
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
@@ -461,7 +463,9 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
     }];
 }
 
-def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
+def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
