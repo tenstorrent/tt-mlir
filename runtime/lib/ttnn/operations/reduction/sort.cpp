@@ -21,8 +21,8 @@ void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   std::vector<::ttnn::Tensor> outputs =
-      ::ttnn::experimental::sort(in, op->dim(), op->descending(), op->stable(),
-                                 outputMemoryConfig, std::nullopt);
+      ::ttnn::sort(in, op->dim(), op->descending(), op->stable(),
+                   outputMemoryConfig, std::nullopt);
 
   LOG_ASSERT(
       op->outputs()->size() == outputs.size(),
