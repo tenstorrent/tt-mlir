@@ -136,7 +136,7 @@ DeviceRuntime getCurrentRuntime() {
 void setCurrentRuntime(const DeviceRuntime &runtime) {
 #if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
     (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
-  RuntimeContext::instance().setCurrentRuntime(runtime);
+  return RuntimeContext::instance().setCurrentRuntime(runtime);
 #endif
   LOG_FATAL("Runtime is not enabled");
 }
