@@ -7,7 +7,6 @@ import pytest
 from typing import List, Tuple
 from ttir_builder.utils import compile_to_flatbuffer
 from ttir_builder import Operand, TTIRBuilder, Shape
-import test_util
 
 pytestmark = pytest.mark.llmbox
 
@@ -1065,13 +1064,6 @@ def all_to_all_test(
     replica_groups,
     request,
 ):
-    if not test_util.shape_divisible(input_shape, shard_shape):
-        pytest.skip("Sharding is not possible")
-    if (input_shape[split_dim] / shard_shape[split_dim]) % mesh_shape[
-        cluster_axis
-    ] != 0:
-        pytest.skip("Cannot split tensor evenly")
-
     def all_to_all(in0: Operand, builder: TTIRBuilder):
         input = builder._get_golden_tensor(in0)
         golden_output = pseudo_golden_all_to_all(
