@@ -68,5 +68,5 @@
 3. Run the flatbuffer + shared object and compare results
 
     ```bash
-    ttrt run --emitc build/test/ttmlir/EmitC/TTNN/eltwise_binary/add.mlir.so
+    ttrt run --emitc build/test/ttmlir/EmitC/TTNN/eltwise_binary/add.mlir.ttnn
     ```
