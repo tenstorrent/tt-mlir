@@ -26,9 +26,8 @@ class TTIRGenericGenerateDatamovementRewriter
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static bool isStream(Type ty) {
-    return mlir::isa<ttcore::ViewLayoutAttr>(
-        mlir::cast<MemRefType>(ty).getLayout());
+  static bool isStream(Value operand) {
+    return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
   }
 
   static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
@@ -207,7 +206,7 @@ public:
       builder.create<ttir::AwaitOp>(loc, blockOperand);
     }
 
-    if (isStream(genericOperand.getType())) {
+    if (isStream(genericOperand)) {
       assert(!isOutput && "Output streaming is not currently supported");
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
