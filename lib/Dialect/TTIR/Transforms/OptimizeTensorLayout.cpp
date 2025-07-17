@@ -180,8 +180,6 @@ class TTIROptimizeTensorLayout
 
     SmallVector<int64_t> workerGridShape = llvm::to_vector(overrideDeviceShape);
     if (workerGridShape.empty()) {
-      auto device = ttcore::lookupDevice(getOperation());
-      assert(device && "Device not found");
       workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
     }
 
