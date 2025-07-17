@@ -19,6 +19,7 @@ add_custom_command(
           TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
+          CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
           python -m pip wheel . --wheel-dir build --verbose
   COMMAND python -m pip install build/*.whl --force-reinstall

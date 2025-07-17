@@ -100,6 +100,13 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
   set(TTMETAL_BUILD_TYPE "ASan")
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  set(ENABLE_DISTRIBUTED ON)
+else()
+  message(STATUS "Disabling tt-metal distributed support because of mpi x86 dep")
+  set(ENABLE_DISTRIBUTED OFF)
+endif()
+
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
@@ -124,6 +131,7 @@ ExternalProject_Add(
     -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
+    -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
