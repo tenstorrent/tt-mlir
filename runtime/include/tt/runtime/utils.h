@@ -20,6 +20,12 @@ inline std::shared_ptr<void> malloc_shared(size_t size) {
 }
 
 template <typename T>
+inline std::shared_ptr<const void> unsafe_borrow_shared(const T *ptr) {
+  return std::shared_ptr<const void>(static_cast<const void *>(ptr),
+                                     [](const void *) {});
+}
+
+template <typename T>
 inline std::shared_ptr<void> unsafe_borrow_shared(T *ptr) {
   return std::shared_ptr<void>(static_cast<void *>(ptr), [](void *) {});
 }
