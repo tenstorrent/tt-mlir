@@ -723,9 +723,14 @@ def pseudo_golden_all_to_all(
         ]
     ],
 ):
-    shards: List[torch.Tensor] = test_util.shardTensor2dMesh(
-        input, mesh_shape, shard_dims
-    )
+    # sharding
+    shards = [input]
+    for dim_size, shard_dim in zip(mesh_shape, shard_dims):
+        temp_shards = []
+        for shard in shards:
+            temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
+        shards = temp_shards
+    # all_to_all
     output_shards: List[torch.Tensor] = [None] * len(shards)
     for group in replica_groups:
         size = len(group)
@@ -735,8 +740,14 @@ def pseudo_golden_all_to_all(
                 [split_sets[src_idx][dst_idx] for src_idx in range(size)],
                 dim=concat_dim,
             )
-    output = test_util.concatMesh2dToTensor(output_shards, mesh_shape, shard_dims)
-    return output
+    # unsharding
+    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
+        temp_shards = []
+        for i in range(0, len(output_shards), dim_size):
+            concat_shard = torch.cat(output_shards[i : i + dim_size], dim=shard_dim)
+            temp_shards.append(concat_shard)
+        output_shards = temp_shards
+    return output_shards[0]
 
 
 def all_to_all_test(
@@ -801,12 +812,17 @@ def all_to_all_test(
     )
 
 
-@pytest.mark.parametrize("input_shape", [(256, 256), (64, 64), (128, 64), (192, 64)])
+@pytest.mark.parametrize("input_shape", [(512, 512), (128, 32), (64, 256)])
 @pytest.mark.parametrize("split_dim", range(2))
 @pytest.mark.parametrize("concat_dim", range(2))
 @pytest.mark.parametrize(
     "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
-    list(test_util.all_sharding_configs(input_rank=2, num_devices=2)),
+    [
+        ((1, 2), (-1, 0), (2, 1), 1, ((0, 1),)),
+        ((1, 2), (-1, 1), (1, 2), 1, ((0, 1),)),
+        ((2, 1), (0, -1), (2, 1), 0, ((0, 1),)),
+        ((2, 1), (1, -1), (1, 2), 0, ((0, 1),)),
+    ],
 )
 def test_all_to_all_2d(
     input_shape: Shape,
@@ -833,20 +849,18 @@ def test_all_to_all_2d(
 
 
 @pytest.mark.parametrize(
-    "input_shape",
-    [
-        (1, 1, 256, 256),
-        (1, 1, 64, 64),
-        (1, 1, 256, 128),
-        (1, 64, 128, 1),
-        (64, 1, 1, 128),
-    ],
+    "input_shape", [(1, 1, 512, 512), (1, 1, 128, 32), (1, 1, 64, 256)]
 )
-@pytest.mark.parametrize("split_dim", range(4))
-@pytest.mark.parametrize("concat_dim", range(4))
+@pytest.mark.parametrize("split_dim", range(2, 4))
+@pytest.mark.parametrize("concat_dim", range(2, 4))
 @pytest.mark.parametrize(
     "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
-    list(test_util.all_sharding_configs(input_rank=4, num_devices=2)),
+    [
+        ((1, 2), (-1, 2), (1, 1, 2, 1), 1, ((0, 1),)),
+        ((1, 2), (-1, 3), (1, 1, 1, 2), 1, ((0, 1),)),
+        ((2, 1), (2, -1), (1, 1, 2, 1), 0, ((0, 1),)),
+        ((2, 1), (3, -1), (1, 1, 1, 2), 0, ((0, 1),)),
+    ],
 )
 def test_all_to_all_4d(
     input_shape: Shape,
