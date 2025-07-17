@@ -39,23 +39,23 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
   return type;
 }
 
-inline ::tt::tt_metal::FabricConfig
+inline ::tt::tt_fabric::FabricConfig
 getFabricConfig(tt::runtime::FabricConfig cfg) {
   switch (cfg) {
   case tt::runtime::FabricConfig::DISABLED:
-    return ::tt::tt_metal::FabricConfig::DISABLED;
+    return ::tt::tt_fabric::FabricConfig::DISABLED;
   case tt::runtime::FabricConfig::FABRIC_1D:
-    return ::tt::tt_metal::FabricConfig::FABRIC_1D;
+    return ::tt::tt_fabric::FabricConfig::FABRIC_1D;
   case tt::runtime::FabricConfig::FABRIC_1D_RING:
-    return ::tt::tt_metal::FabricConfig::FABRIC_1D_RING;
+    return ::tt::tt_fabric::FabricConfig::FABRIC_1D_RING;
   case tt::runtime::FabricConfig::FABRIC_2D:
-    return ::tt::tt_metal::FabricConfig::FABRIC_2D;
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D;
   case tt::runtime::FabricConfig::FABRIC_2D_TORUS:
-    return ::tt::tt_metal::FabricConfig::FABRIC_2D_TORUS;
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS;
   case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
-    return ::tt::tt_metal::FabricConfig::FABRIC_2D_DYNAMIC;
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
   case tt::runtime::FabricConfig::CUSTOM:
-    return ::tt::tt_metal::FabricConfig::CUSTOM;
+    return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }
   throw std::invalid_argument("Unknown tt::runtime::FabricConfig value");
 }
