@@ -1884,7 +1884,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
     }];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
       The `add` operation performs an elementwise addition between two tensors.
@@ -1981,7 +1981,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     }];
 }
 
-def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum", [TTIR_QuantizableOpInterface]> {
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     let summary = "Elementwise maximum operation.";
     let description = [{
       The `maximum` operation calculates the elementwise maximum between two tensors.

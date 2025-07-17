@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
@@ -68,6 +69,17 @@ MemRefType getBufferType(Type type, bool isView) {
       ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
 } // namespace mlir::tt::ttir
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> quantizedOperands) {
+  // If the operands are both quantized but the types do not align, return
+  // false.
+  return mlir::tt::ttir::utils::areQuantizationParamsAligned(quantizedOperands);
+}
 
 //===----------------------------------------------------------------------===//
 // BitwiseXorOp
