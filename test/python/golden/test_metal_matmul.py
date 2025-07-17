@@ -107,11 +107,10 @@ def test_matmul_multi_core_8otpc(
         (2048, 2048, 2048),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
+# Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn(
     shape: tuple[int],
-    dtype: torch.dtype,
     dst_register_size_tiles: int,
     request,
 ):
@@ -139,7 +138,6 @@ def test_matmul_ttnn(
     compile_to_flatbuffer(
         matmul_blocking,
         [lhs, rhs],
-        inputs_types=[dtype, dtype],
         target="ttmetal",
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
