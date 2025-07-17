@@ -2,16 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_COMMON_H
-#define TT_RUNTIME_DETAIL_COMMON_H
+#ifndef TT_RUNTIME_DETAIL_COMMON_COMMON_H
+#define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
 #include <optional>
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 
-#include "tt/runtime/detail/flatbuffer_operator_ostream.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::common {
@@ -88,4 +88,4 @@ inline ::tt::runtime::Arch toRuntimeArch(::tt::ARCH arch) {
 }
 
 } // namespace tt::runtime::common
-#endif // TT_RUNTIME_DETAIL_COMMON_H
+#endif // TT_RUNTIME_DETAIL_COMMON_COMMON_H

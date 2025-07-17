@@ -6,7 +6,7 @@
 #define RUNTIME_LIB_TTMETAL_EXECUTOR_UTILS_H
 
 #include "tt/runtime/debug.h"
-#include "tt/runtime/detail/common.h"
+#include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 
 #include "ttmlir/Target/TTMetal/Target.h"
