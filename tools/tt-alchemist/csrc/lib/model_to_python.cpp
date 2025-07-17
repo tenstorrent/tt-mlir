@@ -11,8 +11,8 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Target/Cpp/CppEmitter.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
+#include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <filesystem>
 #include <iostream>
@@ -22,7 +22,7 @@ namespace fs = std::filesystem;
 
 namespace tt::alchemist {
 
-bool TTAlchemist::modelToCpp(const std::string &input_file) {
+bool TTAlchemist::modelToPython(const std::string &input_file) {
   // Check if input file exists
   //
   if (!fs::exists(input_file)) {
@@ -44,29 +44,30 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
     return false;
   }
 
-  // Run TTIR to EmitC pipeline
+  // Run TTIR to EmitPy pipeline
   //
   mlir::PassManager pm(&context);
-  mlir::tt::ttnn::createTTIRToEmitCPipeline(
-      pm, mlir::tt::ttnn::TTIRToEmitCPipelineOptions());
+  mlir::tt::ttnn::createTTIRToEmitPyPipeline(
+      pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
 
   if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run TTIR to EmitC pipeline" << std::endl;
+    std::cout << "Failed to run TTIR to EmitPy pipeline" << std::endl;
     return false;
   }
 
-  // Convert MLIR module to C++
+  // Convert MLIR module to Python
   //
-  std::string cppCode;
-  llvm::raw_string_ostream cppStream(cppCode);
-  if (mlir::failed(mlir::emitc::translateToCpp(module.get(), cppStream))) {
-    std::cout << "Failed to translate MLIR module to C++" << std::endl;
+  std::string pythonCode;
+  llvm::raw_string_ostream pythonStream(pythonCode);
+  if (mlir::failed(
+          mlir::tt::emitpy::translateToPython(module.get(), pythonStream))) {
+    std::cout << "Failed to translate MLIR module to Python" << std::endl;
     return false;
   }
-  cppStream.flush();
+  pythonStream.flush();
 
-  // Output the generated C++ code
-  std::cout << cppCode << std::endl;
+  // Output the generated Python code
+  std::cout << pythonCode << std::endl;
 
   return true;
 }
@@ -76,11 +77,11 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
 // C-compatible API implementation
 extern "C" {
 
-// Model to CPP conversion
-bool tt_alchemist_TTAlchemist_modelToCpp(void *instance,
-                                         const char *input_file) {
+// Model to Python conversion
+bool tt_alchemist_TTAlchemist_modelToPython(void *instance,
+                                            const char *input_file) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->modelToCpp(input_file);
+  return alchemist->modelToPython(input_file);
 }
 
 } // extern "C"
