@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         LegalOpConfigAnalysis.cpp
         LegalOpLayoutAnalysis.cpp
         LegalTensorLayoutAnalysis.cpp
+        L1InterleavedAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         ScalarDataTypeAnalysis.cpp
