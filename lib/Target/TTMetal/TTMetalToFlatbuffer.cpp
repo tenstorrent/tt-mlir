@@ -359,6 +359,7 @@ computeConfigToFlatbuffer(FlatbufferObjectCache &cache,
   return target::metal::CreateComputeConfigDirect(
       *cache.fbb, toFlatbuffer(computeConfigAttr.getMathFidelity()),
       computeConfigAttr.getFp32DestAccEn(),
+      computeConfigAttr.getDstFullSyncEn(),
       computeConfigAttr.getMathApproxMode(), &unpackToDestModeVec);
 }
 
