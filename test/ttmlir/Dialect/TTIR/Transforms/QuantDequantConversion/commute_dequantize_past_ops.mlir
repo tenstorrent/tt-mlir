@@ -70,7 +70,16 @@ module {
     %6 = "ttir.maximum"(%3, %4, %5) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
     return %6 : tensor<1x64x112x112xf32>
   }
-  func.func @commute_dequantize_past_add(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
+  func.func @commute_dequantize_past_add_successful(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
+    // The quantized types of the operands both align, so commute dequantize down.
+    // CHECK-LABEL: @commute_dequantize_past_add_successful
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.add
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -79,6 +88,28 @@ module {
     %5 = "ttir.quantize"(%arg1, %4) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %6 = ttir.empty() : tensor<1x64x112x112xf32>
     %7 = "ttir.dequantize"(%5, %6) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    %8 = ttir.empty() : tensor<1x64x112x112xf32>
+    %9 = "ttir.add"(%3, %7, %8) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    return %9 : tensor<1x64x112x112xf32>
+  }
+  func.func @commute_dequantize_past_add_unsuccessful(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
+    // The quantized types of the operands both align, so commute dequantize down.
+    // CHECK-LABEL: @commute_dequantize_past_add_unsuccessful
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.quantize
+    // CHECK: ttir.dequantize
+    // CHECK: ttir.add
+    // CHECK-NOT: ttir.quantize
+    // CHECK-NOT: ttir.dequantize
+    %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
+    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
+    %2 = ttir.empty() : tensor<1x64x112x112xf32>
+    %3 = "ttir.dequantize"(%1, %2) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    %4 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.2>>
+    %5 = "ttir.quantize"(%arg1, %4) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.2>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.2>>
+    %6 = ttir.empty() : tensor<1x64x112x112xf32>
+    %7 = "ttir.dequantize"(%5, %6) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.2>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
     %8 = ttir.empty() : tensor<1x64x112x112xf32>
     %9 = "ttir.add"(%3, %7, %8) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
     return %9 : tensor<1x64x112x112xf32>
