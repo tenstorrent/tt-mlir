@@ -424,6 +424,7 @@ createKernelConfig(
     }
 
     computeConfig.fp32_dest_acc_en = fbComputeConfig->fp32_dest_acc_en();
+    computeConfig.dst_full_sync_en = fbComputeConfig->dst_full_sync_en();
     computeConfig.math_approx_mode = fbComputeConfig->math_approx_mode();
 
     // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.

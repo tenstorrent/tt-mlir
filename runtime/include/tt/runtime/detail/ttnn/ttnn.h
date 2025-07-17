@@ -54,6 +54,9 @@
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
+#include <optional>
+#include <vector>
+
 namespace tt::runtime::ttnn {
 
 // Creates host tensor with borrowed storage (the buffer of the tensor is on the
@@ -208,6 +211,29 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
+
+// Returns reference to the output tensor of the operation
+// if the operation does not have an output tensor, returns std::nullopt
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+
+// Returns list of references to the input tensors of the operation
+// if the operation does not have any input tensors, returns empty vector
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+
+// Returns tensor to which tensorRef refers
+// In case that that tensor is not in the tensor pool, returns std::nullopt
+// For now only supports single device tensors
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize);
+
+// Update tensor to which tensorRef refers
+// Prefered to be owned tensor to avoid unexpected behavior in case of
+// deallocation
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
