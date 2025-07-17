@@ -196,8 +196,8 @@ public:
           // There is never a case in metal kernel code where template is false.
           return emitc::OpaqueType::get(ctx, "InterleavedAddrGenFast<true>");
         });
-    addConversion([ctx](mlir::tt::ttkernel::ArgsOffsetsType type) -> Type {
-      return emitc::OpaqueType::get(ctx, "ArgsOffsets");
+    addConversion([ctx](mlir::tt::ttkernel::TensorAccessorArgsType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "TensorAccessorArgs");
     });
     addConversion([ctx](mlir::tt::ttkernel::TensorAccessorType type) -> Type {
       return emitc::OpaqueType::get(ctx, "TensorAccessor");
@@ -322,14 +322,15 @@ public:
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<
-                             SourceOp,
-                             ttkernel::MakeTensorAccessorFromArgsOp>) {
-      SmallVector<Attribute, 1> template_args;
-      template_args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(), "tensor_accessor::ArgsOffsets"));
-      return ArrayAttr::get(op.getContext(), template_args);
-    }
+    } 
+    // else if constexpr (std::is_same_v<
+    //                          SourceOp,
+    //                          ttkernel::MakeTensorAccessorFromArgsOp>) {
+    //   SmallVector<Attribute, 1> template_args;
+    //   template_args.push_back(emitc::OpaqueAttr::get(
+    //       op.getContext(), "tensor_accessor::ArgsOffsets"));
+    //   return ArrayAttr::get(op.getContext(), template_args);
+    // }
     return ArrayAttr();
   }
 

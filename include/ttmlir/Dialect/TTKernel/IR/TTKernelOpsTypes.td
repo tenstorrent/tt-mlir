@@ -79,14 +79,14 @@ def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "i
     let description = "InterleavedAddrGenFast type in TTKernel dialect";
 }
 
-def TTKernel_ArgsOffsets : TTKernel_Type<"ArgsOffsets", "ArgsOffsets"> {
-  let summary = "TensorAccessor's ArgsOffsets type";
+def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
+  let summary = "TensorAccessorArgs type";
   let description = "TensorAccessor args type that stores compile + runtime information";
 }
 
 def TTKernel_TensorAccessor : TTKernel_Type<"TensorAccessor", "TensorAccessor"> {
   let summary = "TensorAccessor type";
-  let description = "Accessor that encapsulates logic to access tensor config and pages.";
+  let description = "Accessor that encapsulates logic to access tensor information";
 }
 
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
