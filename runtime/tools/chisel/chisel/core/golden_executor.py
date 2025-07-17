@@ -17,15 +17,15 @@ import pdb
 class GoldenExecutor:
     """
     Executes operations in the golden (reference) execution path.
-    
+
     This class is responsible for executing operations using PyTorch as the reference
     implementation. It maintains state about the execution and manages tensor values
     through a tensor pool.
-    
+
     Args:
         registry (Registry): The registry containing operation and module information
         golden_tensor_pool (TensorPool): Pool for managing tensor values in the golden path
-    
+
     Attributes:
         registry (Registry): Reference to the registry containing operation information
         last_golden_executed: Tracks the last executed operation
@@ -34,33 +34,40 @@ class GoldenExecutor:
         golden_op_iter: Iterator over golden operations
         golden_tensor_pool (TensorPool): Pool for managing tensor values
     """
+
     def __init__(self, registry: Registry, golden_tensor_pool: TensorPool):
         self.registry: Registry = registry
         self.last_golden_executed = None  # Tracks the last executed operation
-        
+
         # Initialize operation tracking
-        self.op_locations = sorted(self.registry.modules[ExecutionType.GOLDEN].last_loc_line.keys())
+        self.op_locations = sorted(
+            self.registry.modules[ExecutionType.GOLDEN].last_loc_line.keys()
+        )
         self.loc_iter = iter(self.op_locations)
-        self.golden_op_iter = iter(self.registry.modules[ExecutionType.GOLDEN].get_function_ops())
-        self.golden_tensor_pool = golden_tensor_pool  # Manages tensor values in the golden path
+        self.golden_op_iter = iter(
+            self.registry.modules[ExecutionType.GOLDEN].get_function_ops()
+        )
+        self.golden_tensor_pool = (
+            golden_tensor_pool  # Manages tensor values in the golden path
+        )
 
     def execute(self, op: Operation, skip_op: bool = False) -> any:
         """
         Execute a single operation in the golden path.
-        
+
         This method handles the execution of a single operation, including:
         - Operation validation and mapping to PyTorch equivalents
         - Input tensor retrieval
         - Operation execution
         - Output tensor storage and management
-        
+
         Args:
             op (Operation): The operation to execute
             skip_op (bool, optional): If True, it will not try to load cached result
-        
+
         Returns:
             any: The result of the operation execution, or None if the operation has no return value
-            
+
         Raises:
             ValueError: If the operation is not found in the TTIR to PyTorch mapping
         """
@@ -71,7 +78,7 @@ class GoldenExecutor:
         op_name = op.name
         if op_name == "ttir.empty":
             return None
-            
+
         # Validate operation is supported
         if op_name not in ttir_to_torch_mapping:
             raise ValueError(f"Unknown op: {op.name}")
@@ -81,23 +88,34 @@ class GoldenExecutor:
 
         # Get operation outputs and check if we can use cached results
         outputs = get_op_outputs(op)
-        if not skip_op and len(outputs) == 1 and self.golden_tensor_pool.load_cache(outputs[0].get_name(), ExecutionType.GOLDEN):
+        if (
+            not skip_op
+            and len(outputs) == 1
+            and self.golden_tensor_pool.load_cache(
+                outputs[0].get_name(), ExecutionType.GOLDEN
+            )
+        ):
             return None
-        
+
         # Prepare input tensors, filtering out empty tensors
         inputs_mlir = [
-            input for input in get_op_inputs(op)
-            if not (hasattr(input, "owner") and hasattr(input.owner, "name") and input.owner.name == "ttir.empty")
+            input
+            for input in get_op_inputs(op)
+            if not (
+                hasattr(input, "owner")
+                and hasattr(input.owner, "name")
+                and input.owner.name == "ttir.empty"
+            )
         ]
         input_names = [input.get_name() for input in inputs_mlir]
         print(f"Input names: {input_names}")
-        
+
         # Retrieve input tensors from the pool
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
-        
+
         # Execute the operation using the mapped PyTorch function
         op_result = mapping(op, inputs)
-        
+
         # Handle function returns specially
         if op.name == "func.return":
             return op_result
@@ -115,37 +133,48 @@ class GoldenExecutor:
                 self.golden_tensor_pool[tensor_name] = golden_value
             else:
                 self.golden_tensor_pool[tensor_name].set_execution_data(op_result)
-                
+
         print(f"Finished execution of operation: {op.name}")
         return op_result
 
     def execute_golden(self, device_op_location: Tuple[int, int], op_asm: str) -> None:
         """
         Execute operations in the golden path up to a specified location.
-        
+
         This method executes operations in sequence until it reaches the operation
         corresponding to the specified device operation location. This is used to
         synchronize execution between the golden and device paths.
-        
+
         Args:
             device_op_location (Tuple[int, int]): The target operation location to execute up to
             op_asm (str): Assembly representation of the operation (for debugging)
-            
+
         Raises:
             AssertionError: If the execution goes past the expected location
         """
         # Get the target operation index for the given location
-        target_index = self.registry.modules[ExecutionType.GOLDEN].last_loc_line[device_op_location]
-        
+        try:
+            target_index = self.registry.modules[ExecutionType.GOLDEN].last_loc_line[
+                device_op_location
+            ]
+        except KeyError as e:
+            print(f"KeyError: {e}")
+            print("Op groups from registry:")
+            from pprint import pprint
+
+            pprint(self.registry.op_groups)
+            input("Press Enter to continue...")
+            target_index = 100  # dummy, let's see if it corrupts
+
         # Execute operations in sequence until we reach the target
         for i, op in enumerate(self.golden_op_iter):
             self.execute(op)
             print(f"Executing op: {op.name}")
-            
+
             # Check if we've reached the target operation
             if i == target_index:
                 break
-                
+
             # Safety check to prevent infinite loops
             if i > target_index:
                 raise AssertionError(

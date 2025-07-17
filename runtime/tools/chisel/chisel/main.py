@@ -8,6 +8,7 @@ import os
 from chisel.core.context import ChiselContext
 from chisel.core.enums import ExecutionType
 from ttmlir.ir import Operation
+import sys
 
 
 def main():
@@ -16,7 +17,11 @@ def main():
     You need to have ttir.mlir and ttnn.mlir files in the base directory.
     To generate ttir.mlir and ttnn.mlir please run chisel.sh on your starting ttir file
     """
-    model = "mlpmixer_trimmed"
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <model>")
+        sys.exit(1)
+
+    model = sys.argv[1]
     base_dir = Path(
         f"/proj_sw/user_dev/sgligorijevic/jaxbringups/tt-mlir/chiselingv4/{model}"
     )
@@ -40,7 +45,7 @@ def main():
         main_fn=main_fn,
         program_index=program_index,
         flatbuffer_path=flatbuffer_path,
-        # should_skip_op=lambda op: '%6 = "ttnn.matmul"' in op.get_asm(enable_debug_info=True)
+        should_skip_op=lambda op: '"ttnn.gelu"' in op.get_asm(enable_debug_info=True),
     )
     chisel_context.bind_callbacks()
     input_paths = [

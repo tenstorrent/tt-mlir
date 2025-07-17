@@ -85,7 +85,7 @@ class ChiselContext:
         program_index: int = 0,
         flatbuffer_path: pathlib.Path | None = None,
         function_argument_bridge_type: Literal["host", "device"] = "host",
-        caching: bool = False,
+        caching: bool = True,
         should_skip_op: Callable[[Operation], bool] = lambda op: False,
     ):
         """
@@ -223,11 +223,6 @@ class ChiselContext:
         else:
             golden_output = None
 
-        dump_path = self.output_dir / "intermediates"
-        dump_path.mkdir(parents=True, exist_ok=True)
-        name = device_output_name.replace("%", "v").replace(".", "_")
-        torch.save(device_output, dump_path / f"{name}.pt")
-
         # Compute comparison metrics if both outputs exist
         if golden_output is not None and device_output is not None:
             pcc = compute_pcc(device_output, golden_output)
@@ -306,8 +301,13 @@ class ChiselContext:
                 self.function_argument_bridge(programContext, input_name)
             else:
                 # Create new tensor value if it doesn't exist
+                tensor = retrieve_tensor_from_pool(programContext, tensor_ref)
+                torch_tensor = get_torch_tensor(tensor)
                 self.device_tensor_pool[input_name] = TensorValue(
-                    input_name, None, ExecutionType.DEVICE, tensor_ref=tensor_ref
+                    input_name,
+                    torch_tensor,
+                    ExecutionType.DEVICE,
+                    tensor_ref=tensor_ref,
                 )
 
         # if "%arg2" in self.device_tensor_pool:

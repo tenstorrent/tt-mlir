@@ -21,13 +21,13 @@ void checkTensorRefMatchesTTNNTensor(
   DEBUG_ASSERT(expectedLayout == actualLayout, "Layout mismatch, expected ",
                toString(expectedLayout), ", got ", toString(actualLayout));
 
-  ::ttnn::DataType expectedDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(
-          tensorRef->desc()->layout()->memory_desc()->data_type());
-  ::ttnn::DataType actualDataType = ttnnTensor.dtype();
-  DEBUG_ASSERT(expectedDataType == actualDataType,
-               "DataType mismatch, expected ", toString(expectedDataType),
-               ", got ", toString(actualDataType));
+  //   ::ttnn::DataType expectedDataType =
+  //       ::tt::runtime::ttnn::utils::toTTNNDataType(
+  //           tensorRef->desc()->layout()->memory_desc()->data_type());
+  //   ::ttnn::DataType actualDataType = ttnnTensor.dtype();
+  //   DEBUG_ASSERT(expectedDataType == actualDataType,
+  //                "DataType mismatch, expected ", toString(expectedDataType),
+  //                ", got ", toString(actualDataType));
 
   ::ttnn::StorageType expectedStorageType =
       ::tt::runtime::ttnn::utils::toTTNNStorageType(

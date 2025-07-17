@@ -20,7 +20,18 @@ void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ::ttnn::DataType targetDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
-  ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
+  ::ttnn::Tensor out;
+
+  // Special case: if typecasting from float32 or bfloat16 to int32, use
+  // ttnn::round
+  if ((inputTensor.dtype() == ::ttnn::DataType::FLOAT32 ||
+       inputTensor.dtype() == ::ttnn::DataType::BFLOAT16) &&
+      targetDataType == ::ttnn::DataType::INT32) {
+    out = ::ttnn::round(inputTensor, 0);
+    out = ::ttnn::typecast(out, targetDataType);
+  } else {
+    out = ::ttnn::typecast(inputTensor, targetDataType);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

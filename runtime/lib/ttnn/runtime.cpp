@@ -937,6 +937,10 @@ getOpOutputRef(OpContext opContextHandle,
     abort(); // I don't care
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    abort(); // I don't care
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
@@ -1159,6 +1163,10 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::SortOp: {
+    abort(); // I don't care
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     abort(); // I don't care
     break;
   }
