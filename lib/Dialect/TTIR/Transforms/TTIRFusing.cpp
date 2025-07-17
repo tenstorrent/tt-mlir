@@ -868,7 +868,9 @@ public:
       patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
-      patterns.add<Conv2dWithMultiply>(&getContext());
+      if (conv2dWithMultiplyEnabled) {
+        patterns.add<Conv2dWithMultiply>(&getContext());
+      }
       patterns.add<CacheFillUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
