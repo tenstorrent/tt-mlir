@@ -625,7 +625,8 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
-  return op_model::ttnn::ToMemoryConfigOpInterface::getOpConstraints(
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::ToMemoryConfigOpInterface::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], getMemoryConfig(), outputShape,
       opConfig.outputLayout);
 }
@@ -638,7 +639,8 @@ ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
   const auto outputShape = getResult().getType().getShape();
 
-  return op_model::ttnn::ToMemoryConfigOpInterface::getOpRuntime(
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::ToMemoryConfigOpInterface::getOpRuntime, *this,
       inputShape, inputs[0], getMemoryConfig(), outputShape,
       opConfig.outputLayout);
 }
