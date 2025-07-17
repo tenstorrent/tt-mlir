@@ -1485,6 +1485,22 @@ public:
 };
 } // namespace
 
+namespace {
+class CollectiveBroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::CollectiveBroadcastOp> {
+public:
+  using OpConversionPattern<ttir::CollectiveBroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CollectiveBroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // ToDo: Add support for collective broadcast.
+
+    return success();
+  }
+};
+} // namespace
+
 // Utility function to get data type for quantized types.
 static ttcore::DataTypeAttr getDataType(mlir::Value val,
                                         ConversionPatternRewriter &rewriter,
@@ -1645,7 +1661,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            PermuteOpConversionPattern,
-           UpsampleOpConversionPattern
+           UpsampleOpConversionPattern,
+           CollectiveBroadcastOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
