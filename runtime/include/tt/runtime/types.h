@@ -11,6 +11,7 @@
 #include <optional>
 #include <string_view>
 #include <vector>
+#include <iostream>
 
 #include "tt/runtime/utils.h"
 
@@ -172,8 +173,12 @@ struct TensorDesc {
       : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
   std::int64_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                           std::multiplies<int64_t>());
+    std::int64_t v = std::accumulate(stride.begin(), stride.end(), static_cast<int64_t>(1),
+                           std::multiplies<int64_t>()) * shape[0];
+
+    std::cout << v << std::endl;
+
+    return v;
   }
   std::int64_t sizeBytes() const {
     return utils::alignUp(volume() * itemsize, alignment);

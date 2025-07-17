@@ -207,12 +207,19 @@ void CQExecutor::execute(const target::metal::Command *command) {
 void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
+  LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+             target::metal::BufferDetail::SystemBuffer);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
+
+  const target::metal::SystemBuffer *systemBuffer =
+      bufferDesc->buffer_detail_as_SystemBuffer();
+  LOG_ASSERT(systemBuffer->stride()->size() == bufferDesc->shape()->size());
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type(),
+  std::vector<std::uint32_t> stride(systemBuffer->stride()->begin(),
+                                   systemBuffer->stride()->end());
+  TensorDesc desc(shape, stride, bufferDesc->data_type(),
                   utils::tileAlignment(bufferDesc->data_type()));
   size_t size = desc.sizeBytes();
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
@@ -294,11 +301,14 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(cbRef->buffer_ref()
-                                   ->desc()
-                                   ->circular_buffer_config()
-                                   ->core_range_set());
+    const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+    LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+               target::metal::BufferDetail::MetalBuffer);
+    const target::metal::MetalBuffer *metalBuffer =
+        bufferDesc->buffer_detail_as_MetalBuffer();
+
+    CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+        metalBuffer->circular_buffer_config()->core_range_set());
     tt_metal::CircularBufferConfig config =
         createCircularBufferConfig(cbRef, deviceBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
