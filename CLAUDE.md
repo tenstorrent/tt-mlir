@@ -18,6 +18,7 @@ targets tt-metal.
 - `ttrt query --save-artifacts`: Runs ttrt to query and save a system descriptor
   to location `ttrt-artifacts/system_desc.ttsys`.  Required before running
   python tests.
+- `pre-commit run --all-files`: Runs pre-commit to lint code style.
 
 
 # Testing
