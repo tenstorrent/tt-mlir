@@ -1128,6 +1128,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PointToPointOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllToAllOp: {
+    tensorRef = opContext.type_as_AllToAllOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1378,6 +1382,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     tensorRefs = {opContext.type_as_PointToPointOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllOp: {
+    tensorRefs = {opContext.type_as_AllToAllOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
