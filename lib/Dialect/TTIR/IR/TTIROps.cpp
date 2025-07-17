@@ -4450,6 +4450,15 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// ColllectiveBroadcastOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
+  // ToDo: Add verification
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
