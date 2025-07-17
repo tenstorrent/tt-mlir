@@ -7,4 +7,4 @@
 from .cli import cli
 
 # Import and expose the API functions
-from .api import model_to_cpp, generate
+from .api import model_to_cpp, model_to_python, generate_cpp, generate_python
