@@ -84,6 +84,8 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
         options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.l1InterleavedAnalysisEnabled =
+        options.l1InterleavedAnalysisEnabled;
     optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
     optimizerOptions.memoryLayoutAnalysisPolicy =
         options.memoryLayoutAnalysisPolicy;

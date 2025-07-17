@@ -138,6 +138,10 @@ std::string OptimizerOverridesHandler::toString() const {
     options += OptionNames::memoryLayoutAnalysisEnabled.str() + "=true ";
   }
 
+  if (enableL1InterleavedAnalysis) {
+    options += OptionNames::l1InterleavedAnalysisEnabled.str() + "=true ";
+  }
+
   if (enableMemoryLayoutAnalysisPolicy) {
     options += OptionNames::memoryLayoutAnalysisPolicy.str() + "=" +
                MemoryLayoutAnalysisPolicyTypeParser::toString(

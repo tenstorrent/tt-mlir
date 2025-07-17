@@ -21,6 +21,8 @@ struct TTNNOptimizerOptions {
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = true;
+  bool l1InterleavedAnalysisEnabled = true;
+
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;

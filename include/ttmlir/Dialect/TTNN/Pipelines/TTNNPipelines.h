@@ -134,6 +134,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(true)};
 
+  // If this option is true, run memory layout analysis.
+  //
+  Option<bool> l1InterleavedAnalysisEnabled{
+      *this, OptionNames::l1InterleavedAnalysisEnabled,
+      llvm::cl::desc("Enable DRAM to L1 interleaved optimization."),
+      llvm::cl::init(true)};
+
   // If this option is true, insert memory reconfiguration ops.
   //
   Option<bool> memReconfigEnabled{
