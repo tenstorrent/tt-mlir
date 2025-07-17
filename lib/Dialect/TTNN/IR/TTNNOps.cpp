@@ -2186,9 +2186,22 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 
 // AllToAllOp verification
 ::mlir::LogicalResult AllToAllOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t inDim = getInDim();
 
-  // ToDo: Add verification
-
+  if (inDim >= inputType.getRank() || inDim < -inputType.getRank()) {
+    return emitOpError("Invalid in_dim for all to all op. In "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got in_dim = ")
+           << inDim;
+  }
+  int32_t outDim = getOutDim();
+  if (outDim >= inputType.getRank() || outDim < -inputType.getRank()) {
+    return emitOpError("Invalid out_dim for all to all op. Out "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got out_dim = ")
+           << outDim;
+  }
   return success();
 }
 
