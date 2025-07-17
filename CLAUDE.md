@@ -23,6 +23,7 @@ targets tt-metal.
 
 # Testing
 - `cmake --build ${BUILD_DIR} --target check-ttmlir`: Runs compiler tests.
+- `llvm-lit test/ttmlir/.../*.mlir`: Runs LLVM lit driven compiler tests.
 - `pytest test/python`: Runs Python driven compiler tests and generates flatbuffers.
   Usually required to have run `ttrt query --save-artifacts` first and then to
   set the environment variable `SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`.
