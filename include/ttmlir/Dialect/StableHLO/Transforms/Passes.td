@@ -38,6 +38,18 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
+def AnnotateTensorMeshPass : Pass<"annotate-tensor-mesh", "::mlir::ModuleOp">
+{
+  let summary = "Annotate tensor mesh.";
+  let description = [{
+    This pass will annotate each tensor with the mesh it belongs on.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::mlir::ModuleOp">
 {
   let summary = "Wrap all operations within a sdy manual computation op.";

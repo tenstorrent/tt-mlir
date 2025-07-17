@@ -44,6 +44,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
+  // Annotate what mesh each tensor belongs to.
+  pm.addPass(createAnnotateTensorMeshPass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
