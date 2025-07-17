@@ -57,25 +57,6 @@ if enable_perf:
     perflibs += ["csvexport-release"]
 
 if enable_runtime:
-
-    def run_patchelf_command(lib_name):
-        command = [
-            "patchelf",
-            "--set-rpath",
-            "/opt/openmpi-v5.0.7-ulfm/lib:$ORIGIN",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/{lib_name}",
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            print(f"Command failed with return code {e.returncode}")
-
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
     shutil.copy(
@@ -87,14 +68,12 @@ if enable_runtime:
         f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
         f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
     )
-    run_patchelf_command(runtime_module)
 
     for runlib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{runlib}",
             f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
         )
-        run_patchelf_command(runlib)
 
     for dylib in perflibs:
         shutil.copy(
