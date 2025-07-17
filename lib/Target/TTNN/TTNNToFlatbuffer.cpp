@@ -763,15 +763,6 @@ createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
       cache.fbb->CreateVector<int64_t>(sourceTargetPairsVec));
 }
 
-// auto input = cache.at<::tt::target::ttnn::TensorRef>(
-//     getOperandThroughDPSOps(op.getInput()));
-// auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-//                                 kHostAllocatedSize);
-// auto device = getOperandThroughDPSOps(op.getDevice());
-// return ::tt::target::ttnn::CreateAllGatherOp(
-//     *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-//     op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
-
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllOp>
 createOp(FlatbufferObjectCache &cache, AllToAllOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
