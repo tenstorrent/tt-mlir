@@ -1440,17 +1440,17 @@ public:
     Value input = adaptor.getInput();
 
     auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
+        this->getTypeConverter()->convertType(op.getType()));
 
     assert(resultType && "Result type must be a ranked tensor type.");
     DenseElementsAttr zerosAttr =
-        DenseElementsAttr::get(resultType, ArrayRef<float>(0));
+        DenseElementsAttr::get(resultType, /*value=*/0.0f);
     auto zeroes =
         rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, zerosAttr);
 
     rewriter.replaceOpWithNewOp<linalg::MaxOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        ValueRange{input, zeroes.getResult()}, ValueRange{adaptor.getOutput()});
+        op, resultType, ValueRange{input, zeroes.getResult()},
+        ValueRange{adaptor.getOutput()});
     return success();
   }
 };

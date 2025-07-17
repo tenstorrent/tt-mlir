@@ -1780,6 +1780,7 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(sin, "sin"),
     create_hoisted_unary_op(cos, "cos"),
     create_hoisted_unary_op(sum, "sum"),
+    create_hoisted_unary_op(relu, "relu"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
         marks=pytest.mark.xfail(
