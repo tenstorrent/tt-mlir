@@ -13,6 +13,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
@@ -21,6 +22,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
+#include <optional>
 #include <variant>
 
 // ----------------------------------------------------------------------------
@@ -45,6 +47,13 @@ inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
   return memSpace ? mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
                         .getValue()
                   : dflt;
+}
+
+inline std::string as_operand_str(Value v, mlir::AsmState &state) {
+  std::string s{};
+  llvm::raw_string_ostream out{s};
+  v.printAsOperand(out, state);
+  return s;
 }
 
 //===----------------------------------------------------------------------===//
@@ -121,7 +130,68 @@ struct ModuleAnalysisData {
   DenseMap<func::FuncOp, FuncAnalysisData> funcAnalysis;
 };
 
-struct FuncAnalysisData2 final : public AllocationPlanner::Context {};
+struct LiveRange {
+  SequenceT first = -1;
+  SequenceT last = -1;
+};
+
+struct Tensor {
+  AllocSizeT size = 0; // unaligned
+  LiveRange liveRange;
+};
+
+struct Buffer {
+  AllocSizeT size = 0; // TODO this will become a set of choices?
+  LiveRange liveRange;
+};
+
+using Operand = std::variant<Tensor, Buffer>;
+
+struct AllocOpContext {
+  // All generic op users of this alloc.
+  llvm::DenseSet<ttir::GenericOp> users;
+  // Description of the original alloc.
+  Tensor data;
+  // Placement decision var for this alloc.
+  std::optional<ttcore::MemorySpace> placement;
+};
+
+struct GenericOpContext {
+  // Root definitions of the use-def chain for each of this generic ops'
+  // list of operands. This vector is parallel to `GenericOp->getOperands()`
+  // (i.e. it is in the declaration order) and has nullptrs in slots that
+  // are defined by anything other than ttir::AllocOp.
+  llvm::SmallVector<ttir::AllocOp> defs;
+  // Stream decisions for this generic op's operands.
+  llvm::SmallVector<Operand> operands;
+};
+
+struct SequenceMapping {
+  // Within a func body scope, maps logical time positions (in preorder)
+  // to their `Operation`s.
+  std::vector<Operation *> positionMap;
+  // Inverse of `positionMap`.
+  DenseMap<Operation *, SequenceT> operationMap;
+
+  SequenceT size() const { return positionMap.size(); }
+
+  SequenceT operator[](Operation *op) const {
+    auto i = operationMap.find(op);
+    TT_assert(i != operationMap.end(), "expected op to have position mapping");
+    return i->second;
+  }
+
+  template <typename ConcreteOp> // TODO restrict to ops
+  SequenceT operator[](ConcreteOp op) const {
+    return this->operator[](op.getOperation());
+  }
+};
+
+struct FuncAnalysisData2 final {
+  SequenceMapping mapping;
+  llvm::DenseMap<memref::AllocOp, AllocOpContext> allocOps;
+  llvm::DenseMap<ttir::GenericOp, GenericOpContext> genericOps;
+};
 
 struct ModuleAnalysisData2 {
 
@@ -298,60 +368,147 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return moduleAnalysis;
   }
 
-  struct AliasMode {
-    AllocSizeT alignedSize;
-    SequenceT first;
-    SequenceT last;
-  };
-
-  struct StreamMode {
-    AllocSizeT bufferSize; // TODO this will become a set of choices
-    SequenceT first;
-    SequenceT last;
-    bool isL1Stream;
-  };
-
   FailureOr<FuncAnalysisData2> runAnalyzeOperands(func::FuncOp funcOp) {
+    mlir::AsmState state{funcOp}; // TODO rm
+
+    ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     Block &funcBody = funcOp.getBody().front();
 
     FuncAnalysisData2 analysis;
 
+    // Build `Operation` <-> preorder position mappings for the (unmodified)
+    // `funcOp` IR.
+
+    funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
+      const SequenceT position = analysis.mapping.size();
+      TT_ALLOC_TRACE("preorder visit @{}: {}", position, *op);
+
+      analysis.mapping.operationMap[op] = position;
+      analysis.mapping.positionMap.emplace_back(op);
+    });
+    TT_assert(analysis.mapping.operationMap.size() ==
+                  analysis.mapping.positionMap.size(),
+              "TODO expected map and inverse map");
+
     // Collect all memref.allocs that are root defs of all generic operands.
     // (For streams and views, traverse through the input.) Note that such
     // a memref.alloc can also have non-generic op users; presence of those
-    // will make the alloc ineligible for memspace remapping.
+    // will make the alloc ineligible for memspace remapping because this pass
+    // doesn't (currently) deal with non-generic ops.
 
     llvm::DenseMap<memref::AllocOp, llvm::SmallPtrSet<Operation *, 4>> allocOps;
 
     funcBody.walk([&](ttir::GenericOp genericOp) {
+      GenericOpContext &genericCtx = analysis.genericOps[genericOp];
+
+      // Note: `getOperands()` traversal is in declaration order.
       for (Value operand : genericOp->getOperands()) {
         llvm::SmallVector<Operation *> path;
         memref::AllocOp allocOp = findRootAlloc(operand, path);
+        genericCtx.defs.emplace_back(allocOp);
         if (allocOp) {
-          llvm::outs() << "path length " << path.size() << "\n";
+          auto [i, inserted] = analysis.allocOps.try_emplace(allocOp);
+          AllocOpContext &allocCtx = i->second;
+          if (inserted) {
+            allocCtx.data.size = device.getMemrefSizeBytes(allocOp.getType());
+            allocCtx.data.liveRange.first = analysis.mapping[allocOp];
+            allocCtx.data.liveRange.last = analysis.mapping[genericOp];
+          } else {
+            TT_assert(allocCtx.data.size > 0, "TODO");
+            allocCtx.data.liveRange.last = std::max(
+                allocCtx.data.liveRange.last, analysis.mapping[genericOp]);
+          }
+          allocCtx.users.insert(genericOp);
+
+          // Track the full set of ops along the generic/alloc use-def
+          // chains.
           allocOps[allocOp].insert(path.begin(), path.end());
         }
       }
     });
-    llvm::outs() << "found " << allocOps.size() << " root alloc(s)\n";
+    llvm::outs() << "found " << analysis.allocOps.size() << " root alloc(s), "
+                 << analysis.genericOps.size() << " generic(s)\n";
 
-    // Check 'allocOp' immediate users against the set seen in the paths
+    // TODO complete position mappings for allocs not in `analysis.genericOps`;
+    // memref.allocs not operands of generics still need to be allocated
+    // (for these use llvm Liveness? need to see through view/stream layouts in
+    // any case?)
+
+    // TODO Check 'allocOp' immediate users against the set seen in the paths
     // leading to generic op operands.
+
+    llvm::DenseSet<memref::AllocOp> allocOpsWithNonGenericUsers;
 
     for (auto &[allocOp, pathSet] : allocOps) {
       for (Operation *user : allocOp->getUsers()) {
         if (!pathSet.contains(user)) {
-          llvm::outs() << "user not in pathset: " << (*user) << "\n";
-          // TODO remove it/mark ineligible for remapping
+          allocOpsWithNonGenericUsers.insert(allocOp);
         }
       }
     }
+    llvm::outs() << "found " << allocOpsWithNonGenericUsers.size()
+                 << " alloc(s) with a non-generic user\n";
+    for (auto &allocOp : allocOpsWithNonGenericUsers) {
+      allocOps.erase(allocOp);
+    }
 
-    // Find all alloc sites and analyse sets of their possible placements.
+    // Convert 'analysis' into an allocation plan problem. There are two levels
+    // of decision variables:
+    //
+    // 1. for all allocs, their memspace placements, L1 or DRAM;
+    // 2. for all generics, stream buffer sizes for those operands that are
+    // being placed in DRAM.
+    //
+    // Note:
+    // - TODO (this is inaccurate, mem pressure also reduces because of shorter
+    // liferanges) we require that an operand spill from L1 to DRAM result in
+    // strict memory pressure improvement, i.e. stream buffer sizes must be less
+    // than their original alloc sizes;
+    // - not all alloc operands are eligible for a memspace change (e.g. those
+    // with non-generic op users aren't).
 
-    funcBody.walk<WalkOrder::PreOrder>([&](memref::AllocOp allocOp) {
+    for (auto &[allocOp, ctx] : analysis.allocOps) {
+      llvm::outs() << as_operand_str(allocOp->getResult(0), state) << ":\t["
+                   << ctx.data.liveRange.first << ", "
+                   << ctx.data.liveRange.last << "], " << ctx.data.size
+                   << " byte(s), " << ctx.users.size() << " user(s)\n";
 
-    });
+      // assign some to DRAM
+      // ctx.placement = ttcore::MemorySpace::DeviceDRAM;
+      ctx.placement = ttcore::MemorySpace::DeviceL1;
+    }
+
+    AllocationPlanner::Context plan;
+    for (auto &[allocOp, ctx] : analysis.allocOps) {
+      TT_assert(ctx.placement.has_value(),
+                "all alloc decision vars should have been assigned");
+      switch (ctx.placement.value()) {
+      case ttcore::MemorySpace::DeviceDRAM: {
+        for (ttir::GenericOp genericOp : ctx.users) {
+          const AllocSizeT bufSize =
+              ctx.data.size; // / 4; // TODO query 'genericOp'
+          const SequenceT t = analysis.mapping[genericOp];
+          plan.add(bufSize, t, t);
+        }
+      } break;
+      case ttcore::MemorySpace::DeviceL1: {
+        plan.add(ctx.data.size, ctx.data.liveRange.first,
+                 ctx.data.liveRange.last);
+      } break;
+      default: {
+        TT_assert(ctx.placement.has_value(),
+                  "all alloc decision vars should have been assigned");
+      } break;
+      }
+    }
+
+    const AllocationPlanner::Stats stats = AllocationPlanner::allocate(plan);
+    llvm::outs() << "allocation planning outcome: " << stats << "\n";
+
+    // TODO
+    // - walk through the verification profile, compute contention groups
+    // - for contention groups, need to be able to map Requests to their
+    // originating alloc ops?
 
     return analysis;
   }
