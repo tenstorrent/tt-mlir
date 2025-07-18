@@ -902,25 +902,26 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
     constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
     constexpr int64_t gridSize = 8;
 
-    // Handle the last two intervals (which form the 2D collapsed shape)
-    // with grid-aware alignment
-    for (int64_t idx = std::max(0L, static_cast<int64_t>(deviceGridRank) - 2);
+    // Handle the last two intervals (which will map to tiles) with
+    // grid-aware alignments.
+    assert(deviceGridRank >= 2);
+    for (int64_t idx = static_cast<int64_t>(deviceGridRank) - 2;
          idx < static_cast<int64_t>(deviceGridRank); ++idx) {
 
-      int64_t intervalStart = normIntervals[idx * 2];
-      int64_t intervalEnd = normIntervals[idx * 2 + 1];
+      const int64_t intervalStart = normIntervals[idx * 2];
+      const int64_t intervalEnd = normIntervals[idx * 2 + 1];
 
-      // Calculate collapsed size for this interval
+      // Calculate collapsed size for this interval.
       int64_t collapsedSize = 1;
       for (int64_t j = intervalStart; j < intervalEnd; ++j) {
         collapsedSize *= logicalShape[j];
       }
 
-      // Determine which tile dimension this interval corresponds to
-      int64_t tileIdx =
+      // Determine which tile dimension corresponds with this interval.
+      const int64_t tileIdx =
           (idx == static_cast<int64_t>(deviceGridRank) - 2) ? 0 : 1;
-      int64_t tileDim = tileShape[tileIdx];
-      int64_t gridAlignmentThreshold = gridSize * tileDim;
+      const int64_t tileDim = tileShape[tileIdx];
+      const int64_t gridAlignmentThreshold = gridSize * tileDim;
 
       // Determine alignment based on collapsed size
       // If size > gridAlignmentThreshold, align to grid boundary, else align to

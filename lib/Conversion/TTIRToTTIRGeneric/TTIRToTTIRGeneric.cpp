@@ -41,85 +41,70 @@ protected:
     assert(!targetGridShape.empty());
   }
 
-  // Modified toLayoutOperands to handle inputs and outputs together
-  std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
-                   std::array<mlir::SmallVector<Value>, 2> operands,
-                   bool tiled) const {
+  // Layout information for a single value; useful because we need a phased
+  // approach to compute the optimal grid between all inputs+outputs.
+  struct LayoutInfo {
+    ttcore::MetalLayoutAttr layout;
+    Type elementType;
+    llvm::SmallVector<int64_t> tileShape;
+    llvm::SmallVector<int64_t> shardShape;
+    ttcore::MemorySpace memorySpace;
+  };
 
-    // Collect ALL operands (inputs and outputs) for grid calculation
-    llvm::SmallVector<Value> allOperands;
-    allOperands.append(operands[0].begin(), operands[0].end());
-    allOperands.append(operands[1].begin(), operands[1].end());
+  // Compute layout information for a single value with a 1-filled grid.
+  LayoutInfo
+  computeLayoutInfo(Value value, ttcore::MemorySpace memSpace, bool tiled,
+                    mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::RankedTensorType tensorType =
+        mlir::cast<mlir::RankedTensorType>(value.getType());
+    llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
-    // First pass: analyze ALL operands to get their layouts
-    struct LayoutInfo {
-      ttcore::MetalLayoutAttr layout;
-      Type elementType;
-      llvm::SmallVector<int64_t> tileShape;
-      llvm::SmallVector<int64_t> shardShape;
-      ttcore::MemorySpace memorySpace;
-    };
-    llvm::SmallVector<LayoutInfo> layoutInfos;
-
-    llvm::SmallVector<int64_t> onesGrid(targetGridShape.size(), 1);
-
-    // Process all operands together
-    size_t inputCount = operands[0].size();
-    for (size_t i = 0; i < allOperands.size(); ++i) {
-      Value value = allOperands[i];
-      // Determine memory space based on whether it's input or output
-      ttcore::MemorySpace memSpace =
-          (i < inputCount) ? memorySpaces[0] : memorySpaces[1];
-
-      mlir::RankedTensorType tensorType =
-          mlir::cast<mlir::RankedTensorType>(value.getType());
-      llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-      // Create tile element type if needed
-      Type elementType = tensorType.getElementType();
-      llvm::SmallVector<int64_t> tileShape;
-      if (tiled) {
-        auto defaultShape = ttcore::TileType::getDefaultShape();
-        tileShape.assign(defaultShape.begin(), defaultShape.end());
-        elementType = ttcore::TileType::get(elementType, tileShape);
-      }
-
-      // Create layout
-      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, targetGridShape.size(),
-          ttcore::OOBVal::Undef, memSpace);
-
-      // Get physical shape with 1x1 grid to extract shard shape
-      auto physicalWith1x1 = ttcore::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, onesGrid, tileShape, layout.getCollapsedIntervals(),
-          layout.getDimAlignments());
-
-      // Extract shard shape (last gridRank dimensions)
-      llvm::SmallVector<int64_t> shardShape;
-      for (size_t j = targetGridShape.size(); j < physicalWith1x1.size(); ++j) {
-        shardShape.push_back(physicalWith1x1[j]);
-      }
-
-      layoutInfos.push_back(
-          {layout, elementType, tileShape, shardShape, memSpace});
+    // Create tile element type if needed.
+    Type elementType = tensorType.getElementType();
+    llvm::SmallVector<int64_t> tileShape;
+    if (tiled) {
+      auto defaultShape = ttcore::TileType::getDefaultShape();
+      tileShape.assign(defaultShape.begin(), defaultShape.end());
+      elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    // Compute ONE optimal grid based on ALL operands
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetGridShape.size(),
+        ttcore::OOBVal::Undef, memSpace);
+
+    // Get physical shape with 1x1 grid to extract shard shape.
+    llvm::SmallVector<int64_t> onesGrid(targetGridShape.size(), 1);
+    auto physicalWithOnesGrid = ttcore::MetalLayoutAttr::derivePhysicalShape(
+        logicalShape, onesGrid, tileShape, layout.getCollapsedIntervals(),
+        layout.getDimAlignments());
+
+    // Extract shard shape (last gridRank dimensions).
+    llvm::SmallVector<int64_t> shardShape;
+    for (size_t j = targetGridShape.size(); j < physicalWithOnesGrid.size();
+         ++j) {
+      shardShape.push_back(physicalWithOnesGrid[j]);
+    }
+
+    return {layout, elementType, tileShape, shardShape, memSpace};
+  }
+
+  // Compute optimal grid shape that works for all provided layout infos.
+  llvm::SmallVector<int64_t>
+  computeOptimalGrid(const llvm::SmallVector<LayoutInfo> &layoutInfos) const {
     llvm::SmallVector<int64_t> gridShape(targetGridShape.size(), 1);
 
     for (size_t dim = 0; dim < targetGridShape.size(); ++dim) {
       int64_t minShard = std::numeric_limits<int64_t>::max();
       const int64_t maxGridDim = targetGridShape[dim];
 
-      // Find minimum shard size across ALL operands
+      // Find minimum shard size across all values.
       for (const auto &info : layoutInfos) {
         if (dim < info.shardShape.size()) {
           minShard = std::min(minShard, info.shardShape[dim]);
         }
       }
 
-      // Find largest grid that works for ALL operands
+      // Find largest grid that works for all values.
       for (int64_t g = std::min(maxGridDim, minShard); g > 0; g--) {
         bool validForAll = true;
 
@@ -139,33 +124,68 @@ protected:
       }
     }
 
-    // Second pass: create the actual operands with the SAME optimal grid
+    return gridShape;
+  }
+
+  // Create a ToLayout op for a value using the provided layout info and grid.
+  Value createToLayoutOp(Value value, const LayoutInfo &info,
+                         const llvm::SmallVector<int64_t> &gridShape,
+                         mlir::ConversionPatternRewriter &rewriter) const {
+    // Calculate true physical shape with optimal grid.
+    auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
+        info.layout.getLogicalShape(), gridShape, info.tileShape,
+        info.layout.getCollapsedIntervals(), info.layout.getDimAlignments());
+
+    mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
+        physicalShape, info.elementType, info.layout);
+
+    auto output =
+        rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
+    return rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
+        ->getResult(0);
+  }
+
+  // Insert toLayout ops for a genericOp's operands and results; this includes
+  // sharding, tilizing, etc. This func computes appropriate optimal grid shape
+  // as well.
+  std::array<mlir::SmallVector<Value>, 2>
+  toLayoutOperandsAndResults(mlir::ConversionPatternRewriter &rewriter,
+                             std::array<mlir::SmallVector<Value>, 2> operands,
+                             bool tiled) const {
+
+    // First pass: canonicalize all values with tilizing etc. but with 1-filled
+    // grid.
+    llvm::SmallVector<LayoutInfo> layoutInfos;
+
+    // Collect layout info for operands.
+    for (Value operand : operands[0]) {
+      layoutInfos.push_back(
+          computeLayoutInfo(operand, memorySpaces[0], tiled, rewriter));
+    }
+
+    // Collect layout info for results.
+    for (Value result : operands[1]) {
+      layoutInfos.push_back(
+          computeLayoutInfo(result, memorySpaces[1], tiled, rewriter));
+    }
+
+    // Now we can compute optimal grid between all values based on 1-filled
+    // grids.
+    auto gridShape = computeOptimalGrid(layoutInfos);
+
+    // Second pass: create the actual operands with the shared optimal grid, and
+    // emit ToLayout ops.
     std::array<mlir::SmallVector<Value>, 2> result;
 
-    for (size_t i = 0; i < allOperands.size(); ++i) {
-      const auto &info = layoutInfos[i];
+    size_t layoutIdx = 0;
+    for (Value operand : operands[0]) {
+      result[0].push_back(createToLayoutOp(operand, layoutInfos[layoutIdx++],
+                                           gridShape, rewriter));
+    }
 
-      // Calculate physical shape with optimal grid
-      auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
-          info.layout.getLogicalShape(), gridShape, info.tileShape,
-          info.layout.getCollapsedIntervals(), info.layout.getDimAlignments());
-
-      mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
-          physicalShape, info.elementType, info.layout);
-
-      auto output = rewriter.create<tt::ttir::EmptyOp>(allOperands[i].getLoc(),
-                                                       layoutResultType);
-      auto toLayout = rewriter
-                          .create<tt::ttir::ToLayoutOp>(allOperands[i].getLoc(),
-                                                        allOperands[i], output)
-                          ->getResult(0);
-
-      // Put back into correct array (input or output)
-      if (i < inputCount) {
-        result[0].push_back(toLayout);
-      } else {
-        result[1].push_back(toLayout);
-      }
+    for (Value resultValue : operands[1]) {
+      result[1].push_back(createToLayoutOp(
+          resultValue, layoutInfos[layoutIdx++], gridShape, rewriter));
     }
 
     return result;
@@ -304,8 +324,8 @@ private:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {origInputs, origOutputs},
-                         /*tiled*/ true);
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -417,8 +437,8 @@ private:
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
             .getElementType()));
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {newInputs, origOutputs},
-                         /*tiled*/ true);
+        toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -638,8 +658,8 @@ private:
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
-    auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
