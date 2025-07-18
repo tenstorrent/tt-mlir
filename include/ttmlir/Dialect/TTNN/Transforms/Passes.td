@@ -194,4 +194,10 @@ def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
   let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
 }
 
+def TTNNRowMajorConstEvalOperations: Pass<"ttnn-row-major-const-eval-ops", "::mlir::ModuleOp">
+{
+  let summary = "Converts layouts of operations inside const eval functions to execute in row major.";
+  let description = "In order to avoid OOM issues where tensors are padded to align with tile sizes we want to execute all const eval functions in row major layout. This will be slower but will not OOM.";
+}
+
 #endif
