@@ -958,6 +958,12 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
 //===----------------------------------------------------------------------===//
 // PoolingOp
+// Ensures the following constraints:
+// - All inputs are ranked tensors of equal rank.
+// - `window_strides`, `window_dilations`, and `window_dimensions` match input
+// rank.
+// - `padding` contains 2 x input rank elements (low/high per dimension).
+// - Number of inputs equals number of outputs.
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
@@ -968,29 +974,33 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   for (auto input : getInputs()) {
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     if (inputType.getRank() != inputRank) {
-      return emitOpError("All input tensors must have the same rank");
+      return emitOpError("All input tensors must have the same rank.");
     }
   }
 
   if (getWindowStrides().size() != inputRank) {
     return emitOpError("Window strides must have the same number of elements "
-                       "as the rank of the input tensor");
+                       "as the rank of the input tensor.");
   }
 
   if (getWindowDilations().size() != inputRank) {
     return emitOpError("Window dilations must have the same number of elements "
-                       "as the rank of the input tensor");
+                       "as the rank of the input tensor.");
   }
 
   if (getWindowDimensions().size() != inputRank) {
     return emitOpError(
         "Window dimensions must have the same number of elements "
-        "as the rank of the input tensor");
+        "as the rank of the input tensor.");
   }
 
   if (getPadding().size() != 2 * inputRank) {
     return emitOpError("Padding must have the same number of elements as twice "
-                       "the rank of the input tensor");
+                       "the rank of the input tensor.");
+  }
+
+  if (getInputs().size() != getOutputs().size()) {
+    return emitOpError("Number of inputs and outputs must be the same.");
   }
 
   return success();
