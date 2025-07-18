@@ -11,9 +11,9 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
-#include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/trace_cache.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -633,10 +633,13 @@ size_t getL1SizePerCore(Device meshDevice) {
   return ttnnMeshDevice.l1_size_per_core();
 }
 
-bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId) {
+void releaseTrace(Device meshDevice, std::uint64_t binaryId,
+                  size_t mainProgramId) {
   ::tt::runtime::ttnn::TraceCache &traceCache =
       meshDevice.getTraceCache()->as<TraceCache>(DeviceRuntime::TTNN);
-  return traceCache.erase(binaryId, programId);
+
+  MainProgramKey mainProgramKey(binaryId, mainProgramId);
+  traceCache.erase(mainProgramKey);
 }
 
 void deallocateBuffers(Device deviceHandle) {
@@ -1121,17 +1124,23 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
-  case ::tt::target::ttnn::OpType::TraceOp: {
-    break;
-  }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     tensorRef = opContext.type_as_PointToPointOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
+    tensorRef = opContext.type_as_BeginTraceCaptureOp()->trace_id();
     break;
   }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
-  case ::tt::target::ttnn::OpType::DeallocateOp: {
+  case ::tt::target::ttnn::OpType::DeallocateOp:
+  case ::tt::target::ttnn::OpType::FuncCallOp:
+  case ::tt::target::ttnn::OpType::WriteTensorOp:
+  case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
+  case ::tt::target::ttnn::OpType::ExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1380,10 +1389,36 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PointToPointOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::TraceOp: {
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
     break;
   }
-  case ::tt::target::ttnn::OpType::NamedFullOp: {
+  case ::tt::target::ttnn::OpType::FuncCallOp: {
+    for (const auto *input : *opContext.type_as_FuncCallOp()->inputs()) {
+      tensorRefs.push_back(input);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::WriteTensorOp: {
+    tensorRefs = {opContext.type_as_WriteTensorOp()->host_tensor(),
+                  opContext.type_as_WriteTensorOp()->device_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EndTraceCaptureOp: {
+    tensorRefs = {opContext.type_as_EndTraceCaptureOp()->trace_id()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExecuteTraceOp: {
+    tensorRefs = {opContext.type_as_ExecuteTraceOp()->trace_id()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+    for (const auto *input :
+         *opContext.type_as_CaptureOrExecuteTraceOp()->inputs()) {
+      tensorRefs.push_back(input);
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

@@ -17,8 +17,6 @@
 
 namespace mlir::tt::ttnn::utils {
 
-constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
-
 // Map ttcore::MemorySpace to ttnn::BufferType
 //
 mlir::tt::ttnn::BufferType

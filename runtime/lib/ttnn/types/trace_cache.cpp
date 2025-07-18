@@ -2,36 +2,29 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/ttnn/trace_cache.h"
-#include <sstream>
+#include "tt/runtime/detail/ttnn/types/trace_cache.h"
 
 namespace tt::runtime::ttnn {
 
-std::string generateTraceCacheOuterKey(const uint64_t binaryId,
-                                       const size_t programId) {
-  return std::to_string(binaryId) + ":" + std::to_string(programId);
-}
-
-bool TraceCache::contains(uint64_t binaryId, size_t programId,
-                          const std::string &traceFuncName) const {
-  auto outerKey = generateTraceCacheOuterKey(binaryId, programId);
-  auto outerIt = cache.find(outerKey);
+bool TraceCache::contains(
+    const MainProgramKey &key,
+    const CaptureExecuteProgramKey &captureExecuteKey) const {
+  auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {
     return false;
   }
 
-  return outerIt->second.contains(traceFuncName);
+  return outerIt->second.contains(captureExecuteKey);
 }
 
-TraceData *TraceCache::get(uint64_t binaryId, size_t programId,
-                           const std::string &traceFuncName) {
-  auto outerKey = generateTraceCacheOuterKey(binaryId, programId);
-  auto outerIt = cache.find(outerKey);
+TraceData *TraceCache::get(const MainProgramKey &key,
+                           const CaptureExecuteProgramKey &captureExecuteKey) {
+  auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {
     return nullptr;
   }
 
-  auto innerIt = outerIt->second.find(traceFuncName);
+  auto innerIt = outerIt->second.find(captureExecuteKey);
   if (innerIt == outerIt->second.end()) {
     return nullptr;
   }
@@ -39,18 +32,16 @@ TraceData *TraceCache::get(uint64_t binaryId, size_t programId,
   return &innerIt->second;
 }
 
-void TraceCache::insert(uint64_t binaryId, size_t programId,
-                        const std::string &traceFuncName,
+void TraceCache::insert(const MainProgramKey &key,
+                        const CaptureExecuteProgramKey &captureExecuteKey,
                         const TraceData &traceData) {
-  auto outerKey = generateTraceCacheOuterKey(binaryId, programId);
-  cache[outerKey][traceFuncName] = traceData;
+  cache[key][captureExecuteKey] = traceData;
 }
 
-bool TraceCache::erase(uint64_t binaryId, size_t programId) {
-  auto outerKey = generateTraceCacheOuterKey(binaryId, programId);
-  auto outerIt = cache.find(outerKey);
+void TraceCache::erase(const MainProgramKey &key) {
+  auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {
-    return false;
+    return;
   }
 
   std::shared_ptr<::ttnn::MeshDevice> lockedDevice = meshDevice.lock();
@@ -62,20 +53,18 @@ bool TraceCache::erase(uint64_t binaryId, size_t programId) {
   }
 
   cache.erase(outerIt);
-  return true;
 }
 
-bool TraceCache::erase(uint64_t binaryId, size_t programId,
-                       const std::string &traceFuncName) {
-  auto outerKey = generateTraceCacheOuterKey(binaryId, programId);
-  auto outerIt = cache.find(outerKey);
+void TraceCache::erase(const MainProgramKey &key,
+                       const CaptureExecuteProgramKey &captureExecuteKey) {
+  auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {
-    return false;
+    return;
   }
 
-  auto innerIt = outerIt->second.find(traceFuncName);
+  auto innerIt = outerIt->second.find(captureExecuteKey);
   if (innerIt == outerIt->second.end()) {
-    return false;
+    return;
   }
 
   std::shared_ptr<::ttnn::MeshDevice> lockedDevice = meshDevice.lock();
@@ -84,8 +73,7 @@ bool TraceCache::erase(uint64_t binaryId, size_t programId,
                                              innerIt->second.traceId);
   }
 
-  outerIt->second.erase(innerIt);
-  return true;
+  outerIt->second.erase(captureExecuteKey);
 }
 
 } // namespace tt::runtime::ttnn

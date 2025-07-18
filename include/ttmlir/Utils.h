@@ -28,6 +28,8 @@ namespace ttmlir::utils {
 constexpr inline llvm::StringLiteral g_constEvalAttrName = "const_eval";
 constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
     "ttir.conv2d_weight";
+constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
+    "ttir.cpu_hoist_call";
 
 template <typename T>
 T alignUp(T ptr, T alignment) {

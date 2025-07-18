@@ -5,7 +5,7 @@
 #ifndef RUNTIME_LIB_TTNN_OPERATIONS_CONV_PREPARE_CONV2D_WEIGHTS_H
 #define RUNTIME_LIB_TTNN_OPERATIONS_CONV_PREPARE_CONV2D_WEIGHTS_H
 
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::conv {
