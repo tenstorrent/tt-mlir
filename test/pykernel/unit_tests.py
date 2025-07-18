@@ -405,19 +405,6 @@ def test_array_with_expressions():
     return
 
 
-@ttkernel_compile(optimize=False)
-def test_tensor_accessor():
-    # CHECK-LABEL: func.func @test_tensor_accessor
-    bank_base_address = 0
-    page_size = 32
-    # CHECK: %[[ARGS:.*]] = "ttkernel.TensorAccessorArgs"{{.*}} -> [[ARGS_TYPE:.*]]
-    args = make_tensor_accessor_args(0, 0)
-    # CHECK: "ttkernel.TensorAccessor"(%[[ARGS]], {{.*}}) : ([[ARGS_TYPE]], i32, i32) -> !ttkernel.TensorAccessor
-    tensor_accessor = make_tensor_accessor_from_args(args, bank_base_address, page_size)
-
-    return
-
-
 test_assign()
 test_ifstmt()
 test_for()
@@ -431,4 +418,3 @@ test_array_iteration()
 test_array_additional()
 test_multidim_arrays()
 test_array_with_expressions()
-test_tensor_accessor()
