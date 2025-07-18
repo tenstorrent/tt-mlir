@@ -53,8 +53,8 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
 
-        tensor_accessor_args = make_tensor_accessor_args(2, 0)
-        s0 = make_tensor_accessor_from_args(tensor_accessor_args, dst_addr, tile_bytes)
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -78,8 +78,8 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
 
-        tensor_accessor_args = make_tensor_accessor_args(2, 0)
-        s0 = make_tensor_accessor_from_args(tensor_accessor_args, src_addr, tile_bytes)
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
