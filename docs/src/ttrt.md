@@ -197,6 +197,8 @@ ttrt run out.ttnn --memory --save-artifacts
 ttrt run out.ttnn --memory --check-memory-leak
 ```
 
+For info on running EmitC tests, see [EmitC testing](./emitc-testing.md).
+
 #### Run results
 The `run` api saves a `run_results.json` file that records information about the run including any errors that were thrown and location of other saved run data.
 
