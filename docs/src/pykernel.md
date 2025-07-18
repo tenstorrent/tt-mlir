@@ -57,8 +57,8 @@ class MyCustomOp(PyKernelOp):
     # Define compute kernel with appropriate decorator
     @compute_thread()
     def my_compute_kernel(cb_in: CircularBuffer, cb_out: CircularBuffer,
-                         per_core_block_cnt: CompiledValue,
-                         per_core_block_dim: CompiledValue):
+                         per_core_block_cnt: CompileTimeValue,
+                         per_core_block_dim: CompileTimeValue):
         # Initialize the operation
         unary_op_init_common(cb_in, cb_out)
 
@@ -83,7 +83,7 @@ class MyCustomOp(PyKernelOp):
     @reader_thread()
     def reader_kernel(cb_in: CircularBuffer, cb_out: CircularBuffer,
                      src_addr, num_tiles, start_id,
-                     src_is_dram: CompiledValue):
+                     src_is_dram: CompileTimeValue):
         # Reader kernel code here
         return
 
@@ -91,7 +91,7 @@ class MyCustomOp(PyKernelOp):
     @writer_thread()
     def writer_kernel(cb_in: CircularBuffer, cb_out: CircularBuffer,
                      dst_addr, num_tiles, start_id,
-                     dst_is_dram: CompiledValue):
+                     dst_is_dram: CompileTimeValue):
         # Writer kernel code here
         return
 
@@ -216,8 +216,8 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 def eltwise_sfpu(
     cb_in: CircularBuffer,
     cb_out: CircularBuffer,
-    per_core_block_cnt: CompiledValue,
-    per_core_block_dim: CompiledValue,
+    per_core_block_cnt: CompileTimeValue,
+    per_core_block_dim: CompileTimeValue,
 ):
     # Initialize the operation
     unary_op_init_common(cb_in, cb_out)
@@ -258,7 +258,7 @@ def writer_unary_interleaved(
     dst_addr,
     num_tiles,
     start_id,
-    dst_is_dram: CompiledValue,
+    dst_is_dram: CompileTimeValue,
 ):
     onetile = 1
     tile_bytes = get_tile_size(cb_out)
@@ -290,7 +290,7 @@ def reader_unary_interleaved(
     src_addr,
     num_tiles,
     start_id,
-    src_is_dram: CompiledValue,
+    src_is_dram: CompileTimeValue,
 ):
     onetile = 1
     tile_bytes = get_tile_size(cb_in)
