@@ -894,27 +894,44 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   if (dimAlignments.empty()) {
     // Set alignments based on the collapse intervals.
-    // For the last two dimensions in the result (after collapse),
-    // find the leftmost input dimension in each interval and set alignment
-    // to 32.
-
     llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
 
     llvm::SmallVector<int64_t> normIntervals =
         normalizeAndFlattenIntervals(collapseIntervals, logicalShape.size());
 
     constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+    constexpr int64_t gridSize = 8;
 
-    // Handle penultimate group's alignment.
-    const int64_t secondToLastIntervalIdx = deviceGridRank - 2;
-    const int64_t secondToLastAlignIdx =
-        normIntervals[secondToLastIntervalIdx * 2];
-    dimAlignmentsVec[secondToLastAlignIdx] = tileShape[0];
+    // Handle the last two intervals (which form the 2D collapsed shape)
+    // with grid-aware alignment
+    for (int64_t idx = std::max(0L, static_cast<int64_t>(deviceGridRank) - 2);
+         idx < static_cast<int64_t>(deviceGridRank); ++idx) {
 
-    // Handle ultimate group's alignment.
-    const int64_t lastIntervalIdx = deviceGridRank - 1;
-    const int64_t lastAlignIdx = normIntervals[lastIntervalIdx * 2];
-    dimAlignmentsVec[lastAlignIdx] = tileShape[1];
+      int64_t intervalStart = normIntervals[idx * 2];
+      int64_t intervalEnd = normIntervals[idx * 2 + 1];
+
+      // Calculate collapsed size for this interval
+      int64_t collapsedSize = 1;
+      for (int64_t j = intervalStart; j < intervalEnd; ++j) {
+        collapsedSize *= logicalShape[j];
+      }
+
+      // Determine which tile dimension this interval corresponds to
+      int64_t tileIdx =
+          (idx == static_cast<int64_t>(deviceGridRank) - 2) ? 0 : 1;
+      int64_t tileDim = tileShape[tileIdx];
+      int64_t gridAlignmentThreshold = gridSize * tileDim;
+
+      // Determine alignment based on collapsed size
+      // If size > gridAlignmentThreshold, align to grid boundary, else align to
+      // tile boundary
+      int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
+                              ? gridAlignmentThreshold
+                              : tileDim;
+
+      // Set alignment on the first dimension of the interval
+      dimAlignmentsVec[intervalStart] = alignment;
+    }
 
     return get(context, logicalShape, dimAlignmentsVec, collapseIntervals,
                oobVal, memorySpace);

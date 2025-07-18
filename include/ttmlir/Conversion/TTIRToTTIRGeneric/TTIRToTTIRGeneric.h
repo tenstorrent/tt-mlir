@@ -21,7 +21,7 @@ namespace mlir::tt {
 
 void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank);
+    const ttir::TTIRToTTIRGenericOptions &options);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
 std::unique_ptr<OperationPass<ModuleOp>>
