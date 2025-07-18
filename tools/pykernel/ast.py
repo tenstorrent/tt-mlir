@@ -618,7 +618,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
-        if (not isinstance(node.func, ast.Attribute)):
+        if not isinstance(node.func, ast.Attribute):
             # if not an Attribute, it's just a kernel api call.
             assert (
                 node.func.id in self.ttkernel_fn_map
@@ -645,7 +645,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                 func_args.append(func_arg)
 
             return func(*func_args)  # how do i make sure the types are correct?
-        else: 
+        else:
             self.visit(node.func)
 
     # Expressions
@@ -911,7 +911,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         print(node.value.id)
         print(node.attr)
         node_attr = node.attr
-        assert(node_attr in self.tensor_accessor_fn)
+        assert node_attr in self.tensor_accessor_fn
 
         # help(emitc.member)
         symtable = self.var_exists(node.value.id)
@@ -924,7 +924,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         # emitc::LValueType::get(adaptor.getDataFormat().getType())
         # operand_lvalue = emitc.LValueType.get()
         # emitc.member(IntegerType.get_signless(32, self.ctx), node.attr, operand)
-
 
     def visit_List(self, node):
         # Snoop List for nested loops and get size
