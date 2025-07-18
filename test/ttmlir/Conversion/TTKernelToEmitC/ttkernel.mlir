@@ -1134,6 +1134,24 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @tensor_accessor_constructors
+    func.func @tensor_accessor_constructors() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: "emitc.constant"() <{value = [[CTA_OFFSET:.*]] : i32}>
+      // CHECK: "emitc.constant"() <{value = [[CRTA_OFFSET:.*]] : i32}>
+      %cta_offset = arith.constant 2 : i32
+      %crta_offset = arith.constant 0 : i32
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+      // CHECK: %[[ARGS:.*]] = emitc.call_opaque "TensorAccessorArgs"() {template_args = [[[CTA_OFFSET]] : i32, [[CRTA_OFFSET]] : i32]} : () -> !emitc.opaque<"TensorAccessorArgs">
+      %tensor_accessor_args = "ttkernel.TensorAccessorArgs"(%cta_offset, %crta_offset) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+      // CHECK: emitc.call_opaque "TensorAccessor"(%[[ARGS]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%tensor_accessor_args, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+      return
+    }
+
+
   } // module
 
 } // module
