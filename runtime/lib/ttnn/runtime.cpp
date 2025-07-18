@@ -703,6 +703,10 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
+void setFabricConfig(FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::getFabricConfig(config));
+}
+
 void wait(Event event) {
   LOG_FATAL("Waiting on events is not supported for ttnn runtime. Please use "
             "wait on tensors instead.");

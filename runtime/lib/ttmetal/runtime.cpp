@@ -367,6 +367,10 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
+void setFabricConfig(FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::getFabricConfig(config));
+}
+
 void wait(Event event) {
   std::shared_ptr<tt_metal::Event> eventPtr =
       event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);

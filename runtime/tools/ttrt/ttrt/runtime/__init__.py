@@ -33,6 +33,7 @@ try:
         create_owned_host_tensor,
         create_empty_tensor,
         create_multi_device_host_tensor,
+        set_fabric_config,
         wait,
         to_host,
         to_layout,

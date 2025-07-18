@@ -307,6 +307,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("get_layout", &tt::runtime::getLayout, nb::arg("executable"),
         nb::arg("program_index"), nb::arg("input_index"),
         "Get the layout of the input tensor");
+  m.def("set_fabric_config", &tt::runtime::setFabricConfig, nb::arg("config"),
+        "Set the fabric config");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,

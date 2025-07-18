@@ -178,6 +178,8 @@ void dumpDeviceProfileResults(Device device);
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
+void setFabricConfig(FabricConfig config);
+
 void wait(Event event);
 
 void wait(::tt::runtime::Tensor tensor,
