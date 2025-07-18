@@ -1414,6 +1414,72 @@ llvm::Expected<size_t> ToLayoutOpInterface::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ToMemoryConfigOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> ToMemoryConfigOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto toMemoryConfigOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::to_memory_config, device, inputSpec,
+        conversion::getMemoryConfig(memoryConfig));
+  };
+
+  return operation::getOpConstraints("ToMemoryConfigOpInterface",
+                                     inputLayout.getContext(), deviceGrid,
+                                     toMemoryConfigOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ToMemoryConfigOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto toMemoryConfigOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::to_memory_config, device, inputSpec,
+        conversion::getMemoryConfig(memoryConfig));
+  };
+
+  return operation::getOpRuntime("ToMemoryConfigOpInterface",
+                                 toMemoryConfigOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> ConcatOpInterface::getOpConstraints(
