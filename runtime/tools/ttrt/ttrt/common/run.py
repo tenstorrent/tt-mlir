@@ -562,10 +562,6 @@ class Run:
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
-            if self["--fabric-config"] is not None:
-                mesh_options.fabric_config = parse_fabric_config(
-                    self["--fabric-config"]
-                )
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None
@@ -583,6 +579,10 @@ class Run:
                             f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
                         )
 
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            parse_fabric_config(self["--fabric-config"])
+                        )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
 
@@ -1103,6 +1103,11 @@ class Run:
                     if device is not None:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
+
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            ttrt.runtime.FabricConfig.DISABLED
+                        )
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

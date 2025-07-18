@@ -488,17 +488,6 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
 
-  bool isFabricEnabled = false;
-  if (options.fabricConfig.has_value()) {
-    tt::tt_fabric::FabricConfig fabricConfig =
-        common::getFabricConfig(options.fabricConfig.value());
-    tt::tt_fabric::SetFabricConfig(fabricConfig);
-    isFabricEnabled = (fabricConfig != tt::tt_fabric::FabricConfig::DISABLED);
-    if (isFabricEnabled) {
-      LOG_DEBUG("Fabric is enabled");
-    }
-  }
-
   std::shared_ptr<::ttnn::MeshDevice> meshDevice =
       ::ttnn::MeshDevice::create(meshConfig, l1SmallSize, traceRegionSize,
                                  options.numHWCQs, dispatchCoreTypeValue);
@@ -519,7 +508,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
   return Device(std::static_pointer_cast<void>(meshDevice), traceCache,
-                DeviceRuntime::TTNN, isFabricEnabled);
+                DeviceRuntime::TTNN);
 }
 
 void closeMeshDevice(Device parentMesh) {
@@ -540,7 +529,6 @@ void closeMeshDevice(Device parentMesh) {
   ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
 #endif
   ttnnMeshDevice.close();
-  tt::tt_fabric::SetFabricConfig(tt::tt_fabric::FabricConfig::DISABLED);
 }
 
 Device createSubMeshDevice(

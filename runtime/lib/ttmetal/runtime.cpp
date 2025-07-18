@@ -157,13 +157,6 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
                                                      options.deviceIds);
-  bool isFabricEnabled = false;
-  if (options.fabricConfig.has_value()) {
-    tt::tt_fabric::FabricConfig fabricConfig =
-        common::getFabricConfig(options.fabricConfig.value());
-    tt::tt_fabric::SetFabricConfig(fabricConfig);
-    isFabricEnabled = (fabricConfig != tt::tt_fabric::FabricConfig::DISABLED);
-  }
 
   std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
       tt_metal::distributed::MeshDevice::create(
@@ -175,8 +168,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
             meshDevice->compute_with_storage_grid_size().y, " }");
 
   return Device(std::static_pointer_cast<void>(meshDevice),
-                /*traceCache=*/nullptr, DeviceRuntime::TTMetal,
-                isFabricEnabled);
+                /*traceCache=*/nullptr, DeviceRuntime::TTMetal);
 }
 
 void closeMeshDevice(Device parentMesh) {
@@ -196,7 +188,6 @@ void closeMeshDevice(Device parentMesh) {
 #endif
 
   metalMeshDevice.close();
-  tt::tt_fabric::SetFabricConfig(tt::tt_fabric::FabricConfig::DISABLED);
 }
 
 Device createSubMeshDevice(

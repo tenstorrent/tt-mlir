@@ -96,19 +96,6 @@ void registerRuntimeBindings(nb::module_ &m) {
                     ? std::nullopt
                     : std::make_optional(
                           nb::cast<tt::runtime::DispatchCoreType>(value));
-          })
-      .def_prop_rw(
-          "fabric_config",
-          [](const tt::runtime::MeshDeviceOptions &o) {
-            return o.fabricConfig.has_value() ? nb::cast(o.fabricConfig.value())
-                                              : nb::none();
-          },
-          [](tt::runtime::MeshDeviceOptions &o, nb::handle value) {
-            o.fabricConfig =
-                value.is_none()
-                    ? std::nullopt
-                    : std::make_optional(
-                          nb::cast<tt::runtime::FabricConfig>(value));
           });
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
