@@ -60,8 +60,8 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         onetile = 1
 
         tile_bytes = get_tile_size(cb_out)
-        tensor_accessor_args = make_tensor_accessor_args(1, 0)
-        s0 = make_tensor_accessor_from_args(tensor_accessor_args, dst_addr, tile_bytes)
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, onetile):
@@ -84,16 +84,12 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         onetile = 1
 
         tile_bytes0 = get_tile_size(cb_in0)
-        tensor_accessor_args = make_tensor_accessor_args(2, 0)
-        s0 = make_tensor_accessor_from_args(
-            tensor_accessor_args, src_addr0, tile_bytes0
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        tensor_accessor_args = make_tensor_accessor_args(2, 0)
-        s1 = make_tensor_accessor_from_args(
-            tensor_accessor_args, src_addr1, tile_bytes1
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, onetile):
