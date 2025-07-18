@@ -741,9 +741,7 @@ public:
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>,
-          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
-          workarounds::decomposition::UpsampleOpLayoutRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern>(
           &getContext());
 
