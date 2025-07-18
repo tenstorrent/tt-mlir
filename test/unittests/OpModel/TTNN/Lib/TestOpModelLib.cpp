@@ -1488,8 +1488,6 @@ class OpModelConv2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1623,9 +1621,6 @@ class OpModelConvTranspose2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3970
-  GTEST_SKIP();
-
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
