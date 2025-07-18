@@ -170,7 +170,9 @@ void createTTIRToTTNNBackendPipeline(
   // split during the analysis passes.
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
+    devicePm.addPass(tt::ttnn::createTTNNRowMajorConstEvalOperations());
   }
+
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   if (options.enableTrace) {
     devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());

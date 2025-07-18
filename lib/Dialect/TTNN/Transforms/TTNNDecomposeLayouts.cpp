@@ -149,21 +149,27 @@ private:
     auto outputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-    assert(op.getMemoryConfig().has_value());
-    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
-
     input.bufferType = inputLayoutAttr.getBufferType();
-    output.bufferType = outputMemoryConfig.getBufferType().getValue();
+    output.bufferType = input.bufferType;
+
+    input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
+    output.tensorMemoryLayout = input.tensorMemoryLayout;
+
+    if (op.getMemoryConfig().has_value()) {
+      MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
+      output.bufferType = outputMemoryConfig.getBufferType().getValue();
+      output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
+    }
 
     input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = outputLayoutAttr.getLayout();
 
     input.dataType = inputLayoutAttr.getDataType();
-    assert(op.getDtype().has_value());
-    output.dataType = op.getDtype().value();
+    output.dataType = input.dataType;
 
-    input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
-    output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
+    if (op.getDtype().has_value()) {
+      output.dataType = op.getDtype().value();
+    }
 
     input.shardGrid = inputLayoutAttr.getGrid();
     output.shardGrid = outputLayoutAttr.getGrid();
