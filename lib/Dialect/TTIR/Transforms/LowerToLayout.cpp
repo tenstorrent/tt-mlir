@@ -67,12 +67,10 @@ public:
     auto inputGridShape = inputLayout.getGridShape(inputType);
     auto outputGridShape = outputLayout.getGridShape(outputType);
 
-    if (inputGridShape != outputGridShape) {
-      viewInput = rewriter
-                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
-                                            outputType.getShape())
-                      .getResult();
-    }
+    viewInput = rewriter
+                    .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
+                                          outputType.getShape())
+                    .getResult();
 
     const size_t gridRank = outputGridShape.size();
 
