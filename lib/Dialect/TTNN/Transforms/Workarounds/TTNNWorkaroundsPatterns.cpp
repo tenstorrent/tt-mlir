@@ -41,6 +41,82 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNWORKAROUNDS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
+//
+// ReduceScatterOp in TTNN currently does not support tensors with rank < 4
+// correctly. As a temporary workaround, we insert reshape ops front and back
+// to make the tensor as four dimensional tensor.
+//
+class TTNNReduceScatterWorkarounds
+    : public OpRewritePattern<ttnn::ReduceScatterOp> {
+public:
+  using OpRewritePattern<ttnn::ReduceScatterOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ReduceScatterOp op,
+                                PatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    int64_t rank = inputType.getRank();
+
+    // Only apply workaround for tensors with rank < 4
+    if (rank >= 4) {
+      return failure();
+    }
+
+    SmallVector<int64_t> originalShape(inputType.getShape());
+    SmallVector<int64_t> outputShape(outputType.getShape());
+    int32_t originalScatterDim = op.getScatterDim();
+    Location loc = op.getLoc();
+    Value device = op.getDevice();
+    auto reduceType = op.getReduceType();
+    uint32_t clusterAxis = op.getClusterAxis();
+
+    // Create padded shape by adding leading dimensions of size 1
+    SmallVector<int64_t> paddedShape;
+    int64_t paddingDims = 4 - rank;
+    for (int64_t i = 0; i < paddingDims; ++i) {
+      paddedShape.push_back(1);
+    }
+    paddedShape.append(originalShape.begin(), originalShape.end());
+
+    // Create padded output shape
+    SmallVector<int64_t> paddedOutputShape;
+    for (int64_t i = 0; i < paddingDims; ++i) {
+      paddedOutputShape.push_back(1);
+    }
+    paddedOutputShape.append(outputShape.begin(), outputShape.end());
+
+    // Adjust scatter dimension to account for padding
+    int32_t adjustedScatterDim = originalScatterDim + paddingDims;
+
+    // Create reshape to 4D
+    SmallVector<int32_t> paddedShapeI32(paddedShape.begin(), paddedShape.end());
+    RankedTensorType reshapeInputType =
+        RankedTensorType::Builder(inputType).setShape(paddedShape);
+    auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape_to_4d"),
+        reshapeInputType, op.getInput(),
+        rewriter.getI32ArrayAttr(paddedShapeI32), ttnn::MemoryConfigAttr());
+
+    // Create 4D output tensor type
+    RankedTensorType paddedOutputType =
+        RankedTensorType::Builder(outputType).setShape(paddedOutputShape);
+
+    // Create the reduce scatter operation on 4D tensors with adjusted
+    // scatter_dim
+    auto reduceScatter4D = rewriter.create<ttnn::ReduceScatterOp>(
+        loc, paddedOutputType, reshapeInput.getResult(), device, reduceType,
+        adjustedScatterDim, clusterAxis);
+
+    // Reshape back to original dimensionality
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, outputType, reduceScatter4D.getResult(),
+        rewriter.getI32ArrayAttr(outputShapeI32), ttnn::MemoryConfigAttr());
+
+    return success();
+  }
+};
+
 // If the layout of the output result has changed as a result of applying a
 // workaround, this method transforms the layout back to the previous state
 // by inserting a ToLayoutOp after the op result output in order to maintain
@@ -733,6 +809,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
+          TTNNReduceScatterWorkarounds,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
