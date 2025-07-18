@@ -5,7 +5,10 @@ SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies
-RUN apt-get update && apt-get install -y \
+RUN <<EOT
+# ANCHOR: developer_dependencies
+apt-get update
+apt-get install -y \
     software-properties-common \
     build-essential \
     python3-dev \
@@ -33,6 +36,8 @@ RUN apt-get update && apt-get install -y \
     gh \
     lcov \
     unzip
+# ANCHOR_END: developer_dependencies
+EOT
 
 # Install clang 17
 RUN wget https://apt.llvm.org/llvm.sh && \
