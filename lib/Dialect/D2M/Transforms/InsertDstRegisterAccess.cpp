@@ -188,8 +188,6 @@ public:
     MemRefType cbType = firstCopyInfo.getCbType();
     // Calculate dst shape as N slices of cb shape.
     int64_t volume = ttmlir::utils::volume(cbType.getShape());
-    llvm::interleaveComma(cbType.getShape(), llvm::errs());
-    llvm::errs() << "\n";
     assert(volume <= dstRegisterSizeTiles);
     int64_t numDstSlices = dstRegisterSizeTiles / volume;
     SmallVector<int64_t> dstShape({numDstSlices});
