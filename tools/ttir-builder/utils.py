@@ -495,6 +495,9 @@ def compile_to_flatbuffer(
         output_root=output_root,
     )
 
+    with open("/tmp/initial_ir.mlir", "w") as f:
+        f.write(str(module))
+
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 

@@ -8,17 +8,24 @@
 include "mlir/Pass/PassBase.td"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-def ConvertStableHLOToTTIR : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp"> {
-let summary = "Convert StableHLO dialect to TTIR dialect.";
+def ConvertStableHLOToTTIR
+    : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert StableHLO dialect to TTIR dialect.";
   let constructor = "createConvertStableHLOToTTIRPass()";
-  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect",
+                           "mlir::sdy::SdyDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
 }
-def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
-let summary = "Convert Arith Dialect to StableHLO dialect.";
+def ConvertArithToStableHLO
+    : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
+  let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";
-  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::arith::ArithDialect"];
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect",
+                           "mlir::sdy::SdyDialect",
+                           "mlir::arith::ArithDialect"];
 }
-def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-ttir", "::mlir::ModuleOp"> {
+def LegalizeStableHLOCompositeToTTIR
+    : Pass<"legalize-stablehlo-composite-to-ttir", "::mlir::ModuleOp"> {
   let summary = "Legalize StableHLO composite operations directly to TTIR.";
   let constructor = "createLegalizeStableHLOCompositeToTTIRPass()";
   let description = [{
@@ -27,7 +34,8 @@ def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-tti
     This allows us to avoid the need for brittle fusion patterns.
   }];
 
-  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
 }
 #endif
 
@@ -37,26 +45,26 @@ def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleOp"> {
+def TTIRToTTIRDecomposition
+    : Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleOp"> {
   let summary = "Decomposes TTIR operations into simpler TTIR operations.";
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 
-  let options = [
-    Option<"decompConfig", "config", "::mlir::tt::DecompMode", /*default=*/"::mlir::tt::DecompMode::TTNN",
-           "Decomposition configuration for different backends",
-           [{::llvm::cl::values(
+  let options = [Option<"decompConfig", "config", "::mlir::tt::DecompMode",
+                        /*default=*/"::mlir::tt::DecompMode::TTNN",
+                        "Decomposition configuration for different backends",
+                        [{::llvm::cl::values(
              clEnumValN(::mlir::tt::DecompMode::TTNN, "ttnn",
                         "Default configuration for TTNN backend"),
              clEnumValN(::mlir::tt::DecompMode::TTMetal, "ttmetal",
                         "Configuration for TTMetal backend"),
              clEnumValN(::mlir::tt::DecompMode::CPUFallback, "cpu-fallback",
                         "Configuration for CPU fallback path")
-           )}]>
-  ];
+           )}]>];
 }
 
-def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
+def TTIRToTTIRGeneric : Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   let summary = "Convert named TTIR operations to their ttir.generic form.";
   let description = [{
     This pass converts "named" ops to a nested ttir.generic/linalg.generic structure, with
@@ -101,60 +109,82 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
       %7 = "ttir.to_layout"(%5, %6) : (tensor<256x1024xf32, #layout2>, tensor<256x1024xf32>) -> tensor<256x1024xf32>
     ```
   }];
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::linalg::LinalgDialect"];
   let constructor = "createTTIRToTTIRGenericPass()";
-  let options = [
-      Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
-      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
-          [{::llvm::cl::values(
+  let options =
+      [Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true",
+              "Use tile_matmul">,
+       Option<"defaultInputMemSpace", "default-input-memspace",
+              "ttcore::MemorySpace",
+              /*default=*/"ttcore::MemorySpace::DeviceL1",
+              "Set default memspace for input tensors", [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
           )}]>,
-      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for output tensors",
-          [{::llvm::cl::values(
+       Option<"defaultOutputMemSpace", "default-output-memspace",
+              "ttcore::MemorySpace",
+              /*default=*/"ttcore::MemorySpace::DeviceL1",
+              "Set default memspace for output tensors", [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
-          )}]>
+          )}]>,
+       ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+                  "Override the device shape.">,
+       Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles",
+              "unsigned", "0",
+              "Override the max dst size tiles or 0 if unset.">,
   ];
 }
 
-def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
+def ConvertTTIRToTTNN : Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::tt::ttnn::TTNNDialect"];
 }
 
-def ConvertTTIRToTTMetal: Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
+def ConvertTTIRToTTMetal : Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTMetal dialect.";
   let constructor = "createConvertTTIRToTTMetalPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::tt::ttmetal::TTMetalDialect",
+                           "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def ConvertTTIRToTTKernel: Pass<"convert-ttir-to-ttkernel", "::mlir::ModuleOp"> {
+def ConvertTTIRToTTKernel
+    : Pass<"convert-ttir-to-ttkernel", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTKernel dialect.";
   let constructor = "createConvertTTIRToTTKernelPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::tt::ttmetal::TTMetalDialect",
+                           "mlir::tt::ttkernel::TTKernelDialect",
+                           "mlir::arith::ArithDialect"];
 }
 
 def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitC dialect.";
   let constructor = "createConvertTTNNToEmitCPass()";
-  let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let dependentDialects = ["mlir::emitc::EmitCDialect",
+                           "mlir::tt::ttnn::TTNNDialect"];
 }
 
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
-  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
+                           "mlir::tt::ttnn::TTNNDialect"];
 }
 
-def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
+def ConvertTTKernelToEmitC
+    : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
-  let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
+  let dependentDialects = ["mlir::emitc::EmitCDialect",
+                           "mlir::func::FuncDialect",
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
+def ConvertTTIRToLinalg : Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to Linalg dialect.";
   let description = [{
     Conversion pass to convert TTIR ops with defined conversion pattern into linalg ops, with broadcast and collapse tensor ops as needed.
@@ -182,8 +212,9 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::linalg::LinalgDialect",
+                           "mlir::tosa::TosaDialect"];
 }
-
 
 #endif // TTMLIR_CONVERSION_PASSES
