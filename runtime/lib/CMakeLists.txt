@@ -15,12 +15,6 @@ add_dependencies(TTBinary FBS_GENERATION)
 
 add_library(TTMLIRRuntime SHARED runtime.cpp)
 set_property(TARGET TTMLIRRuntime PROPERTY CXX_STANDARD 20)
-if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN)
-  target_compile_definitions(TTMLIRRuntime PUBLIC TT_RUNTIME_ENABLE_TTNN)
-endif()
-if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTMETAL)
-  target_compile_definitions(TTMLIRRuntime PUBLIC TT_RUNTIME_ENABLE_TTMETAL)
-endif()
 
 target_include_directories(TTMLIRRuntime
   PUBLIC
@@ -42,6 +36,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeSysDesc
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeContext
     TTRuntimeDebug
     TTRuntimePerf
     TTRuntimeWorkarounds
@@ -60,7 +55,7 @@ target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimePerf TTRuntimeWorkarounds TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
+add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeContext TTRuntimeDebug TTRuntimePerf TTRuntimeWorkarounds TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set(TTMLIR_RUNTIME_PUBLIC_HEADERS

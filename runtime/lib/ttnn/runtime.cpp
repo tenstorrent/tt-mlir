@@ -5,9 +5,9 @@
 #include "Constants.h"
 
 #include "tt/runtime/debug.h"
-#include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/dylib.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"

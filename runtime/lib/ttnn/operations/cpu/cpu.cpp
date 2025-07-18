@@ -6,8 +6,8 @@
 
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/detail/dylib.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/utils.h"
