@@ -432,7 +432,7 @@ def compile_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal"]*
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
         Either "ttnn" or "ttmetal". This controls which backend to use.
 
     argument_types_string : *Optional[str]*
