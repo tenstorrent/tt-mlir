@@ -563,6 +563,14 @@ def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     let description = [{
       Eltwise greater than or equal to operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
@@ -570,6 +578,14 @@ def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
     let description = [{
       Eltwise greater than operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
@@ -577,6 +593,14 @@ def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
     let description = [{
       Eltwise less than or equal to operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
@@ -584,6 +608,14 @@ def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
     let description = [{
       Eltwise less than operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and"> {
@@ -697,7 +729,7 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
     }];
 }
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a

@@ -2175,7 +2175,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     target: str,
     request,
 ):
-    pipeline_options = ["enable-decomposition-workaround-pass=false"]
+    # pipeline_options = ["enable-decomposition-workaround-pass=false"]
 
     compile_to_flatbuffer(
         test_fn,
@@ -2185,7 +2185,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        pipeline_options=pipeline_options,
+        pipeline_options=[],
     )
 
 

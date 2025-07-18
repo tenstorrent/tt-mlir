@@ -15,14 +15,13 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // broadcast on both operands.
 // Should remove this workaround after the following issue is resolved :
 // https://github.com/tenstorrent/tt-metal/issues/24635.
-class ExplicateOperandBroadcastsRewritePattern
-    : public OpInterfaceRewritePattern<
-          ttnn::RequiresExplicitBroadcastInterface> {
+class ExplicateOperandBroadcastsRewritePattern : public RewritePattern {
 public:
-  using OpInterfaceRewritePattern<
-      ttnn::RequiresExplicitBroadcastInterface>::OpInterfaceRewritePattern;
+  ExplicateOperandBroadcastsRewritePattern(MLIRContext *context)
+      : RewritePattern(/*MatchAnyOpTypeTag=*/MatchAnyOpTypeTag(), /*benefit=*/1,
+                       context) {}
 
-  LogicalResult matchAndRewrite(ttnn::RequiresExplicitBroadcastInterface srcOp,
+  LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override;
 };
 
