@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <gtest/gtest.h>
 #include <iostream>
 #include <optional>
 #include <tuple>
@@ -2182,5 +2183,32 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                                mlir::tt::ttnn::BufferType::DRAM},
             detail::ExpectedResult{true, 32768, 16384, 8192})));
+
+TEST_F(OpModelTest, Where) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = WhereOpInterface::getOpConstraints(
+      CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
+      inputLayout, inputTensorShape, inputLayout, inputTensorShape,
+      outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 12288);
+  EXPECT_EQ(peakSize, 10240);
+  EXPECT_EQ(outputSize, 2048);
+
+  auto runtimeExp = WhereOpInterface::getOpRuntime(
+      inputTensorShape, inputLayout, inputTensorShape, inputLayout,
+      inputTensorShape, inputLayout, inputTensorShape, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
 
 } // namespace mlir::tt::op_model::ttnn

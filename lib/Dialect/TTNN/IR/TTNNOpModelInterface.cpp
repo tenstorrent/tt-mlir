@@ -146,6 +146,80 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op.getKeepDim(), opConfig.outputLayout);
 }
 
+using TernaryOpConstraintsFunc =
+    std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
+        ttcore::GridAttr, llvm::ArrayRef<int64_t>,
+        mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
+        mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
+        mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
+        mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+using TernaryOpRuntimeFunc = std::function<llvm::Expected<size_t>(
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+template <typename OpT>
+llvm::Expected<op_model::ttnn::OpConstraints>
+getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig,
+                        TernaryOpConstraintsFunc getConstraintsFunc) {
+  assert(inputs.size() == 3);
+
+  const auto inputShapeA = op.getFirst().getType().getShape();
+  const auto inputShapeB = op.getSecond().getType().getShape();
+  const auto inputShapeC = op.getThird().getType().getShape();
+  const auto outputShape = op.getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      getConstraintsFunc, op, deviceGrid, inputShapeA, inputs[0], inputShapeB,
+      inputs[1], inputShapeC, inputs[2], outputShape, opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<size_t>
+getTernaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig,
+                    TernaryOpRuntimeFunc getRuntimeFunc) {
+  assert(inputs.size() == 3);
+
+  const auto inputShapeA = op.getFirst().getType().getShape();
+  const auto inputShapeB = op.getSecond().getType().getShape();
+  const auto inputShapeC = op.getThird().getType().getShape();
+  const auto outputShape = op.getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      getRuntimeFunc, op, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      inputShapeC, inputs[2], outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// WhereOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+WhereOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getTernaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::WhereOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+WhereOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  return getTernaryOpRuntime(*this, inputs, opConfig,
+                             op_model::ttnn::WhereOpInterface::getOpRuntime);
+}
+
 //===----------------------------------------------------------------------===//
 using UnaryOpConstraintsFunc =
     std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
