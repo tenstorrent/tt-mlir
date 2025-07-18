@@ -511,14 +511,30 @@ jobs:
         source testenv/bin/activate
         tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
 
+    - name: Run tt-alchemist API test - model-to-python
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
+
     - name: Run tt-alchemist API test - generate
       shell: bash
       run: |
         source testenv/bin/activate
-        rm -rf /tmp/test-mlir
-        tt-alchemist generate tools/tt-alchemist/test/models/mnist.mlir /tmp/test-mlir
-        cd /tmp/test-mlir
-        [ -d /tmp/test-mlir ] || { echo "Directory not found: /tmp/test-mlir" >&2; exit 1; }
+        rm -rf /tmp/test-generate-cpp
+        tt-alchemist generate tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-cpp
+        cd /tmp/test-generate-cpp
+        [ -d /tmp/test-generate-cpp ] || { echo "Directory not found: /tmp/test-generate-cpp" >&2; exit 1; }
+        # ./run  # TODO: enable when fixed
+
+    - name: Run tt-alchemist API test - generate-python
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        rm -rf /tmp/test-generate-python
+        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-python
+        cd /tmp/test-generate-python
+        [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
         # ./run  # TODO: enable when fixed
 
     - name: Upload Test Report xml
