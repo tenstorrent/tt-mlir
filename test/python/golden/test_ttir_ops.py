@@ -2056,13 +2056,17 @@ unary_ops = [
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
-    get_dimension_size | Marks(pytest.mark.skip_config(["ttmetal"])),
+    get_dimension_size
+    | Marks(
+        pytest.mark.skip_config(["ttmetal"]),
+        pytest.mark.skip_config(["ttnn-standalone"]),
+    ),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
