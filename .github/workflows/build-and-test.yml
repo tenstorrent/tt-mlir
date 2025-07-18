@@ -442,7 +442,7 @@ jobs:
       - build-image
       - build-ttmlir
     if: ${{ !failure() && !cancelled() }}
-    runs-on: |
+    runs-on:
       - n150
       - in-service
     container:
