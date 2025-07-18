@@ -4,7 +4,9 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
-#include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/GspmdUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
@@ -48,7 +50,7 @@ enum TypicalInitReductionValue {
 };
 
 // Check if the constant op is initialized with the desired init value.
-static bool checkInitValue(stablehlo::ConstantOp initValueOp,
+static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
                            TypicalInitReductionValue desired) {
   if (initValueOp.getValueAttr().size() != 1) {
     return false;
@@ -325,11 +327,12 @@ private:
 
     // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
     while (op) {
-      if (isa<stablehlo::IotaOp>(op)) {
+      if (isa<mlir::stablehlo::IotaOp>(op)) {
         return true;
       }
 
-      if (isa<stablehlo::BroadcastInDimOp, stablehlo::ReshapeOp>(op)) {
+      if (isa<mlir::stablehlo::BroadcastInDimOp, mlir::stablehlo::ReshapeOp>(
+              op)) {
         val = op->getOperand(0);
         op = val.getDefiningOp();
         continue;
@@ -407,42 +410,44 @@ private:
   //  stablehlo.return
   bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
-    if (!isa<stablehlo::CompareOp>(op)) {
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
       return false;
     }
-    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
+    mlir::stablehlo::CompareOp compareOp =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
     if (compareOp.getComparisonDirection() !=
         mlir::stablehlo::ComparisonDirection::GE) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::SelectOp, stablehlo::MaxOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp, mlir::stablehlo::MaxOp>(
+            op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::MinOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::MinOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
       return false;
     }
 
@@ -473,96 +478,99 @@ private:
   // stablehlo.return
   bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
-    if (!isa<stablehlo::CompareOp>(op)) {
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
       return false;
     }
-    stablehlo::CompareOp compareOp0 = mlir::cast<stablehlo::CompareOp>(op);
+    mlir::stablehlo::CompareOp compareOp0 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
     if (compareOp0.getComparisonDirection() !=
         mlir::stablehlo::ComparisonDirection::GT) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
       return false;
     }
-    stablehlo::CompareOp compareOp1 = mlir::cast<stablehlo::CompareOp>(op);
+    mlir::stablehlo::CompareOp compareOp1 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
     op = op->getNextNode();
     if (!op) {
       return false;
     }
-    if (isa<stablehlo::OrOp>(op)) {
+    if (isa<mlir::stablehlo::OrOp>(op)) {
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::AndOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::OrOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
         return false;
       }
 
       return true;
     }
-    if (isa<stablehlo::CompareOp>(op)) {
+    if (isa<mlir::stablehlo::CompareOp>(op)) {
       if (compareOp1.getComparisonDirection() !=
           mlir::stablehlo::ComparisonDirection::EQ) {
         return false;
       }
-      stablehlo::CompareOp compareOp2 = mlir::cast<stablehlo::CompareOp>(op);
+      mlir::stablehlo::CompareOp compareOp2 =
+          mlir::cast<mlir::stablehlo::CompareOp>(op);
       if (compareOp2.getComparisonDirection() !=
           mlir::stablehlo::ComparisonDirection::LT) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::AndOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::OrOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::SelectOp>(op) &&
-          !isa_and_nonnull<stablehlo::MaxOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op) &&
+          !isa_and_nonnull<mlir::stablehlo::MaxOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
+      if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
         return false;
       }
 
@@ -580,12 +588,12 @@ private:
     while (initValue->getOpOperands().size() == 1) {
       initValue = initValue->getOpOperand(0).get().getDefiningOp();
     }
-    if (!isa<stablehlo::ConstantOp>(initValue)) {
+    if (!isa<mlir::stablehlo::ConstantOp>(initValue)) {
       return false;
     }
 
-    stablehlo::ConstantOp initValueOp =
-        mlir::cast<stablehlo::ConstantOp>(initValue);
+    mlir::stablehlo::ConstantOp initValueOp =
+        mlir::cast<mlir::stablehlo::ConstantOp>(initValue);
 
     if (!checkInitValue(initValueOp, desired)) {
       return false;
@@ -1189,11 +1197,11 @@ private:
     while (defOp->getOpOperands().size() == 1) {
       defOp = defOp->getOpOperand(0).get().getDefiningOp();
     }
-    if (!isa<stablehlo::ConstantOp>(defOp)) {
+    if (!isa<mlir::stablehlo::ConstantOp>(defOp)) {
       return std::nullopt;
     }
-    stablehlo::ConstantOp initValueOp =
-        mlir::cast<stablehlo::ConstantOp>(defOp);
+    mlir::stablehlo::ConstantOp initValueOp =
+        mlir::cast<mlir::stablehlo::ConstantOp>(defOp);
     if (checkInitValue(initValueOp, TypicalInitReductionValue::NEG_INF)) {
       return TypicalInitReductionValue::NEG_INF;
     }
@@ -1326,22 +1334,23 @@ private:
   std::optional<mlir::Operation *>
   extractDivisor(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     mlir::Operation *op = *srcOp->getUsers().begin();
-    if (isa_and_nonnull<stablehlo::BroadcastInDimOp>(op)) {
+    if (isa_and_nonnull<mlir::stablehlo::BroadcastInDimOp>(op)) {
       op = *op->getUsers().begin();
     }
-    if (!isa_and_nonnull<stablehlo::DivOp>(op)) {
+    if (!isa_and_nonnull<mlir::stablehlo::DivOp>(op)) {
       return std::nullopt;
     }
     mlir::Operation *divOp = op;
 
     op = op->getOperand(1).getDefiningOp();
-    while (
-        mlir::isa_and_present<stablehlo::BroadcastInDimOp, stablehlo::ReshapeOp,
-                              stablehlo::ConvertOp>(op)) {
+    while (mlir::isa_and_present<mlir::stablehlo::BroadcastInDimOp,
+                                 mlir::stablehlo::ReshapeOp,
+                                 mlir::stablehlo::ConvertOp>(op)) {
       op = op->getOperand(0).getDefiningOp();
     }
 
-    auto constantOp = mlir::dyn_cast_if_present<stablehlo::ConstantOp>(op);
+    auto constantOp =
+        mlir::dyn_cast_if_present<mlir::stablehlo::ConstantOp>(op);
     if (!constantOp) {
       return std::nullopt;
     }
@@ -1962,7 +1971,6 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     // Check legality of the conversion.
     LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
@@ -1971,127 +1979,83 @@ public:
 
     auto callTargetName = adaptor.getCallTargetNameAttr();
 
-    // Currently stablehlo.custom_call with following functions from
-    // jax/openxla are supported
+    // There are three call target names that we handle:
+    // 1. `@Sharding` - This is the custom call for sharding
+    // 2. `@SPMDFullToShardShape` - This is the custom call for converting full
+    // shape to shard shape.
+    // 3. `@SPMDShardToFullShape` - This is the custom call for converting
+    // shard shape to full shape.
+    // All @SPMD* calls have @Sharding as their first operand. Therefore, we
+    // skip @Sharding and handle it in the other two cases together.
     if (callTargetName !=
-            mlir::tt::sharding_utils::kShardingCustomCallTargetName &&
+            mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName &&
         callTargetName !=
-            mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName &&
-        callTargetName !=
-            mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
-      return failure();
+            mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName) {
+      return success();
     }
 
-    auto shardingAttr =
-        dyn_cast_if_present<StringAttr>(adaptor.getAttributes().get(
-            mlir::tt::sharding_utils::kXlaShardingAttr));
-    if (!shardingAttr) {
-      return failure();
-    }
-
-    mlir::tt::sharding_utils::MeshSharding meshSharding;
-    auto error = meshSharding.convertGSPMDShardingToMeshSharding(
-        shardingAttr.getValue());
-    if (auto e = error.takeError()) {
-      return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
-    }
-
-    // For GSPMD, meshShape is extracted by the parser. Then, add it as module
-    // attribute such that the information is used by later pipeline stage.
-    auto meshShape = meshSharding.getMeshShape();
-    if (meshShape.size() > 1) {
-      auto module = srcOp->getParentOfType<ModuleOp>();
-      if (!module) {
-        llvm_unreachable("Require module as one of parent ops.");
-      }
-      mlir::tt::ttcore::utils::addMeshToModuleAttribute(
-          rewriter, module, StringAttr::get(getContext(), "mesh_gspmd"),
-          meshShape);
-    }
-
+    // Set the shard direction.
+    mlir::tt::ttcore::MeshShardDirection shardDirection =
+        mlir::tt::ttcore::MeshShardDirection::ShardToFull;
     if (callTargetName ==
-        mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
-      // @Sharding => @SPMDFullToShardShape pattern
-      Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
-      if (!shardingOp) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Requires operand to be defined by prior Sharding op.");
-      }
-      rewriter.replaceOp(srcOp, shardingOp->getResult(0));
-    } else if (callTargetName ==
-               mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
-      // @Sharding => @SPMDShardToFullShape pattern
-      Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
-      if (!shardingOp) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Requires operand to be defined by prior Sharding op.");
-      }
-
-      // JAX automatic sharding may expect pre-sharded output tensors. We should
-      // check and update mesh shard op to match frontend's expectation. We may
-      // create dummy mesh shard op even though frontend expect sharded return
-      // in case input and output shapes of mesh shard op are different.
-      bool shouldCreateMeshShardOp =
-          meshSharding.checkAndUpdateGSPMDRetSharding(rewriter, srcOp,
-                                                      shardingAttr);
-      auto inputOperand = adaptor.getInputs().front();
-      if (shouldCreateMeshShardOp) {
-        auto outputType = mlir::cast<RankedTensorType>(
-            getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-
-        ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-            rewriter, srcOp, outputType, inputOperand,
-            meshSharding.getShardType(),
-            mlir::tt::ttcore::MeshShardDirection::ShardToFull,
-            meshSharding.getShardShape(), meshSharding.getShardDims());
-      } else {
-        // Do not create mesh shard op if input and output shapes are identical:
-        // frontend expects sharded return and shard type is replicate.
-        rewriter.replaceOp(srcOp, inputOperand);
-      }
-    } else if (callTargetName ==
-               mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
-      if (meshSharding.getShardType() ==
-          mlir::tt::ttcore::MeshShardType::Identity) {
-        // @Sharding => @SPMDShardToFullShape pattern
-        // "identity" sharding indicates no sharding is required.
-        rewriter.replaceOp(srcOp, srcOp->getOperand(0));
-      } else {
-        // @Sharding => @SPMDFullToShardShape pattern
-        auto fullToShardCustomCall =
-            mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
-                *srcOp->user_begin());
-        if (!fullToShardCustomCall || !srcOp->hasOneUse()) {
-          return failure();
-        }
-
-        // JAX automatic sharding pre-shards input tensors and provides multiple
-        // buffers. Thus, we have to check if mesh shard op is sharding the
-        // tensors twice. We create dummy mesh shard op if input and output
-        // shapes are different or not create mesh shard op if they are
-        // identical.
-        bool shouldCreateMeshShardOp =
-            meshSharding.checkAndUpdateGSPMDArgSharding(rewriter, srcOp,
-                                                        shardingAttr);
-        auto inputOperand = adaptor.getInputs().front();
-        if (shouldCreateMeshShardOp) {
-          auto outputType =
-              mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-                  fullToShardCustomCall->getResult(0).getType()));
-
-          ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-              rewriter, srcOp, outputType, inputOperand,
-              meshSharding.getShardType(),
-              mlir::tt::ttcore::MeshShardDirection::FullToShard,
-              meshSharding.getShardShape(), meshSharding.getShardDims());
-        } else {
-          // Do not create mesh shard op if input and output shapes are
-          // identical: frontend provides sharded input and shard type is
-          // replicate.
-          rewriter.replaceOp(srcOp, inputOperand);
-        }
-      }
+        mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
+      shardDirection = mlir::tt::ttcore::MeshShardDirection::FullToShard;
     }
+
+    // We want to extract the mhlo.sharding attribute from the
+    // CustomCallOp.
+    auto opShardingAttr = dyn_cast_if_present<StringAttr>(
+        adaptor.getAttributes().get(mlir::tt::gspmd_utils::kXlaShardingAttr));
+    if (!opShardingAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "@SPMD* custom call is missing mhlo.sharding attribute.");
+    }
+
+    // We also want to extract the mhlo.sharding attribute from this op's
+    // @Sharding operand.
+    auto shardingOperand = srcOp->getOperand(0);
+    auto definingOp =
+        shardingOperand.getDefiningOp<mlir::stablehlo::CustomCallOp>();
+    auto operandShardingAttr = definingOp->getAttrOfType<mlir::StringAttr>(
+        mlir::tt::gspmd_utils::kXlaShardingAttr);
+
+    if (!operandShardingAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "@Sharding custom call is missing mhlo.sharding attribute.");
+    }
+
+    // We also extract the shard status from the @Sharding op.
+    auto shardStatusAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+            mlir::tt::ttcore::ShardStatusAttr::name);
+
+    // Insert default sharding status if not present.
+    if (!shardStatusAttr) {
+      shardStatusAttr = mlir::tt::ttcore::ShardStatusAttr::get(
+          getContext(), mlir::tt::ttcore::ShardStatus::Unsharded);
+    }
+
+    // Once extracted, we can generate the GSPMDMeshSharding object.
+    llvm::Expected<mlir::tt::gspmd_utils::GSPMDMeshSharding> gspmdMeshSharding =
+        mlir::tt::gspmd_utils::GSPMDMeshSharding::generate(
+            opShardingAttr.getValue(), operandShardingAttr.getValue(),
+            shardStatusAttr.getValue(), shardDirection);
+    if (auto err = gspmdMeshSharding.takeError()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Error trying to parse GSPMD annotation.");
+    }
+
+    // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+        gspmdMeshSharding->getShardType(),
+        gspmdMeshSharding->getShardDirection(),
+        gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
+
+    // Erase the @Sharding op as well.
+    rewriter.eraseOp(definingOp);
     return success();
   }
 
@@ -2595,11 +2559,12 @@ static void addGatherOpConversionPattern(MLIRContext *ctx,
 static void addIotaOpConversionPattern(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::IotaOp>>(
-      typeConverter, ctx);
   patterns
-      .add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::DynamicIotaOp>>(
+      .add<StableHLOToTTIROpIotaOpConversionPattern<mlir::stablehlo::IotaOp>>(
           typeConverter, ctx);
+  patterns.add<
+      StableHLOToTTIROpIotaOpConversionPattern<mlir::stablehlo::DynamicIotaOp>>(
+      typeConverter, ctx);
 }
 
 static void addScatterOpConversionPatterns(MLIRContext *ctx,

@@ -365,7 +365,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
     ArrayRef<int64_t> tensorShape, mlir::tt::ttcore::GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(getContext(), tensorShape, getElementType(), getBufferType(), grid,
-             getMemLayout(), getTensorMeshSharding(), collapseIntervals,
+             getMemLayout(), getTensorMesh(), collapseIntervals,
              getIgnorePhysicalLayout());
 }
 
@@ -401,7 +401,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return TTNNLayoutAttr::get(getContext(), tensorShape, elementType,
                              getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMeshSharding(), collapseIntervals,
+                             getTensorMesh(), collapseIntervals,
                              getIgnorePhysicalLayout());
 }
 
@@ -445,7 +445,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
       getContext(), getLinear(), grid,
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMeshSharding(), getIgnorePhysicalLayout());
+      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -462,7 +462,7 @@ TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
                              ttcore::buildMemRef<BufferType, BufferTypeAttr>(
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
-                             memLayoutAttr, getTensorMeshSharding(),
+                             memLayoutAttr, getTensorMesh(),
                              getIgnorePhysicalLayout());
 }
 
@@ -495,7 +495,7 @@ TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
       getContext(), getLinear(), getGrid(),
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMeshSharding(), getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -511,10 +511,10 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
   // which might be different than the original value used to create the layout
   // attribute. This will work for now since we always use default value, but in
   // the future we would need to take this into account.
-  return TTNNLayoutAttr::get(
-      getContext(), tensorShape, getElementType(), getBufferType(), getGrid(),
-      getMemLayout(), getTensorMeshSharding(), getDefaultCollapseIntervals(),
-      getIgnorePhysicalLayout());
+  return TTNNLayoutAttr::get(getContext(), tensorShape, getElementType(),
+                             getBufferType(), getGrid(), getMemLayout(),
+                             getTensorMesh(), getDefaultCollapseIntervals(),
+                             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -530,17 +530,17 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
 TTNNLayoutAttr
 TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
-                             getMemLayout(), getTensorMeshSharding(),
+                             getMemLayout(), getTensorMesh(),
                              ignorePhysicalLayout);
 };
 
-TTNNLayoutAttr
-TTNNLayoutAttr::get(::mlir::MLIRContext *context, AffineMap linear,
-                    ttcore::GridAttr grid, MemRefType memref,
-                    TensorMemoryLayoutAttr mem_layout,
-                    ttcore::TensorMeshShardingAttr tensor_mesh_sharding) {
+TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
+                                   AffineMap linear, ttcore::GridAttr grid,
+                                   MemRefType memref,
+                                   TensorMemoryLayoutAttr mem_layout,
+                                   ttcore::TensorMeshAttr tensor_mesh) {
   return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
-                             tensor_mesh_sharding,
+                             tensor_mesh,
                              /*ignorePhysicalLayout=*/false);
 }
 
@@ -560,7 +560,7 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, BufferType bufferType, mlir::tt::ttcore::GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
-    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
+    mlir::tt::ttcore::TensorMeshAttr tensorMesh,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
     bool ignorePhysicalLayout) {
 
@@ -593,16 +593,15 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   MemRefType memRefType =
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           context, shardShape, elementType, bufferType);
-  return get(context, linear, grid, memRefType, memLayoutAttr,
-             tensorMeshSharding, ignorePhysicalLayout);
+  return get(context, linear, grid, memRefType, memLayoutAttr, tensorMesh,
+             ignorePhysicalLayout);
 }
 
 llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
-    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshSharding,
-    bool ignorePhysicalLayout) {
+    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
