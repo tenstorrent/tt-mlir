@@ -22,6 +22,7 @@ public:
 
   static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
                                          ToLayoutOp op) {
+    op->dump();
     assert(false &&
            "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
   }
