@@ -1001,7 +1001,9 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
       NocAsyncReadTile
     }];
 
-    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+    let arguments = (ins I32:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$dstLocalL1Addr);
 }
 
 def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
@@ -1044,7 +1046,9 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
       NocAsyncWriteTilie
     }];
 
-    let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+    let arguments = (ins IndexLike:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$srcLocalL1Addr);
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
@@ -1234,6 +1238,26 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
 
     let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
+}
+
+def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
+  let summary = "TensorAccessorArgs";
+  let description = [{
+    TensorAccessorArgs struct constructor.
+  }];
+
+  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let results = (outs TTKernel_TensorAccessorArgs:$result);
+}
+
+def TTKernel_MakeTensorAccessorFromArgsOp : TTKernel_Op<"TensorAccessor"> {
+  let summary = "MakeTensorAccessorFromArgs";
+  let description = [{
+    TensorAccessor constructor.
+  }];
+
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let results = (outs TTKernel_TensorAccessor:$result);
 }
 
 def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
