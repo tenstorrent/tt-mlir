@@ -22,11 +22,15 @@ public:
   DeviceRuntime getCurrentRuntime() const;
   void setCurrentRuntime(const DeviceRuntime &runtime);
 
+  FabricConfig getCurrentFabricConfig() const;
+  void setCurrentFabricConfig(const FabricConfig &config);
+
 private:
   RuntimeContext();
   ~RuntimeContext() = default;
 
   std::atomic<DeviceRuntime> currentRuntime = DeviceRuntime::Disabled;
+  std::atomic<FabricConfig> currentFabricConfig = FabricConfig::DISABLED;
 };
 
 } // namespace tt::runtime
