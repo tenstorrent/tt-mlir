@@ -589,14 +589,35 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
 // typecast the 32-bit integers to 32-bit floats before the ttnn.permute op and
 // typecast the output back.
 // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/19950
+// additionally, permute with float32 in tile layout doesn't work correctly
+// so we apply a workaround to convert the input to row-major layout
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/25078
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
-    mlir::RankedTensorType inputType) {
+    mlir::RankedTensorType inputType, llvm::ArrayRef<int64_t> permutation) {
   TTNNOperandWorkarounds operandWorkaround;
   if (auto elementType = dyn_cast<IntegerType>(inputType.getElementType());
       elementType && elementType.getWidth() == 32) {
     operandWorkaround.tensorDataTypeWorkaround =
         mlir::tt::ttcore::DataType::Float32;
+  }
+
+  // Check for specific shape permutation that requires ROW_MAJOR layout
+  auto rank = inputType.getRank();
+  
+  if (inputType.getElementType().isF32() || 
+      operandWorkaround.tensorDataTypeWorkaround == mlir::tt::ttcore::DataType::Float32) {
+      // In cases where permute is done in float32 and tile layout
+      // it sometimes returns all zeros instead of the expected output.
+      // I don't know which shapes this affects
+      // but I suspect it hits all cases where a tilized dimension becomes non tilized.
+      // Feel free to loosen or tighten this condition.
+      for(int i = 0; i < rank-2; ++i) {
+        if (permutation[i] == rank-2 || permutation[i] == rank-1) {
+          operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+          break;
+        }
+      }
   }
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
