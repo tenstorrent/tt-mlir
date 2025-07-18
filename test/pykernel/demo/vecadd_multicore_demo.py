@@ -18,7 +18,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         self.max_core_ranges = max_core_ranges
 
     # KERNEL DEFINITIONS
-    @compute_thread()
+    @compute_thread(verbose=True)
     def add_multicore(
         cb_in0: CircularBuffer,
         cb_in1: CircularBuffer,
@@ -50,21 +50,18 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
             tile_regs_release()
         return
 
-    @writer_thread()
+    @writer_thread(verbose=True)
     def writer_multicore(
         cb_out: CircularBuffer,
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
-        tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tile_bytes = get_tile_size(cb_out)
+        tensor_accessor_args = make_tensor_accessor_args(1, 0)
+        s0 = make_tensor_accessor_from_args(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, onetile):
@@ -75,7 +72,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
             cb_pop_front(cb_out, onetile)
         return
 
-    @reader_thread()
+    @reader_thread(verbose=True)
     def reader_binary_interleaved(
         cb_in0: CircularBuffer,
         cb_in1: CircularBuffer,
@@ -83,22 +80,19 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         src_addr1,
         num_tiles,
         start_id,
-        src0_is_dram: CompileTimeValue,
-        src1_is_dram: CompileTimeValue,
     ):
         onetile = 1
-        tile_bytes0 = get_tile_size(cb_in0)
-        dataformat0 = get_dataformat(cb_in0)
 
-        s0 = get_interleaved_addr_gen_fast(
-            src0_is_dram, src_addr0, tile_bytes0, dataformat0
+        tile_bytes0 = get_tile_size(cb_in0)
+        tensor_accessor_args = make_tensor_accessor_args(2, 0)
+        s0 = make_tensor_accessor_from_args(
+            tensor_accessor_args, src_addr0, tile_bytes0
         )
 
         tile_bytes1 = get_tile_size(cb_in1)
-        dataformat1 = get_dataformat(cb_in1)
-
-        s1 = get_interleaved_addr_gen_fast(
-            src1_is_dram, src_addr1, tile_bytes1, dataformat1
+        tensor_accessor_args = make_tensor_accessor_args(2, 0)
+        s1 = make_tensor_accessor_from_args(
+            tensor_accessor_args, src_addr1, tile_bytes1
         )
 
         end_id = start_id + num_tiles
@@ -136,9 +130,9 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         cb_out = self.create_cb(out_tensor, 2)
         start_id = 0
 
-        is_a_dram = a_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_b_dram = b_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_out_dram = out_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
+        self.tensor_accessor_config = TensorAccessorConfig.combine(
+            TensorAccessorConfig.IsDram
+        )
 
         num_tiles = ceil(
             max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024
@@ -180,7 +174,6 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
-                dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.reader_binary_interleaved,
@@ -190,8 +183,6 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 b_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
-                src0_is_dram=is_a_dram,
-                src1_is_dram=is_b_dram,
             ),
         ]
 

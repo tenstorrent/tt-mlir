@@ -32,7 +32,7 @@ class PyKernelOp:
         """Initialize the PyKernelOp with an empty kernel selection dictionary. Intakes the `ttnn` module to operate."""
         self.kernel_selection = {}
         self.kernel_cache = {}
-        self.tensor_accessor_config = TensorAccessorConfig.NONE
+        self.tensor_accessor_config = 0
 
         # Keep a mobile statewise reference to the ttnn module
         if isinstance(ttnn, Exception):
