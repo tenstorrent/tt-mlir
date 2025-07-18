@@ -12,14 +12,11 @@ def ConvertStableHLOToTTIR : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp
 let summary = "Convert StableHLO dialect to TTIR dialect.";
   let constructor = "createConvertStableHLOToTTIRPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::tt::ttir::TTIRDialect"];
-<<<<<<< HEAD
   let options = [
     Option<"enablePartialConversion", "enable-partial-conversion", "bool",
       /*default=*/"false",
       "Enable partial conversion mode, allowing unconverted ops to remain">
   ];
-=======
->>>>>>> 658fa4dae (final feedback + reverts)
 }
 def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
 let summary = "Convert Arith Dialect to StableHLO dialect.";
