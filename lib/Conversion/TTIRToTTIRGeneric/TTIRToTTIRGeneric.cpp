@@ -32,69 +32,180 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
-  TTIRNamedRewriterCommon(const ttir::TTIRToTTIRGenericOptions &options,
-                          uint64_t deviceGridRank)
+  TTIRNamedRewriterCommon(const ttir::TTIRToTTIRGenericOptions &options)
       : memorySpaces{options.defaultInputMemSpace,
                      options.defaultOutputMemSpace},
-        deviceGridRank(deviceGridRank) {}
-
-  std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
-                   std::array<mlir::SmallVector<Value>, 2> operands,
-                   bool tiled) const {
-    return {toLayoutOperands(rewriter, operands[0], tiled, memorySpaces[0]),
-            toLayoutOperands(rewriter, operands[1], tiled, memorySpaces[1])};
+        targetGridShape(options.overrideDeviceShape) {
+    // Note that at this point, options.overrideDeviceShape will be either
+    // user-provided override, overwritten with module's grid shape.
+    assert(!targetGridShape.empty());
   }
 
-  mlir::SmallVector<Value>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
-                   mlir::SmallVector<Value> operands, bool tiled,
-                   ttcore::MemorySpace memorySpace) const {
-    mlir::SmallVector<Value> newOperands;
-    for (Value value : operands) {
-      mlir::RankedTensorType tensorType =
-          mlir::cast<mlir::RankedTensorType>(value.getType());
+  // Layout information for a single value; useful because we need a phased
+  // approach to compute the optimal grid between all inputs+outputs.
+  struct LayoutInfo {
+    ttcore::MetalLayoutAttr layout;
+    Type elementType;
+    llvm::SmallVector<int64_t> tileShape;
+    llvm::SmallVector<int64_t> shardShape;
+    ttcore::MemorySpace memorySpace;
+  };
 
-      // Logical shape is initial tensor shape.
-      llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-      assert(deviceGridRank <= logicalShape.size());
+  // Compute layout information for a single value with a 1-filled grid.
+  LayoutInfo
+  computeLayoutInfo(Value value, ttcore::MemorySpace memSpace, bool tiled,
+                    mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::RankedTensorType tensorType =
+        mlir::cast<mlir::RankedTensorType>(value.getType());
+    llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
-      // Create default grid shape based on deviceGridRank.
-      llvm::SmallVector<int64_t> gridShape;
-      for (uint64_t i = 0; i < deviceGridRank; ++i) {
-        gridShape.push_back(1);
-      }
-
-      // Create default tile element type.
-      Type elementType = tensorType.getElementType();
-      llvm::SmallVector<int64_t> tileShape;
-      assert(logicalShape.size() >= 2);
-      if (tiled) {
-        auto defaultShape = ttcore::TileType::getDefaultShape();
-        tileShape.assign(defaultShape.begin(), defaultShape.end());
-        elementType = ttcore::TileType::get(elementType, tileShape);
-      }
-
-      // Create the new MetalLayoutAttr with new element type.
-      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, deviceGridRank,
-          ttcore::OOBVal::Undef, memorySpace);
-
-      // Calculate new physical shape based on grid + tiling.
-      auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, gridShape, tileShape, layout.getCollapsedIntervals(),
-          layout.getDimAlignments());
-
-      mlir::RankedTensorType layoutResultType =
-          mlir::RankedTensorType::get(physicalShape, elementType, layout);
-
-      auto output =
-          rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
-      newOperands.emplace_back(
-          rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
-              ->getResult(0));
+    // Create tile element type if needed.
+    Type elementType = tensorType.getElementType();
+    llvm::SmallVector<int64_t> tileShape;
+    if (tiled) {
+      auto defaultShape = ttcore::TileType::getDefaultShape();
+      tileShape.assign(defaultShape.begin(), defaultShape.end());
+      elementType = ttcore::TileType::get(elementType, tileShape);
     }
-    return newOperands;
+
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetGridShape.size(),
+        ttcore::OOBVal::Undef, memSpace);
+
+    // Get physical shape with 1x1 grid to extract shard shape.
+    llvm::SmallVector<int64_t> onesGrid(targetGridShape.size(), 1);
+    auto physicalWithOnesGrid = ttcore::MetalLayoutAttr::derivePhysicalShape(
+        logicalShape, onesGrid, tileShape, layout.getCollapsedIntervals(),
+        layout.getDimAlignments());
+
+    // Extract shard shape (last gridRank dimensions).
+    llvm::SmallVector<int64_t> shardShape;
+    for (size_t j = targetGridShape.size(); j < physicalWithOnesGrid.size();
+         ++j) {
+      shardShape.push_back(physicalWithOnesGrid[j]);
+    }
+
+    return {layout, elementType, tileShape, shardShape, memSpace};
+  }
+
+  // Compute optimal grid shape that works for all provided layout infos.
+  llvm::SmallVector<int64_t>
+  computeOptimalGrid(const llvm::SmallVector<LayoutInfo> &layoutInfos) const {
+    llvm::SmallVector<int64_t> gridShape(targetGridShape.size(), 1);
+
+    for (size_t dim = 0; dim < targetGridShape.size(); ++dim) {
+      int64_t minShard = std::numeric_limits<int64_t>::max();
+      const int64_t maxGridDim = targetGridShape[dim];
+
+      // Find minimum shard size across all values.
+      for (const auto &info : layoutInfos) {
+        if (dim < info.shardShape.size()) {
+          minShard = std::min(minShard, info.shardShape[dim]);
+        }
+      }
+
+      // Find largest grid that works for all values.
+      for (int64_t g = std::min(maxGridDim, minShard); g > 0; g--) {
+        bool validForAll = true;
+
+        for (const auto &info : layoutInfos) {
+          if (dim < info.shardShape.size()) {
+            if (info.shardShape[dim] % g != 0) {
+              validForAll = false;
+              break;
+            }
+          }
+        }
+
+        if (validForAll) {
+          gridShape[dim] = g;
+          break;
+        }
+      }
+    }
+
+    return gridShape;
+  }
+
+  // Create a ToLayout op for a value using the provided layout info and grid.
+  Value createToLayoutOp(Value value, const LayoutInfo &info,
+                         const llvm::SmallVector<int64_t> &gridShape,
+                         mlir::ConversionPatternRewriter &rewriter) const {
+    // Calculate true physical shape with optimal grid.
+    auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
+        info.layout.getLogicalShape(), gridShape, info.tileShape,
+        info.layout.getCollapsedIntervals(), info.layout.getDimAlignments());
+
+    mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
+        physicalShape, info.elementType, info.layout);
+
+    auto output =
+        rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
+    return rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
+        ->getResult(0);
+  }
+
+  // Insert toLayout ops for a genericOp's operands and results; this includes
+  // sharding, tilizing, etc. This func computes appropriate optimal grid shape
+  // as well.
+  std::array<mlir::SmallVector<Value>, 2>
+  toLayoutOperandsAndResults(mlir::ConversionPatternRewriter &rewriter,
+                             std::array<mlir::SmallVector<Value>, 2> operands,
+                             bool tiled) const {
+
+    // First pass: canonicalize all values with tilizing etc. but with 1-filled
+    // grid.
+    llvm::SmallVector<LayoutInfo> layoutInfos;
+
+    // Collect layout info for operands.
+    for (Value operand : operands[0]) {
+      layoutInfos.push_back(
+          computeLayoutInfo(operand, memorySpaces[0], tiled, rewriter));
+    }
+
+    // Collect layout info for results.
+    for (Value result : operands[1]) {
+      layoutInfos.push_back(
+          computeLayoutInfo(result, memorySpaces[1], tiled, rewriter));
+    }
+
+    // Now we can compute optimal grid between all values based on 1-filled
+    // grids.
+    auto gridShape = computeOptimalGrid(layoutInfos);
+
+    // Second pass: create the actual operands with the shared optimal grid, and
+    // emit ToLayout ops.
+    std::array<mlir::SmallVector<Value>, 2> result;
+
+    size_t layoutIdx = 0;
+    for (Value operand : operands[0]) {
+      result[0].push_back(createToLayoutOp(operand, layoutInfos[layoutIdx++],
+                                           gridShape, rewriter));
+    }
+
+    for (Value resultValue : operands[1]) {
+      result[1].push_back(createToLayoutOp(
+          resultValue, layoutInfos[layoutIdx++], gridShape, rewriter));
+    }
+
+    return result;
+  }
+
+  // Helper to apply alignments
+  llvm::SmallVector<int64_t>
+  applyAlignments(llvm::ArrayRef<int64_t> shape,
+                  llvm::ArrayRef<int64_t> alignments) const {
+    assert(shape.size() == alignments.size());
+    llvm::SmallVector<int64_t> aligned;
+    for (size_t i = 0; i < shape.size(); ++i) {
+      int64_t alignment = alignments[i];
+      if (alignment > 1) {
+        aligned.push_back(((shape[i] + alignment - 1) / alignment) * alignment);
+      } else {
+        aligned.push_back(shape[i]);
+      }
+    }
+    return aligned;
   }
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
@@ -182,11 +293,10 @@ protected:
 
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
-  uint64_t deviceGridRank;
+  mlir::ArrayRef<int64_t> targetGridShape;
 
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
-
-}; // end of class
+};
 } // namespace
 // ............................................................................
 // Rewrite elementwise ops by emitting a matching tile version of the op
@@ -200,9 +310,9 @@ class TTIRNamedElementwiseRewriter final
 public:
   TTIRNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
+      const ttir::TTIRToTTIRGenericOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options, deviceGridRank) {}
+        TTIRNamedRewriterCommon(options) {}
 
 private:
   LogicalResult
@@ -214,8 +324,8 @@ private:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {origInputs, origOutputs},
-                         /*tiled*/ true);
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -290,7 +400,7 @@ private:
         builder.getContext(), ttcore::IteratorType::Parallel);
     return SmallVector<mlir::Attribute>(rank, parallel);
   }
-}; // end of class
+};
 } // namespace
 // ............................................................................
 // Rewriting reduction ops is similar to the elementwise group except for
@@ -306,9 +416,9 @@ class TTIRNamedReductionRewriter final
 public:
   TTIRNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
+      const ttir::TTIRToTTIRGenericOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options, deviceGridRank) {}
+        TTIRNamedRewriterCommon(options) {}
 
 private:
   LogicalResult
@@ -327,8 +437,8 @@ private:
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
             .getElementType()));
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {newInputs, origOutputs},
-                         /*tiled*/ true);
+        toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -517,7 +627,7 @@ private:
       std::forward<F>(fn)(d, dims[d]);
     }
   }
-}; // end of class
+};
 } // namespace
 // ............................................................................
 namespace {
@@ -533,10 +643,9 @@ class TTIRMatmulRewriter final
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                     const ttir::TTIRToTTIRGenericOptions &options,
-                     uint64_t deviceGridRank)
+                     const ttir::TTIRToTTIRGenericOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options, deviceGridRank) {}
+        TTIRNamedRewriterCommon(options) {}
 
 private:
   LogicalResult
@@ -549,8 +658,8 @@ private:
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
-    auto [inputs, outputs] =
-        toLayoutOperands(rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -659,19 +768,15 @@ private:
                                        std::array<unsigned, 2> targets) {
     return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
   }
-}; // end of class
+};
 } // namespace
 } // namespace mlir::tt
 // ............................................................................
 namespace mlir::tt {
 
-using namespace ttir;
-
-void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter,
-                                       const TTIRToTTIRGenericOptions &options,
-                                       uint64_t deviceGridRank) {
+void populateTTIRToTTIRGenericPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
+    const ttir::TTIRToTTIRGenericOptions &options) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -700,14 +805,14 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
-  >(typeConverter, ctx, options, deviceGridRank);
+  >(typeConverter, ctx, options);
 
   // Matmul.
   if (options.useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, options, deviceGridRank);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, options);
   }
   else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, options, deviceGridRank);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, options);
   }
   // clang-format on
 }
