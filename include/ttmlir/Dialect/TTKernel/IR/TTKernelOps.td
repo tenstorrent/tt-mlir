@@ -948,7 +948,7 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
       kernel.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CB:$cbIn);
 
     let hasVerifier = 1;
 }
