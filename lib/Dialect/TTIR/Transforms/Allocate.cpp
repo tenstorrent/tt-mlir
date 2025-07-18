@@ -102,7 +102,7 @@ struct FuncAnalysisData final {
     contexts[llvm::to_underlying(memorySpace)].add(size, first, last, alloc);
   }
 
-  // Memor planner contexts, one per mem space.
+  // Memory planner contexts, one per mem space.
   MemorySpaceContexts contexts;
 
   // Within a func body scope, maps logical time positions (in preorder)
@@ -392,14 +392,15 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
       TT_ALLOC_DEBUG("{} allocation planning outcome: {}", memorySpace, stats);
 
-      const auto &memSpace = memSpaces[llvm::to_underlying(memorySpace)];
-      const auto memCapacity = memSpace.maxAddress - memSpace.baseAddress;
+      const auto &info = memSpaces[llvm::to_underlying(memorySpace)];
+
+      const auto memCapacity = info.maxAddress - info.baseAddress;
       if (stats.memUsage > memCapacity) {
         return func.emitOpError()
                << "required " << stringifyEnum(memorySpace) << " memory usage "
                << stats.memUsage << " exceeds memory capacity " << memCapacity
-               << " (usable space is [" << memSpace.baseAddress << ", "
-               << memSpace.maxAddress << "))";
+               << " (usable space is [" << info.baseAddress << ", "
+               << info.maxAddress << "))";
       }
     }
 
