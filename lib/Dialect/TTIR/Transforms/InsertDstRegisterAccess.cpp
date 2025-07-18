@@ -84,6 +84,15 @@ public:
         block.walk([&](linalg::GenericOp linalgGenericOp) {
           rewriter.setInsertionPoint(linalgGenericOp);
           // Apply linalg to affine loops pass
+
+          auto bitMap = mlir::BitVector(linalgGenericOp.getNumLoops(), true);
+          for (auto [index, iteratorType] :
+               llvm::enumerate(linalgGenericOp.getIteratorTypesArray())) {
+            if (linalg::isReductionIterator(iteratorType)) {
+              bitMap.reset(index);
+            }
+          }
+
           auto linalgLoops =
               linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
           if (failed(linalgLoops)) {
@@ -92,11 +101,11 @@ public:
           }
           rewriter.eraseOp(linalgGenericOp);
           modified |= insertDstRegisterAccess(
-              rewriter, op.getLoc(), region,
-              linalgLoops.value()[0] ? linalgLoops.value()[0] : nullptr,
+              rewriter, op.getLoc(), region, linalgLoops.value(),
               [&](int64_t index) {
                 return op.getNonParticipatingLoopDims(index);
-              });
+              },
+              bitMap);
         });
         if (linalgToAffineFailed) {
           return failure();
@@ -108,7 +117,8 @@ public:
           op->template getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
       if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
         modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
-                                            nullptr);
+                                            SmallVector<Operation *>(), nullptr,
+                                            mlir::BitVector(0, true));
       }
     }
     return success(modified);
@@ -116,10 +126,11 @@ public:
 
   static bool insertDstRegisterAccess(
       PatternRewriter &rewriter, Location loc, Region &region,
-      Operation *outermostInnerComputeLoop,
+      linalg::LinalgLoops innerLoopNest,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
-              [](int64_t) { return SmallVector<int64_t>{}; }) {
+              [](int64_t) { return SmallVector<int64_t>{}; },
+      mlir::BitVector bitMap = mlir::BitVector(0, true)) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -127,18 +138,18 @@ public:
 
     // 1. Collect all loads/stores to dst organized by loop nest.
     DenseMap<Operation *, CopyInfo> copyInfo = collectDstAccesses(
-        region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
+        region, getNonParticipatingLoopDims, innerLoopNest[0]);
     if (copyInfo.empty()) {
       return false;
     }
 
     // 2. Insert acquire dst.
-    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyInfo,
-                                               outermostInnerComputeLoop);
+    AcquireDstOp acquireDst =
+        insertAcquireDst(rewriter, loc, region, copyInfo, innerLoopNest);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
-    dataCopyGenerate(rewriter, loc, dst, copyInfo);
+    dataCopyGenerate(rewriter, loc, dst, copyInfo, bitMap);
     return true;
   }
 
@@ -160,10 +171,10 @@ public:
   static AcquireDstOp
   insertAcquireDst(PatternRewriter &rewriter, Location loc, Region &region,
                    const DenseMap<Operation *, CopyInfo> &copyInfos,
-                   Operation *outermostInnerComputeLoop) {
+                   linalg::LinalgLoops innerLoopNest) {
     assert(!copyInfos.empty());
-    if (outermostInnerComputeLoop) {
-      rewriter.setInsertionPoint(outermostInnerComputeLoop);
+    if (innerLoopNest.size() > 0) {
+      rewriter.setInsertionPoint(innerLoopNest[0]);
     } else {
       rewriter.setInsertionPointToStart(&region.front());
     }
@@ -288,9 +299,10 @@ public:
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
   }
 
-  static void
-  dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
-                   const DenseMap<Operation *, CopyInfo> &loopNests) {
+  static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
+                               Value dst,
+                               const DenseMap<Operation *, CopyInfo> &loopNests,
+                               mlir::BitVector bitMap) {
     for (const auto &[loopNestOrOp, copyInfo] : loopNests) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -317,7 +329,8 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
-          });
+          },
+          bitMap);
 
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
       dataCopyGenerate<affine::AffineStoreOp>(
@@ -336,7 +349,8 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
                 op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
-          });
+          },
+          bitMap);
     }
   }
 
@@ -371,7 +385,8 @@ public:
           loadStoreDstAccessGenerator,
       llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                               ValueRange)>
-          dstAccessReplacement) {
+          dstAccessReplacement,
+      mlir::BitVector bitMap) {
     if (loadStoreOps.empty()) {
       return;
     }
@@ -379,7 +394,8 @@ public:
     mlir::IRMapping irMapper;
     // Only Clone loop nests if a loop exists.
     if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
-      rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
+      Operation *outerNewLoop = rewriter.clone(*loopNestOrOp, irMapper);
+      outerNewLoop->walk([&](Operation *op) {
         // Erase the loop bodies except for other nested loops / yields.
         if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
                        affine::AffineApplyOp>(op)) {
@@ -387,6 +403,43 @@ public:
           rewriter.eraseOp(op);
         }
       });
+
+      // Apply bitmap-based loop optimization by making unnecessary loops
+      // trivial
+      if (!bitMap.empty() && outerNewLoop) {
+        Operation *currentLoop = outerNewLoop;
+        unsigned loopIndex = 0;
+
+        while (currentLoop && mlir::isa<affine::AffineForOp>(currentLoop) &&
+               loopIndex < bitMap.size()) {
+          auto forOp = mlir::cast<affine::AffineForOp>(currentLoop);
+
+          if (!bitMap[loopIndex]) {
+            // This loop is not needed - convert it to a trivial loop (0 to 1
+            // step 1) This preserves the block structure while making the loop
+            // execute only once
+            auto zeroMap = AffineMap::getConstantMap(0, rewriter.getContext());
+            auto oneMap = AffineMap::getConstantMap(1, rewriter.getContext());
+
+            // Replace bounds to make it a single iteration loop (0 to 1)
+            forOp.setLowerBound(ValueRange{}, zeroMap);
+            forOp.setUpperBound(ValueRange{}, oneMap);
+            forOp.setStep(1);
+          }
+
+          // Move to next nested loop
+          Block &body = forOp.getRegion().front();
+          Operation *nextLoop = nullptr;
+          for (Operation &op : body) {
+            if (auto nestedFor = dyn_cast<affine::AffineForOp>(&op)) {
+              nextLoop = nestedFor;
+              break;
+            }
+          }
+          currentLoop = nextLoop;
+          loopIndex++;
+        }
+      }
     }
 
     for (auto [loadStore, dstIndexOffset] : loadStoreOps) {
