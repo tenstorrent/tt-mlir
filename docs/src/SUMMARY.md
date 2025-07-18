@@ -6,6 +6,7 @@
 
 - [Getting Started](./getting-started.md)
   - [Docker Notes](./docker-notes.md)
+  - [Ubuntu VM on macOS](./macos-ubuntu-vm.md)
 - [Testing](./testing.md)
   - [Lit testing](./lit-testing.md)
   - [EmitC testing](./emitc-testing.md)

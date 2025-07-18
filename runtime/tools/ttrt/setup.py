@@ -33,8 +33,9 @@ enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
 enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
+arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
 
-runtime_module = "_ttmlir_runtime.cpython-310-x86_64-linux-gnu.so"
+runtime_module = f"_ttmlir_runtime.cpython-310-{arch}-linux-gnu.so"
 dylibs = []
 runlibs = []
 perflibs = []
