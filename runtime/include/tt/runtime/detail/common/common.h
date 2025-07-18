@@ -57,7 +57,7 @@ toTTFabricConfig(tt::runtime::FabricConfig cfg) {
   case tt::runtime::FabricConfig::CUSTOM:
     return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }
-  throw std::invalid_argument("Unknown tt::runtime::FabricConfig value");
+  LOG_FATAL("Unknown tt::runtime::FabricConfig value");
 }
 
 inline CoreRangeSet toCoreRangeSet(
