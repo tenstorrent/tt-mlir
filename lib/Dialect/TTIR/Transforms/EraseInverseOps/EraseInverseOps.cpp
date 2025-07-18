@@ -127,6 +127,8 @@ private:
                                                          patterns);
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
 
+    populateBatchNormCommutePatterns<commuteDirection>(&getContext(), patterns);
+
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
   }

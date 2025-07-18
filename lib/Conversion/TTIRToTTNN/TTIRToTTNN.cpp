@@ -29,6 +29,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <optional>
@@ -917,19 +918,49 @@ public:
           op, "Operand must be a 4-dimensional tensor");
     }
 
-    // We only support excluded_dimension=1 for ttnn::batch_norm
-    if (adaptor.getDimension() != 1) {
-      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
-    }
-
     mlir::APFloat defaultMomentum(0.1f);
 
-    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
-        adaptor.getScale(), adaptor.getOffset(),
-        /*memoryConfig*/ nullptr);
+    // We only support excluded_dimension=1 for ttnn::batch_norm. Add permutes
+    // to make this legal in ttnn
+    if (adaptor.getDimension() != 1) {
+      SmallVector<int64_t> inputPermutation;
+      for (int i = 0; i < op.getOperand().getType().getRank(); i++) {
+        inputPermutation.push_back(i);
+      }
+      std::swap(inputPermutation[adaptor.getDimension()], inputPermutation[1]);
+
+      auto inputPermuteShape = ttmlir::utils::applyPermutation(
+          op.getOperand().getType().getShape(), inputPermutation);
+      RankedTensorType inputPermuteType = mlir::RankedTensorType::get(
+          inputPermuteShape, op.getOperand().getType().getElementType(),
+          op.getOperand().getType().getEncoding());
+
+      ttnn::PermuteOp inputPermutationOp = rewriter.create<ttnn::PermuteOp>(
+          op.getLoc(), inputPermuteType, adaptor.getOperand(),
+          rewriter.getDenseI64ArrayAttr(inputPermutation),
+          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+
+      ttnn::BatchNormOp batchNormOp = rewriter.create<ttnn::BatchNormOp>(
+          op.getLoc(), inputPermuteType, inputPermutationOp, adaptor.getMean(),
+          adaptor.getVariance(), adaptor.getTraining(), adaptor.getEpsilon(),
+          defaultMomentum, adaptor.getScale(), adaptor.getOffset(),
+          /*memoryConfig*/ nullptr);
+
+      rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          batchNormOp.getResult(),
+          rewriter.getDenseI64ArrayAttr(
+              ttmlir::utils::inversePermutation(inputPermutation)),
+          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+    } else {
+      rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
+          adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
+          adaptor.getScale(), adaptor.getOffset(),
+          /*memoryConfig*/ nullptr);
+    }
+
     return success();
   }
 };
