@@ -13,7 +13,7 @@ import torch
 
 class EltwiseSFPUPyKernelOp(PyKernelOp):
     # KERNEL DEFINITIONS
-    @compute_thread()
+    @compute_thread(optimize=True)
     def eltwise_sfpu(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
@@ -42,22 +42,19 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             cb_push_back(cb_out, per_core_block_dim)
         return
 
-    @writer_thread()
+    @writer_thread(optimize=True)
     def writer_unary_interleaved(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = make_tensor_accessor_args(2, 0)
+        s0 = make_tensor_accessor_from_args(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -70,22 +67,19 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    @reader_thread()
+    @reader_thread(optimize=True)
     def reader_unary_interleaved(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
         src_addr,
         num_tiles,
         start_id,
-        src_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
-        dataformat = get_dataformat(cb_in)
 
-        s0 = get_interleaved_addr_gen_fast(
-            src_is_dram, src_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = make_tensor_accessor_args(2, 0)
+        s0 = make_tensor_accessor_from_args(tensor_accessor_args, src_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -106,8 +100,11 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         cb_in = self.create_cb(in_tensor, 0)
         cb_out = self.create_cb(out_tensor, 1)
         start_id = 0
-        is_dram_input = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
         num_tiles = ceil(max(map(lambda t: t.volume(), [in_tensor, out_tensor])) / 1024)
+
+        self.tensor_accessor_config = TensorAccessorConfig.combine(
+            TensorAccessorConfig.IsDram
+        )
 
         kernels = [
             self.create_kernel(
@@ -124,7 +121,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 num_tiles,
                 start_id,
-                dst_is_dram=is_dram_input,
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
@@ -133,7 +129,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
                 in_tensor.buffer_address(),
                 num_tiles,
                 start_id,
-                src_is_dram=is_dram_input,
             ),
         ]
 
