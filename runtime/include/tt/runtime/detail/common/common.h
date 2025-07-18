@@ -40,7 +40,7 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
 }
 
 inline ::tt::tt_fabric::FabricConfig
-getFabricConfig(tt::runtime::FabricConfig cfg) {
+toTTFabricConfig(tt::runtime::FabricConfig cfg) {
   switch (cfg) {
   case tt::runtime::FabricConfig::DISABLED:
     return ::tt::tt_fabric::FabricConfig::DISABLED;

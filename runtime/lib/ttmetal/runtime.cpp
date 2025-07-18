@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -359,7 +360,8 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::getFabricConfig(config));
+  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+  RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
 void wait(Event event) {

@@ -4,6 +4,7 @@
 
 #include "operations/ccl/reduce_scatter.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
@@ -38,7 +39,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
   ::ttnn::Tensor out;
-  if (!context.getDeviceHandle().isFabricEnabled()) {
+  if (RuntimeContext::instance().getCurrentFabricConfig() ==
+      FabricConfig::DISABLED) {
     out = ::ttnn::reduce_scatter(
         input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
         outputMemoryConfig, ::ttnn::ccl::Topology::Linear);

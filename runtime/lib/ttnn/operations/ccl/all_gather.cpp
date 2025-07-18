@@ -4,6 +4,7 @@
 
 #include "operations/ccl/all_gather.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
@@ -32,7 +33,9 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   ::ttnn::Tensor out;
-  if (!context.getDeviceHandle().isFabricEnabled()) {
+
+  if (RuntimeContext::instance().getCurrentFabricConfig() ==
+      FabricConfig::DISABLED) {
     out = ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice,
                              numLinks, outputMemoryConfig, std::nullopt,
                              std::nullopt, ::ttnn::ccl::Topology::Linear);
