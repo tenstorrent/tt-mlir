@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+
 #include <atomic>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -65,16 +72,6 @@
 
 namespace tt::runtime {
 namespace detail {
-static std::atomic<DeviceRuntime> &currentRuntime() {
-#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
-  static std::atomic<DeviceRuntime> globalRuntime = DeviceRuntime::TTNN;
-#elif defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
-  static std::atomic<DeviceRuntime> globalRuntime = DeviceRuntime::TTMetal;
-#else
-  static std::atomic<DeviceRuntime> globalRuntime = DeviceRuntime::Disabled;
-#endif
-  return globalRuntime;
-}
 
 [[noreturn, maybe_unused]] static void
 fatalNotImplemented(const std::string &funcName, DeviceRuntime runtime) {
@@ -129,39 +126,33 @@ std::vector<DeviceRuntime> getAvailableRuntimes() {
 }
 
 DeviceRuntime getCurrentRuntime() {
-  DeviceRuntime runtime =
-      detail::currentRuntime().load(std::memory_order_relaxed);
-#if !defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)
-  LOG_ASSERT(runtime != DeviceRuntime::TTNN);
+#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
+    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+  return RuntimeContext::instance().getCurrentRuntime();
 #endif
-#if !defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0)
-  LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
-#endif
-  return runtime;
+  return DeviceRuntime::Disabled;
 }
 
 void setCurrentRuntime(const DeviceRuntime &runtime) {
-#if !defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)
-  LOG_ASSERT(runtime != DeviceRuntime::TTNN);
+#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
+    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+  return RuntimeContext::instance().setCurrentRuntime(runtime);
 #endif
-#if !defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0)
-  LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
-#endif
-  detail::currentRuntime().store(runtime, std::memory_order_relaxed);
+  LOG_FATAL("Runtime is not enabled");
 }
 
 void setCompatibleRuntime(const Binary &binary) {
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
   if (binary.getFileIdentifier() ==
       ::tt::target::ttnn::TTNNBinaryIdentifier()) {
-    return setCurrentRuntime(DeviceRuntime::TTNN);
+    return RuntimeContext::instance().setCurrentRuntime(DeviceRuntime::TTNN);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
   if (binary.getFileIdentifier() ==
       ::tt::target::metal::TTMetalBinaryIdentifier()) {
-    return setCurrentRuntime(DeviceRuntime::TTMetal);
+    return RuntimeContext::instance().setCurrentRuntime(DeviceRuntime::TTMetal);
   }
 #endif
   LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
@@ -696,6 +687,70 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
                                                          programContextHandle);
+      });
+}
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+
+  using RetType = std::optional<tt::runtime::TensorRef>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+                                                   programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
+                                                      programContextHandle);
+      });
+}
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+  using RetType = std::vector<tt::runtime::TensorRef>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
+                                                   programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
+                                                      programContextHandle);
+      });
+}
+
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
+  using RetType = std::optional<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return tt::runtime::ttnn::retrieveTensorFromPool(programContextHandle,
+                                                         tensorRef, untilize);
+      },
+      [&]() -> RetType {
+        return tt::runtime::ttmetal::retrieveTensorFromPool(
+            programContextHandle, tensorRef, untilize);
+      });
+}
+
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::updateTensorInPool(programContextHandle,
+                                                       tensorRef, srcTensor);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::updateTensorInPool(programContextHandle,
+                                                          tensorRef, srcTensor);
       });
 }
 

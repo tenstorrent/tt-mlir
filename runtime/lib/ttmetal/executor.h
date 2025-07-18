@@ -8,7 +8,7 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/mesh_device.hpp"
 
-#include "tt/runtime/detail/dylib.h"
+#include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
