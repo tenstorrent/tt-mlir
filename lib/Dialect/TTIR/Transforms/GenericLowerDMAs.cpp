@@ -180,13 +180,10 @@ public:
     assert(shardShape.size() == 2 &&
            "coalesced DMA loops only supported for 2D shard shapes");
 
-    size_t outer_loop_bound_size = shardShape[0];
     size_t inner_loop_bound_size = shardShape[1];
 
     auto [lbs, ubs, steps] =
         getLoopBounds(builder, loc, shardShape);
-    auto initVal = builder.create<arith::ConstantOp>(
-        dma.getLoc(), builder.getI1Type(), builder.getBoolAttr(false));
 
     auto nullDmaTx = builder.create<ttir::NullTxOp>(dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(

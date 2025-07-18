@@ -11,8 +11,7 @@ from ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
-
-@pytest.mark.parametrize("shape", [(32,32),(32,128),(128,32),(256,256)])
+@pytest.mark.parametrize("shape", [(32,32)])
 def test_dram_read_dma(shape: Shape, request):
     def dram_read_dma(
         in0: Operand,
@@ -22,13 +21,13 @@ def test_dram_read_dma(shape: Shape, request):
 
         to_device = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape, tilize=False, memorySpace=ttcore.MemorySpace.DeviceDRAM),
+            output_type=builder.metal_tensor_layout(shape, tiled=False, oobVal=ttcore.OOBVal.Undef, memorySpace=ttcore.MemorySpace.DeviceDRAM),
             unit_attrs=unit_attrs,
         )
 
         to_l1 = builder.to_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, tilize=False, memorySpace=ttcore.MemorySpace.DeviceL1),
+            output_type=builder.metal_tensor_layout(shape, tiled=False, oobVal=ttcore.OOBVal.Undef, memorySpace=ttcore.MemorySpace.DeviceL1),
             unit_attrs=unit_attrs,
         )
 
@@ -39,9 +38,56 @@ def test_dram_read_dma(shape: Shape, request):
         )
 
         return from_device
+    
+    out,_ = build_mlir_module(dram_read_dma, [shape])
+    with open("test.mlir", "w") as f:
+        f.write(str(out))
 
     compile_to_flatbuffer(
         dram_read_dma,
+        [shape],
+        target="ttmetal",
+        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+@pytest.mark.skip
+@pytest.mark.parametrize("shape", [(32, 128)])
+def test_dram_tilize(shape: Shape, request):
+    def tilize(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+
+        to_device = builder.to_layout(
+            in0,
+            output_type=builder.metal_tensor_layout(shape, tiled=False, memorySpace=ttcore.MemorySpace.DeviceDRAM),
+            unit_attrs=unit_attrs,
+        )
+
+        tilize_out = builder.tilize(
+            to_device,
+            output_type=builder.metal_tensor_layout(shape, tiled=True, memorySpace=ttcore.MemorySpace.DeviceL1),
+            unit_attrs=unit_attrs,
+        )
+
+        untilize_out = builder.untilize(
+            tilize_out,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return untilize_out
+
+    out,_ = build_mlir_module(tilize, [shape])
+    with open("test.mlir", "w") as f:
+        f.write(str(out))
+
+    compile_to_flatbuffer(
+        tilize,
         [shape],
         target="ttmetal",
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",

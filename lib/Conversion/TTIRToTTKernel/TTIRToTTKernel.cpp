@@ -616,6 +616,7 @@ public:
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
     auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
 
+    //rewriter.create<ttkernel::DPrintOp>(loc, "base addr: {} bank ID: {} addr: {}\\n", baseAddr, bankIDInt, addr);
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
                                                              addr);
   }

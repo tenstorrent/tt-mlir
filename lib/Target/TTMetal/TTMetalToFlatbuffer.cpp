@@ -154,9 +154,10 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
 static flatbuffers::Offset<target::metal::InterleavedBufferConfig>
 memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                               MemRefType memref,
-                                              DeviceAttr device) {
-  assert(mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue() ==
-         MemorySpace::DeviceDRAM);
+                                              ttcore::DeviceAttr device) {
+  assert(
+      mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace()).getValue() ==
+      ttcore::MemorySpace::DeviceDRAM);
 
   // for now, D2M assumes that all dram buffers are interleaved and use 8K pages
   constexpr size_t PAGE_SIZE = 8192;
@@ -169,14 +170,14 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                            MemRefType memref,
-                                           DeviceAttr device) {
-  auto deviceLayout =
-      mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
+                                           ttcore::DeviceAttr device) {
+  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      memref.getLayout());
   if (!deviceLayout) {
     return 0;
   }
 
-  auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
+  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   auto memrefGridShape = shardLayout.getGridShape(memref);
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
@@ -246,28 +247,12 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
 
-static flatbuffers::Offset<target::metal::CircularBufferConfig>
-memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                           MemRefType memref,
-                                           ttcore::DeviceAttr device) {
-  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-      memref.getLayout());
-  if (!deviceLayout) {
-    return 0;
-  }
+  flatbuffers::Offset<target::metal::CircularBufferConfig>
+      circularBufferConfig =
+          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
 
-  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
-  auto memrefGridShape = shardLayout.getGridShape(memref);
-  std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
-
-  uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
-  uint64_t numBuffers = shardLayout.getBuffers();
-  return target::metal::CreateCircularBufferConfigDirect(
-      *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,
-      /*page_size=*/pageSize, numBuffers);
+  return target::metal::CreateShardedBufferConfig(
+      *cache.fbb, size, pageSize, shardSpecBuffer, circularBufferConfig);
 }
 
 static flatbuffers::Offset<target::metal::BufferDesc>
@@ -301,10 +286,10 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
             cache, memref, device);
     bufferConfigTag = target::metal::BufferConfig::InterleavedBufferConfig;
     bufferConfigOffset = interleavedBufferConfig.o;
-  } else { 
-    flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
-        memrefTypeToShardedBufferConfigFlatbuffer(cache, memref, device,
-                                                  elementShape);
+  } else {
+    flatbuffers::Offset<target::metal::ShardedBufferConfig>
+        shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
+            cache, memref, device, elementShape);
     bufferConfigTag = target::metal::BufferConfig::ShardedBufferConfig;
     bufferConfigOffset = shardedBufferConfig.o;
   }
