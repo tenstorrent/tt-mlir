@@ -480,7 +480,7 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastable]> {
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
     let summary = "Elementwise conditional selection operation based on a predicate.";
     let description = [{
       The `where` operation performs element-wise conditional selection based on a predicate.
@@ -1723,7 +1723,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_PartiallyBroadcastable]> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
     let summary = "Elementwise minimum operation.";
     let description = [{
       The `minimum` operation computes the elementwise minimum between two tensors.
@@ -1757,7 +1757,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
     }];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadcastable]> {
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Elementwise subtract operation.";
     let description = [{
       The `subtract` operation performs an elementwise subtraction between two tensors.
@@ -1884,7 +1884,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
     }];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
     let summary = "Elementwise addition operation.";
     let description = [{
       The `add` operation performs an elementwise addition between two tensors.
@@ -1916,7 +1916,7 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
+def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     let summary = "Elementwise multiplication operation.";
     let description = [{
       The `multiply` operation performs an elementwise multiplication between two tensors.

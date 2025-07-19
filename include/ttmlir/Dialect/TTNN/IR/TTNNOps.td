@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
+
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -168,13 +169,6 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return
-          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
-      }
-    }];
-
     let builders =
     [
       OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
@@ -202,13 +196,6 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
                          AnyRankedTensor:$rhs,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return
-          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
-      }
-    }];
 
     let builders =
     [
@@ -574,6 +561,14 @@ def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     let description = [{
       Eltwise greater than or equal to operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
@@ -581,6 +576,14 @@ def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
     let description = [{
       Eltwise greater than operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
@@ -588,6 +591,14 @@ def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
     let description = [{
       Eltwise less than or equal to operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
@@ -595,6 +606,14 @@ def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
     let description = [{
       Eltwise less than operation.
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
 }
 
 def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and"> {
@@ -708,7 +727,7 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
     }];
 }
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
