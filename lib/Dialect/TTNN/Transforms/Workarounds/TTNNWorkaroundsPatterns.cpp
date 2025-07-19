@@ -723,6 +723,83 @@ private:
   }
 };
 
+class TTNNAllToAllWorkarounds : public OpRewritePattern<ttnn::AllToAllOp> {
+public:
+  using OpRewritePattern<ttnn::AllToAllOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::AllToAllOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(op.getInput().getType());
+    auto inputShape = inputType.getShape();
+    int32_t splitDim = op.getOutDim();
+    ::mlir::DenseIntElementsAttr replicaGroups = op.getReplicaGroups();
+    int32_t splitCount =
+        static_cast<int32_t>(replicaGroups.getType().getShape().back());
+
+    // 1. Slice
+    int32_t splitSize = inputShape[splitDim] / splitCount;
+    llvm::SmallVector<int64_t> slicedShape(inputShape.begin(),
+                                           inputShape.end());
+    slicedShape[splitDim] = splitSize;
+    RankedTensorType sliceOutputType =
+        RankedTensorType::Builder(inputType).setShape(slicedShape);
+    llvm::SmallVector<Value> sliceOpResults;
+    llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
+    llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
+    llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
+    for (int32_t sliceIdx = 0; sliceIdx < splitCount; sliceIdx++) {
+      begins[splitDim] = sliceIdx * splitSize;
+      ends[splitDim] = (sliceIdx + 1) * splitSize;
+
+      ttnn::SliceOp sliceOp = rewriter.create<ttnn::SliceOp>(
+          loc, sliceOutputType, op.getInput(), rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+      sliceOpResults.push_back(sliceOp.getResult());
+    }
+    // 2. Reorganize
+    auto deviceIds = replicaGroups.getValues<int64_t>();
+    size_t devicesInGroup =
+        static_cast<size_t>(replicaGroups.getType().getShape().back());
+
+    llvm::SmallVector<Value> reorgBuffers(devicesInGroup); // Initially empty
+
+    // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto deviceDesc = ttcore::lookupDevice(op);
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+
+    auto deviceIdToMeshCoord = [&](size_t id) {
+      llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
+      for (size_t i = meshShape.size(); i-- > 0;) {
+        coord[i] = id % meshShape[i];
+        id /= meshShape[i];
+      }
+      return rewriter.getDenseI64ArrayAttr(coord);
+    };
+
+    for (size_t gIdx = 0; gIdx < deviceIds.size(); gIdx += devicesInGroup) {
+      for (size_t idx = 0; idx < devicesInGroup; idx++) {
+        auto &senderId = deviceIds[gIdx + idx];
+        for (size_t sIdx = 0; sIdx < sliceOpResults.size(); sIdx++) {
+          auto &receiverId = deviceIds[gIdx + sIdx];
+          reorgBuffers[idx] = rewriter.create<ttnn::PointToPointOp>(
+              loc, sliceOpResults[idx].getType(), sliceOpResults[sIdx],
+              deviceIdToMeshCoord(senderId), deviceIdToMeshCoord(receiverId),
+              reorgBuffers[idx]);
+        }
+      }
+    }
+
+    // 3. concat
+    rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(op, op.getType(), reorgBuffers,
+                                                op.getInDim(),
+                                                /*memory_config=*/nullptr);
+
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -733,6 +810,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
+          TTNNAllToAllWorkarounds,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,

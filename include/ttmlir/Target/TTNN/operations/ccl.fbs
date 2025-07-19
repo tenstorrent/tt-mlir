@@ -19,6 +19,14 @@ table CollectivePermuteOp {
   source_target_pairs: [int64];
 }
 
+table AllToAllOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_dim: int32;
+  out_dim: int32;
+}
+
 table MeshShardOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

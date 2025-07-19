@@ -1945,6 +1945,24 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
     let hasFolder = 1;
 }
 
+def TTNN_AllToAllOp: TTNN_Op<"all_to_all"> {
+    let summary = "All to All operation.";
+    let description = [{
+      Performs an asynchronous all-to-all collective communication operation across multiple devices.
+      This operation redistributes data between devices by having each device split its input tensor into N chunks (where N is the number of devices) and sending the i-th chunk to device i.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_Device:$device,
+                         SI32Attr:$in_dim,
+                         SI32Attr:$out_dim,
+                         I64ElementsAttr:$replica_groups);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let summary = "Mesh shard op.";
     let description = [{

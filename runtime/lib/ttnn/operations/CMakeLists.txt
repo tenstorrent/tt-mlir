@@ -7,6 +7,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
