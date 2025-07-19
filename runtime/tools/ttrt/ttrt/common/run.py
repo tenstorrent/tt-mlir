@@ -309,6 +309,13 @@ class Run:
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
         )
+        Run.register_arg(
+            name="--fabric-config",
+            type=str,
+            default=None,
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -572,6 +579,10 @@ class Run:
                             f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
                         )
 
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            parse_fabric_config(self["--fabric-config"])
+                        )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
 
@@ -1092,6 +1103,11 @@ class Run:
                     if device is not None:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
+
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            ttrt.runtime.FabricConfig.DISABLED
+                        )
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

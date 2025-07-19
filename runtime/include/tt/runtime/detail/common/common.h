@@ -10,6 +10,7 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 
+#include "tt-metalium/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"
@@ -36,6 +37,27 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
                : ::tt::tt_metal::DispatchCoreType::ETH;
   }
   return type;
+}
+
+inline ::tt::tt_fabric::FabricConfig
+toTTFabricConfig(tt::runtime::FabricConfig cfg) {
+  switch (cfg) {
+  case tt::runtime::FabricConfig::DISABLED:
+    return ::tt::tt_fabric::FabricConfig::DISABLED;
+  case tt::runtime::FabricConfig::FABRIC_1D:
+    return ::tt::tt_fabric::FabricConfig::FABRIC_1D;
+  case tt::runtime::FabricConfig::FABRIC_1D_RING:
+    return ::tt::tt_fabric::FabricConfig::FABRIC_1D_RING;
+  case tt::runtime::FabricConfig::FABRIC_2D:
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D;
+  case tt::runtime::FabricConfig::FABRIC_2D_TORUS:
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS;
+  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
+    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
+  case tt::runtime::FabricConfig::CUSTOM:
+    return ::tt::tt_fabric::FabricConfig::CUSTOM;
+  }
+  LOG_FATAL("Unknown tt::runtime::FabricConfig value");
 }
 
 inline CoreRangeSet toCoreRangeSet(

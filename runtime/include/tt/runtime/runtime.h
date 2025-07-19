@@ -163,6 +163,8 @@ size_t getL1SizePerCore(Device meshDevice);
 
 bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
 
+void setFabricConfig(FabricConfig config);
+
 void wait(Event event);
 
 void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);

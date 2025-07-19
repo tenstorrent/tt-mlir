@@ -51,4 +51,12 @@ void RuntimeContext::setCurrentRuntime(const DeviceRuntime &runtime) {
   currentRuntime.store(runtime, std::memory_order_relaxed);
 }
 
+FabricConfig RuntimeContext::getCurrentFabricConfig() const {
+  FabricConfig config = currentFabricConfig.load(std::memory_order_relaxed);
+  return config;
+}
+void RuntimeContext::setCurrentFabricConfig(const FabricConfig &config) {
+  currentFabricConfig.store(config, std::memory_order_relaxed);
+}
+
 } // namespace tt::runtime
