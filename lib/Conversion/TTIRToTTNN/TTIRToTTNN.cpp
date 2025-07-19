@@ -1522,7 +1522,41 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CollectiveBroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // ToDo: Add support for collective broadcast.
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    auto meshDevice = ttcore::lookupDevice(op);
+    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
+
+    ::mlir::DenseIntElementsAttr replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsElems = replicaGroups.getValues<int64_t>();
+    auto replicaGroupsShape = replicaGroups.getType().getShape();
+
+    int64_t numReplicaGroups = replicaGroupsShape[0];
+    int64_t replicasPerGroup = replicaGroupsShape[1];
+    auto deviceIdToMeshCoord = [&](size_t id) {
+      llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
+      for (size_t i = meshShape.size(); i-- > 0;) {
+        coord[i] = id % meshShape[i];
+        id /= meshShape[i];
+      }
+      return rewriter.getDenseI64ArrayAttr(coord);
+    };
+    Value outputValue;
+    llvm::SmallVector<Value> results;
+    auto elemIt = replicaGroupsElems.begin();
+    for (int64_t groupIdx = 0; groupIdx < numReplicaGroups; ++groupIdx) {
+      int64_t sourceId = *elemIt++; // First ID in group is the source
+
+      for (int64_t replicaIdx = 1; replicaIdx < replicasPerGroup;
+           ++replicaIdx) {
+        int64_t targetId = *elemIt++;
+        outputValue = rewriter.create<ttnn::PointToPointOp>(
+            op.getLoc(), inputType, adaptor.getInput(),
+            deviceIdToMeshCoord(sourceId), deviceIdToMeshCoord(targetId),
+            outputValue);
+      }
+    }
+    rewriter.replaceOp(op, outputValue);
 
     return success();
   }
