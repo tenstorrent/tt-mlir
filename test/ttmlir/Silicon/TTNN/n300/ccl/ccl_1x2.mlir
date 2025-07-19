@@ -84,3 +84,16 @@ func.func public @main(%arg0: tensor<8192x784xf32> {mhlo.layout_mode = "default"
   // CHECK: "ttnn.mesh_shard"
   return %9 : tensor<8192x16384xf32>
 }
+
+func.func public @collective_permute_broadcast_cluster_1(%arg0: tensor<1x1x256x512xf32>) -> (tensor<1x1x256x512xf32> {jax.result_info = ""}) {
+  %0 = ttir.empty() : tensor<1x1x256x256xf32>
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x512xf32>, tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
+  // CHECK: "ttnn.mesh_shard"
+  %2 = ttir.empty() : tensor<1x1x256x256xf32>
+  %3 = "ttir.collective_broadcast"(%1, %2) <{replica_groups = dense<[[0, 1]]> : tensor<1x8xi64>}> : (tensor<1x1x256x256xf32>, tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
+  // CHECK: "ttnn.point_to_point"
+  %4 = ttir.empty() : tensor<1x1x256x512xf32>
+  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x256xf32>, tensor<1x1x256x512xf32>) -> tensor<1x1x256x512xf32>
+  // CHECK: "ttnn.mesh_shard"
+  return %5 : tensor<1x1x256x512xf32>
+}
