@@ -10,21 +10,8 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 LogicalResult ExplicateOperandBroadcastsRewritePattern::matchAndRewrite(
     Operation *srcOp, PatternRewriter &rewriter) const {
 
-  if (!srcOp->hasTrait<ttnn::ExplicateOperandBroadcastsTrait>() &&
-      !srcOp->hasTrait<ttnn::ExplicateInt32OperandBroadcastsTrait>()) {
+  if (!srcOp->hasTrait<ttnn::ExplicateOperandBroadcastsTrait>()) {
     return failure();
-  }
-
-  if (srcOp->hasTrait<ttnn::ExplicateInt32OperandBroadcastsTrait>()) {
-    bool hasInt32Operand =
-        llvm::any_of(srcOp->getOperands(), [](Value operand) {
-          auto type = mlir::dyn_cast<mlir::RankedTensorType>(operand.getType());
-          return type && type.getElementType().isInteger(32);
-        });
-
-    if (!hasInt32Operand) {
-      return failure();
-    }
   }
 
   auto resultShape =
