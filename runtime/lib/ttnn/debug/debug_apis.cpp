@@ -7,7 +7,7 @@
 #endif
 
 #include "tt/runtime/detail/ttnn/debug_apis.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::debug {

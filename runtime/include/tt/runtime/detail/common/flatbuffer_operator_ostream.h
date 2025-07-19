@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_FLATBUFFER_OPERATOR_OSTREAM_H
-#define TT_RUNTIME_DETAIL_FLATBUFFER_OPERATOR_OSTREAM_H
+#ifndef TT_RUNTIME_DETAIL_COMMON_FLATBUFFER_OPERATOR_OSTREAM_H
+#define TT_RUNTIME_DETAIL_COMMON_FLATBUFFER_OPERATOR_OSTREAM_H
 
 // This file defines an ostream operator that is generic over our flatbuffer
 // types.  Usage:
@@ -18,7 +18,7 @@
 
 #include "flatbuffers/idl.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
 #include "ttmlir/Target/TTMetal/binary_bfbs_generated.h"
@@ -102,4 +102,4 @@ std::ostream &operator<<(std::ostream &os, const FlatbufferT &f) {
 } // namespace tt::target::ttnn
 #endif
 
-#endif // TT_RUNTIME_DETAIL_FLATBUFFER_OPERATOR_OSTREAM_H
+#endif // TT_RUNTIME_DETAIL_COMMON_FLATBUFFER_OPERATOR_OSTREAM_H

@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TRACE_CACHE_H
 #define TT_RUNTIME_DETAIL_TTNN_TRACE_CACHE_H
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
 namespace tt::runtime::ttnn {

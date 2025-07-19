@@ -25,7 +25,6 @@ RUN apt-get update && apt-get install -y \
     ccache \
     doxygen \
     graphviz \
-    patchelf \
     libyaml-cpp-dev \
     libboost-all-dev \
     curl \

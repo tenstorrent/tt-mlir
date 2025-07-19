@@ -19,6 +19,9 @@ nanobind_add_module(
   ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
 
+set_target_properties(_ttmlir_runtime PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(_ttmlir_runtime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+
 target_include_directories(_ttmlir_runtime
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}

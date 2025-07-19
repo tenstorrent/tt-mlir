@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/reduction/sort.h"
+#include "operations/data_movement/sort.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
@@ -12,7 +12,7 @@
 #include <optional>
 #include <vector>
 
-namespace tt::runtime::ttnn::operations::sort {
+namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -21,8 +21,8 @@ void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   std::vector<::ttnn::Tensor> outputs =
-      ::ttnn::experimental::sort(in, op->dim(), op->descending(), op->stable(),
-                                 outputMemoryConfig, std::nullopt);
+      ::ttnn::sort(in, op->dim(), op->descending(), op->stable(),
+                   outputMemoryConfig, std::nullopt);
 
   LOG_ASSERT(
       op->outputs()->size() == outputs.size(),
@@ -31,4 +31,4 @@ void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
     tensorPool.insertTTNNTensorAndValidate(op->outputs()->Get(i), outputs[i]);
   }
 }
-} // namespace tt::runtime::ttnn::operations::sort
+} // namespace tt::runtime::ttnn::operations::data_movement

@@ -4,7 +4,7 @@
 
 #include "operations/moreh/moreh_cumsum.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"

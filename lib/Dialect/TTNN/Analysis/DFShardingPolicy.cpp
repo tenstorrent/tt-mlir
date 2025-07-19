@@ -6,10 +6,12 @@
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisProgressTracker.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -19,11 +21,14 @@
 namespace mlir::tt::ttnn {
 
 void DFShardingPolicy::run() {
+  func::FuncOp funcToProcess = nullptr;
+
   rootOp->walk([&](func::FuncOp func) {
     if (ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
 
+    funcToProcess = func;
     deviceAttr = ttcore::lookupDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());
@@ -133,7 +138,18 @@ void DFShardingPolicy::run() {
 
   // Resolve shard chain configs.
   //
-  for (L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
+  mlir::tt::ttnn::MemoryLayoutAnalysisProgressTracker progressTracker;
+  progressTracker.startAnalysis(funcToProcess, l1ChainConfigs->size(),
+                                "DFShardingPolicy");
+
+  for (size_t chainIndex = 0; chainIndex < l1ChainConfigs->size();
+       ++chainIndex) {
+    L1ChainConfig &l1ChainConfig = (*l1ChainConfigs)[chainIndex];
+
+    // Count operations in this chain
+    size_t numOpsInChain = l1ChainConfig.getOpL1MemSpecs().size();
+    Operation *firstOp = l1ChainConfig.getOpL1MemSpecs()[0].op;
+    progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
         overrideReshardEdges);
@@ -141,11 +157,9 @@ void DFShardingPolicy::run() {
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Failed to resolve L1 chain config {}", l1ChainConfig);
+      progressTracker.finishL1Chain(firstOp, chainIndex, false);
       continue;
     }
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolved L1 chain config {}",
-                 l1ChainConfig);
 
     pickOpShardConfigs(shardSolver, l1ChainConfig);
 
@@ -158,7 +172,14 @@ void DFShardingPolicy::run() {
              .outputLayout.hasDRAMBufferType()) {
       l1ChainConfig.spillEndToDRAM = true;
     }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolved L1 chain config {}",
+                 l1ChainConfig);
+
+    progressTracker.finishL1Chain(firstOp, chainIndex, true);
   }
+
+  progressTracker.finishAnalysis(funcToProcess);
 }
 
 void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
