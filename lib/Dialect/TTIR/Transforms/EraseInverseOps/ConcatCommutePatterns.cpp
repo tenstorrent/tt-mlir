@@ -22,10 +22,15 @@ public:
 
   void performCommuteUpwardsRewrite(ConcatOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
+    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // using the positive index
+    int32_t currentConcatDim =
+        op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
+                        : op.getDim();
 
     const int64_t *newConcatDimLoc =
         std::find(permuteUser.getPermutation().begin(),
-                  permuteUser.getPermutation().end(), op.getDim());
+                  permuteUser.getPermutation().end(), currentConcatDim);
     assert(newConcatDimLoc != permuteUser.getPermutation().end() &&
            "Concat dim specifies a dimension which is non existent in the "
            "permute, this should be impossible.");
@@ -92,12 +97,18 @@ public:
       newConcatOperands.push_back(newOperand.getResult());
     }
 
+    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // using the positive index
+    int32_t currentConcatDim =
+        op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
+                        : op.getDim();
+
     RankedTensorType newConcatType = RankedTensorType::get(
         ttmlir::utils::applyPermutation(
             op.getType().getShape(),
             ttmlir::utils::inversePermutation(permuteOperand.getPermutation())),
         op.getType().getElementType(), op.getType().getEncoding());
-    int64_t newConcatDim = permuteOperand.getPermutation()[op.getDim()];
+    int64_t newConcatDim = permuteOperand.getPermutation()[currentConcatDim];
     ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
         rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
@@ -170,6 +181,12 @@ public:
     assert(newConcatDim != -1 && "isCommuteUpwardsViable should have confirmed "
                                  "that this value is not -1");
 
+    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // using the positive index
+    int32_t currentConcatDim =
+        op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
+                        : op.getDim();
+
     ArrayRef<int64_t> newConcatShape = reshapeUser.getType().getShape();
     for (int64_t i = 0; i < op->getNumOperands(); i++) {
       if (op.isDpsInit(&op->getOpOperand(i))) {
@@ -178,7 +195,7 @@ public:
       Value operand = op->getOperand(i);
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
       SmallVector<int32_t> newOperandShape(newConcatShape);
-      newOperandShape[newConcatDim] = operandType.getShape()[op.getDim()];
+      newOperandShape[newConcatDim] = operandType.getShape()[currentConcatDim];
       RankedTensorType newOperandType = RankedTensorType::get(
           SmallVector<int64_t>(newOperandShape.begin(), newOperandShape.end()),
           operandType.getElementType(), operandType.getEncoding());
@@ -214,11 +231,16 @@ public:
 private:
   int64_t retrieveReshapeUserConcatDim(ConcatOp op,
                                        ReshapeOp reshapeUser) const {
-    int64_t concatDimSize = op.getType().getShape()[op.getDim()];
+    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // using the positive index
+    int32_t currentConcatDim =
+        op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
+                        : op.getDim();
+    int64_t concatDimSize = op.getType().getShape()[currentConcatDim];
     int64_t volumeLeft =
-        calculateShapeVolumeUpToDim(op.getType().getShape(), op.getDim());
-    int64_t volumeRight =
-        calculateShapeVolumeFromDim(op.getType().getShape(), op.getDim() + 1);
+        calculateShapeVolumeUpToDim(op.getType().getShape(), currentConcatDim);
+    int64_t volumeRight = calculateShapeVolumeFromDim(op.getType().getShape(),
+                                                      currentConcatDim + 1);
 
     ArrayRef<int64_t> reshapeShape = reshapeUser.getType().getShape();
     for (size_t dim = 0; dim < reshapeShape.size(); dim++) {
