@@ -84,7 +84,7 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
+    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
 
     # Metalium
     ${METAL_SRC_DIR}
@@ -172,6 +172,8 @@ target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
-target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
+endif()
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/dylib.h"
+#include "tt/runtime/detail/common/dylib.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 
 #include <dlfcn.h>
 

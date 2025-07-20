@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_LOGGER_H
-#define TT_RUNTIME_DETAIL_LOGGER_H
+#ifndef TT_RUNTIME_DETAIL_COMMON_LOGGER_H
+#define TT_RUNTIME_DETAIL_COMMON_LOGGER_H
 
 #include <algorithm>
 #include <chrono>
@@ -522,4 +522,4 @@ auto Tensor(IntType tensor) {
 
 } // namespace tt::runtime::logger
 
-#endif // TT_RUNTIME_DETAIL_LOGGER_H
+#endif // TT_RUNTIME_DETAIL_COMMON_LOGGER_H

@@ -7,7 +7,7 @@
 
 #include "flatbuffers/idl.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"

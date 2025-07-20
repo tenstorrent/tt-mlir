@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -698,6 +699,11 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
+  // Clear the caches to ensure we are testing the cache functionality just for
+  // this op:
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -717,6 +723,31 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+
+  auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
+  if (cachedConstraintsExp) {
+    auto l1 = cachedConstraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 5120);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
+  if (cachedRuntimeExp) {
+    EXPECT_TRUE(cachedRuntimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+
+  EXPECT_EQ(opConstraintsCache().getStats().hits, 1);
+  EXPECT_EQ(opConstraintsCache().getStats().misses, 1);
+
+  EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
+  EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
 }
 
 TEST_F(OpModelBase, SliceOpInterface) {
@@ -1801,6 +1832,101 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  // create SubtractOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
+                                        ::mlir::ValueRange{input1, input2});
+
+  // test SubtractOp interface
+  auto constraintsExp = getOpConstraints(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 1);
+
+  // If getOpConstraints is called again, it will always produce the same result
+  // without calculation:
+  auto cachedConstraintsExp = getOpConstraints(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(cachedConstraintsExp));
+
+  stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 1);
+  EXPECT_EQ(stats.misses, 1);
+
+  // Clear the cache and verify that it is empty:
+  opConstraintsCache().clear();
+  stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 0);
+  EXPECT_TRUE(opConstraintsCache().empty());
+
+  // test the runtime cache:
+  auto runtimeExp = getOpRuntime(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  auto statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 1);
+
+  // If getOpRuntime is called again, it will always produce the same result
+  // without calculation:
+  auto cachedRuntimeExp = getOpRuntime(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(cachedRuntimeExp));
+
+  statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 1);
+  EXPECT_EQ(statsRuntime.misses, 1);
+
+  // Clear the cache and verify that it is empty:
+  opRuntimeCache().clear();
+  statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 0);
+  EXPECT_TRUE(opRuntimeCache().empty());
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  // create Two add ops with different input sizes:
+  llvm::SmallVector<int64_t> tensorShape1 = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape1);
+  auto input2 = createEmptyTensor(tensorShape1);
+  auto outputType1 = createRankedTensorType(tensorShape1);
+  auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
+                                    ::mlir::ValueRange{input1, input2});
+
+  llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
+  auto input3 = createEmptyTensor(tensorShape2);
+  auto input4 = createEmptyTensor(tensorShape2);
+  auto outputType2 = createRankedTensorType(tensorShape2);
+  auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
+                                    ::mlir::ValueRange{input3, input4});
+
+  // test AddOp interface
+  auto constraintsExp1 = getOpConstraints(add1.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp1));
+  auto stats1 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats1.hits, 0);
+  EXPECT_EQ(stats1.misses, 1);
+
+  auto constraintsExp2 = getOpConstraints(add2.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp2));
+  auto stats2 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats2.hits, 0);
+  // The input sizes are different, so it should be a miss:
+  EXPECT_EQ(stats2.misses, 2);
 }
 
 } // namespace mlir::tt::ttnn

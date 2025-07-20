@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Operation.h"
 
 namespace mlir::tt::ttnn {
 

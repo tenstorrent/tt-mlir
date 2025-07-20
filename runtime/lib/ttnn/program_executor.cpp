@@ -8,6 +8,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
 #include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
@@ -27,6 +28,7 @@
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
+#include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
@@ -54,7 +56,6 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
-#include "operations/reduction/sort.h"
 #include "operations/trace/trace.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
@@ -250,7 +251,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_SliceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::SortOp: {
-    return operations::sort::run(op->type_as_SortOp(), getContext());
+    return operations::data_movement::run(op->type_as_SortOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
@@ -318,6 +319,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TraceOp: {
     return operations::trace::run(op->type_as_TraceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PointToPointOp: {
+    return operations::ccl::run(op->type_as_PointToPointOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",

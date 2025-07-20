@@ -79,7 +79,8 @@ union OpType {
   ReductionProdOp,
   LoadCachedOp,
   BatchNormOp,
-  TraceOp
+  TraceOp,
+  PointToPointOp
 }
 
 table Operation {

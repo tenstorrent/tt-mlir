@@ -77,11 +77,9 @@ struct MemorySpaceInfo {
 using MemorySpaces =
     std::array<MemorySpaceInfo, MemorySpaceInfo::kMaxEnumValForMemorySpace>;
 
-struct FuncAnalysisData final : public AllocationPlanner::Context {
+struct MemorySpaceContext final : public AllocationPlanner::Context {
 
   using Base = AllocationPlanner::Context;
-
-  using Base::Base;
 
   void add(AllocSizeT size, SequenceT first, SequenceT last,
            memref::AllocOp alloc) {
@@ -89,8 +87,23 @@ struct FuncAnalysisData final : public AllocationPlanner::Context {
     allocs.emplace_back(alloc);
   }
 
-  // A list of alloc ops, parallel to `Base::records`
+  // A list of alloc ops mapping to a given memspace, parallel
+  // to 'Base::records'.
   std::vector<memref::AllocOp> allocs;
+};
+
+using MemorySpaceContexts =
+    std::array<MemorySpaceContext, MemorySpaceInfo::kMaxEnumValForMemorySpace>;
+
+struct FuncAnalysisData final {
+
+  void add(AllocSizeT size, SequenceT first, SequenceT last,
+           memref::AllocOp alloc, ttcore::MemorySpace memorySpace) {
+    contexts[llvm::to_underlying(memorySpace)].add(size, first, last, alloc);
+  }
+
+  // Memory planner contexts, one per mem space.
+  MemorySpaceContexts contexts;
 
   // Within a func body scope, maps logical time positions (in preorder)
   // to their `Operation`s.
@@ -356,8 +369,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
             memrefTy,
             ttcore::MemorySpace::System); // Interpret unset as "host memory".
 
-        if (!isL1MemorySpace(memorySpace)) {
-          continue; // Only handling L1 space at the moment.
+        if (!isDeviceMemorySpace(memorySpace)) {
+          continue;
         }
 
         const AllocSizeT alignment =
@@ -366,25 +379,29 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 
-        analysis.add(alignedSize, ctx.first, ctx.maxLast, alloc);
+        analysis.add(alignedSize, ctx.first, ctx.maxLast, alloc, memorySpace);
       }
     }
 
-    const AllocationPlanner::Stats stats =
-        AllocationPlanner::allocate(analysis);
+    for (ttcore::MemorySpace memorySpace :
+         {ttcore::MemorySpace::DeviceL1, ttcore::MemorySpace::DeviceDRAM}) {
+      const AllocationPlanner::Stats stats = AllocationPlanner::allocate(
+          analysis.contexts[llvm::to_underlying(memorySpace)]);
 
-    // TODO(#3378) dump this instead (usageRatio() is useful) in "debug" mode:
-    // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
-    TT_ALLOC_DEBUG("allocation planning outcome: {}", stats);
+      // TODO(#3378) dump this instead (usageRatio() is useful) in "debug" mode:
+      // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
+      TT_ALLOC_DEBUG("{} allocation planning outcome: {}", memorySpace, stats);
 
-    const auto &memSpace =
-        memSpaces[llvm::to_underlying(ttcore::MemorySpace::DeviceL1)];
-    const auto memCapacity = memSpace.maxAddress - memSpace.baseAddress;
-    if (stats.memUsage > memCapacity) {
-      return func.emitOpError() << "required memory usage " << stats.memUsage
-                                << " exceeds memory capacity " << memCapacity
-                                << " (usable space is [" << memSpace.baseAddress
-                                << ", " << memSpace.maxAddress << "))";
+      const auto &info = memSpaces[llvm::to_underlying(memorySpace)];
+
+      const auto memCapacity = info.maxAddress - info.baseAddress;
+      if (stats.memUsage > memCapacity) {
+        return func.emitOpError()
+               << "required " << stringifyEnum(memorySpace) << " memory usage "
+               << stats.memUsage << " exceeds memory capacity " << memCapacity
+               << " (usable space is [" << info.baseAddress << ", "
+               << info.maxAddress << "))";
+      }
     }
 
     return analysis;
@@ -422,35 +439,33 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     IRRewriter rewriter(&getContext());
 
-    for (std::size_t t = 0; t < analysis.size(); ++t) {
-      const AllocationPlanner::Record &record = analysis[t];
-      memref::AllocOp alloc = analysis.allocs[t];
+    for (ttcore::MemorySpace memorySpace :
+         {ttcore::MemorySpace::DeviceL1, ttcore::MemorySpace::DeviceDRAM}) {
+      const MemorySpaceContext &context =
+          analysis.contexts[llvm::to_underlying(memorySpace)];
 
-      MemRefType memrefTy = alloc.getType();
-      ttcore::MemorySpace memorySpace = getMemorySpace(
-          memrefTy,
-          ttcore::MemorySpace::System); // Interpret unset as "host memory".
+      for (std::size_t t = 0; t < context.size(); ++t) {
+        const AllocationPlanner::Record &record = context[t];
+        memref::AllocOp alloc = context.allocs[t];
 
-      if (!isL1MemorySpace(memorySpace)) {
-        continue; // Only handling L1 space at the moment.
-      }
+        const auto &info = memSpaces[llvm::to_underlying(memorySpace)];
 
-      const auto &info = memSpaces[llvm::to_underlying(memorySpace)];
+        const AllocSizeT alignment = info.alignment;
+        const AllocSizeT address = info.baseAddress + record.offset;
 
-      const AllocSizeT alignment = info.alignment;
-      const AllocSizeT address = info.baseAddress + record.offset;
+        rewriter.startOpModification(alloc);
+        {
+          alloc.setAlignment(alignment);
+          alloc->setAttr("address", rewriter.getI64IntegerAttr(address));
+        };
+        rewriter.finalizeOpModification(alloc);
 
-      rewriter.startOpModification(alloc);
-      {
-        alloc.setAlignment(alignment);
-        alloc->setAttr("address", rewriter.getI64IntegerAttr(address));
-      };
-      rewriter.finalizeOpModification(alloc);
-
-      Operation *lastOp = analysis.positionMap[record.last];
-      if (!llvm::isa<func::ReturnOp>(lastOp)) {
-        rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(), alloc.getResult());
+        Operation *lastOp = analysis.positionMap[record.last];
+        if (!llvm::isa<func::ReturnOp>(lastOp)) {
+          rewriter.setInsertionPointAfter(lastOp);
+          rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
+                                             alloc.getResult());
+        }
       }
     }
 
