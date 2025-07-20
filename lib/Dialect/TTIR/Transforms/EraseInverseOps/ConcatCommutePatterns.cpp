@@ -22,7 +22,7 @@ public:
 
   void performCommuteUpwardsRewrite(ConcatOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
-    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // We want to index shapes with the concat dim so we must ensure we are
     // using the positive index
     int32_t currentConcatDim =
         op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
@@ -97,7 +97,7 @@ public:
       newConcatOperands.push_back(newOperand.getResult());
     }
 
-    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // We want to index shapes with the concat dim so we must ensure we are
     // using the positive index
     int32_t currentConcatDim =
         op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
@@ -181,7 +181,7 @@ public:
     assert(newConcatDim != -1 && "isCommuteUpwardsViable should have confirmed "
                                  "that this value is not -1");
 
-    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // We want to index shapes with the concat dim so we must ensure we are
     // using the positive index
     int32_t currentConcatDim =
         op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
@@ -231,7 +231,7 @@ public:
 private:
   int64_t retrieveReshapeUserConcatDim(ConcatOp op,
                                        ReshapeOp reshapeUser) const {
-    // We want to index shapes with the concat dim,0 so we must ensure we are
+    // We want to index shapes with the concat dim so we must ensure we are
     // using the positive index
     int32_t currentConcatDim =
         op.getDim() < 0 ? op.getResult().getType().getRank() + op.getDim()
