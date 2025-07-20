@@ -5209,6 +5209,8 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {

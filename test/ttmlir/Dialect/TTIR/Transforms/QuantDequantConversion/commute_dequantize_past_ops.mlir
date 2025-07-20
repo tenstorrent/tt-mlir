@@ -109,4 +109,20 @@ module {
     %9 = "ttir.add"(%3, %7, %8) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
     return %9 : tensor<1x64x112x112xf32>
   }
+  func.func @commute_dequantize_past_maxpool2d_and_merge_qdq(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>> {
+    // It is safe to commute past maxpool2d and merge quantize and dequantize.
+    // CHECK-LABEL: @commute_dequantize_past_maxpool2d_and_merge_qdq
+    // CHECK: ttir.quantize
+    // CHECK: ttir.pooling
+    // CHECK-NOT: ttir.dequantize
+    %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
+    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
+    %2 = ttir.empty() : tensor<1x64x112x112xf32>
+    %3 = "ttir.dequantize"(%1, %2) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    %4 = ttir.empty() : tensor<1x64x56x56xf32>
+    %5 = "ttir.pooling"(%3, %4) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Max>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 3, 3>, window_strides = array<i64: 1, 1, 2, 2>}> : (tensor<1x64x112x112xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
+    %6 = ttir.empty() : tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>
+    %7 = "ttir.quantize"(%5, %6) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>
+    return %7 : tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>>
+  }
 }

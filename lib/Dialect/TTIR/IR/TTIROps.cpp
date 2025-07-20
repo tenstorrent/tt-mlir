@@ -778,6 +778,15 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                 /*isUnrolled=*/true);
 }
 
+// RequantizeOp folder for identity requantize.
+::mlir::OpFoldResult mlir::tt::ttir::RequantizeOp::fold(FoldAdaptor adaptor) {
+  // if types of input and output are equivalent, return input.
+  if (getInput().getType() == getOutput().getType()) {
+    return getInput();
+  }
+  return nullptr;
+}
+
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
   auto inputElemType = getInput().getType().getElementType();
