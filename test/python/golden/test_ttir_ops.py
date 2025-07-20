@@ -4,7 +4,7 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
@@ -2129,6 +2129,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 
 # Subtract and remainder ops do not support broadcasting on both operands.
 # This is tracked in the following Metal issue: https://github.com/tenstorrent/tt-metal/issues/24635.
+# There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -2144,25 +2145,25 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add,
-        multiply,
+        add | Marks(pytest.mark.run_error),
+        multiply | Marks(pytest.mark.run_error),
         subtract | Marks(pytest.mark.run_error),
-        eq,
+        eq | Marks(pytest.mark.run_error),
         ne,
         le,
         lt,
         ge,
         gt,
-        div,
+        div | Marks(pytest.mark.run_error),
         remainder | Marks(pytest.mark.run_error),
         maximum,
         minimum,
-        pow,
+        pow | Marks(pytest.mark.run_error),
         logical_and,
         logical_or,
         logical_xor,
@@ -2175,8 +2176,6 @@ def test_binary_eltwise_ops_implicit_broadcast(
     target: str,
     request,
 ):
-    # pipeline_options = ["enable-decomposition-workaround-pass=false"]
-
     compile_to_flatbuffer(
         test_fn,
         shapes,
@@ -2185,7 +2184,6 @@ def test_binary_eltwise_ops_implicit_broadcast(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        pipeline_options=[],
     )
 
 
@@ -2199,22 +2197,32 @@ def test_binary_eltwise_ops_implicit_broadcast(
         [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
         [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
         [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
+        [(1, 1, 1, 4), (1, 1, 1, 1), (1, 1, 1, 1)],
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "input_dtypes",
+    [
+        pytest.param((torch.float32, torch.float32, torch.float32), id="f32-f32-f32"),
+        pytest.param((torch.float32, torch.int32, torch.int32), id="f32-i32-i32"),
+    ],
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", [where])
 def test_ternary_eltwise_ops_implicit_broadcast(
     test_fn: Callable,
     shapes: List[Shape],
-    dtype: torch.dtype,
+    input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
     target: str,
     request,
 ):
+    dtype1, dtype2, dtype3 = input_dtypes
+
     compile_to_flatbuffer(
         test_fn,
         shapes,
-        [dtype, dtype, dtype],
+        [dtype1, dtype2, dtype3],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

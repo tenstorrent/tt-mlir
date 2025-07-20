@@ -366,6 +366,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::Type inputElementType = inputType.getElementType();
   TTNNOperandWorkarounds predicateTypeWorkaround = TTNNOperandWorkarounds();
   TTNNOperandWorkarounds inputTypeWorkaround;
+  TTNNOperandWorkarounds outputTypeWorkaround;
 
   if (predicateElementType.isInteger() ||
       predicateElementType != inputElementType) {
@@ -376,6 +377,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       predicateTypeWorkaround =
           TTNNOperandWorkarounds(ttcore::DataType::Float32);
       inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
+      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
     } else {
       // Otherwise, we just force the predicate type to match the input type.
       predicateTypeWorkaround = TTNNOperandWorkarounds(
@@ -387,8 +389,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addInputOperandWorkaround(predicateTypeWorkaround)
       .addInputOperandWorkaround(inputTypeWorkaround)
       .addInputOperandWorkaround(inputTypeWorkaround)
-      .addOutputOperandWorkaround(
-          TTNNOperandWorkarounds::createEmptyTTNNOperandWorkarounds());
+      .addOutputOperandWorkaround(outputTypeWorkaround);
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.
