@@ -21,7 +21,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .apis import Shape, TTIRBuilder, TypeInfo, OutputLayoutConfig, Conv2dConfig
+from .apis import Shape, TTIRBuilder, TypeInfo
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -173,6 +173,32 @@ def create_custom_pipeline_fn(
 
 
 def optimizations_to_str(optimization_policy, builder):
+    """
+    Converts optimization settings to a string representation for the pipeline.
+
+    Parameters
+    ----------
+    optimization_policy : str
+        The optimization policy to use. Valid values are:
+        - 'Optimizer Disabled': Disables the optimizer
+        - 'DF Sharding': Uses data flow sharding policy
+        - 'Greedy L1 Interleaved': Uses greedy L1 interleaved policy
+        - 'BF Interleaved': Uses breadth-first interleaved policy
+        If None or empty, enables optimizer but disables memory layout analysis.
+
+    builder : TTIRBuilder
+        The TTIRBuilder instance containing output layout and Conv2d config parameters
+
+    Returns
+    -------
+    str
+        String representation of the optimization settings for use in pipeline options
+
+    Raises
+    ------
+    ValueError
+        If an invalid optimization policy is provided
+    """
     override_handler = optimizer_overrides.OptimizerOverridesHandler()
     # Parse optimization policy from optimization_options.
     if optimization_policy:

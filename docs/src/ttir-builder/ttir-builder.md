@@ -12,7 +12,10 @@
 ttrt query --save-artifacts
 ```
 
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+4. Export this file in your environment. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+```bash
+export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
+```
 
 ## Getting started
 

@@ -423,6 +423,22 @@ class TTIRBuilder(TTIRBuilderOps):
                 self.id_golden_map[output_key] = Golden(tensor)
 
     def set_output_layout_override(self, attributes: Dict[str, str], op: Operand):
+        """
+        Sets output layout override parameters for a given operation.
+
+        Parameters
+        ----------
+        attributes : Dict[str, str]
+            Dictionary of override attributes. Valid keys include:
+            - data_type: Data type override
+            - memory_layout: Memory layout override
+            - buffer_type: Buffer type override
+            - tensor_memory_layout: Tensor memory layout override
+            - grid_shape: Grid shape override in format '[NxM]'
+
+        op : Operand
+            The operation to apply the output layout override to
+        """
         output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
 
         for key, value in attributes.items():
@@ -445,6 +461,34 @@ class TTIRBuilder(TTIRBuilderOps):
         self._output_layout_params.params[op.location.name_str] = output_layout_override
 
     def set_conv2d_config_override(self, configs: Dict[str, str], op: Operand):
+        """
+        Sets Conv2d configuration override parameters for a given operation.
+
+        Parameters
+        ----------
+        configs : Dict[str, str]
+            Dictionary of configuration overrides. Valid keys include:
+            - dtype: Data type override
+            - weights_dtype: Weights data type override
+            - activation: Activation function override ('None' or specific activation)
+            - deallocate_activation: Control activation deallocation
+            - reallocate_halo_output: Control halo output reallocation
+            - act_block_h_override: Override activation block height
+            - act_block_w_div: Activation block width division
+            - reshard_if_not_optimal: Control resharding behavior
+            - override_sharding_config: Override sharding configuration
+            - shard_layout: Layout for sharding ('None' or specific layout)
+            - core_grid: Core grid configuration
+            - transpose_shards: Control shard transposition
+            - output_layout: Specify output layout
+            - enable_act_double_buffer: Enable/disable activation double buffering
+            - enable_weights_double_buffer: Enable/disable weights double buffering
+            - enable_split_reader: Enable/disable split reader
+            - enable_subblock_padding: Enable/disable subblock padding
+
+        op : Operand
+            The Conv2d operation to apply the configuration override to
+        """
         conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
 
         for key, value in configs.items():
@@ -611,14 +655,14 @@ class TTIRBuilder(TTIRBuilderOps):
     @autodoc_skip
     def _get_output_layout_params(self) -> Dict:
         """
-        Returns a list of strings of output layout overrides
+        Returns a dictionary of strings of output layout overrides
         """
         return self._output_layout_params.params
 
     @autodoc_skip
     def _get_conv2d_config_params(self) -> Dict:
         """
-        Returns a list of strings of conv2d config overrides
+        Returns a dictionary of strings of conv2d config overrides
         """
         return self._conv2d_config_params.params
 

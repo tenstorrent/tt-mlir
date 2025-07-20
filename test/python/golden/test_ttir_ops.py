@@ -990,7 +990,7 @@ def test_output_layout_overrides(
 conv2d_config = {
     "dtype": "f32",
     "weights_dtype": "f32",
-    "activation": "relu",
+    "activation": "none",
     "deallocate_activation": "false",
     "reallocate_halo_output": "true",
     "act_block_h_override": "0",
