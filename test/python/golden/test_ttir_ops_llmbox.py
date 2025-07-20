@@ -1012,3 +1012,82 @@ def test_matmul_and_binary_op_2(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+def pseudo_golden_collective_broadcast(
+    input_tensor: torch.Tensor,
+    replica_groups: List[Tuple[int, int]],
+):
+    # sharding
+    shards = [
+        chunk
+        for shard in torch.chunk(input_tensor, 2, dim=2)
+        for chunk in torch.chunk(shard, 4, dim=3)
+    ]
+
+    # permute
+    for group in replica_groups:
+        for device in group:
+            shards[device] = shards[group[0]]
+
+    # unsharding
+    return torch.cat(
+        [torch.cat(shards[i : i + 4], dim=3) for i in range(0, len(shards), 4)],
+        dim=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 256, 4096),
+        (1, 1, 258, 4096),
+        (1, 1, 260, 4096),
+        (1, 1, 254, 4096),
+        (1, 1, 252, 4096),
+        (1, 1, 256, 4100),
+        (1, 1, 256, 4104),
+        (1, 1, 256, 4092),
+        (1, 1, 256, 4088),
+        (1, 1, 30, 32),
+        (1, 1, 2, 4),
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize(
+    "replica_groups", [([0, 1, 2, 3], [4, 5, 6, 7]), ([0, 4], [1, 5], [2, 6], [3, 7])]
+)
+def test_collective_broadcast(
+    shape: Shape, mesh_shape: Tuple[int, int], replica_groups, request
+):
+    def collective_broadcast(in0: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
+        golden_output = pseudo_golden_collective_broadcast(input, replica_groups)
+        builder.set_graph_input_output([input], [golden_output])
+
+        sharded = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=(1, 1, 2, 4),
+            shard_dims=(2, 3),
+        )
+        reduced = builder.collective_broadcast(
+            sharded,
+            replica_groups=replica_groups,
+        )
+        return builder.mesh_shard(
+            reduced,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=(1, 1, 2, 4),
+            shard_dims=(2, 3),
+        )
+
+    compile_to_flatbuffer(
+        collective_broadcast,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+    )

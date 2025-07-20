@@ -78,3 +78,12 @@ def collective_permute_golden(
 ) -> torch.Tensor:
     # Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
     return torch.randn(input.shape, dtype=input.dtype)
+
+
+def collective_broadcast_golden(
+    input: torch.Tensor,
+    mesh_shape: Tuple[int, int],
+    replica_groups: List[Tuple[int, int]],
+) -> torch.Tensor:
+    # Return a random torch.Tensor which has the correct shape and type after doing collective_broadcast on the input.
+    return torch.randn(input.shape, dtype=input.dtype)
