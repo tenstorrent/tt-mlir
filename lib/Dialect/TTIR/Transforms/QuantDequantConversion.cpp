@@ -139,6 +139,30 @@ private:
   }
 };
 
+struct RewriteDQToRequantize
+    : public OpRewritePattern<mlir::tt::ttir::QuantizeOp> {
+  using OpRewritePattern<mlir::tt::ttir::QuantizeOp>::OpRewritePattern;
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttir::QuantizeOp op,
+                  mlir::PatternRewriter &rewriter) const override {
+    // if the op preceding this op is a dequantize op, then we can fold this to
+    // a requantize
+    if (!op.getInput().getDefiningOp()) {
+      return mlir::failure();
+    }
+    auto dequantizeOp = mlir::dyn_cast<mlir::tt::ttir::DequantizeOp>(
+        op.getInput().getDefiningOp());
+    if (dequantizeOp) {
+      ttir::RequantizeOp requantize =
+          mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::RequantizeOp>(
+              rewriter, op->getLoc(), op.getType(), dequantizeOp.getInput());
+      rewriter.replaceOp(op, requantize);
+      return mlir::success();
+    }
+    return mlir::failure();
+  }
+};
+
 struct QuantizeConvolutionRewriter
     : public OpRewritePattern<ttir::ConvolutionOp> {
   using OpRewritePattern<ttir::ConvolutionOp>::OpRewritePattern;
@@ -333,6 +357,7 @@ public:
     // Register the QDQ commutation pattern and apply greedily to the module.
     // patterns.add<CommuteQuantizeAboveQuantizableOpRewriter>(&getContext());
     patterns.add<CommuteDequantizeBelowQuantizableOpRewriter>(&getContext());
+    patterns.add<RewriteDQToRequantize>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
