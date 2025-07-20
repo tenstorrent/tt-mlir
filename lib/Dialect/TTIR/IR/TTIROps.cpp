@@ -4714,7 +4714,15 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 // ColllectiveBroadcastOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
-  // ToDo: Add verification
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getInput().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(getResult().getType());
+
+  if (inputTensorType != outputTensorType) {
+    return emitOpError("input and output must have same shape.");
+  }
 
   return success();
 }

@@ -93,3 +93,12 @@ def all_to_all_golden(
     out_shape[split_dim] //= split_count
     out_shape[concat_dim] *= split_count
     return torch.randn(out_shape, dtype=input.dtype)
+
+
+def collective_broadcast_golden(
+    input: torch.Tensor,
+    mesh_shape: Tuple[int, int],
+    replica_groups: List[Tuple[int, int]],
+) -> torch.Tensor:
+    # Return a random torch.Tensor which has the correct shape and type after doing collective_broadcast on the input.
+    return torch.randn(input.shape, dtype=input.dtype)

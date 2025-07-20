@@ -876,3 +876,63 @@ def test_all_to_all_4d(
         replica_groups=replica_groups,
         request=request,
     )
+
+
+def pseudo_golden_collective_broadcast(
+    input_tensor: torch.Tensor,
+    replica_groups: List[Tuple[int, int]],
+):
+    shards = list(torch.chunk(input_tensor, 2, dim=3))
+    for group in replica_groups:
+        for device in group:
+            shards[device] = shards[group[0]]
+    result_tensor = torch.cat(shards, dim=3)
+    return result_tensor
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 128, 1024),
+        (1, 1, 32, 64),
+        (1, 1, 30, 60),
+        (1, 1, 1, 2),
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(1, 2)])
+@pytest.mark.parametrize("replica_groups", [[(0, 1)]])
+def test_collective_broadcast(
+    shape: Shape, mesh_shape: Tuple[int, int], replica_groups, request
+):
+    def collective_broadcast(in0: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        golden_output = pseudo_golden_collective_broadcast(input, replica_groups)
+        builder.set_graph_input_output([input], [golden_output])
+
+        sharded = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=(1, 1, 1, 2),
+            shard_dims=(-1, 3),
+        )
+        reduced = builder.collective_broadcast(
+            sharded,
+            replica_groups=replica_groups,
+        )
+        return builder.mesh_shard(
+            reduced,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=(1, 1, 1, 2),
+            shard_dims=(-1, 3),
+        )
+
+    compile_to_flatbuffer(
+        collective_broadcast,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
