@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
@@ -733,6 +734,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
+          workarounds::decomposition::ConcatOpDecompositionRewritePattern,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
