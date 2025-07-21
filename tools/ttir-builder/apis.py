@@ -13,7 +13,6 @@ from ttmlir.passes import GoldenTensor, DataType
 import torch
 from enum import Enum, auto
 import re
-from .ccl_golden import *
 from .ops import TTIRBuilderOps
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
@@ -792,6 +791,7 @@ class TTIRBuilder(TTIRBuilderOps):
 
         golden_kwargs : dict, optional
             Additional keyword arguments for golden function (default: {})
+            If empty, will automatically use ttir_kwargs
 
         ttir_kwargs : dict, optional
             Additional keyword arguments for TTIR function (default: {})
@@ -804,6 +804,11 @@ class TTIRBuilder(TTIRBuilderOps):
         Any
             The created operation
         """
+        # Pass the same kwargs to both golden and ttir functions
+        # The create_smart_golden_wrapper will handle any necessary conversions
+        if not golden_kwargs and ttir_kwargs:
+            golden_kwargs = ttir_kwargs
+
         # Snoop the location of the first caller outside of this file to
         # annotate the MLIR with. NOTE that this location is _NOT_ row:col, but
         # instead row:id, where id is a unique id given to all calls to builder
@@ -863,6 +868,21 @@ class TTIRBuilder(TTIRBuilderOps):
                 if loc is not None
                 else get_loc_of_extra_file_callee(id=id)
             )
+            # Filter out PyTorch-specific parameters for TTIR operations (not used by MLIR)
+            pytorch_only_params = [
+                "out",
+                "size",
+                "data",
+                "dtype",
+                "bias",
+                "repeats",
+                "scale",
+                "zero_point",
+            ]
+            ttir_kwargs_filtered = {
+                k: v for k, v in ttir_kwargs.items() if k not in pytorch_only_params
+            }
+
             # Account for cases in which ttir_arg organization is not needed:
             if (
                 not isinstance(
@@ -870,12 +890,12 @@ class TTIRBuilder(TTIRBuilderOps):
                 )
                 and organize_ttir_args(inputs, output, output_shape) == 0
             ):
-                op = op_ttir_function(loc=loc, **ttir_kwargs)
+                op = op_ttir_function(loc=loc, **ttir_kwargs_filtered)
             else:
                 op = op_ttir_function(
                     *organize_ttir_args(inputs, output, output_shape),
                     loc=loc,
-                    **ttir_kwargs,
+                    **ttir_kwargs_filtered,
                 )
 
             # Add unit attributes if specified
