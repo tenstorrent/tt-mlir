@@ -77,6 +77,18 @@ def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
 ```
 
 
+Example CCL operation:
+```python
+def all_gather(self, input: Operand, all_gather_dim: int = None, cluster_axis: int = None) -> OpView:
+    kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
+    return self.ccl_proxy(
+        ttir_golden.get_golden_function(ttir.AllGatherOp),  # Retrieved from GOLDEN_MAPPINGS
+        ttir.AllGatherOp,
+        [input],
+        kwargs,
+    )
+```
+
 ## Adding Silicon tests
 Silicon tests are created in the `test/python/golden` directory.
 ```bash

@@ -676,113 +676,189 @@ def collective_broadcast_golden(
 ## (e.g., ttir.AbsOp) and each value is the corresponding golden function that computes
 ## the expected output for that operation.
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
-    # Elementwise unary operations
-    ttir.GetDimensionSizeOp: torch.tensor,
-    ttir.AbsOp: torch.abs,
-    ttir.CeilOp: torch.ceil,
-    ttir.CosOp: torch.cos,
-    ttir.FloorOp: torch.floor,
-    ttir.GeluOp: torch.nn.functional.gelu,
-    ttir.IsFiniteOp: torch.isfinite,
-    ttir.NegOp: torch.neg,
-    ttir.TanOp: torch.tan,
-    ttir.AtanOp: torch.atan,
-    ttir.TanhOp: torch.tanh,
-    ttir.ReciprocalOp: torch.reciprocal,
-    ttir.ReluOp: torch.relu,
-    ttir.RsqrtOp: torch.rsqrt,
-    ttir.SigmoidOp: torch.sigmoid,
-    ttir.SignOp: torch.sign,
-    ttir.SinOp: torch.sin,
-    ttir.SqrtOp: torch.sqrt,
-    ttir.LogOp: torch.log,
-    ttir.Log1pOp: torch.log1p,
-    ttir.Expm1Op: torch.expm1,
-    ttir.ExpOp: torch.exp,
-    # Elementwise binary operations
-    ttir.AddOp: torch.add,
-    ttir.MultiplyOp: torch.multiply,
-    ttir.SubtractOp: torch.subtract,
-    ttir.DivOp: torch.div,
-    ttir.MaximumOp: torch.maximum,
-    ttir.MinimumOp: torch.minimum,
-    ttir.RemainderOp: torch.remainder,
-    ttir.PowOp: torch.pow,
-    # Comparison operations
-    ttir.EqualOp: torch.eq,
-    ttir.NotEqualOp: torch.ne,
-    ttir.GreaterEqualOp: torch.ge,
-    ttir.GreaterThanOp: torch.gt,
-    ttir.LessEqualOp: torch.le,
-    ttir.LessThanOp: torch.lt,
-    # Logical operations
-    ttir.LogicalAndOp: torch.logical_and,
-    ttir.LogicalOrOp: torch.logical_or,
-    ttir.LogicalXorOp: torch.logical_xor,
-    ttir.LogicalNotOp: torch.logical_not,
-    # Selection operations
-    ttir.WhereOp: torch.where,
-    # Bitwise operations
-    ttir.BitwiseAndOp: torch.bitwise_and,
-    ttir.BitwiseOrOp: torch.bitwise_or,
-    ttir.BitwiseXorOp: torch.bitwise_xor,
-    ttir.BitwiseNotOp: torch.bitwise_not,
-    # Reduction operations
-    ttir.SumOp: torch.sum,
-    ttir.MeanOp: torch.mean,
-    ttir.MaxOp: max_golden,
-    ttir.MinOp: torch.min,
-    ttir.ProdOp: prod_golden,
-    ttir.ReduceAndOp: torch.all,
-    ttir.ReduceOrOp: torch.any,
-    # Tensor manipulation
-    ttir.TransposeOp: torch.transpose,
-    ttir.ConcatOp: torch.concat,
-    ttir.RepeatOp: torch.Tensor.repeat,
-    ttir.RepeatInterleaveOp: torch.repeat_interleave,
-    ttir.ReshapeOp: torch.reshape,
-    ttir.SqueezeOp: torch.squeeze,
-    ttir.UnsqueezeOp: torch.unsqueeze,
-    ttir.ReverseOp: torch.flip,
-    ttir.PermuteOp: torch.permute,
-    ttir.ClampScalarOp: torch.clamp,
-    ttir.ClampTensorOp: torch.clamp,
-    ttir.BroadcastOp: torch.broadcast_to,
-    ttir.PadOp: pad_golden,
+    # Elementwise unary operations - using smart wrappers
+    ttir.GetDimensionSizeOp: create_smart_golden_wrapper(
+        torch.tensor,
+        convert_kwargs={"dimension": None},  # Filter out dimension parameter
+    ),
+    ttir.AbsOp: create_smart_golden_wrapper(torch.abs),
+    ttir.CeilOp: create_smart_golden_wrapper(torch.ceil),
+    ttir.CosOp: create_smart_golden_wrapper(torch.cos),
+    ttir.FloorOp: create_smart_golden_wrapper(torch.floor),
+    ttir.GeluOp: create_smart_golden_wrapper(torch.nn.functional.gelu),
+    ttir.IsFiniteOp: create_smart_golden_wrapper(torch.isfinite),
+    ttir.NegOp: create_smart_golden_wrapper(torch.neg),
+    ttir.TanOp: create_smart_golden_wrapper(torch.tan),
+    ttir.AtanOp: create_smart_golden_wrapper(torch.atan),
+    ttir.TanhOp: create_smart_golden_wrapper(torch.tanh),
+    ttir.ReciprocalOp: create_smart_golden_wrapper(torch.reciprocal),
+    ttir.ReluOp: create_smart_golden_wrapper(torch.relu),
+    ttir.RsqrtOp: create_smart_golden_wrapper(torch.rsqrt),
+    ttir.SigmoidOp: create_smart_golden_wrapper(torch.sigmoid),
+    ttir.SignOp: create_smart_golden_wrapper(torch.sign),
+    ttir.SinOp: create_smart_golden_wrapper(torch.sin),
+    ttir.SqrtOp: create_smart_golden_wrapper(torch.sqrt),
+    ttir.LogOp: create_smart_golden_wrapper(torch.log),
+    ttir.Log1pOp: create_smart_golden_wrapper(torch.log1p),
+    ttir.Expm1Op: create_smart_golden_wrapper(torch.expm1),
+    ttir.ExpOp: create_smart_golden_wrapper(torch.exp),
+    # Elementwise binary operations - using smart wrappers
+    ttir.AddOp: create_smart_golden_wrapper(torch.add),
+    ttir.MultiplyOp: create_smart_golden_wrapper(torch.multiply),
+    ttir.SubtractOp: create_smart_golden_wrapper(torch.subtract),
+    ttir.DivOp: create_smart_golden_wrapper(torch.div),
+    ttir.MaximumOp: create_smart_golden_wrapper(torch.maximum),
+    ttir.MinimumOp: create_smart_golden_wrapper(torch.minimum),
+    ttir.RemainderOp: create_smart_golden_wrapper(torch.remainder),
+    ttir.PowOp: create_smart_golden_wrapper(torch.pow),
+    # Comparison operations - using smart wrappers
+    ttir.EqualOp: create_smart_golden_wrapper(torch.eq),
+    ttir.NotEqualOp: create_smart_golden_wrapper(torch.ne),
+    ttir.GreaterEqualOp: create_smart_golden_wrapper(torch.ge),
+    ttir.GreaterThanOp: create_smart_golden_wrapper(torch.gt),
+    ttir.LessEqualOp: create_smart_golden_wrapper(torch.le),
+    ttir.LessThanOp: create_smart_golden_wrapper(torch.lt),
+    # Logical operations - using smart wrappers
+    ttir.LogicalAndOp: create_smart_golden_wrapper(torch.logical_and),
+    ttir.LogicalOrOp: create_smart_golden_wrapper(torch.logical_or),
+    ttir.LogicalXorOp: create_smart_golden_wrapper(torch.logical_xor),
+    ttir.LogicalNotOp: create_smart_golden_wrapper(torch.logical_not),
+    # Selection operations - using smart wrappers
+    ttir.WhereOp: create_smart_golden_wrapper(torch.where),
+    # Bitwise operations - using smart wrappers
+    ttir.BitwiseAndOp: create_smart_golden_wrapper(torch.bitwise_and),
+    ttir.BitwiseOrOp: create_smart_golden_wrapper(torch.bitwise_or),
+    ttir.BitwiseXorOp: create_smart_golden_wrapper(torch.bitwise_xor),
+    ttir.BitwiseNotOp: create_smart_golden_wrapper(torch.bitwise_not),
+    # Reduction operations - using smart wrappers with parameter conversions
+    ttir.SumOp: create_smart_golden_wrapper(
+        torch.sum, convert_kwargs={"dim_arg": "dim", "keep_dim": "keepdim"}
+    ),
+    ttir.MeanOp: create_smart_golden_wrapper(
+        torch.mean, convert_kwargs={"dim_arg": "dim", "keep_dim": "keepdim"}
+    ),
+    ttir.MaxOp: max_golden,  # Keep as-is - has complex parameter conversion logic
+    ttir.MinOp: create_smart_golden_wrapper(min_ttir_compatible),
+    ttir.ProdOp: create_smart_golden_wrapper(
+        lambda input, dim, keepdim=False, **kwargs: torch.prod(
+            input,
+            dim=dim[0]
+            if isinstance(dim, list) and len(dim) == 1
+            else tuple(dim)
+            if isinstance(dim, list)
+            else dim,
+            keepdim=keepdim,
+        ),
+        convert_kwargs={"dim_arg": "dim", "keep_dim": "keepdim"},
+    ),
+    ttir.ReduceAndOp: create_smart_golden_wrapper(
+        torch.all, convert_kwargs={"dim_arg": "dim", "keep_dim": "keepdim"}
+    ),
+    ttir.ReduceOrOp: create_smart_golden_wrapper(
+        torch.any, convert_kwargs={"dim_arg": "dim", "keep_dim": "keepdim"}
+    ),
+    # Tensor manipulation - using smart wrappers with parameter conversions
+    ttir.TransposeOp: create_smart_golden_wrapper(torch.transpose),
+    ttir.ConcatOp: create_smart_golden_wrapper(torch.concat),
+    ttir.RepeatOp: create_smart_golden_wrapper(
+        torch.Tensor.repeat, convert_kwargs={"repeat_dimensions": "repeats"}
+    ),
+    ttir.RepeatInterleaveOp: create_smart_golden_wrapper(torch.repeat_interleave),
+    ttir.ReshapeOp: create_smart_golden_wrapper(torch.reshape),
+    ttir.SqueezeOp: squeeze_ttir_compatible,
+    ttir.UnsqueezeOp: unsqueeze_ttir_compatible,
+    ttir.ReverseOp: reverse_ttir_compatible,
+    ttir.PermuteOp: create_smart_golden_wrapper(permute_ttir_compatible),
+    ttir.ClampScalarOp: create_smart_golden_wrapper(torch.clamp),
+    ttir.ClampTensorOp: torch.clamp,  # Keep as-is (needs special handling for multiple operands)
+    ttir.BroadcastOp: create_smart_golden_wrapper(
+        lambda input_tensor, size, **kwargs: torch.broadcast_to(input_tensor, size),
+        convert_kwargs={
+            "broadcast_dimensions": None
+        },  # Filter out broadcast_dimensions
+    ),
+    ttir.PadOp: create_smart_golden_wrapper(pad_golden),
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
-    ttir.SliceOp: slice_golden,
-    ttir.GatherOp: gather_golden,
-    # Neural network operations
-    ttir.SoftmaxOp: torch.nn.functional.softmax,
-    ttir.MatmulOp: torch.matmul,
-    ttir.EmbeddingOp: embedding_golden,
-    ttir.CumSumOp: torch.cumsum,
+    ttir.SliceOp: create_smart_golden_wrapper(
+        slice_golden,
+        convert_kwargs={},  # Let the wrapper handle MLIR attribute conversion
+    ),
+    ttir.GatherOp: create_smart_golden_wrapper(
+        gather_golden,
+        convert_kwargs={},  # Let the wrapper handle MLIR attribute conversion
+    ),
+    # Neural network operations - using TTIR-compatible wrappers
+    ttir.SoftmaxOp: create_smart_golden_wrapper(
+        softmax_ttir_compatible,
+        convert_kwargs={
+            "dimension": "dimension"
+        },  # Keep dimension as dimension for softmax_ttir_compatible
+    ),
+    ttir.MatmulOp: create_smart_golden_wrapper(torch.matmul),
+    ttir.EmbeddingOp: create_smart_golden_wrapper(embedding_golden),
+    ttir.CumSumOp: create_smart_golden_wrapper(
+        torch.cumsum,
+        convert_kwargs={"output": None},  # Remove output parameter for golden function
+    ),
     ttir.Upsample2dOp: upsample2d_golden,
-    # Type operations
-    ttir.TypecastOp: torch.Tensor.type,
-    # Tensor creation
-    ttir.ZerosOp: torch.zeros,
-    ttir.OnesOp: torch.ones,
-    ttir.ArangeOp: arange_golden,
-    # Quantization operations
-    ttir.QuantizeOp: quantize_golden,
-    ttir.DequantizeOp: torch.dequantize,
-    ttir.RequantizeOp: requantize_golden,
-    # Complex operations
-    ttir.CbrtOp: cbrt_golden,
-    ttir.Conv2dOp: conv2d_golden,
-    ttir.ConvTranspose2dOp: conv_transpose2d_golden,
-    ttir.MaxPool2dOp: max_pool2d_golden,
+    # Type operations - using smart wrappers
+    ttir.TypecastOp: create_smart_golden_wrapper(
+        torch.Tensor.type, convert_kwargs={}  # Just passes dtype through
+    ),
+    # Tensor creation - using smart wrappers where appropriate
+    ttir.ZerosOp: create_smart_golden_wrapper(
+        torch.zeros,
+        convert_kwargs={
+            "result": None,
+            "shape": "size",
+        },  # Filter out result, rename shape to size
+    ),
+    ttir.OnesOp: create_smart_golden_wrapper(
+        torch.ones,
+        convert_kwargs={
+            "result": None,
+            "shape": "size",
+        },  # Filter out result, rename shape to size
+    ),
+    ttir.ArangeOp: create_smart_golden_wrapper(
+        arange_golden,
+        convert_kwargs={
+            "start": None,
+            "end": None,
+            "step": None,
+            "arange_dimension": None,
+        },  # Filter out parameters not needed by golden function
+    ),
+    # Quantization operations - using smart wrappers where appropriate
+    ttir.QuantizeOp: create_smart_golden_wrapper(quantize_golden),
+    ttir.DequantizeOp: create_smart_golden_wrapper(torch.dequantize),
+    ttir.RequantizeOp: create_smart_golden_wrapper(requantize_golden),
+    # Complex operations - using TTIR-compatible wrappers
+    ttir.CbrtOp: create_smart_golden_wrapper(cbrt_golden),
+    ttir.Conv2dOp: create_smart_golden_wrapper(
+        conv2d_golden,
+        convert_kwargs={},  # Let the wrapper handle MLIR attribute conversion
+    ),
+    ttir.MaxPool2dOp: create_smart_golden_wrapper(
+        max_pool2d_ttir_compatible,
+        convert_kwargs={},  # Let the wrapper handle parameter mapping
+    ),
     ttir.ArgMaxOp: argmax_golden,
-    ttir.LinearOp: linear_golden,
+    ttir.LinearOp: linear_ttir_compatible,
     ttir.DotGeneralOp: dot_general_golden,
     # Layout operations (identity functions)
-    ttir.ToLayoutOp: lambda x: x,
-    ttir.ViewLayoutOp: lambda x: x,
-    # Cache operations
-    ttir.FillCacheOp: fill_cache_golden,
-    ttir.UpdateCacheOp: update_cache_golden,
+    ttir.ToLayoutOp: lambda x, **kwargs: x,
+    ttir.ViewLayoutOp: lambda x, **kwargs: x,
+    # Cache operations - using smart wrappers
+    ttir.FillCacheOp: create_smart_golden_wrapper(
+        fill_cache_golden,
+        convert_kwargs={"batch_offset": None},  # Filter out batch_offset parameter
+    ),
+    ttir.UpdateCacheOp: create_smart_golden_wrapper(
+        update_cache_golden,
+        convert_kwargs={"batch_offset": None},  # Filter out batch_offset parameter
+    ),
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: mesh_shard_golden,
     ttir.AllGatherOp: all_gather_golden,
