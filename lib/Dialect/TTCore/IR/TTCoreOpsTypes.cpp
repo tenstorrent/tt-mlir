@@ -1137,12 +1137,8 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
 
   mlir::AffineExpr baseAddressExpr =
       getAffineSymbolExpr(workerMap.getNumDims() * 2 + 1, context);
-  // bgrady: in tt-metal, the number of banks used to compute dram addresses is
-  // 12/2 = 6 for wormhole. This seems to correspond to the number of dram cores
-  // per chip divided by 2?
-  assert(numDramCores % 2 == 0);
   mlir::AffineExpr numDramBanksExpr =
-      getAffineConstantExpr(numDramCores/2, context);
+      getAffineConstantExpr(numDramCores, context);
   mlir::AffineExpr dramPageSizeExpr =
       getAffineConstantExpr(dramPageSize, context);
   mlir::AffineExpr pageIndex = flatAddr.floorDiv(dramPageSizeExpr);
