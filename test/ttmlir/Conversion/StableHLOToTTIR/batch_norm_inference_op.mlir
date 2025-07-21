@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_batch_norm attributes {} {
   func.func public @test_batch_norm(%arg0: tensor<2x2x2x2xf32>, %arg1: tensor<2xf32>, %arg2: tensor<2xf32>, %arg3: tensor<2xf32>, %arg4: tensor<2xf32>) -> tensor<2x2x2x2xf32> {
     %result = "stablehlo.batch_norm_inference"(%arg0, %arg1, %arg2, %arg3, %arg4) {

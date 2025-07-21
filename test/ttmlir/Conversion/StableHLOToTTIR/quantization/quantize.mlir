@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_quantize {
   func.func @quantize_per_tensor_scale_per_tensor_zp(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>> {
     // CHECK-LABEL: func.func @quantize_per_tensor_scale_per_tensor_zp(

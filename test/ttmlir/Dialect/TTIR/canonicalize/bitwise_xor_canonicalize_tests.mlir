@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @bitwise_xor_integer(%arg0: tensor<64x128xui16>) -> tensor<64x128xui16> {
     // CHECK-NOT: "ttir.bitwise_xor"

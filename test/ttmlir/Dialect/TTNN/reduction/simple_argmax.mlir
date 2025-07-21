@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func public @argmax_2d(%arg0: tensor<64x64xf32>) -> tensor<64x1xi32> {

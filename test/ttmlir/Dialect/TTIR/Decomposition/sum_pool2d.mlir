@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> tensor<8x256x6x6xf32> {
   %0 = "ttir.constant"() <{value = dense<1> : tensor<1xi32>}> : () -> tensor<1xi32>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s | FileCheck %s
+// RUN: ttmlir-opt -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @index_1d(%arg0: tensor<64xbf16>) -> tensor<32xbf16> {
     %0 = ttir.empty() : tensor<32xbf16>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-wrap-device-module --ttir-cpu-hoist-transform --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-wrap-device-module --ttir-cpu-hoist-transform --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // CHECK: ttcore.device_module {
 // CHECK: builtin.module {

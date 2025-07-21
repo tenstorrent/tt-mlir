@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 func.func public @test_maxpool2d(%arg0: tensor<1x128x128x32xbf16>) -> tensor<1x32x32x32xbf16> {
   // CHECK: %[[EMPTY1:[0-9]+]] = ttir.empty
   // CHECK: %[[POOLING1:[0-9]+]] = "ttir.pooling"(%arg0, %[[EMPTY1]])

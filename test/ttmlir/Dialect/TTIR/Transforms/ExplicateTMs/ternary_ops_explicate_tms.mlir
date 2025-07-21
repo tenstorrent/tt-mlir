@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-explicate-tms %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-explicate-tms -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @ternary_same_shape_no_transform(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {

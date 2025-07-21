@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // These test are written in TTNN dialect because TTIR is not flexible enough to represent all the patterns we want to test.
 

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_maxpool(%arg0: tensor<32x800x600x6xf32>) -> tensor<32x400x300x6xf32> {
     // CHECK: func.func {{.+}} [[IN_SIZE:tensor<[0-9]+x[0-9]+x[0-9]+x[0-9]+xf32>]]{{.*}} ->

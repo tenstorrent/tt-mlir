@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func public @main(%arg0: tensor<1xf32> {mhlo.layout_mode = "default"}, %arg1: tensor<512x512xf32> {mhlo.layout_mode = "default"}) -> (tensor<512x512xf32> {jax.result_info = "", mhlo.layout_mode = "default"}) {
     %0 = stablehlo.broadcast_in_dim %arg0, dims = [1] : (tensor<1xf32>) -> tensor<512x512xf32>

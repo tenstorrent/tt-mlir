@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @jit_eltwise_bitwise attributes {} {
   func.func public @bitwise_and(%arg0: tensor<32x32xi32>, %arg1: tensor<32x32xi32>) -> tensor<32x32xi32> {

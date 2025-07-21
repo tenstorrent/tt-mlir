@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 func.func public @test_sumpool2d(%arg0: tensor<1x1x4x8xf32>) -> (tensor<1x1x2x4xf32>) {
   // CHECK-LABEL: @test_sumpool2d

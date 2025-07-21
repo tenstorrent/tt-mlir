@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-lower-to-layout %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-lower-to-layout -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
 #layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>

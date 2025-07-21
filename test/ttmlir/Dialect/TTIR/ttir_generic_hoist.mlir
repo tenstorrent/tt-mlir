@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {

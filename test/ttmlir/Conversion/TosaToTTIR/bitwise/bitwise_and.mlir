@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_bitwise_and(%arg0: tensor<13x21x3xi32>, %arg1: tensor<13x21x3xi32>) -> tensor<13x21x3xi32> {
     %0 = tosa.bitwise_and %arg0, %arg1 : (tensor<13x21x3xi32>, tensor<13x21x3xi32>) -> tensor<13x21x3xi32>

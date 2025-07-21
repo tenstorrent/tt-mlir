@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate -o %t %s
+// RUN: FileCheck %s --input-file=%t
 // UNSUPPORTED: true
 #l1_ = #ttcore.memory_space<l1>
 #layout = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>

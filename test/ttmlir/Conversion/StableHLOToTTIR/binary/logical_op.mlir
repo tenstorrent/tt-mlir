@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_eltwise_logical attributes {} {
   func.func public @logical_and(%arg0: tensor<32x32xi1>, %arg1: tensor<32x32xi1>) -> tensor<32x32xi1> {
     // CHECK: %[[E:.*]] = ttir.empty() : [[TENSOR:tensor<32x32xi1>]]

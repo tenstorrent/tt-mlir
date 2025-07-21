@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=forward1=input,parameter,parameter,constant;forward2=input,input,constant,parameter" %s | FileCheck %s
+// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=forward1=input,parameter,parameter,constant;forward2=input,input,constant,parameter" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   // CHECK: ttcore.argument_type = #ttcore.argument_type<input>
   // CHECK: ttir.name = "input_activations"

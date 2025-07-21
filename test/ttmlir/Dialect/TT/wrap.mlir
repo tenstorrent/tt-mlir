@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s --ttcore-wrap-device-module | FileCheck %s
+// RUN: ttmlir-opt --ttcore-wrap-device-module -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @test(%arg0: i32) -> i32 {

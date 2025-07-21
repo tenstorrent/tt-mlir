@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_eltwise_compare attributes {} {
   func.func public @test_eq(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xi1> {
     %0 = stablehlo.compare  EQ, %arg0, %arg1 : (tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xi1>

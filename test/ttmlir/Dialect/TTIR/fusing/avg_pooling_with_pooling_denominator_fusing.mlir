@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @main(%arg0: tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16> {

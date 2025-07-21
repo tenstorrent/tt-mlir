@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @moreh_cumsum attributes {} {
   func.func public @test_moreh_cumsum_dim0(%arg0: tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func @quantize_per_tensor_scale_per_tensor_zp(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>> {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s | FileCheck %s
+// RUN: ttmlir-opt -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func @select_identity(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
