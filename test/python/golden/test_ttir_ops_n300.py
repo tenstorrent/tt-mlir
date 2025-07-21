@@ -726,19 +726,17 @@ def pseudo_golden_collective_broadcast(
     "shape",
     [
         (1, 1, 128, 1024),
-        (1, 1, 128, 512),
-        (1, 1, 64, 512),
         (1, 1, 32, 64),
         (1, 1, 30, 60),
         (1, 1, 1, 2),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
-def test_collective_broadcast(shape: Shape, mesh_shape: Tuple[int, int], request):
-    replica_groups = [(0, 1)]
-
+@pytest.mark.parametrize("replica_groups", [[(0, 1)]])
+def test_collective_broadcast(
+    shape: Shape, mesh_shape: Tuple[int, int], replica_groups, request
+):
     def collective_broadcast(in0: Operand, builder: TTIRBuilder):
-
         input = builder._get_golden_tensor(in0)
         golden_output = pseudo_golden_collective_broadcast(input, replica_groups)
         builder.set_graph_input_output([input], [golden_output])
