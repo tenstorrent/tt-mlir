@@ -492,7 +492,7 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
-      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
+      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);
       rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
           op->getLoc(), src, dst, blockR, blockC);
     } else {
