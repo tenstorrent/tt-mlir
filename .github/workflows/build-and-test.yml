@@ -435,6 +435,7 @@ jobs:
         check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
 
 
+
   # Dedicated job for tt-alchemist tests
   test-tt-alchemist:
     timeout-minutes: 45
@@ -456,6 +457,14 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
+
+    # Sparse checkout tt-alchemist tests
+    - name: Checkout tests only
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          tools/tt-alchemist/test
+
     - name: Fetch job id
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
@@ -487,7 +496,7 @@ jobs:
         source testenv/bin/activate
         tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
 
-    - name: Run tt-alchemist API test - generate
+    - name: Run tt-alchemist API test - generate-cpp
       shell: bash
       run: |
         source testenv/bin/activate
