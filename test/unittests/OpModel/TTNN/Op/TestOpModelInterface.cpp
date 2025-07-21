@@ -838,6 +838,54 @@ TEST_F(OpModelBase, toLayoutOp) {
   }
 }
 
+TEST_F(OpModelBase, toMemoryConfigOp) {
+  llvm::SmallVector<int64_t> tensorShape = {1, 8, 64, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_L1Tiled =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout_DRAMRowMajor =
+      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  mlir::tt::ttnn::MemoryConfigAttr memoryConfig =
+      mlir::tt::ttnn::MemoryConfigAttr::get(
+          &context, outputLayout_DRAMRowMajor.getMemLayout(),
+          mlir::tt::ttnn::BufferTypeAttr::get(
+              &context, outputLayout_DRAMRowMajor.getBufferType()),
+          std::nullopt);
+  auto inputTensor =
+      createEmptyTensor(tensorShape, nullptr, inputLayout_L1Tiled);
+
+  ToMemoryConfigOp toMemoryConfig = builder.create<ToMemoryConfigOp>(
+      builder.getUnknownLoc(), inputTensor.getType(), inputTensor,
+      memoryConfig);
+
+  OpModel backend = dyn_cast<OpModel>(toMemoryConfig.getOperation());
+  if (!backend) {
+    FAIL() << "Could not cast op to OpModel";
+  }
+
+  auto constraintsExp =
+      backend.getOpConstraints(std::vector{inputLayout_L1Tiled}, OpConfig());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp =
+      backend.getOpRuntime(std::vector{inputLayout_L1Tiled}, OpConfig());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, concatOp) {
   // create concat op
   llvm::SmallVector<int64_t> tensorShape1 = {1, 2, 8, 32};
