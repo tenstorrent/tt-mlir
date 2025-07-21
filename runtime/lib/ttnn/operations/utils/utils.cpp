@@ -52,12 +52,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
   }
 }
 
-bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
-                              const ::ttnn::Tensor &rhs) {
-  return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.physical_volume() < rhs.physical_volume());
-}
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
   using FbUnaryOpType = ::tt::target::ttnn::UnaryOpType;

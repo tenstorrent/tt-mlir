@@ -27,13 +27,13 @@ LogicalResult ExplicateOperandBroadcastsRewritePattern::matchAndRewrite(
       continue;
     }
 
+    RankedTensorType newOutputType = utils::RankedTensorTypeFactory::create(
+        mlir::cast<RankedTensorType>(operand.getType()), resultShape);
     auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
         operandShape, resultShape);
     auto shapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
     auto repeatOp = rewriter.create<ttnn::RepeatOp>(
-        srcOp->getLoc(),
-        mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType()),
-        operand, shapeAttr);
+        srcOp->getLoc(), newOutputType, operand, shapeAttr);
 
     rewriter.modifyOpInPlace(srcOp, [&]() { srcOp->setOperand(i, repeatOp); });
     hasChanged = true;

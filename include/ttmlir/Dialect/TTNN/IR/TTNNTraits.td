@@ -29,10 +29,4 @@ def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsT
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-// Trait for ops that don't support implicit broadcast on operands of type i32.
-def ExplicateInt32OperandBroadcastsTrait : NativeOpTrait<"ExplicateInt32OperandBroadcastsTrait">
-{
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNTRAITS_TD
