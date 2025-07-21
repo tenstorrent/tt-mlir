@@ -210,6 +210,28 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                                   shardSpecBuffer);
 }
 
+static flatbuffers::Offset<target::metal::InterleavedBufferConfig>
+memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
+                                              MemRefType memref,
+                                              ttcore::DeviceAttr device,
+                                              target::Dim2d elementShape) {
+  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      memref.getLayout());
+  assert(!deviceLayout &&
+         "Sharded buffers cannot have interleaved config objects");
+
+  auto tile =
+      mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
+  assert(tile && "non-tiled layouts are not supported");
+  uint64_t pageSize = tile.getSizeBytes();
+  uint64_t numTiles = memref.getNumElements();
+  uint64_t size = ttmlir::utils::alignUp(
+      static_cast<size_t>(numTiles * pageSize), pageSize);
+
+  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                      pageSize);
+}
+
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                            MemRefType memref,
@@ -256,9 +278,25 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
-  flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
-      memrefTypeToShardedBufferConfigFlatbuffer(cache, memref, device,
-                                                elementShape);
+  flatbuffers::Offset<void> bufferConfig = 0;
+  target::metal::BufferConfig bufferConfigType;
+
+  bool isDram =
+      memref.getMemorySpace() &&
+      mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace()).getValue() ==
+          ttcore::MemorySpace::DeviceDRAM;
+  bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
+  if (isDram && !isSharded) {
+    bufferConfig = memrefTypeToInterleavedBufferConfigFlatbuffer(
+                       cache, memref, device, elementShape)
+                       .Union();
+    bufferConfigType = target::metal::BufferConfig::InterleavedBufferConfig;
+  } else {
+    bufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
+                       cache, memref, device, elementShape)
+                       .Union();
+    bufferConfigType = target::metal::BufferConfig::ShardedBufferConfig;
+  }
 
   flatbuffers::Offset<target::metal::CircularBufferConfig>
       circularBufferConfig =
@@ -266,7 +304,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
-      memorySpace, shardedBufferConfig, circularBufferConfig);
+      memorySpace, bufferConfigType, bufferConfig, circularBufferConfig);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
