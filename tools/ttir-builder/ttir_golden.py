@@ -190,14 +190,21 @@ def max_golden(input_tensor, dim_arg=None, keep_dim=True):
     """
     @brief Custom golden function for max operation with conditional logic.
     @param input_tensor Input tensor to find maximum of
+<<<<<<< HEAD
     @param dim_arg Dimension to find maximum along (can be None, int, or list with single int)
+=======
+    @param dim_arg Dimension to find maximum along (default: None for all dimensions)
+>>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
     @param keep_dim Whether to keep the reduced dimension (default: True)
     @return Maximum values along specified dimension or global maximum
     """
     if dim_arg is not None:
+<<<<<<< HEAD
         # Handle case where dim_arg is passed as a list [dim_arg]
         if isinstance(dim_arg, list) and len(dim_arg) == 1:
             dim_arg = dim_arg[0]
+=======
+>>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
         return torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
     else:
         # For all dimensions reduction, reshape to match expected output
@@ -377,49 +384,66 @@ def tilize_golden(input_tensor):
     """
     @brief Custom golden function for tilize operation.
     @param input_tensor Input tensor to tilize
-    @return Tilized tensor (identity operation)
+    @return Tilized tensor with proper tile layout transformation
     """
     shape = input_tensor.shape
     TILE_SIZE = 32
+    FACE_SIZE = 16
+    Y_TILES = shape[0] // TILE_SIZE
+    X_TILES = shape[1] // TILE_SIZE
+    FACES_PER_TILE = TILE_SIZE // FACE_SIZE
 
-    # Add padding if needed
-    padded_shape = list(shape)
-    for i in range(len(shape)):
-        if shape[i] % TILE_SIZE != 0:
-            padded_shape[i] = ((shape[i] + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+    tilized = torch.zeros((input_tensor.numel(),))
 
-    if padded_shape != list(shape):
-        padding = []
-        for i in reversed(range(len(shape))):
-            padding.extend([0, padded_shape[i] - shape[i]])
-        input_tensor = torch.nn.functional.pad(input_tensor, padding)
+    idx = 0
+    for tile_y in range(Y_TILES):
+        for tile_x in range(X_TILES):
+            for face_y in range(FACES_PER_TILE):
+                for face_x in range(FACES_PER_TILE):
+                    for datum_y in range(FACE_SIZE):
+                        for datum_x in range(FACE_SIZE):
+                            tilized[idx] = input_tensor[
+                                datum_y + tile_y * TILE_SIZE + face_y * FACE_SIZE,
+                                datum_x + tile_x * TILE_SIZE + face_x * FACE_SIZE,
+                            ]
+                            idx += 1
 
-    return input_tensor
+    tilized = tilized.reshape(shape)
+    return tilized
 
 
 def untilize_golden(input_tensor):
     """
     @brief Custom golden function for untilize operation.
     @param input_tensor Input tensor to untilize
-    @return Untilized tensor (identity operation)
+    @return Untilized tensor with proper layout transformation
     """
     shape = input_tensor.shape
     TILE_SIZE = 32
+    FACE_SIZE = 16
+    Y_TILES = shape[0] // TILE_SIZE
+    X_TILES = shape[1] // TILE_SIZE
+    FACES_PER_TILE = TILE_SIZE // FACE_SIZE
 
-    # Remove padding if it was added
-    unpadded_shape = list(shape)
-    for i in range(len(shape)):
-        if shape[i] % TILE_SIZE == 0:
-            unpadded_shape[i] = shape[i]  # No change needed
+    untilized = torch.zeros_like(input_tensor)
+    flattened = input_tensor.flatten()
 
-    # Create slice to remove padding
-    slices = []
-    for i in range(len(shape)):
-        slices.append(slice(0, unpadded_shape[i]))
+    idx = 0
+    for tile_y in range(Y_TILES):
+        for tile_x in range(X_TILES):
+            for face_y in range(FACES_PER_TILE):
+                for face_x in range(FACES_PER_TILE):
+                    for datum_y in range(FACE_SIZE):
+                        for datum_x in range(FACE_SIZE):
+                            # Calculate the original position
+                            orig_y = datum_y + tile_y * TILE_SIZE + face_y * FACE_SIZE
+                            orig_x = datum_x + tile_x * TILE_SIZE + face_x * FACE_SIZE
 
-    if slices:
-        return input_tensor[tuple(slices)]
-    return input_tensor
+                            # Place the value from the tilized tensor back to its original position
+                            untilized[orig_y, orig_x] = flattened[idx]
+                            idx += 1
+
+    return untilized
 
 
 def upsample2d_golden(in0, in1, scale_factor, mode="nearest"):
@@ -567,6 +591,7 @@ def collective_permute_golden(
     return torch.randn(input.shape, dtype=input.dtype)
 
 
+<<<<<<< HEAD
 def create_smart_golden_wrapper(original_func, convert_kwargs=None):
     """
     @brief Create a wrapper for golden functions that can accept TTIR-style arguments.
@@ -882,6 +907,8 @@ def linear_ttir_compatible(a, b, transpose_a=False, transpose_b=False, bias=None
     return output
 
 
+=======
+>>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
 ## @brief Dictionary mapping TTIR operation classes to their corresponding golden functions.
 ##
 ## This dictionary provides a centralized mapping between TTIR operation types and their
@@ -889,6 +916,7 @@ def linear_ttir_compatible(a, b, transpose_a=False, transpose_b=False, bias=None
 ## (e.g., ttir.AbsOp) and each value is the corresponding golden function that computes
 ## the expected output for that operation.
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
+<<<<<<< HEAD
     # Elementwise unary operations - using smart wrappers
     ttir.GetDimensionSizeOp: create_smart_golden_wrapper(
         torch.tensor,
@@ -1072,6 +1100,114 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
         update_cache_golden,
         convert_kwargs={"batch_offset": None},  # Filter out batch_offset parameter
     ),
+=======
+    # Elementwise unary operations
+    ttir.GetDimensionSizeOp: torch.tensor,
+    ttir.AbsOp: torch.abs,
+    ttir.CeilOp: torch.ceil,
+    ttir.CosOp: torch.cos,
+    ttir.FloorOp: torch.floor,
+    ttir.GeluOp: torch.nn.functional.gelu,
+    ttir.IsFiniteOp: torch.isfinite,
+    ttir.NegOp: torch.neg,
+    ttir.TanOp: torch.tan,
+    ttir.AtanOp: torch.atan,
+    ttir.TanhOp: torch.tanh,
+    ttir.ReciprocalOp: torch.reciprocal,
+    ttir.ReluOp: torch.relu,
+    ttir.RsqrtOp: torch.rsqrt,
+    ttir.SigmoidOp: torch.sigmoid,
+    ttir.SignOp: torch.sign,
+    ttir.SinOp: torch.sin,
+    ttir.SqrtOp: torch.sqrt,
+    ttir.LogOp: torch.log,
+    ttir.Log1pOp: torch.log1p,
+    ttir.Expm1Op: torch.expm1,
+    ttir.ExpOp: torch.exp,
+    # Elementwise binary operations
+    ttir.AddOp: torch.add,
+    ttir.MultiplyOp: torch.multiply,
+    ttir.SubtractOp: torch.subtract,
+    ttir.DivOp: torch.div,
+    ttir.MaximumOp: torch.maximum,
+    ttir.MinimumOp: torch.minimum,
+    ttir.RemainderOp: torch.remainder,
+    ttir.PowOp: torch.pow,
+    # Comparison operations
+    ttir.EqualOp: torch.eq,
+    ttir.NotEqualOp: torch.ne,
+    ttir.GreaterEqualOp: torch.ge,
+    ttir.GreaterThanOp: torch.gt,
+    ttir.LessEqualOp: torch.le,
+    ttir.LessThanOp: torch.lt,
+    # Logical operations
+    ttir.LogicalAndOp: torch.logical_and,
+    ttir.LogicalOrOp: torch.logical_or,
+    ttir.LogicalXorOp: torch.logical_xor,
+    ttir.LogicalNotOp: torch.logical_not,
+    # Selection operations
+    ttir.WhereOp: torch.where,
+    # Bitwise operations
+    ttir.BitwiseAndOp: torch.bitwise_and,
+    ttir.BitwiseOrOp: torch.bitwise_or,
+    ttir.BitwiseXorOp: torch.bitwise_xor,
+    ttir.BitwiseNotOp: torch.bitwise_not,
+    # Reduction operations
+    ttir.SumOp: torch.sum,
+    ttir.MeanOp: torch.mean,
+    ttir.MaxOp: max_golden,
+    ttir.MinOp: torch.min,
+    ttir.ProdOp: prod_golden,
+    ttir.ReduceAndOp: torch.all,
+    ttir.ReduceOrOp: torch.any,
+    # Tensor manipulation
+    ttir.TransposeOp: torch.transpose,
+    ttir.ConcatOp: torch.concat,
+    ttir.RepeatOp: torch.Tensor.repeat,
+    ttir.RepeatInterleaveOp: torch.repeat_interleave,
+    ttir.ReshapeOp: torch.reshape,
+    ttir.SqueezeOp: torch.squeeze,
+    ttir.UnsqueezeOp: torch.unsqueeze,
+    ttir.ReverseOp: torch.flip,
+    ttir.PermuteOp: torch.permute,
+    ttir.ClampScalarOp: torch.clamp,
+    ttir.ClampTensorOp: torch.clamp,
+    ttir.BroadcastOp: torch.broadcast_to,
+    ttir.PadOp: pad_golden,
+    ttir.IndexSelectOp: select_golden,
+    ttir.IndexOp: index_golden,
+    ttir.SliceOp: slice_golden,
+    ttir.GatherOp: gather_golden,
+    # Neural network operations
+    ttir.SoftmaxOp: torch.nn.functional.softmax,
+    ttir.MatmulOp: torch.matmul,
+    ttir.EmbeddingOp: embedding_golden,
+    ttir.CumSumOp: torch.cumsum,
+    ttir.Upsample2dOp: upsample2d_golden,
+    # Type operations
+    ttir.TypecastOp: torch.Tensor.type,
+    # Tensor creation
+    ttir.ZerosOp: torch.zeros,
+    ttir.OnesOp: torch.ones,
+    ttir.ArangeOp: arange_golden,
+    # Quantization operations
+    ttir.QuantizeOp: quantize_golden,
+    ttir.DequantizeOp: torch.dequantize,
+    ttir.RequantizeOp: requantize_golden,
+    # Complex operations
+    ttir.CbrtOp: cbrt_golden,
+    ttir.Conv2dOp: conv2d_golden,
+    ttir.MaxPool2dOp: max_pool2d_golden,
+    ttir.ArgMaxOp: argmax_golden,
+    ttir.LinearOp: linear_golden,
+    ttir.DotGeneralOp: dot_general_golden,
+    # Layout operations (identity functions)
+    ttir.ToLayoutOp: lambda x: x,
+    ttir.ViewLayoutOp: lambda x: x,
+    # Cache operations
+    ttir.FillCacheOp: fill_cache_golden,
+    ttir.UpdateCacheOp: update_cache_golden,
+>>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: mesh_shard_golden,
     ttir.AllGatherOp: all_gather_golden,
@@ -1079,9 +1215,13 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceScatterOp: reduce_scatter_golden,
     ttir.CollectivePermuteOp: collective_permute_golden,
     # Operations with parameter transformations
+<<<<<<< HEAD
     ttir.LeakyReluOp: create_smart_golden_wrapper(
         torch.nn.functional.leaky_relu, convert_kwargs={"parameter": "negative_slope"}
     ),
+=======
+    ttir.LeakyReluOp: torch.nn.functional.leaky_relu,
+>>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
 }
 
 
