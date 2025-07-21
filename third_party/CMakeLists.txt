@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "c0eb6a589efbca3684382059bce66331b6402c27")
+set(TT_METAL_VERSION "81412069f02b01a483cc0fb29fec5c9bf28ac1ab")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -58,7 +58,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
+  ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -100,6 +100,13 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
   set(TTMETAL_BUILD_TYPE "ASan")
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  set(ENABLE_DISTRIBUTED ON)
+else()
+  message(STATUS "Disabling tt-metal distributed support because of mpi x86 dep")
+  set(ENABLE_DISTRIBUTED OFF)
+endif()
+
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
@@ -124,6 +131,7 @@ ExternalProject_Add(
     -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
+    -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
@@ -157,7 +165,7 @@ install(
 )
 
 # `tt_metal` directory is installed with two commands, since we need special handling of `third_party` directory.
-# We only need `tt_llk_*" and `umd` files from `third_party` directory.
+# We only need `tt_llk" and `umd` files from `third_party` directory.
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
@@ -175,7 +183,8 @@ install(
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
   FILES_MATCHING
-  REGEX "third_party/tt_llk_*"
+  REGEX "third_party/tt_llk/tt_llk_blackhole/"
+  REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
   REGEX "third_party/umd/"
 )
 

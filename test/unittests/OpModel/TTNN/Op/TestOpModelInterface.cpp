@@ -10,8 +10,10 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 
 #include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -697,6 +699,11 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
+  // Clear the caches to ensure we are testing the cache functionality just for
+  // this op:
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -716,6 +723,31 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+
+  auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
+  if (cachedConstraintsExp) {
+    auto l1 = cachedConstraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 5120);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
+  if (cachedRuntimeExp) {
+    EXPECT_TRUE(cachedRuntimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+
+  EXPECT_EQ(opConstraintsCache().getStats().hits, 1);
+  EXPECT_EQ(opConstraintsCache().getStats().misses, 1);
+
+  EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
+  EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
 }
 
 TEST_F(OpModelBase, SliceOpInterface) {
@@ -1102,7 +1134,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  // TODO(3901): Skipped due to hang. See
+  // https://github.com/tenstorrent/tt-mlir/issues/3901
   GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
@@ -1167,7 +1200,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
-      OpConfig(getOutputLayout(conv2d), badConvConfig));
+      OpConfig(getOutputLayout(conv2d),
+               Conv2dAttrs{badConvConfig, std::nullopt}));
   ASSERT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
@@ -1176,7 +1210,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
-                           OpConfig(getOutputLayout(conv2d), badConvConfig));
+                           OpConfig(getOutputLayout(conv2d),
+                                    Conv2dAttrs{badConvConfig, std::nullopt}));
   ASSERT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 
@@ -1203,7 +1238,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
-      OpConfig(getOutputLayout(conv2d), goodConvConfig));
+      OpConfig(getOutputLayout(conv2d),
+               Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cb_size, peak_size, output_size, outputLayout] =
       constraintsExp.get();
@@ -1216,7 +1252,82 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
-                           OpConfig(getOutputLayout(conv2d), goodConvConfig));
+                           OpConfig(getOutputLayout(conv2d),
+                                    Conv2dAttrs{goodConvConfig, std::nullopt}));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
+  // TODO(3901): Skipped due to hang. See
+  // https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      ttcore::GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory,
+      ttcore::GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context,
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType()));
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+
+  Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
+  DeviceComputeKernelConfigAttr deviceConfigAttr =
+      DeviceComputeKernelConfigAttr::get(
+          &context, MathFidelity::HiFi2, BoolAttr::get(&context, true),
+          BoolAttr::get(&context, false), BoolAttr::get(&context, true),
+          BoolAttr::get(&context, true));
+  Conv2dAttrs opConfigAttrs = Conv2dAttrs{
+      configAttr, deviceConfigAttr}; // passes both configs to backend.
+
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), opConfigAttrs));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cb_size, 65600);
+  EXPECT_EQ(peak_size, 88400);
+  EXPECT_EQ(output_size, 26624);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), opConfigAttrs));
   ASSERT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }
@@ -1285,7 +1396,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(convTranspose2d),
-      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+      OpConfig(getOutputLayout(convTranspose2d),
+               Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cb_size, peak_size, output_size, outputLayout] =
       constraintsExp.get();
@@ -1296,9 +1408,10 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = backend.getOpRuntime(
-      getInputLayouts(convTranspose2d),
-      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(convTranspose2d),
+                           OpConfig(getOutputLayout(convTranspose2d),
+                                    Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }
@@ -1719,6 +1832,101 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  // create SubtractOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
+                                        ::mlir::ValueRange{input1, input2});
+
+  // test SubtractOp interface
+  auto constraintsExp = getOpConstraints(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 1);
+
+  // If getOpConstraints is called again, it will always produce the same result
+  // without calculation:
+  auto cachedConstraintsExp = getOpConstraints(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(cachedConstraintsExp));
+
+  stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 1);
+  EXPECT_EQ(stats.misses, 1);
+
+  // Clear the cache and verify that it is empty:
+  opConstraintsCache().clear();
+  stats = opConstraintsCache().getStats();
+  EXPECT_EQ(stats.hits, 0);
+  EXPECT_EQ(stats.misses, 0);
+  EXPECT_TRUE(opConstraintsCache().empty());
+
+  // test the runtime cache:
+  auto runtimeExp = getOpRuntime(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  auto statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 1);
+
+  // If getOpRuntime is called again, it will always produce the same result
+  // without calculation:
+  auto cachedRuntimeExp = getOpRuntime(sub.getOperation());
+  ASSERT_TRUE(static_cast<bool>(cachedRuntimeExp));
+
+  statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 1);
+  EXPECT_EQ(statsRuntime.misses, 1);
+
+  // Clear the cache and verify that it is empty:
+  opRuntimeCache().clear();
+  statsRuntime = opRuntimeCache().getStats();
+  EXPECT_EQ(statsRuntime.hits, 0);
+  EXPECT_EQ(statsRuntime.misses, 0);
+  EXPECT_TRUE(opRuntimeCache().empty());
+}
+
+TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  // create Two add ops with different input sizes:
+  llvm::SmallVector<int64_t> tensorShape1 = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape1);
+  auto input2 = createEmptyTensor(tensorShape1);
+  auto outputType1 = createRankedTensorType(tensorShape1);
+  auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
+                                    ::mlir::ValueRange{input1, input2});
+
+  llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
+  auto input3 = createEmptyTensor(tensorShape2);
+  auto input4 = createEmptyTensor(tensorShape2);
+  auto outputType2 = createRankedTensorType(tensorShape2);
+  auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
+                                    ::mlir::ValueRange{input3, input4});
+
+  // test AddOp interface
+  auto constraintsExp1 = getOpConstraints(add1.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp1));
+  auto stats1 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats1.hits, 0);
+  EXPECT_EQ(stats1.misses, 1);
+
+  auto constraintsExp2 = getOpConstraints(add2.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp2));
+  auto stats2 = opConstraintsCache().getStats();
+  EXPECT_EQ(stats2.hits, 0);
+  // The input sizes are different, so it should be a miss:
+  EXPECT_EQ(stats2.misses, 2);
 }
 
 } // namespace mlir::tt::ttnn

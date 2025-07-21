@@ -60,7 +60,7 @@ ShardSolver::ShardSolver(
 
   // Populate operandOpEdges and userOpEdges.
   //
-  for (const auto shardSpec : shardSpecs) {
+  for (const auto &shardSpec : shardSpecs) {
     Operation *op = shardSpec.op;
     for (size_t operandIndex = 0; operandIndex < op->getNumOperands();
          operandIndex++) {
@@ -95,8 +95,8 @@ bool ShardSolver::resolveStep() {
     return false;
   }
 
-  for (const auto shardSpec : *shardSpecs) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  for (const auto &shardSpec : *shardSpecs) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resolving constraints for: {}", shardSpec.op->getName());
 
     Operation *consumerOp = shardSpec.op;
@@ -105,15 +105,19 @@ bool ShardSolver::resolveStep() {
 
     // For now, we don't change op-specific attributes in this analysis so we
     // can check that all consumer configs have the same op-specific attribute.
-    for (const OpConfig &config : consumerConfigs) {
-      if (config.opSpecificAttr != consumerConfigs.begin()->opSpecificAttr) {
-        llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
-                                 "have the same op-specific attribute");
-      }
+    auto mismatchIt =
+        std::adjacent_find(consumerConfigs.begin(), consumerConfigs.end(),
+                           [](const OpConfig &a, const OpConfig &b) {
+                             return a.opSpecificAttrs != b.opSpecificAttrs;
+                           });
+
+    if (mismatchIt != consumerConfigs.end()) {
+      llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
+                               "have the same op-specific attribute");
     }
 
     OpConfig consumerConfigNoLayout = OpConfig(
-        /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttr);
+        /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttrs);
 
     auto edges = operandOpEdges.find(consumerOp);
     if (edges == operandOpEdges.end()) {
@@ -284,7 +288,7 @@ bool ShardSolver::resolveStep() {
     opProcessor.process(this);
   } // end for ops
 
-  for (const auto shardSpec : *shardSpecs) {
+  for (const auto &shardSpec : *shardSpecs) {
     Operation *op = shardSpec.op;
 
     // No need to expand root as we are calling for all ops anyway.
@@ -352,7 +356,9 @@ bool ShardSolver::preprocessFirstOp() {
     // https://github.com/tenstorrent/tt-mlir/issues/3749
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Interleaved to sharded not possible for config idx {}", i);
+                   "Interleaved to sharded not possible for config idx {} "
+                   "\n\tlayout: {}",
+                   i, firstOpLayout);
       // Invalidate this config.
       firstOpBitset->reset(i);
       continue;
@@ -410,14 +416,18 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   bool validConfigExists = false;
 
   // Check that all consumer configs have the same op-specific attribute
-  for (const OpConfig &config : consumerConfigs) {
-    if (config.opSpecificAttr != consumerConfigs.begin()->opSpecificAttr) {
-      llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
-                               "have the same op-specific attribute");
-    }
+  auto mismatchIt =
+      std::adjacent_find(consumerConfigs.begin(), consumerConfigs.end(),
+                         [](const OpConfig &a, const OpConfig &b) {
+                           return a.opSpecificAttrs != b.opSpecificAttrs;
+                         });
+  if (mismatchIt != consumerConfigs.end()) {
+    llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
+                             "have the same op-specific attribute");
   }
+
   OpConfig consumerConfigNoLayout = OpConfig(
-      /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttr);
+      /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttrs);
 
   for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
     llvm::Expected<TTNNLayoutAttr> shardCompatible =
@@ -477,6 +487,9 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   if (!validConfigExists) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resharding failed for edge: {}", edge);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "=== Debug start ===");
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Input layouts: {}",
+                 inputLayouts.size());
     for ([[maybe_unused]] auto &layout : inputLayouts) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}", layout);
     }
@@ -496,6 +509,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}", layout);
       }
     }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "=== End of debug dump ===");
 
     earlyExit = true;
     return false;
@@ -870,8 +884,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
 
-  bool l1UsageValid = (producerL1OutputUsage + outputTensorUsage +
-                       cBUsagePeak) < tensorL1UsageCap * usableL1CacheSize;
+  bool l1UsageValid = (producerL1OutputUsage + tensorUsage + cBUsagePeak) <
+                      tensorL1UsageCap * usableL1CacheSize;
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

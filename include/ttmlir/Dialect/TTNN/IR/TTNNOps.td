@@ -2215,4 +2215,26 @@ def TTNN_TraceOp : TTNN_Op<"trace"> {
 
     let hasVerifier = 1;
 }
+
+def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
+  let summary = "Point To Point operation.";
+  let description = [{
+    Performs point-to-point communication by copying a tensor shard from one device to another
+    within a multi-device mesh. This operation is typically used for explicit data movement in
+    distributed tensor computations, where a specific device (send_coord) sends its local tensor
+    data to a target device (receive_coord).
+
+    If `accum_tensor` is not provided, a new output tensor will be allocated automatically
+    at the receiver. If provided, the data will be written into the specified accum tensor.
+
+    The operation returns a multi-device tensor whose buffer layout follows the mesh configuration.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                         DenseI64ArrayAttr:$send_coord,
+                         DenseI64ArrayAttr:$receive_coord,
+                         Optional<AnyRankedTensor>:$accum_tensor);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
 #endif

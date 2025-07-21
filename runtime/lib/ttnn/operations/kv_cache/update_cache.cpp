@@ -4,7 +4,7 @@
 
 #include "operations/kv_cache/update_cache.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 
 #include "tt/runtime/workarounds.h"
 

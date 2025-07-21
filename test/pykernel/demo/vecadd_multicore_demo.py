@@ -238,20 +238,8 @@ core_ranges = None  # Define core ranges here
 vecadd_op = VecAddMulticorePyKernelOp()
 
 # Run tests against the golden "add" op.
-import time
-
-start = time.time()
 output = vecadd_op(a_tensor, b_tensor, output_tensor)
-print("Pykernel Op took:", time.time() - start)
-
-start = time.time()
-output = vecadd_op(a_tensor, b_tensor, output_tensor)
-print("Cached Op took:", time.time() - start)
-
-start = time.time()
 golden = ttnn.add(a_tensor, b_tensor)
-print("TTNN Op took:", time.time() - start)
-
 
 torch_golden = ttnn.to_torch(golden)
 torch_output = ttnn.to_torch(output)

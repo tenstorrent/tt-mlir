@@ -1429,6 +1429,34 @@ public:
 } // namespace
 
 namespace {
+class ReluOpConversionPattern : public OpConversionPattern<ttir::ReluOp> {
+public:
+  using OpConversionPattern<ttir::ReluOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+
+    assert(resultType && "Result type must be a ranked tensor type.");
+    DenseElementsAttr zerosAttr =
+        DenseElementsAttr::get(resultType, /*value=*/0.0f);
+    auto zeroes =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, zerosAttr);
+
+    rewriter.replaceOpWithNewOp<linalg::MaxOp>(
+        op, resultType, ValueRange{input, zeroes.getResult()},
+        ValueRange{adaptor.getOutput()});
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class EmptyOpConversionPattern : public OpConversionPattern<ttir::EmptyOp> {
 public:
   using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
@@ -1605,7 +1633,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto value = op.getValue();
+    auto value = adaptor.getValue();
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
@@ -1633,8 +1661,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::SqrtOp, linalg::SqrtOp>,
       SoftmaxOpConversionPattern, EmptyOpConversionPattern,
       PermuteOpConversionPattern, SliceOpConversionPattern,
-      ConstantOpConversionPattern, EmbeddingOpConversionPattern>(typeConverter,
-                                                                 ctx);
+      ConstantOpConversionPattern, EmbeddingOpConversionPattern,
+      ReluOpConversionPattern>(typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,

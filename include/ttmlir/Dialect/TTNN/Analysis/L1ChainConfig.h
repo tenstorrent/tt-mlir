@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -106,9 +107,10 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   os << "L1ChainConfig(size=" << config.size() << ")";
   os << "\n\tState: " << config.getStateString();
   for (const auto &opL1MemSpec : config.getOpL1MemSpecs()) {
-    os << "\n\t" << opL1MemSpec.op->getName().getStringRef() << "\t"
-       << utils::getOpLocName(opL1MemSpec.op);
-    os << "\n\t outputLayout: " << opL1MemSpec.config.outputLayout;
+    os << "\n\t";
+    opL1MemSpec.op->print(os);
+    os << "@ loc: " << utils::getOpLocName(opL1MemSpec.op);
+    os << "\n\t\t outputLayout: " << opL1MemSpec.config.outputLayout;
   }
   return os;
 }

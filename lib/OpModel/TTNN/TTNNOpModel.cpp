@@ -1801,6 +1801,8 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1847,6 +1849,10 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -1857,7 +1863,8 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasSpec, conv2dConfigConverted, std::nullopt,
+        groups, outputDtype, biasSpec, conv2dConfigConverted,
+        deviceComputeKernelConfigConverted,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -1881,6 +1888,8 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1927,7 +1936,9 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
       detail::getNullableDataType(outputLayout);
 
   auto conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
-
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -1938,7 +1949,8 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasSpec, conv2dConfigConverted, std::nullopt,
+        groups, outputDtype, biasSpec, conv2dConfigConverted,
+        deviceComputeKernelConfigConverted,
         detail::getNullableMemoryConfig(outputLayout));
   };
 

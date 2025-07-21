@@ -91,8 +91,16 @@ Be sure to file an issue for failing tests and add a pytest mark for any failing
 ```bash
 pytest.mark.skip("Issue number") : skip flatbuffer creation for this test
 pytest.mark.fails_golden : expect this test to fail the ttrt golden check
-pytest.mark.skip_target("ttmetal") : skip ttmetal flatbuffer creation, an op in this test has no support in ttmetal
+pytest.mark.skip_config(config, ... reason=None): skip test if all of the specified targets/backends per config are present
 ```
+
+The `skip_config` mark here is a little nuanced. By passing in a list of
+strings representing targets and/or systems (e.g. `["ttmetal", "p150"]`) this
+mark will intelligently skip tests with that configuration. The example given
+will skip tests lowered to `ttmetal` iff we are runing on a `p150` (i.e.
+blackhole). This functionality will be expanded to include other axes of test
+configuration, but target and system are sufficient for our needs at the
+moment.
 
 For tests exclusive to n300 or llmbox, use the following pytest marks or add them to their respective test files.
 ```bash

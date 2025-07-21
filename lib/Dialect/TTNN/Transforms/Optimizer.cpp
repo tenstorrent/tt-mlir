@@ -231,15 +231,7 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (op->getNumResults() == 0) {
-          return;
-        }
-
-        if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-          return;
-        }
-
-        if (llvm::isa<ttnn::EmptyOp>(op)) {
+        if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
           return;
         }
 
@@ -420,11 +412,20 @@ public:
 
           // Set specific Conv2d Op configuration if it is exists.
           //
+
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            if (auto conv2dConfig =
-                    mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
-              conv2dOp.setConv2dConfigAttr(conv2dConfig);
+            auto opAttributes = opConfigAnalysis.getResult().at(op);
+            if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                    opAttributes.opSpecificAttrs)) {
+              ttnn::Conv2dAttrs conv2dAttrs =
+                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
+              if (conv2dAttrs.conv2dConfig.has_value()) {
+                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
+              }
+              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                conv2dOp.setComputeConfigAttr(
+                    conv2dAttrs.deviceComputeKernelConfig.value());
+              }
             }
           }
         }
@@ -776,7 +777,9 @@ private:
     // Empty consumerConfig with conv2d config if conv2d op.
     OpConfig consumerConfig;
     if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-      consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+      Conv2dAttrs conv2dAttrs = {conv2dOp.getConv2dConfigAttr(),
+                                 conv2dOp.getComputeConfigAttr()};
+      consumerConfig.opSpecificAttrs = conv2dAttrs;
     }
 
     auto opConstraintsResult =
@@ -975,8 +978,10 @@ private:
           op->getResult(0).setType(
               resultType.cloneWithEncoding(actualOutputLayout));
         }
-        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                     "Successfully passed constraints, no conversion needed");
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::Optimizer,
+            "Op {} successfully passed constraints, no conversion needed",
+            op->getName());
         return;
       }
 
@@ -992,7 +997,8 @@ private:
 
       // Row major input passed constraints, let's add necessary conversions.
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Successfully passed constraints after inserting RM");
+                   "Op {} successfully passed constraints after inserting RM",
+                   op->getName());
       convertOpToRowMajorAndBack(op);
     });
   }

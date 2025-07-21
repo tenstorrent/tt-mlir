@@ -8,7 +8,9 @@ add_library(TTRuntimeTTNNUtils
   utils.cpp
 )
 set_property(TARGET TTRuntimeTTNNUtils PROPERTY CXX_STANDARD 20)
-target_compile_options(TTRuntimeTTNNUtils PUBLIC -mavx -mavx2)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  target_compile_options(TTRuntimeTTNNUtils PUBLIC -mavx -mavx2)
+endif()
 target_include_directories(TTRuntimeTTNNUtils PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
