@@ -4745,19 +4745,16 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
   // check all values are positive
   auto replicaIds = getReplicaGroups().getValues<int64_t>();
-  llvm::DenseSet<int64_t> replicaIdsSeen;
-  for (int64_t replicaId : replicaIds) {
-    if (replicaId < 0) {
-      return emitOpError()
-             << "replica_groups values must be positive, but was given "
-             << replicaId;
-    }
+  if (llvm::any_of(replicaIds, [](int64_t id) { return id < 0; })) {
+    return emitOpError() << "replica_groups values must be positive";
+  }
 
-    // check all values are unique
-    if (!replicaIdsSeen.insert(replicaId).second) {
-      return emitOpError() << "replica id #" << replicaId
-                           << " seen more than once";
-    }
+  // check all values are unique
+  llvm::DenseSet<int64_t> replicaIdsSeen;
+  if (!llvm::all_of(replicaIds, [&](int64_t id) {
+        return replicaIdsSeen.insert(id).second;
+      })) {
+    return emitOpError() << "replica_groups contains duplicated values";
   }
 
   return success();

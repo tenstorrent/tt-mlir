@@ -65,7 +65,7 @@ module attributes {} {
     return %1 : tensor<1x1x8192x512xf32>
   }
 }
-// CHECK: error: 'ttir.collective_broadcast' op replica_groups values must be positive, but was given -1
+// CHECK: error: 'ttir.collective_broadcast' op replica_groups values must be positive
 
 // -----
 
@@ -76,4 +76,4 @@ module attributes {} {
     return %1 : tensor<1x1x8192x512xf32>
   }
 }
-// CHECK: error: 'ttir.collective_broadcast' op replica id #0 seen more than once
+// CHECK: error: 'ttir.collective_broadcast' op replica_groups contains duplicated values
