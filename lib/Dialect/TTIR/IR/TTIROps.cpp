@@ -4714,14 +4714,50 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 // ColllectiveBroadcastOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
-  const RankedTensorType inputTensorType =
-      mlir::cast<RankedTensorType>(getInput().getType());
+  // Check input/output/result types are RankedTensorType
+  auto inputType = mlir::dyn_cast<RankedTensorType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<RankedTensorType>(getOutput().getType());
+  auto resultType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
 
-  const RankedTensorType outputTensorType =
-      mlir::cast<RankedTensorType>(getResult().getType());
+  // Check input == output type
+  if (inputType != outputType) {
+    return emitOpError("input and output must have the same type");
+  }
 
-  if (inputTensorType != outputTensorType) {
-    return emitOpError("input and output must have same shape.");
+  // Check output == result type
+  if (outputType != resultType) {
+    return emitOpError("output and result must have the same type");
+  }
+
+  auto groupsType = getReplicaGroups().getType();
+  if (groupsType.getRank() != 2) {
+    return emitOpError("replica_groups must be a 2D array");
+  }
+
+  // Check attribute has at least one group
+  if (groupsType.getShape()[0] < 1) {
+    return emitOpError("replica_groups must have at least one group");
+  }
+  // Check each group has at least one device ID
+  if (groupsType.getShape()[1] < 1) {
+    return emitOpError("each replica group must have at least one device ID");
+  }
+
+  // check all values are positive
+  auto replicaIds = getReplicaGroups().getValues<int64_t>();
+  llvm::DenseSet<int64_t> replicaIdsSeen;
+  for (int64_t replicaId : replicaIds) {
+    if (replicaId < 0) {
+      return emitOpError()
+             << "replica_groups values must be positive, but was given "
+             << replicaId;
+    }
+
+    // check all values are unique
+    if (!replicaIdsSeen.insert(replicaId).second) {
+      return emitOpError() << "replica id #" << replicaId
+                           << " seen more than once";
+    }
   }
 
   return success();
