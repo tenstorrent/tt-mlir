@@ -13,7 +13,6 @@ from ttmlir.passes import GoldenTensor, DataType
 import torch
 from enum import Enum, auto
 import re
-from .ccl_golden import *
 from .ops import TTIRBuilderOps
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
