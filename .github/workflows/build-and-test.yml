@@ -180,7 +180,7 @@ jobs:
           # # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           # {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           # {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          # {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
           # {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
