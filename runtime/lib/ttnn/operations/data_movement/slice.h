@@ -9,7 +9,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
-void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::SliceXDOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::data_movement
 
 #endif

@@ -997,8 +997,8 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_ReshapeOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::SliceOp: {
-    tensorRef = opContext.type_as_SliceOp()->out();
+  case ::tt::target::ttnn::OpType::SliceXDOp: {
+    tensorRef = opContext.type_as_SliceXDOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {

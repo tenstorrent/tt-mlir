@@ -1207,6 +1207,21 @@ def TTNN_SliceOp: TTNN_Op<"slice",
     let hasVerifier = 1;
 }
 
+def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
+    let summary = "Dynamic slice op.";
+    let description = [{
+      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
+      indices for each dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends,
+                         I32ArrayAttr:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_LinearOp : TTNN_Op<"linear"> {
     let summary = "Linear transformation of inputs.";
 

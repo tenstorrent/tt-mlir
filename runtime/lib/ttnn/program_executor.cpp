@@ -244,8 +244,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
                                           getContext());
   }
-  case ::tt::target::ttnn::OpType::SliceOp: {
-    return operations::data_movement::run(op->type_as_SliceOp(), getContext());
+  case ::tt::target::ttnn::OpType::SliceXDOp: {
+    return operations::data_movement::run(op->type_as_SliceXDOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());

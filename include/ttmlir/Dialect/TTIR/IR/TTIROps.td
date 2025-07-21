@@ -3835,6 +3835,25 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
+    let summary = "Tensor slice operation.";
+    let description = [{
+      The `slice` operation extracts a sub-tensor (slice) from the input tensor across one or more dimensions.
+
+      Example:
+      ```...
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends,
+                         I32ArrayAttr:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     let summary = "Tensor selection operation.";
     let description = [{

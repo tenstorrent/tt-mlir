@@ -1228,6 +1228,46 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
       params);
 }
 
+template <typename SliceXDOp>
+::flatbuffers::Offset<::tt::target::ttnn::SliceXDOp>
+createSliceXDOp(FlatbufferObjectCache &cache, SliceXDOp op) {
+
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto step =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
+  ::flatbuffers::Offset<void> params = 0;
+  ::tt::target::ttnn::SliceXDOpParams paramsType =
+      ::tt::target::ttnn::SliceXDOpParams::NONE;
+  ::tt::target::ttnn::SliceXDOpType type;
+  if constexpr (std::is_same_v<SliceXDOp, SliceDynamicOp>) {
+    type = ::tt::target::ttnn::SliceXDOpType::SliceDynamicOp;
+    paramsType = ::tt::target::ttnn::SliceXDOpParams::SliceDynamicOpParams;
+    auto begins = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBegins()));
+    auto ends = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getEnds()));
+    params = ::tt::target::ttnn::CreateSliceDynamicOpParams(*cache.fbb, begins, ends)
+                     .Union();
+  } else if constexpr (std::is_same_v<SliceXDOp, SliceOp>) {
+     type = ::tt::target::ttnn::SliceXDOpType::SliceOp;
+    paramsType = ::tt::target::ttnn::SliceXDOpParams::SliceOpParams;
+     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> begins =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
+     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> ends =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+    params = ::tt::target::ttnn::CreateSliceOpParams(*cache.fbb, begins, ends)
+                     .Union();
+  } else {
+    llvm_unreachable("unhandled SliceXDOp");
+  }
+
+  return ::tt::target::ttnn::CreateSliceXDOp(
+        *cache.fbb, type, in, out, step, paramsType, params);
+}
+
 template <typename EltwiseUnaryOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryOp>
 createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
@@ -1537,23 +1577,6 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
   return ::tt::target::ttnn::CreatePadOp(
       *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
       op.getUseMulticore(), memoryConfig);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
-createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
-  auto in = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
-  auto step =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
-
-  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
-                                           step);
 }
 
 template <typename Pool2dOp>
@@ -2075,7 +2098,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
-    return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
+    return createOperation(cache, createSliceXDOp(cache, sliceOp), debugString,
+                           locInfo);
+  }
+  if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
+    return createOperation(cache, createSliceXDOp(cache, sliceDynamicOp), debugString,
                            locInfo);
   }
   if (auto avg_pool2dOp = dyn_cast<AvgPool2dOp>(op); avg_pool2dOp) {
