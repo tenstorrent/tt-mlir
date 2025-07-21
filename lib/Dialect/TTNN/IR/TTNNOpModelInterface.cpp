@@ -310,6 +310,44 @@ ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// TanhOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+TanhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::TanhOpInterface::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TanhOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::TanhOpInterface::getOpRuntime, *this, inputShape,
+      inputs[0], outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LogOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

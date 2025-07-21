@@ -899,6 +899,75 @@ ExpOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// TanhOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+TanhOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                                 llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Add default parameters
+  //bool accuracy = false;
+  
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::tanh, device, inputSpec, //accuracy,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("TanhOpInterface", inputLayout.getContext(),
+                                     deviceGrid, query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+TanhOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             llvm::ArrayRef<int64_t> outputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Add default parameters
+  //bool accuracy = false;
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::tanh, device, inputSpec, //accuracy,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("TanhOpInterface", query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LogOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>

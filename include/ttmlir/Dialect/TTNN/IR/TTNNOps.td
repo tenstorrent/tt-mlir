@@ -396,7 +396,9 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
     }];
 }
 
-def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise tanh op.";
 
     let extraClassDeclaration = [{
