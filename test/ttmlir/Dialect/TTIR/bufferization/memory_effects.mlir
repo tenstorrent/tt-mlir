@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1, d2) -> (d0, d2)>

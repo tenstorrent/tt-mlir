@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_maxpool2d(%arg0: tensor<1x32x128x128xbf16>) -> tensor<1x32x64x64xbf16> {
     // CHECK-LABEL: @test_maxpool2d

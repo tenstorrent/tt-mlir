@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 module @jit_convolution {
   func.func public @test_NCHW_IOHW_to_NHWC_OIHW_conv2d(%arg0: tensor<1x3x100x100xbf16>, %arg1: tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16> {
     %0 = ttir.empty() : tensor<1x7x100x100xbf16>

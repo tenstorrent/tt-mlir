@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout_host_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system_memory>>

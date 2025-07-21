@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @main(%arg0: tensor<128x128x3x3xbf16>, %arg1: tensor<1x128x1x1xbf16>, %arg2: tensor<1x128x28x28xbf16>, %arg3: tensor<1x128x1x1xbf16>, %arg4: tensor<1x128x1x1xbf16>, %arg5: tensor<128x128x3x3xbf16>, %arg6: tensor<128xbf16>) -> tensor<1x128x28x28xbf16> {
     // CHECK: %[[CONV0:[0-9]+]] = "ttir.conv2d"

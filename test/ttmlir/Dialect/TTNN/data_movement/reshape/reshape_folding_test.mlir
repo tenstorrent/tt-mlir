@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s| FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @reshape_test {
   // Test folding of "ttir.reshape" when called with identical shapes.

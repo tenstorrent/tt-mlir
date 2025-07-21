@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-explicate-tms --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-explicate-tms --ttir-erase-inverse-ops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @resnet_erase_redundant_reshapes(%arg0: tensor<1x56x56x64xf32>, %arg1: tensor<1x1x1x64xf32>, %arg2: tensor<1x1x1x64xf32>, %arg3: tensor<1x1x1x64xf32>, %arg4: tensor<64x64x1x1xf32>, %arg5: tensor<64x64x3x3xf32>) -> tensor<1x56x56x64xf32> {

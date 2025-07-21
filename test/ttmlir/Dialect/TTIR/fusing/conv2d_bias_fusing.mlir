@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // Fuse add into conv. We also check that all uses of add are updated.
 module {
