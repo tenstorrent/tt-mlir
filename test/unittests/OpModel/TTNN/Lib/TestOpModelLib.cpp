@@ -558,7 +558,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
           &context, outputLayoutDRAMTiled.getMemLayout(),
           mlir::tt::ttnn::BufferTypeAttr::get(
               &context, outputLayoutDRAMTiled.getBufferType()),
-          std::nullopt);
+          std::nullopt /*shardSpec*/);
   auto constraintsExp = ToMemoryConfigOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
       tensorShape, outputLayoutDRAMTiled);
@@ -571,6 +571,43 @@ TEST_F(OpModelTest, ToMemoryConfig) {
   auto runtimeExp = ToMemoryConfigOpInterface::getOpRuntime(
       tensorShape, inputLayoutL1Tiled, memoryConfig, tensorShape,
       outputLayoutDRAMTiled);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  auto coreRangeSetAttr = ::mlir::tt::ttnn::CoreRangeSetAttr::get(
+      &context,
+      ::llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{
+          ::mlir::tt::ttnn::CoreRangeAttr::get(
+              &context, ::mlir::tt::ttnn::CoreCoordAttr::get(&context, 0, 0),
+              ::mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))});
+  mlir::tt::ttnn::ShardSpecAttr shardSpec = mlir::tt::ttnn::ShardSpecAttr::get(
+      &context, coreRangeSetAttr,
+      ::mlir::tt::ttnn::ShapeAttr::get(&context, {64, 128}),
+      ::mlir::tt::ttnn::ShardOrientationAttr::get(
+          &context, ::mlir::tt::ttnn::ShardOrientation::RowMajor),
+      ::mlir::tt::ttnn::ShardModeAttr::get(
+          &context, ::mlir::tt::ttnn::ShardMode::Physical),
+      /*physical_shard_shape=*/nullptr);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayoutL1Tiled =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+  memoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(
+      &context, outputLayoutL1Tiled.getMemLayout(),
+      mlir::tt::ttnn::BufferTypeAttr::get(&context,
+                                          outputLayoutL1Tiled.getBufferType()),
+      shardSpec);
+  constraintsExp = ToMemoryConfigOpInterface::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
+      tensorShape, outputLayoutL1Tiled);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 16384);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 16384);
+
+  runtimeExp = ToMemoryConfigOpInterface::getOpRuntime(
+      tensorShape, inputLayoutL1Tiled, memoryConfig, tensorShape,
+      outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
