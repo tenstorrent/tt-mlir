@@ -119,6 +119,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         "matmul_tiles": ttkernel.matmul_tiles,
         "TensorAccessorArgs": ttkernel.TensorAccessorArgs,
         "TensorAccessor": ttkernel.TensorAccessor,
+        "get_noc_addr_from_tensor_accessor": ttkernel.get_noc_addr_from_tensor_accessor,
+        "get_shard_noc_addr": ttkernel.get_shard_noc_addr,
+        "get_bank_and_offset": ttkernel.get_bank_and_offset,
+        "is_local_bank": ttkernel.is_local_bank,
+        "is_local_addr": ttkernel.is_local_addr,
+        "is_local_page": ttkernel.is_local_page,
+        "is_local_shard": ttkernel.is_local_shard,
     }
 
     tensor_accessor_fn = [
@@ -1076,6 +1083,7 @@ def ttkernel_compile(
                 print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
+                print("---- Kernel String ----", b.module, sep="\n\n")
                 kernel_string = ttkernel_to_cpp(b.module)
                 return kernel_string
 

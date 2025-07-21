@@ -1665,26 +1665,6 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     }];
 }
 
-def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
-  let summary = "TensorAccessorArgs";
-  let description = [{
-    TensorAccessorArgs struct constructor.
-  }];
-
-  let arguments = (ins I32:$cta_base, I32:$crta_base);
-  let results = (outs TTKernel_TensorAccessorArgs:$result);
-}
-
-def TTKernel_MakeTensorAccessorFromArgsOp : TTKernel_Op<"TensorAccessor"> {
-  let summary = "MakeTensorAccessorFromArgs";
-  let description = [{
-    TensorAccessor constructor.
-  }];
-
-  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
-  let results = (outs TTKernel_TensorAccessor:$result);
-}
-
 def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
     let summary = "MyX";
     let description = [{
@@ -1803,6 +1783,93 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
   let assemblyFormat = [{
     `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
   }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel TensorAccessor operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
+  let summary = "TensorAccessorArgs";
+  let description = [{
+    TensorAccessorArgs struct constructor.
+  }];
+
+  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let results = (outs TTKernel_TensorAccessorArgs:$result);
+}
+
+def TTKernel_MakeTensorAccessorFromArgsOp : TTKernel_Op<"TensorAccessor"> {
+  let summary = "MakeTensorAccessorFromArgs";
+  let description = [{
+    TensorAccessor constructor.
+  }];
+
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let results = (outs TTKernel_TensorAccessor:$result);
+}
+
+def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"get_noc_addr_from_tensor_accessor"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs TTKernel_NocAddr:$nocAddr);
+}
+
+def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"get_shard_noc_addr"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$shard_id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs I32:$shardNocAddr);
+}
+
+def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"get_bank_and_offset"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$page_id);
+  let results = (outs TTKernel_TensorAccessorPageMapping:$bank_id_and_offset);
+}
+
+def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"is_local_bank"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+}
+
+def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"is_local_addr"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$virtual_x, I32:$virtual_y, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+}
+
+def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"is_local_page"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$page_id, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+}
+
+def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"is_local_shard"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$shard_id, Optional<I8>:$noc);
+  let results = (outs I1:$result);
 }
 
 //===----------------------------------------------------------------------===//
