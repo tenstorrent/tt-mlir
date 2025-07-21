@@ -259,17 +259,10 @@ CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 ExpOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  assert(inputs.size() == 1); // (1 + (getFastApproxMode() ? 0 : 1)));
+  assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
   const auto outputShape = getType().getShape();
-  
-  /*std::optional<bool> fastApproxMode;
-  if (getFastApproxMode()) {
-    fastApproxMode = getFastApproxMode().value();
-  } else {
-    fastApproxMode = std::nullopt;
-  }*/
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -287,26 +280,14 @@ llvm::Expected<size_t>
 ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const OpConfig &opConfig) {
 
-  assert(inputs.size() == 1); // (1 + (getFastApproxMode() ? 0 : 1)));
+  assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
   const auto outputShape = getType().getShape();
 
-  /*std::optional<bool> fastApproxMode;
-  if (getFastApproxMode()) {
-    fastApproxMode = getFastApproxMode().value();
-  } else {
-    fastApproxMode = std::nullopt;
-  }*/
-
   return opRuntimeCache().getOrCompute(
       op_model::ttnn::ExpOpInterface::getOpRuntime, *this, inputShape,
       inputs[0], outputShape, opConfig.outputLayout);
-
-  /*return opRuntimeCache().getOrCompute(op_model::ttnn::ExpOpInterface::getOpRuntime,
-                                      *this, inputShape,
-                                       inputs[0], fastApproxMode, outputShape,
-                                       opConfig.outputLayout);*/
 }
 
 //===----------------------------------------------------------------------===//
@@ -315,7 +296,7 @@ ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::ttnn::OpConstraints>
 TanhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
+                         const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
@@ -335,7 +316,7 @@ TanhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<size_t>
 TanhOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                    const OpConfig &opConfig) {
+                     const OpConfig &opConfig) {
 
   assert(inputs.size() == 1);
 

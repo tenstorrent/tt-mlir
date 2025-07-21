@@ -63,7 +63,17 @@ const TestTensor inerleaved2048X2048L1 = {
 } // namespace detail
 
 // ==== Unary Eltwise Ops Starts ====
-enum class UnaryEltwiseOpType { Relu, Sqrt, Sigmoid, Sin, Cos, Exp, Tanh, Log, Reciprocal };
+enum class UnaryEltwiseOpType {
+  Relu,
+  Sqrt,
+  Sigmoid,
+  Sin,
+  Cos,
+  Exp,
+  Tanh,
+  Log,
+  Reciprocal
+};
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
                                  public testing::WithParamInterface<

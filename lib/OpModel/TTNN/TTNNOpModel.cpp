@@ -834,7 +834,6 @@ llvm::Expected<OpConstraints>
 ExpOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                                  llvm::ArrayRef<int64_t> inputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                                 //std::optional<bool> fastApproxMode,
                                  llvm::ArrayRef<int64_t> outputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -850,7 +849,7 @@ ExpOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
 
   // Add default parameters
   bool fastApproxMode = false;
-  
+
   // Create query closure
   auto expOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -868,7 +867,6 @@ ExpOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
 llvm::Expected<size_t>
 ExpOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                             //std::optional<bool> fastApproxMode,
                              llvm::ArrayRef<int64_t> outputShape,
                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -903,10 +901,10 @@ ExpOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>
 TanhOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
-                                 llvm::ArrayRef<int64_t> inputShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                                 llvm::ArrayRef<int64_t> outputShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                                  llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -918,18 +916,15 @@ TanhOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Add default parameters
-  //bool accuracy = false;
-  
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::tanh, device, inputSpec, //accuracy,
+        ::ttnn::tanh, device, inputSpec,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints("TanhOpInterface", inputLayout.getContext(),
-                                     deviceGrid, query);
+  return operation::getOpConstraints(
+      "TanhOpInterface", inputLayout.getContext(), deviceGrid, query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -937,9 +932,9 @@ TanhOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
 
 llvm::Expected<size_t>
 TanhOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                             llvm::ArrayRef<int64_t> outputShape,
-                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                              llvm::ArrayRef<int64_t> outputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -951,13 +946,10 @@ TanhOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Add default parameters
-  //bool accuracy = false;
-
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::tanh, device, inputSpec, //accuracy,
+        ::ttnn::tanh, device, inputSpec,
         detail::getNullableMemoryConfig(outputLayout));
   };
 

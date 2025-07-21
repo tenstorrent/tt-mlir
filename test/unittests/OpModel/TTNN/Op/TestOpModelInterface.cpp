@@ -209,10 +209,10 @@ const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
 };
-//const auto createExp = [](OpBuilder &b, Location loc, Type type,
-//                          ValueRange ops) {
-//  return b.create<ExpOp>(loc, type, ops).getOperation();
-//};
+// const auto createExp = [](OpBuilder &b, Location loc, Type type,
+//                           ValueRange ops) {
+//   return b.create<ExpOp>(loc, type, ops).getOperation();
+// };
 const auto createLog = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<LogOp>(loc, type, ops).getOperation();
@@ -277,7 +277,7 @@ TEST_F(OpModelBase, ExpOpInterface) {
   auto outputType = createRankedTensorType(tensorShape);
 
   auto exp = builder.create<ExpOp>(builder.getUnknownLoc(), outputType,
-                                           ::mlir::ValueRange{input});
+                                   ::mlir::ValueRange{input});
 
   // test ExpOp interface
   auto constraintsExp = getOpConstraints(exp.getOperation());
@@ -308,7 +308,7 @@ TEST_F(OpModelBase, TanhOpInterface) {
   auto outputType = createRankedTensorType(tensorShape);
 
   auto tanh = builder.create<TanhOp>(builder.getUnknownLoc(), outputType,
-                                           ::mlir::ValueRange{input});
+                                     ::mlir::ValueRange{input});
 
   // test TanhOp interface
   auto constraintsExp = getOpConstraints(tanh.getOperation());
