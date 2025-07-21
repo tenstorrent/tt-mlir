@@ -828,10 +828,81 @@ CosOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// ExpOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+ExpOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                                 llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 //std::optional<bool> fastApproxMode,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Add default parameters
+  bool fastApproxMode = false;
+  
+  // Create query closure
+  auto expOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::exp, device, inputSpec, fastApproxMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("ExpOpInterface", inputLayout.getContext(),
+                                     deviceGrid, expOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+ExpOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             //std::optional<bool> fastApproxMode,
+                             llvm::ArrayRef<int64_t> outputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Add default parameters
+  bool fastApproxMode = false;
+
+  // Create query closure
+  auto expOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::exp, device, inputSpec, fastApproxMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("ExpOpInterface", expOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LogOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>
-CosOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+LogOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                                  llvm::ArrayRef<int64_t> inputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                  llvm::ArrayRef<int64_t> outputShape,
@@ -846,7 +917,7 @@ CosOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
 }
 
 llvm::Expected<size_t>
-CosOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+LogOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                              llvm::ArrayRef<int64_t> outputShape,
                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {

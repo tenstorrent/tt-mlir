@@ -253,6 +253,63 @@ CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ExpOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ExpOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1); // (1 + (getFastApproxMode() ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getType().getShape();
+  
+  /*std::optional<bool> fastApproxMode;
+  if (getFastApproxMode()) {
+    fastApproxMode = getFastApproxMode().value();
+  } else {
+    fastApproxMode = std::nullopt;
+  }*/
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::ExpOpInterface::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  assert(inputs.size() == 1); // (1 + (getFastApproxMode() ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getType().getShape();
+
+  /*std::optional<bool> fastApproxMode;
+  if (getFastApproxMode()) {
+    fastApproxMode = getFastApproxMode().value();
+  } else {
+    fastApproxMode = std::nullopt;
+  }*/
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::ExpOpInterface::getOpRuntime, *this, inputShape,
+      inputs[0], outputShape, opConfig.outputLayout);
+
+  /*return opRuntimeCache().getOrCompute(op_model::ttnn::ExpOpInterface::getOpRuntime,
+                                      *this, inputShape,
+                                       inputs[0], fastApproxMode, outputShape,
+                                       opConfig.outputLayout);*/
+}
+
+//===----------------------------------------------------------------------===//
 // LogOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

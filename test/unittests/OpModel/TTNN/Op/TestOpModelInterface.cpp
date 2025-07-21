@@ -209,6 +209,14 @@ const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
 };
+//const auto createExp = [](OpBuilder &b, Location loc, Type type,
+//                          ValueRange ops) {
+//  return b.create<ExpOp>(loc, type, ops).getOperation();
+//};
+const auto createLog = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<LogOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -219,6 +227,8 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
+    //{"Exp", createExp, expected},
+    {"Log", createLog, expected},
     {"Reciprocal", createReciprocal, expected}};
 
 // Instantiate the test suite
@@ -252,6 +262,37 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   }
 
   auto runtimeExp = getOpRuntime(sqrt.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ExpOpInterface) {
+  // create ExpOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto exp = builder.create<ExpOp>(builder.getUnknownLoc(), outputType,
+                                           ::mlir::ValueRange{input});
+
+  // test ExpOp interface
+  auto constraintsExp = getOpConstraints(exp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(exp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
