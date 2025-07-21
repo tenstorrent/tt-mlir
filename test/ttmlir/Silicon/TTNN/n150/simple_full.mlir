@@ -18,4 +18,15 @@ module {
     %0 = "ttir.full"() <{shape = array<i32: 64, 128>, fill_value = 3 : i32}> : () -> tensor<64x128xi32>
     return %0 : tensor<64x128xi32>
   }
+
+  func.func @full_int_scalar() -> tensor<1xi32> {
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fill_value = 3 : i32
+    // CHECK-SAME: shape = #ttnn.shape<1>
+    %0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 3 : i32}> : () -> tensor<1xi32>
+    %1 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
+    %2 = ttir.empty() : tensor<1xi32>
+    %3 = "ttir.add"(%0, %1, %2) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    return %3 : tensor<1xi32>
+  }
 }
