@@ -6,7 +6,7 @@ import ttrt
 from functools import reduce
 import operator
 
-ALL_BACKENDS = set(["ttnn", "ttmetal"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 
