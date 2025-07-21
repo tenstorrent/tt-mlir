@@ -2,168 +2,78 @@ name: Build ttmlir Wheel
 
 on:
   workflow_dispatch:
-  workflow_call:
+    inputs:
+      same_branch:
+        description: 'Run on the branch with same name in tt-forge as the current workflow'
+        required: false
+        type: boolean
+      tt_forge_branch:
+        description: 'Branch of tt-forge to run the benchmarks on (empty=main)'
+        required: false
+        type: string
+      test_filter:
+        description: "Only run tests with name that contains"
+        required: false
+        type: string
+
+permissions:
+  packages: write
+  checks: write
+  contents: write
 
 jobs:
-  build-ttmlir-wheel:
-    timeout-minutes: 60
-    name: Build ttmlir Python Wheel
+  prepare:
     runs-on: ubuntu-latest
-
+    outputs:
+      mlir_sha: ${{ steps.get-mlir-sha.outputs.mlir_sha }}
     steps:
-      - name: Maximize space
-        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set reusable strings
-        id: strings
-        shell: bash
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get mlir sha
+        id: get-mlir-sha
         run: |
-          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-          echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+          mlir_sha=$(git rev-parse HEAD)
+          echo "Building with ttmlir sha: $mlir_sha"
+          echo "mlir_sha=$mlir_sha" >> $GITHUB_OUTPUT
 
-      - name: Git safe dir
-        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+  build-forge-fe-image:
+    uses: tenstorrent/tt-forge-fe/.github/workflows/build-image.yml@main
+    needs: prepare
+    secrets: inherit
+    with:
+      mlir_override: ${{ needs.prepare.outputs.mlir_sha }}
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
+  build-forge-fe:
+    uses: tenstorrent/tt-forge-fe/.github/workflows/build.yml@main
+    needs: [build-forge-fe-image, prepare]
+    secrets: inherit
+    with:
+      mlir_override: ${{ needs.prepare.outputs.mlir_sha }}
+      docker-image: ${{ needs.build-forge-fe-image.outputs.docker-image }}
+      build: Release
 
-      - name: Build ttmlir Wheel (manylinux)
-        uses: pypa/cibuildwheel@v2.23.2
-        env:
-          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
-          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:latest
-        with:
-          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
-          package-dir: ${{ steps.strings.outputs.work-dir }}/python
-          config-file: "${{ steps.strings.outputs.work-dir }}/python/pyproject.toml"
+# xla
+# torch
 
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ttmlir-wheel
-          path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
-          if-no-files-found: error
-
-  build-pykernel-wheel:
-    timeout-minutes: 60
-    name: Build pykernel Python Wheel
+  run-perf-benchmarks:
+    needs: build-forge-fe
     runs-on: ubuntu-latest
-
     steps:
-      - name: Maximize space
-        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set reusable strings
-        id: strings
-        shell: bash
+      - id: set-inputs
         run: |
-          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-          echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
-
-      - name: Git safe dir
-        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v4
+          if [ "${{ inputs.same_branch }}" == 'true' ]; then
+            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            if [ -z "${{ inputs.tt_forge_branch }}" ]; then
+              echo "ref=main" >> $GITHUB_OUTPUT
+            else
+              echo "ref=${{ inputs.tt_forge_branch }}" >> $GITHUB_OUTPUT
+            fi
+          fi
+      - name: Trigger Perf Benchmark workflow
+        uses: peter-evans/repository-dispatch@v2
         with:
-          python-version: '3.12'
-
-      - name: Build pykernel Wheel (manylinux)
-        uses: pypa/cibuildwheel@v2.23.2
-        with:
-          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
-          package-dir: ${{ steps.strings.outputs.work-dir }}/tools/pykernel
-          config-file: "${{ steps.strings.outputs.work-dir }}/tools/pykernel/pyproject.toml"
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pykernel-wheel
-          path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
-          if-no-files-found: error
-
-
-  test-pykernel-wheel-install:
-    needs: build-pykernel-wheel
-    timeout-minutes: 30
-    name: Test pykernel Wheel Installation
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Git safe dir
-        run: git config --global --add safe.directory $(pwd)
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Download wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: pykernel-wheel
-          path: ./dist
-
-      - name: Test wheel installation
-        shell: bash
-        run: |
-          WHEEL_FILE=$(ls ./dist/pykernel-*.whl)
-          echo "Installing wheel: $WHEEL_FILE"
-          pip install $WHEEL_FILE
-
-          # Test the ttmlir installation
-          python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
-
-          # Test the pykernel installation
-          python -c "import pykernel; print('Imported pykernel:', pykernel)"
-
-  test-ttmlir-wheel-install:
-    needs: build-ttmlir-wheel
-    timeout-minutes: 30
-    name: Test ttmlir Wheel Installation
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Git safe dir
-        run: git config --global --add safe.directory $(pwd)
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Download wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: ttmlir-wheel
-          path: ./dist
-
-      - name: Test wheel installation
-        shell: bash
-        run: |
-          WHEEL_FILE=$(ls ./dist/ttmlir-*.whl)
-          echo "Installing wheel: $WHEEL_FILE"
-          pip install $WHEEL_FILE
-
-          # Test the installation
-          python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
+          token: ${{ secrets.GH_TOKEN }}
+          repository: tenstorrent/tt-forge
+          event-type: trigger-workflow
+          client-payload: '{"project": "tt-forge-fe", "run_id": "${{ github.run_id }}", "ref": "${{ steps.set-inputs.outputs.ref }}", "test_filter": "${{ inputs.test_filter }}"}'
