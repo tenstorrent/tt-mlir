@@ -267,6 +267,9 @@ extern void populateBroadcastCommutePatterns(MLIRContext *ctx,
 template <CommuteDirection commuteDirection>
 extern void populateConcatCommutePatterns(MLIRContext *ctx,
                                           RewritePatternSet &patterns);
+template <CommuteDirection commuteDirection>
+extern void populateSliceCommutePatterns(MLIRContext *ctx,
+                                         RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 

@@ -127,6 +127,7 @@ private:
                                                          patterns);
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
