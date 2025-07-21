@@ -456,6 +456,13 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
+    # Sparse checkout tt-alchemist tests
+    - name: Checkout tests only
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          tools/tt-alchemist/test
+
     - name: Fetch job id
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
@@ -476,17 +483,11 @@ jobs:
         pip install tt_alchemist-*.whl --force-reinstall
         echo "Wheel installed successfully"
 
-    # Sparse checkout tt-alchemist tests
-    - name: Checkout tests only
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          tools/tt-alchemist/test
-
     - name: Run tt-alchemist API test - model-to-cpp
       shell: bash
       run: |
         pwd
+        find . -maxdepth 5 -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g'
         source testenv/bin/activate
         tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
 
