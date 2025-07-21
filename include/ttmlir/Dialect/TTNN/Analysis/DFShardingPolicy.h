@@ -22,6 +22,7 @@ class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
 private:
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseSet<Edge> overrideReshardEdges;
+  llvm::DenseSet<Operation *> rowMajorOutputOps;
 
   void pickOpShardConfigs(ShardSolver &shardSolver,
                           const L1ChainConfig &l1ChainConfig);
@@ -40,8 +41,10 @@ public:
 
   void run() final;
 
-  void setOverrideReshardEdges(const llvm::DenseSet<Edge> &reshardEdges) {
+  void setOverrides(const llvm::DenseSet<Edge> &reshardEdges,
+                    const llvm::DenseSet<Operation *> &rowMajorOutputOps) {
     overrideReshardEdges = reshardEdges;
+    this->rowMajorOutputOps = rowMajorOutputOps;
   }
 };
 

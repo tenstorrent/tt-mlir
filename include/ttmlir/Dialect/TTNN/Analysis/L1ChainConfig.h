@@ -56,7 +56,8 @@ public:
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
-      const llvm::DenseSet<Edge> &overrideReshardEdges);
+      const llvm::DenseSet<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Operation *> &rowMajorOutputOps);
   void resolve();
   void build();
   void complete(const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,

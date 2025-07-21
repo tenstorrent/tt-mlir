@@ -25,6 +25,7 @@ struct MemoryLayoutAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
+  llvm::DenseSet<Operation *> rowMajorOutputOps;
 
   MemoryLayoutAnalysisPolicyType policy;
 
@@ -35,10 +36,12 @@ struct MemoryLayoutAnalysisInput {
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Operation *> &rowMajorOutputOps,
       MemoryLayoutAnalysisPolicyType policy)
       : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges), policy(policy) {}
+        overrideReshardEdges(overrideReshardEdges),
+        rowMajorOutputOps(rowMajorOutputOps), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
     return legalConfigs == rhs.legalConfigs;
