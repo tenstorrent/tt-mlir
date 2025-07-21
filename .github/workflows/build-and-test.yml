@@ -475,6 +475,13 @@ jobs:
         pip install tt_alchemist-*.whl --force-reinstall
         echo "Wheel installed successfully"
 
+    # Sparse checkout tt-alchemist tests
+    - name: Checkout tests only
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          tools/tt-alchemist/test
+
     - name: Run tt-alchemist API test - model-to-cpp
       shell: bash
       run: |
