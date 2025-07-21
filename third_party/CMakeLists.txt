@@ -4,18 +4,6 @@ set(TT_METAL_VERSION "81412069f02b01a483cc0fb29fec5c9bf28ac1ab")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
-if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
-  set(ARCH_NAME "grayskull")
-  set(ARCH_EXTRA_DIR "grayskull")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "wormhole_b0")
-  set(ARCH_NAME "wormhole")
-  set(ARCH_EXTRA_DIR "wormhole/wormhole_b0_defines")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "blackhole")
-  set(ARCH_NAME "blackhole")
-  set(ARCH_EXTRA_DIR "blackhole")
-else()
-  message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
-endif()
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
@@ -43,9 +31,6 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd/device/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc/${ARCH_NAME}
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/taskflow
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
