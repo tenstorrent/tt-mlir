@@ -2446,7 +2446,7 @@ public:
   matchAndRewrite(mlir::stablehlo::CollectiveBroadcastOp srcOp,
                   mlir::stablehlo::CollectiveBroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Create the output tensor type based on inputs
+    // Create the output tensor type based on inputs.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
