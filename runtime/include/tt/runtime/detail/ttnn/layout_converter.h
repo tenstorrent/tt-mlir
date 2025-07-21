@@ -6,7 +6,7 @@
 #define TT_RUNTIME_DETAIL_TTNN_LAYOUT_CONVERTER_H
 
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 
 namespace tt::runtime::ttnn {
 

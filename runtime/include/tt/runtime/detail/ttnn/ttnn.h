@@ -168,7 +168,8 @@ size_t getNumDramChannels(Device meshDevice);
 size_t getDramSizePerChannel(Device meshDevice);
 size_t getL1SizePerCore(Device meshDevice);
 
-bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
+void releaseTrace(Device meshDevice, std::uint64_t binaryId,
+                  size_t mainProgramId);
 
 void deallocateBuffers(Device device);
 

@@ -17,7 +17,7 @@
 
 namespace mlir::tt::ttnn::utils {
 
-constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
+bool isTensorOnDevice(::mlir::RankedTensorType tensorType);
 
 // Map ttcore::MemorySpace to ttnn::BufferType
 //

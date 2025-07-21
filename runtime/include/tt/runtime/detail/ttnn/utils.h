@@ -14,9 +14,11 @@ namespace tt::runtime::ttnn::utils {
 
 bool isOnHost(const ::ttnn::StorageType &storageType);
 
+bool isOnDevice(const ::ttnn::StorageType &storageType);
+
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-bool isOnDevice(const ::ttnn::StorageType &storageType);
+bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape);
 
@@ -108,6 +110,13 @@ inline ::ttnn::Tensor createTTNNTensor(const void *rawData,
   std::vector<T> data(numElements);
   ::ttnn::Tensor tensor = ::ttnn::Tensor::from_vector(data, tensorSpec);
   return tensor;
+}
+
+template <typename T>
+inline T getScalarFromTensor(const ::ttnn::Tensor &tensor) {
+  std::vector<T> data = tensor.to_vector<T>();
+  LOG_ASSERT(data.size() == 1, "Scalar tensor must have one element");
+  return data[0];
 }
 
 } // namespace tt::runtime::ttnn::utils
