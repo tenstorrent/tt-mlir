@@ -2731,8 +2731,8 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I64Attr:$dim,
-                       AnyRankedTensor:$output);
+                       AnyRankedTensor:$output,
+                       I64Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
 

@@ -1029,6 +1029,10 @@ public:
           srcOp, "Unable to extract constant initialization value.");
       ;
     }
+    if (initValues->size() != srcOp.getInputs().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between inputs and init values.");
+    }
 
     // Validate block body.
     Block &block = *srcOp.getBody().getBlocks().begin();
@@ -1083,12 +1087,9 @@ public:
       if (dimension) {
         mlir::RankedTensorType resultType = cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-        ttir::EmptyOp output = rewriter.create<ttir::EmptyOp>(
-            srcOp.getLoc(), resultType.getShape(), resultType.getElementType(),
-            resultType.getEncoding());
-        rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
-            srcOp, resultType, adaptor.getInputs()[0],
-            rewriter.getI64IntegerAttr(*dimension), output);
+        ttir::utils::replaceOpWithNewDPSOp<ttir::CumSumOp>(
+            rewriter, srcOp, resultType, adaptor.getInputs()[0],
+            rewriter.getI64IntegerAttr(*dimension));
         return success();
       }
     }
@@ -1098,9 +1099,6 @@ public:
       Value input = adaptor.getInputs()[i];
       mlir::RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
-      Value output = rewriter.create<ttir::EmptyOp>(
-          srcOp.getLoc(), resultType.getShape(), resultType.getElementType(),
-          resultType.getEncoding());
       TypicalInitReductionValue initVal = (*initValues)[i];
       mlir::Operation *frontOp = reductionOps[i];
       ttir::PoolingMethod method;
@@ -1110,10 +1108,10 @@ public:
         std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
         if (divOp && i == 0) {
           method = ttir::PoolingMethod::Average;
-          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-              srcOp.getLoc(), resultType, ValueRange{input}, ValueRange{output},
-              method, windowDimensions, windowStrides, baseDilations,
-              window_dilations, padding);
+          ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+              rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
+              windowDimensions, windowStrides, baseDilations, window_dilations,
+              padding);
           resultVals.push_back(poolingOp->getResult(0));
           (*divOp)->getResult(0).replaceAllUsesWith(poolingOp->getResult(0));
           rewriter.eraseOp(*divOp);
@@ -1123,10 +1121,10 @@ public:
       } else {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
-      ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-          srcOp.getLoc(), resultType, ValueRange{input}, ValueRange{output},
-          method, windowDimensions, windowStrides, baseDilations,
-          window_dilations, padding);
+      ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+          rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
+          windowDimensions, windowStrides, baseDilations, window_dilations,
+          padding);
       llvm::append_range(resultVals, poolingOp->getResults());
     }
     rewriter.replaceOp(srcOp, resultVals);
@@ -1211,20 +1209,26 @@ private:
     return dimension;
   }
 
+  // Helper function to find the StableHLO constant defining op by traversing
+  // through operations that preserve constant semantics (similar to
+  // getConstantValueDefiningOp).
+  stablehlo::ConstantOp getStableHLOConstantDefiningOp(Value value) const {
+    Operation *valueDef = value.getDefiningOp();
+
+    // Only traverse through operations that preserve constant semantics
+    while (isa_and_nonnull<stablehlo::ReshapeOp, stablehlo::BroadcastInDimOp,
+                           stablehlo::ConvertOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+    return mlir::dyn_cast_if_present<stablehlo::ConstantOp>(valueDef);
+  }
+
   // Extract the constant initialization value.
   std::optional<llvm::SmallVector<TypicalInitReductionValue>>
   extractInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     llvm::SmallVector<TypicalInitReductionValue> initValues;
     for (auto initValue : srcOp.getInitValues()) {
-      // Find constant input
-      auto *defOp = initValue.getDefiningOp();
-      if (!defOp) {
-        return std::nullopt;
-      }
-      while (defOp->getOpOperands().size() == 1) {
-        defOp = defOp->getOpOperand(0).get().getDefiningOp();
-      }
-      auto constantOp = mlir::dyn_cast_if_present<stablehlo::ConstantOp>(defOp);
+      auto constantOp = getStableHLOConstantDefiningOp(initValue);
       if (!constantOp) {
         return std::nullopt;
       }
