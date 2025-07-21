@@ -421,28 +421,15 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
     attr.toString(strValue, 10, true);
     return strValue;
   };
-  auto printOpaque = [&](StringRef attr) {
-    SmallString<256> output;
-    // Handle layout attribute.
-    if (attr.find("Layout") != StringRef::npos) {
-      output.append("layout=");
-    }
-    // Handle shape attribute.
-    if (attr.find("Shape") != StringRef::npos) {
-      output.append("shape=");
-    }
-
-    output.append(attr);
-    return output;
-  };
   // Print integer attributes.
   if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
     os << printInt(iAttr.getValue());
     return success();
   }
+
   // Print opaque attributes.
   if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
-    os << printOpaque(oAttr.getValue());
+    os << oAttr.getValue();
     return success();
   }
 

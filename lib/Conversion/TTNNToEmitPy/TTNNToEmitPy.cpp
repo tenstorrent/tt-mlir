@@ -4,16 +4,17 @@
 
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
+#include "mlir/IR/Attributes.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
-#include "ttmlir/Conversion/TTNNToEmitPy/Utils.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "llvm/ADT/SmallVector.h"
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::tt;
+using ttnn_to_emitpy::operator|;
 
 // Eltwise Unary Op conversion pattern
 //
@@ -22,17 +23,22 @@ template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
 class EltwiseUnaryOpConversionPattern : public OpConversionPattern<TTNNOpTy> {
 public:
   using OpConversionPattern<TTNNOpTy>::OpConversionPattern;
-  LogicalResult
 
+  LogicalResult
   matchAndRewrite(TTNNOpTy eltwiseUnaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 1> attrs =
-        ttnn_to_emitpy::utils::createIndexArray<1>(rewriter);
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        eltwiseUnaryOp,
-        this->getTypeConverter()->convertType(eltwiseUnaryOp.getType()),
-        eltwiseUnaryOp.getOperationName(), adaptor.getOperands(),
-        rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseUnaryOp, adaptor,
+                                                        rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(eltwiseUnaryOp.getInput()),
+        emitter.emit(std::nullopt, "memory_config") |
+            emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -49,14 +55,20 @@ public:
 
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs =
-        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
-    ;
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        eltwiseBinaryOp,
-        this->getTypeConverter()->convertType(eltwiseBinaryOp.getType()),
-        eltwiseBinaryOp.getOperationName(), adaptor.getOperands(),
-        rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseBinaryOp,
+                                                        adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(eltwiseBinaryOp.getLhs()),
+        emitter.emit(eltwiseBinaryOp.getRhs()),
+        emitter.emit(eltwiseBinaryOp.getOutputDtype(), "dtype"),
+        emitter.emit(std::nullopt, "memory_config") |
+            emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -73,12 +85,21 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::MatmulOp matmulOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs =
-        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
-        matmulOp.getOperationName(), adaptor.getOperands(),
-        rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
+        matmulOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(matmulOp.getA()),
+        emitter.emit(matmulOp.getB()),
+        emitter.emit(matmulOp.getTransposeA(), "transpose_a"),
+        emitter.emit(matmulOp.getTransposeB(), "transpose_b"),
+        emitter.emit(std::nullopt, "memory_config") |
+            emitter.getMemoryConfig(matmulOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -93,9 +114,19 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::SoftmaxOp softmaxOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        softmaxOp, this->getTypeConverter()->convertType(softmaxOp.getType()),
-        softmaxOp.getOperationName(), adaptor.getOperands());
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SoftmaxOp> emitter(
+        softmaxOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(softmaxOp.getInput()),
+        emitter.emit(softmaxOp.getDimension()),
+        emitter.emit(std::nullopt, "memory_config") |
+            emitter.getMemoryConfig(softmaxOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -193,11 +224,17 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::DeallocateOp deallocateOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 1> attrs =
-        ttnn_to_emitpy::utils::createIndexArray<1>(rewriter);
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        deallocateOp, mlir::TypeRange{}, deallocateOp.getOperationName(),
-        adaptor.getOperands(), rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DeallocateOp> emitter(
+        deallocateOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(deallocateOp.getInput()),
+        emitter.emit(deallocateOp.getForce()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -231,10 +268,12 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::GetDeviceOp getDeviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        getDeviceOp,
-        this->getTypeConverter()->convertType(getDeviceOp.getType()),
-        "my_get_device.DeviceGetter.get_device", adaptor.getOperands());
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GetDeviceOp> emitter(
+        getDeviceOp, adaptor, rewriter);
+
+    emitter.replaceOp(*this, {});
+
     return success();
   }
 };
@@ -252,21 +291,25 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::ToDeviceOp toDeviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs =
-        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        toDeviceOp, this->getTypeConverter()->convertType(toDeviceOp.getType()),
-        toDeviceOp.getOperationName(), adaptor.getOperands(),
-        rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToDeviceOp> emitter(
+        toDeviceOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(toDeviceOp.getInput()),
+        emitter.emit(toDeviceOp.getDevice(), "device"),
+        emitter.emit(toDeviceOp.getMemoryConfig(), "memory_config") |
+            emitter.getMemoryConfig(toDeviceOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
 } // namespace
 
 // NamedFullOp conversion pattern for operations like ttnn::zeros or ttnn::ones
-//
-// TODO (amilovanovic) : add support for other attributes
-// Currently, only shape and layout attributes are supported
 //
 namespace {
 template <typename SourceOp>
@@ -279,19 +322,20 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp namedFullOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    mlir::tt::ttnn::ShapeAttr shapeAttr = namedFullOp.getShapeAttr();
-    llvm::SmallVector<Attribute, 2> attrs;
-    emitpy::OpaqueAttr shapeAttrConverted =
-        ttnn_to_emitpy::utils::convertShape(rewriter, shapeAttr);
-    emitpy::OpaqueAttr layoutAttr = ttnn_to_emitpy::utils::convertLayoutAttr(
-        rewriter, namedFullOp.getLayoutAttr());
-    attrs.push_back(shapeAttrConverted);
-    attrs.push_back(layoutAttr);
-    rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        namedFullOp,
-        this->getTypeConverter()->convertType(namedFullOp.getType()),
-        namedFullOp.getOperationName(), ValueRange(),
-        rewriter.getArrayAttr(attrs));
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(namedFullOp, adaptor,
+                                                        rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(namedFullOp.getShape(), "shape"),
+        emitter.emit(namedFullOp.getDtype(), "dtype"),
+        emitter.emit(namedFullOp.getLayout(), "layout"),
+        emitter.emit(namedFullOp.getDevice(), "device"),
+        emitter.emit(namedFullOp.getMemoryConfig(), "memory_config") |
+            emitter.getMemoryConfig(namedFullOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }
