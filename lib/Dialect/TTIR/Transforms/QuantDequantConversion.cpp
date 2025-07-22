@@ -21,6 +21,12 @@ namespace {
 // Rewrites op(DQ(x)) into DQ(op(x)) if the op supports quantized execution.
 // If the op does not support quantized execution, inserts DQ → op → Q
 // sandwich instead.
+// Example (op supports quantized execution):
+//    DQ -> op is rewritten to op -> DQ
+// Example (op does not support quantized execution but commute DQ down is
+// performed):
+//    DQ* -> op* is rewritten to DQ -> op* -> Q -> DQ* where DQ* and op* are
+//    original ops
 class CommuteDequantizeBelowQuantizableOpRewriter
     : public TTIRCommuteOpInterfaceRewritePattern<ttir::DequantizeOp,
                                                   QuantizableOpInterface,
@@ -58,13 +64,14 @@ private:
       auto dq = op->getOperand(operand->getOperandNumber())
                     .getDefiningOp<ttir::DequantizeOp>();
       if (dq) {
-        // push back the input -> dequantize -> op
+        // push back the input -> dequantize -> op.
         quantOperands.push_back(dq.getOperand(0));
       } else {
-        // push back the input -> op
+        // push back the input -> op.
         quantOperands.push_back(op->getOperand(operand->getOperandNumber()));
       }
     }
+    // this checks the basic legality of an attempt to commute DQs past the op.
     return op.isQuantizedRewriteFavorable(quantOperands);
   }
 
