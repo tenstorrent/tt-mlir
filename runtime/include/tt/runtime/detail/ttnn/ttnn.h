@@ -16,7 +16,6 @@
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
-#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
@@ -179,6 +178,8 @@ void dumpDeviceProfileResults(Device device);
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
+
+void setFabricConfig(FabricConfig config);
 
 void wait(Event event);
 

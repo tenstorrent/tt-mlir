@@ -59,6 +59,16 @@ enum class DispatchCoreType {
   ETH,
 };
 
+enum class FabricConfig {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS,
+  FABRIC_2D_DYNAMIC,
+  CUSTOM,
+};
+
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
