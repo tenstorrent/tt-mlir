@@ -12,13 +12,6 @@ from ttir_builder import Operand, TTIRBuilder, Shape
 pytestmark = pytest.mark.n300
 
 
-def pseudo_golden_all_gather(
-    input_tensor: torch.Tensor,
-):
-    output_tensor = input_tensor.clone()
-    return output_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -44,10 +37,6 @@ def pseudo_golden_all_gather(
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_gather(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_gather(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -78,12 +67,6 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
-    shard_1, shard_2 = torch.chunk(input_tensor, 2, dim=3)
-    output_tensor = shard_1 + shard_2
-    return output_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -110,10 +93,6 @@ def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_reduce(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_reduce(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -145,15 +124,6 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_reduce_scatter(
-    input_tensor: torch.Tensor,
-    scatter_dim: int,
-):
-    shard_1, shard_2 = torch.chunk(input_tensor, 2, dim=scatter_dim)
-    output_tensor = shard_1 + shard_2
-    return output_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -182,10 +152,6 @@ def pseudo_golden_reduce_scatter(
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     def reduce_scatter(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_reduce_scatter(input, 3)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -217,18 +183,6 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_collective_permute(
-    input_tensor: torch.Tensor,
-    source_target_pairs: List[Tuple[int, int]],
-):
-    shards = list(torch.chunk(input_tensor, 2, dim=3))
-    permuted_tensor = shards.copy()
-    for source, target in source_target_pairs:
-        permuted_tensor[target] = shards[source]
-    result_tensor = torch.cat(permuted_tensor, dim=3)
-    return result_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -243,10 +197,6 @@ def pseudo_golden_collective_permute(
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     def collective_permute(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_collective_permute(input, [(0, 1), (1, 0)])
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
