@@ -49,11 +49,6 @@ def test_ir_module(ttir_path: str, function_name: str):
 
     registry = Registry(golden_module=golden_ir_module, device_module=device_ir_module)
     registry.load_all_ops()
-    print(sorted(registry.op_groups.keys()))
-    # print set of all type of tensors in registry.tensors that have type Dict[
-        #     Tuple[int, int], Dict[ExecutionType, Tensor]
-        # ] 
-    print(set(map(lambda x: type(x), sum(map(lambda x: list(x.values()), registry.tensors.values()), []))))
     for loc_hash in sorted(registry.op_groups.keys()):
         print(loc_hash)
         report.write_row(

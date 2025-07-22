@@ -13,7 +13,6 @@ long_description = ""
 if readme_file.exists():
     long_description = readme_file.read_text(encoding="utf-8")
 
-# Read version from __init__.py
 version = "0.1.0"
 
 setup(
