@@ -1579,9 +1579,9 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
 
     let results = (outs TTKernel_ArgResultType:$arg_val);
 
-    // let assemblyFormat = [{
-    //   `(` $arg_index `)` attr-dict `:` `(` `)` `->` type($arg_val)
-    // }];
+    let assemblyFormat = [{
+      `(` $arg_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
@@ -1594,9 +1594,9 @@ def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
 
     let results = (outs TTKernel_ArgResultType:$arg_val);
 
-    // let assemblyFormat = [{
-    //   `(` $arg_index `)` attr-dict `:` `(` `)` `->` type($arg_val)
-    // }];
+    let assemblyFormat = [{
+      `(` $arg_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
