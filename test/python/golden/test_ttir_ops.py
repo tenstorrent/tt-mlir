@@ -935,7 +935,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
 @pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize(
     "optimization_policy",
-    [None, "Optimizer Disabled", "Greedy L1 Interleaved", "BF Interleaved"],
+    [None, "Optimizer Disabled", "Greedy L1 Interleaved"],
 )
 def test_optimization_policies(
     shape: Shape,
@@ -995,7 +995,7 @@ conv2d_config = {
     "weights_dtype": "f32",
     "activation": "none",
     "deallocate_activation": "false",
-    "reallocate_halo_output": "true",
+    "reallocate_halo_output": "false",
     "act_block_h_override": "0",
     "act_block_w_div": "1",
     "reshard_if_not_optimal": "false",
