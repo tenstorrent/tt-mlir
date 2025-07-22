@@ -213,13 +213,11 @@ public:
       tileShapeForPhysical = {};
     }
 
-    // Derive physical shape
-    llvm::SmallVector<int64_t> physicalShape =
-        ttcore::MetalLayoutAttr::derivePhysicalShape(
-            baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-            newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
+    // Create new device tensor shape.
+    llvm::SmallVector<int64_t> deviceShape =
+        newLayout.getDeviceShape(gridShape, tileShapeForPhysical);
 
-    return RankedTensorType::get(physicalShape, elementType, newLayout);
+    return RankedTensorType::get(deviceShape, elementType, newLayout);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,

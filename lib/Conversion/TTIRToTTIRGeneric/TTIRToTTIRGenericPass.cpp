@@ -89,10 +89,9 @@ struct TTIRToTTIRGenericPass final
     // or not an override was provided; this makes the name
     // `overrideDeviceShape` a bit disingenuous, but seems cleaner than passing
     // this field separately; it will only be accessed a single time anyway.
-    populateTTIRToTTIRGenericPatterns(&ctx, patterns, typeConverter,
-                                      {useTileMatmul, defaultInputMemSpace,
-                                       defaultOutputMemSpace,
-                                       getTargetGridShape()});
+    populateTTIRToTTIRGenericPatterns(
+        &ctx, patterns, typeConverter, defaultInputMemSpace,
+        defaultOutputMemSpace, getTargetGridShape(), useTileMatmul);
 
     if (failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {
