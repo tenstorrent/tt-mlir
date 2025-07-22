@@ -207,7 +207,6 @@ void CQExecutor::execute(const target::metal::Command *command) {
 void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  //LOG_ASSERT(bufferDesc->buffer_config_type() == target::metal::BufferConfig::NONE);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
@@ -294,19 +293,18 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    if (cbRef->buffer_ref()->desc()->buffer_config_type() !=
-        target::metal::BufferConfig::ShardedBufferConfig) {
+    // interleaved buffers do not have circular buffer configs!
+    if (cbRef->buffer_ref()->desc()->buffer_config_type() ==
+        target::metal::BufferConfig::InterleavedBufferConfig) {
       continue;
     }
 
-    const auto *circular_buffer_config =
-        cbRef->buffer_ref()
-            ->desc()
-            ->buffer_config_as_ShardedBufferConfig()
-            ->circular_buffer_config();
-
     CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(circular_buffer_config->core_range_set());
+        common::toCoreRangeSet(cbRef->buffer_ref()
+                                   ->desc()
+                                   ->buffer_config_as_ShardedBufferConfig()
+                                   ->circular_buffer_config()
+                                   ->core_range_set());
     tt_metal::CircularBufferConfig config =
         createCircularBufferConfig(cbRef, deviceBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
