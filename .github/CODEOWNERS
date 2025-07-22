@@ -48,14 +48,19 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
 /include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core @jnie-TT
 /include/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/include/ttmlir/Conversion/TTNNToEmitPy/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/lib/Conversion/TTNNToEmitPy/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/TTNNToEmitPy/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/EmitC/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/EmitPy/ @tenstorrent/forge-developers-mlir-core
 /test/unittests/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+
 
 # Metal Conversions
 /include/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
