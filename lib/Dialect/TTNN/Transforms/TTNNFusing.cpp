@@ -34,7 +34,7 @@ public:
     Conv2dConfigAttr conv2dConfigAttr =
         srcOp.getConv2dConfigAttr()
             ? srcOp.getConv2dConfigAttr()
-            : Conv2dConfigAttr::get(rewriter.getContext());
+            : Conv2dConfigAttr::getEmpty(rewriter.getContext());
     conv2dConfigAttr = conv2dConfigAttr.withActivation(activation)
                            .withDtype(inputDtype)
                            .withWeightsDtype(weightDtype);
