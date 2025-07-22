@@ -578,7 +578,9 @@ def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
-def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
+def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise greater than.";
     let description = [{
       Eltwise greater than operation.

@@ -1208,6 +1208,26 @@ SubtractOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GreaterThantOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+GreaterThanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterThanOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+GreaterThanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return getBinaryOpRuntime(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterThanOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // MaximumOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

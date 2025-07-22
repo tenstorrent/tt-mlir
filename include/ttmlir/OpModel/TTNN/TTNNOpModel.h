@@ -555,6 +555,28 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 } // namespace SubtractOpInterface
 
 //===----------------------------------------------------------------------===//
+// GreaterThan
+//===----------------------------------------------------------------------===//
+namespace GreaterThanOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+             llvm::ArrayRef<int64_t> inputShapeB,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+} // namespace GreaterThanOpInterface
+
+//===----------------------------------------------------------------------===//
 // Maximum
 //===----------------------------------------------------------------------===//
 namespace MaximumOpInterface {
