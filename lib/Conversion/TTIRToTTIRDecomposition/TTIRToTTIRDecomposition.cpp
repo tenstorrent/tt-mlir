@@ -1309,9 +1309,13 @@ private:
         op.getPadding()[2 * spatialDimIndices[1] + 1]);
 
     llvm::SmallVector<Value> outputs;
-    for (Value input : adaptor.getInputs()) {
+    for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
+      Value input = adaptor.getInputs()[i];
+      Value originalOutput = adaptor.getOutputs()[i];
+      RankedTensorType originalOutputTy =
+          mlir::cast<RankedTensorType>(originalOutput.getType());
+      // Apply input permutation.
       RankedTensorType inputTy = mlir::cast<RankedTensorType>(input.getType());
-
       auto inputPermuteShape =
           ::ttmlir::utils::applyPermutation(inputTy.getShape(), permutation);
       input = ttir::utils::createDPSOp<ttir::PermuteOp>(
@@ -1320,25 +1324,22 @@ private:
           inputPermuteShape, inputTy.getElementType(), inputTy.getEncoding(),
           input, permutation);
 
-      auto outputType = mlir::cast<RankedTensorType>(op.getResult(0).getType());
-      auto newOutputShape =
-          ::ttmlir::utils::applyPermutation(outputType.getShape(), permutation);
-
+      // Apply output permutation.
+      auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
+          originalOutputTy.getShape(), permutation);
       auto newPool = ttir::utils::createDPSOp<PoolOpType>(
-          rewriter, op.getLoc(), newOutputShape, outputType.getElementType(),
-          outputType.getEncoding(), input, kernelHeightAttr, kernelWidthAttr,
-          strideHeightAttr, strideWidthAttr, dilationHeightAttr,
-          dilationWidthAttr, ceilModeAttr, paddingTopAttr, paddingBottomAttr,
-          paddingLeftAttr, paddingRightAttr);
-
+          rewriter, op.getLoc(), resultPermuteShape,
+          originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+          input, kernelHeightAttr, kernelWidthAttr, strideHeightAttr,
+          strideWidthAttr, dilationHeightAttr, dilationWidthAttr, ceilModeAttr,
+          paddingTopAttr, paddingBottomAttr, paddingLeftAttr, paddingRightAttr);
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
       auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
           rewriter,
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteOutput"),
-          outputType.getShape(), outputType.getElementType(),
-          outputType.getEncoding(), newPool, inverseOfPermutation);
-
+          originalOutputTy.getShape(), originalOutputTy.getElementType(),
+          originalOutputTy.getEncoding(), newPool, inverseOfPermutation);
       outputs.push_back(output);
     }
 

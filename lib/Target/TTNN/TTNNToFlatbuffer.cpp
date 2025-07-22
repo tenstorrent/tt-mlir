@@ -1156,20 +1156,8 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
           "Expected ttnn.typecast as defining op for per-tensor zp.");
     }
   }
-  ttnn::ToDeviceOp toDeviceOp =
-      mlir::dyn_cast<ttnn::ToDeviceOp>(firstInput.getDefiningOp());
-  assert(toDeviceOp &&
-         "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
-  ttnn::ToLayoutOp toLayoutOp =
-      mlir::dyn_cast<ttnn::ToLayoutOp>(toDeviceOp.getInput().getDefiningOp());
-  assert(toLayoutOp &&
-         "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
-  ttnn::FromDeviceOp fromDeviceOp =
-      mlir::dyn_cast<ttnn::FromDeviceOp>(toLayoutOp.getInput().getDefiningOp());
-  assert(fromDeviceOp &&
-         "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
   ttnn::FullOp fullOp =
-      mlir::dyn_cast<ttnn::FullOp>(fromDeviceOp.getInput().getDefiningOp());
+      mlir::dyn_cast<ttnn::FullOp>(firstInput.getDefiningOp());
   assert(fullOp &&
          "Expected ttnn.full as defining op for per-tensor scale/zp.");
   if constexpr (std::is_same_v<AttrType, float>) {

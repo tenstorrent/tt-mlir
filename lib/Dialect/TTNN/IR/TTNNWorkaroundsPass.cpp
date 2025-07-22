@@ -195,20 +195,12 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for full op output operand.
-// ttnn::FullOp does not support 1D tilized tensors
-// If the output of full is a 1D tensor and is tiled
-// we need to convert it to row major layout then tilize separately
 // ttnn::full does not support output dtype int32. If the output data type of
 // full is int32, we override to float32 and typecast separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
     RankedTensorType outputType) {
   wa::TTNNOperandWorkarounds fullOpOutputWorkarounds;
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
-  if (outputType.getRank() == 1 && layoutAttr.isTiled()) {
-    fullOpOutputWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
-  }
   mlir::tt::ttcore::DataType dataType =
       mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
   if (dataType == mlir::tt::ttcore::DataType::Int32) {
@@ -366,6 +358,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::Type inputElementType = inputType.getElementType();
   TTNNOperandWorkarounds predicateTypeWorkaround = TTNNOperandWorkarounds();
   TTNNOperandWorkarounds inputTypeWorkaround;
+  TTNNOperandWorkarounds outputTypeWorkaround;
 
   if (predicateElementType.isInteger() ||
       predicateElementType != inputElementType) {
@@ -376,6 +369,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       predicateTypeWorkaround =
           TTNNOperandWorkarounds(ttcore::DataType::Float32);
       inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
+      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
     } else {
       // Otherwise, we just force the predicate type to match the input type.
       predicateTypeWorkaround = TTNNOperandWorkarounds(
@@ -387,8 +381,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addInputOperandWorkaround(predicateTypeWorkaround)
       .addInputOperandWorkaround(inputTypeWorkaround)
       .addInputOperandWorkaround(inputTypeWorkaround)
-      .addOutputOperandWorkaround(
-          TTNNOperandWorkarounds::createEmptyTTNNOperandWorkarounds());
+      .addOutputOperandWorkaround(outputTypeWorkaround);
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.
