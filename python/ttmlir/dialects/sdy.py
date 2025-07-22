@@ -4,3 +4,6 @@
 
 from ._sdy_enum_gen import *
 from ._sdy_ops_gen import *
+from .._mlir_libs._sdy import *
+
+# from .._mlir_libs._ttmlir._sdy import *

@@ -2072,9 +2072,17 @@ def test_hoisted_dot_general(
     )
 
 
+def sdy_sharding_group(
+    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+):
+    y = builder.shlo_cbrt(in0, unit_attrs=unit_attrs)
+    # z = sdy.MeshAttr.get()
+    return builder.sdy_sharding_group(y, 0, unit_attrs=unit_attrs)
+
+
 def main():
     compile_to_flatbuffer(
-        shlo_cbrt,
+        sdy_sharding_group,
         inputs_shapes=[(128, 128)],
         inputs_types=[torch.float32],
         system_desc_path="ttrt-artifacts/system_desc.ttsys",

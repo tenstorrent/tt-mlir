@@ -8,12 +8,17 @@ import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
+
+# from ttmlir.ir import MeshAttr, MeshMap
 from ttmlir.dialects import ttir, ttcore, tensor, quant, stablehlo, sdy
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 from enum import Enum, auto
 import re
 from .ccl_golden import *
+
+print(dir(sdy))
+# print(vars(sdy))
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.

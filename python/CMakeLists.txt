@@ -94,8 +94,13 @@ if(TTMLIR_ENABLE_STABLEHLO)
     -Wno-error=extra-semi -Wno-error=zero-length-array
     -Wno-error=covered-switch-default)
 
+declare_mlir_python_sources(SdyPythonSources)
+declare_mlir_python_sources(SdyPythonSources.Dialects
+  ADD_TO_PARENT SdyPythonSources
+)
+
   declare_mlir_dialect_python_bindings(
-    ADD_TO_PARENT TTMLIRPythonSources.Dialects
+    ADD_TO_PARENT SdyPythonSources.Dialects
     ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
     TD_FILE dialects/SdyBinding.td
     GEN_ENUM_BINDINGS ON
@@ -119,6 +124,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
+    SdyModule3.cpp
     OptimizerOverrides.cpp
     Passes.cpp
     Util.cpp
@@ -194,10 +200,22 @@ if(TTMLIR_ENABLE_STABLEHLO)
     -Wno-error=covered-switch-default)
 
   # To defined python sources we append minimal set of targets exposed by SHLO's cmake.
-  # This will put `stablehlo` under `ttmlir` and allow us to import it from `ttmlir`.
+  # Add Shardy Python extension
+  declare_mlir_python_sources(SdyPythonExtensions)
+  declare_mlir_python_extension(SdyPythonExtensions.Main
+    MODULE_NAME _sdy
+    ADD_TO_PARENT SdyPythonExtensions
+    SOURCES
+      SdyModule3.cpp
+    PYTHON_BINDINGS_LIBRARY nanobind
+  )
+
+  # This will put `stablehlo` and `sdy` under `ttmlir` and allow us to import them from `ttmlir`.
   list(APPEND TTMLIR_PYTHON_SOURCES
     StablehloPythonSources
     StablehloPythonExtensions
+    SdyPythonSources
+    SdyPythonExtensions
   )
 endif()
 

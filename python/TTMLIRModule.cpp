@@ -49,6 +49,8 @@ NB_MODULE(_ttmlir, m) {
   mlir::ttmlir::python::populateTTKernelModule(ttkernel_ir);
   auto ttnn_ir = m.def_submodule("ttnn_ir", "TTNN IR Bindings");
   mlir::ttmlir::python::populateTTNNModule(ttnn_ir);
+  auto sdy_ir = m.def_submodule("sdy_ir", "Sdy IR Bindings");
+  mlir::ttmlir::python::populateSdyModule(sdy_ir);
   auto passes =
       m.def_submodule("passes", "Python-Bound Passes & Transformations");
   mlir::ttmlir::python::populatePassesModule(passes);

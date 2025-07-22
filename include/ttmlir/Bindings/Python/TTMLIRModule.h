@@ -11,6 +11,8 @@
 #include "mlir/CAPI/IR.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "shardy/integrations/c/attributes.h"
+#include "shardy/integrations/c/dialect.h"
 #include "ttmlir-c/Dialects.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -61,6 +63,7 @@ void populateTTModule(nb::module_ &m);
 void populateTTIRModule(nb::module_ &m);
 void populateTTKernelModule(nb::module_ &m);
 void populateTTNNModule(nb::module_ &m);
+void populateSdyModule(nb::module_ &m);
 void populateOverridesModule(nb::module_ &m);
 void populateOptimizerOverridesModule(nb::module_ &m);
 void populatePassesModule(nb::module_ &m);
