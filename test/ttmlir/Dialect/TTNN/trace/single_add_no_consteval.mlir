@@ -5,7 +5,9 @@ module {
   // CHECK: "ttnn.add"
 
   // CHECK-LABEL: func.func @run_and_capture_trace_0_single_add
+  // CHECK: "ttnn.from_device"(%arg0)
   // CHECK: "ttnn.write_tensor"
+  // CHECK-NOT: "ttnn.from_device"(%arg1)
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
@@ -13,7 +15,7 @@ module {
   // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func @single_add(
-  func.func @single_add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+  func.func @single_add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
     // CHECK-NEXT: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg0, %arg1) <{capture_callee = @run_and_capture_trace_0_single_add, execute_callee = @execute_trace_0_single_add}>
     // CHECK-NOT: "ttnn.add"

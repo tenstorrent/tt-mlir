@@ -5,10 +5,17 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include <atomic>
 
 namespace tt::runtime::ttnn {
 
 using tt::runtime::DeviceRuntime;
+
+// TTNNTensorWrapper APIs
+uint64_t TTNNTensorWrapper::getLatestVersion() {
+  static std::atomic<uint64_t> latestVersion{0};
+  return latestVersion.fetch_add(1, std::memory_order_relaxed);
+}
 
 //
 // LayoutDesc APIs
