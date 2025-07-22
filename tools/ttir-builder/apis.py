@@ -341,6 +341,8 @@ class TTIRBuilder(TTIRBuilderOps):
                 if re.match(r"^(input|output)_[0-9]+$", name) is None:
                     # It means this is not graph level golden.
                     continue
+            if isinstance(golden_tensor.tensor, ShardedTensor):
+                continue
             golden_tensor = golden_tensor.contiguous()
             data_type = self.get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(
