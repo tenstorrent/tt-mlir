@@ -198,57 +198,58 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-# Device Definitions
-device = ttnn.open_device(device_id=0)
+if __name__ == "__main__":
+    # Device Definitions
+    device = ttnn.open_device(device_id=0)
 
-# I/O Tensor Definitions
-num_tiles = 4
-shape = [1, num_tiles, 32, 32]
-data = torch.rand(shape).to(torch.bfloat16)
-data2 = torch.rand(shape).to(torch.bfloat16)
+    # I/O Tensor Definitions
+    num_tiles = 4
+    shape = [1, num_tiles, 32, 32]
+    data = torch.rand(shape).to(torch.bfloat16)
+    data2 = torch.rand(shape).to(torch.bfloat16)
 
-dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-a_tensor = ttnn.from_torch(
-    data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    a_tensor = ttnn.from_torch(
+        data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-b_tensor = ttnn.from_torch(
-    data2,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    b_tensor = ttnn.from_torch(
+        data2,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-output_tensor = ttnn.allocate_tensor_on_device(
-    ttnn.Shape(shape),
-    ttnn.bfloat16,
-    ttnn.TILE_LAYOUT,
-    device,
-    dram_memory_config,
-)
+    output_tensor = ttnn.allocate_tensor_on_device(
+        ttnn.Shape(shape),
+        ttnn.bfloat16,
+        ttnn.TILE_LAYOUT,
+        device,
+        dram_memory_config,
+    )
 
-# Define Custom Generic Op
-core_ranges = None  # Define core ranges here
-vecadd_op = VecAddMulticorePyKernelOp()
+    # Define Custom Generic Op
+    core_ranges = None  # Define core ranges here
+    vecadd_op = VecAddMulticorePyKernelOp()
 
-# Run tests against the golden "add" op.
-output = vecadd_op(a_tensor, b_tensor, output_tensor)
-golden = ttnn.add(a_tensor, b_tensor)
+    # Run tests against the golden "add" op.
+    output = vecadd_op(a_tensor, b_tensor, output_tensor)
+    golden = ttnn.add(a_tensor, b_tensor)
 
-torch_golden = ttnn.to_torch(golden)
-torch_output = ttnn.to_torch(output)
+    torch_golden = ttnn.to_torch(golden)
+    torch_output = ttnn.to_torch(output)
 
-print(f"a_tensor: {a_tensor}")
-print(f"b_tensor: {b_tensor}")
-print(f"torch_golden: {torch_golden}")
-print(f"torch_output: {torch_output}")
+    print(f"a_tensor: {a_tensor}")
+    print(f"b_tensor: {b_tensor}")
+    print(f"torch_golden: {torch_golden}")
+    print(f"torch_output: {torch_output}")
 
-matching = torch.allclose(torch_golden, torch_output)
-print(f"Tensors are matching: {matching}")
-assert matching
+    matching = torch.allclose(torch_golden, torch_output)
+    print(f"Tensors are matching: {matching}")
+    assert matching
