@@ -258,6 +258,11 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
 
+  Option<bool> rowMajorConstEvalOpsEnabled {
+      *this, "enable-row-major-const-eval-ops",
+      llvm::cl::desc("Convert all const eval operations to row major."),
+      llvm::cl::init(false)};
+
   Option<bool> enableTrace{*this, "enable-trace",
                            llvm::cl::desc("Enable trace optimization pass."),
                            llvm::cl::init(false)};

@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -19,6 +19,7 @@ namespace {
 
 struct ElementTypeConverter : public mlir::TypeConverter {
   ElementTypeConverter() {
+    addConversion([](mlir::Type type) { return type; });
     addConversion([](mlir::RankedTensorType type)
                       -> std::optional<mlir::RankedTensorType> {
       assert(type.getEncoding() &&
@@ -73,7 +74,10 @@ public:
     Type newType = getTypeConverter()->convertType(op->getResult(0).getType());
     rewriter.modifyOpInPlace(newOp,
                              [&]() { newOp->getResult(0).setType(newType); });
-
+    if (auto layoutUpdatableOp = dyn_cast<TTNNLayoutUpdatableInterface>(newOp)) {
+      layoutUpdatableOp.updateLayoutAttribute(ttnn::LayoutAttr::get(
+        newOp->getContext(), ttnn::Layout::RowMajor));
+    }
     rewriter.replaceOp(op, newOp);
     return success();
   }
@@ -100,6 +104,10 @@ public:
       return true;
     }
 
+    if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+        return true;
+    }
+
     if (isa<PrepareConv2dWeightsOp>(op) || isa<PrepareConv2dBiasOp>(op)) {
       return true;
     }
@@ -110,7 +118,7 @@ public:
 
     Type resultTypeConverted =
         typeConverter.convertType(op->getResult(0).getType());
-    if (!resultTypeConverted) {
+    if (resultTypeConverted == op->getResult(0).getType()) {
       return true;
     }
 
