@@ -142,4 +142,40 @@ module {
     %7 = "ttir.quantize"(%5, %6) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56x!quant.uniform<i8:f32, 0.2>>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.2>>
     return %7 : tensor<1x64x56x56x!quant.uniform<i8:f32, 0.2>>
   }
+  func.func @commute_dequantize_past_per_tensor_convolution(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
+    // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution
+    // CHECK: ttir.quantize
+    // CHECK: ttir.quantize
+    // CHECK: ttir.convolution
+    // CHECK: ttir.dequantize
+    %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
+    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
+    %2 = ttir.empty() : tensor<1x3x224x224xf32>
+    %3 = "ttir.dequantize"(%1, %2) : (tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>, tensor<1x3x224x224xf32>) -> tensor<1x3x224x224xf32>
+    %4 = ttir.empty() : tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>
+    %5 = "ttir.quantize"(%arg1, %4) : (tensor<64x3x7x7xf32>, tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>) -> tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>
+    %6 = ttir.empty() : tensor<64x3x7x7xf32>
+    %7 = "ttir.dequantize"(%5, %6) : (tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>, tensor<64x3x7x7xf32>) -> tensor<64x3x7x7xf32>
+    %8 = ttir.empty() : tensor<1x64x112x112xf32>
+    %9 = "ttir.convolution"(%3, %7, %8) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    return %9 : tensor<1x64x112x112xf32>
+  }
+    func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
+    // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights
+    // CHECK: ttir.quantize
+    // CHECK: ttir.quantize
+    // CHECK: ttir.convolution
+    // CHECK: ttir.dequantize
+    %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
+    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
+    %2 = ttir.empty() : tensor<1x3x224x224xf32>
+    %3 = "ttir.dequantize"(%1, %2) : (tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>, tensor<1x3x224x224xf32>) -> tensor<1x3x224x224xf32>
+    %4 = ttir.empty() : tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0,2.000000e-02:0,3.000000e-02:0}>>
+    %5 = "ttir.quantize"(%arg1, %4) : (tensor<64x3x7x7xf32>, tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0,2.000000e-02:0,3.000000e-02:0}>>) -> tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0,2.000000e-02:0,3.000000e-02:0}>>
+    %6 = ttir.empty() : tensor<64x3x7x7xf32>
+    %7 = "ttir.dequantize"(%5, %6) : (tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0,2.000000e-02:0,3.000000e-02:0}>>, tensor<64x3x7x7xf32>) -> tensor<64x3x7x7xf32>
+    %8 = ttir.empty() : tensor<1x64x112x112xf32>
+    %9 = "ttir.convolution"(%3, %7, %8) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+    return %9 : tensor<1x64x112x112xf32>
+  }
 }
