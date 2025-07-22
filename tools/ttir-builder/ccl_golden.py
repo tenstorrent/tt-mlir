@@ -5,7 +5,7 @@
 from typing import Tuple, List, Union
 from ttmlir.ir import Attribute
 import torch
-from sharded_tensor import ShardedTensor, TensorLike
+from .sharded_tensor import ShardedTensor, TensorLike
 import itertools
 
 # We cannot inspect the intermediate buffer on a multi-device.

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
@@ -15,7 +15,7 @@ from enum import Enum, auto
 import re
 from .ccl_golden import *
 from .ops import TTIRBuilderOps
-from sharded_tensor import ShardedTensor
+from .sharded_tensor import ShardedTensor
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -844,7 +844,7 @@ class TTIRBuilder(TTIRBuilderOps):
 
             golden = (
                 Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
+                if isinstance(golden_output, Sequence)
                 else Golden(golden_output)
             )
             # Use the golden output to determine proper output shape and type unless otherwise specified.
