@@ -65,11 +65,6 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
-    shards = torch.chunk(input_tensor, 4, dim=3)
-    return sum(shards)
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -89,10 +84,6 @@ def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_reduce(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_reduce(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",

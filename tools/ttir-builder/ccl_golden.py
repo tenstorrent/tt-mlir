@@ -7,6 +7,7 @@ from ttmlir.ir import Attribute
 import torch
 from .sharded_tensor import ShardedTensor, TensorLike
 import itertools
+from functools import reduce
 
 # We cannot inspect the intermediate buffer on a multi-device.
 # Therefore, we only support Graph Level golden.
@@ -154,8 +155,30 @@ def all_reduce_golden(
     cluster_axis: int,
     reduce_type: Attribute,
 ) -> torch.Tensor:
-    # Return a random torch.Tensor which has the correct shape and type after doing all_reduce on the input.
-    return torch.randn(input.shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output = input.clone()
+    replica_groups = _replica_groups(mesh_shape, cluster_axis)
+    for group in replica_groups:
+        group_tensors = [input.get_shard(i) for i in group]
+        # reduce
+        reduce_type_str = str(reduce_type).lower()
+        if "sum" in reduce_type_str:
+            reduced_tensor = reduce(torch.add, group_tensors)
+        elif "mean" in reduce_type_str:
+            reduced_tensor = reduce(torch.add, group_tensors) / len(group_tensors)
+        elif "max" in reduce_type_str:
+            reduced_tensor = reduce(torch.max, group_tensors)
+        elif "min" in reduce_type_str:
+            reduced_tensor = reduce(torch.min, group_tensors)
+        elif "std" in reduce_type_str:
+            reduced_tensor = torch.std(group_tensors)
+        elif "var" in reduce_type_str:
+            reduced_tensor = torch.var(group_tensors)
+        else:
+            raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
+        for i in group:
+            output.shards[i] = reduced_tensor
+    return output
 
 
 def reduce_scatter_golden(
