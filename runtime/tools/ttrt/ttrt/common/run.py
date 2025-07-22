@@ -296,6 +296,13 @@ class Run:
             help="enable performance tracing",
         )
         Run.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -348,6 +355,13 @@ class Run:
         self.results = Results(self.logger, self.file_manager)
         self.torch_initializer = Run.TorchInitializer(self)
 
+        # If benchmark mode is enabled, set certain defaults
+        if self["--benchmark"]:
+            self["--loops"] = 2
+            self["--enable-program-cache"] = True
+            self["--disable-golden"] = True
+            self["--program-index"] = 0
+
     def preprocess(self):
         self.logging.debug(f"------preprocessing run API")
         self.query()
@@ -391,7 +405,7 @@ class Run:
                 continue
 
             try:
-                bin.check_system_desc(self.query)
+                bin.check_system_desc(self.query, ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -447,7 +461,7 @@ class Run:
                 continue
 
             try:
-                bin.check_system_desc(self.query)
+                bin.check_system_desc(self.query, ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -955,6 +969,15 @@ class Run:
                                         f"Failed: program-level output golden comparison failed the allclose check"
                                     )
 
+                            self.logging.info(
+                                f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit}"
+                            )
+                            self.logging.info(
+                                f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
+                            )
+                            self.logging.info(
+                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
+                            )
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
