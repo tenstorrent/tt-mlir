@@ -89,7 +89,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   // one operand is quantized and the other is not : apply quantization and
   // proceed to case two: both operands are quantized : supported, return
   // quantized add.
-  assert(transformedOperands.size() == 2 && "AddOp should have two operands");
+  assert(transformedOperands.size() == 2 && "AddOp should have two operands.");
   auto lhs = transformedOperands[0];
   auto rhs = transformedOperands[1];
 
@@ -995,6 +995,63 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 //===----------------------------------------------------------------------===//
 // ConvolutionOp
 //===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> transformedOperands) {
+  // convolution op currently requires both input and weight to be quantized
+  // TODO(anuragsingh): enable float bias support
+  assert(transformedOperands.size() == 2 &&
+         "Quantized ConvolutionOp should have two operands (only input and "
+         "weight).");
+  return llvm::all_of(transformedOperands, [](mlir::Value val) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!type) {
+      return false;
+    }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
+    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
+  });
+}
+
+mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> transformedOperands,
+    mlir::ValueRange outputOperands) {
+  // rewrite the convolution op to be quantized.
+  // create the output quantized type, whose scale is input * weight and
+  // storage type is i32.
+  auto storageType =
+      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(transformedOperands[0].getType())
+          .getElementType());
+  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(transformedOperands[1].getType())
+          .getElementType());
+  mlir::quant::QuantizedType quantOutputType =
+      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
+          quantInputType, quantWeightType, storageType, getLoc());
+  if (!quantOutputType) {
+    return nullptr;
+  }
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+  auto quantConvOutputType =
+      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
+  if (!quantConvOutputType) {
+    return nullptr;
+  }
+  RankedTensorType newType =
+      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
+                            oldConvOutputType.getEncoding());
+  auto quantConv =
+      mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
+          rewriter, getLoc(), newType, transformedOperands[0],
+          transformedOperands[1], getBias(), getInputDilationAttr(),
+          getWeightDilationAttr(), getWindowStridesAttr(), getPaddingAttr(),
+          getWindowReversalAttr(), getConvolutionLayoutAttr(),
+          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
+  return quantConv.getOperation();
+}
 
 ::mlir::LogicalResult mlir::tt::ttir::ConvolutionOp::verify() {
   if (getConvolutionLayout().getInputSpatialDimensions().size() !=
