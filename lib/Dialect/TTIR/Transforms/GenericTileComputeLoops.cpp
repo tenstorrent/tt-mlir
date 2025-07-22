@@ -75,7 +75,7 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   // Since we reversed above to give the output block factors priority in the
   // inverse affine map, we add those first. Then fill the rest of the dims with
   // 1s, these are free variables that don't depend on the sizing of dst. In the
-  // future we might do something more intellegent with the free variables, or
+  // future we might do something more intelligent with the free variables, or
   // enable downstream passes like allocation to adjust them based on memory
   // requirements.
   //
@@ -116,24 +116,20 @@ struct TTIRGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-
-    SmallVector<AffineMap> indexingMaps =
-        llvm::map_to_vector(op.getIndexingMaps(), [](Attribute a) {
-          return mlir::cast<AffineMapAttr>(a).getValue();
-        });
-
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
     SmallVector<int64_t> subblockSizes = calculateOptimalSubblockSizes(
-        indexingMaps, op.getInputs(), outputTensor.getShape(),
+        op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
         dstRegisterSizeTiles);
 
     linalg::LinalgTilingOptions tilingOptions;
     tilingOptions.setTileSizes(subblockSizes);
-    // The pass really doesn't like this for some reason, it just doesn't tile
-    // anymore?
+    // The use of linalg::LinalgTilingLoopType::AffineLoops was disabled because
+    // it caused unexpected behavior where tiling was not applied correctly.
+    // Further investigation is needed to determine the root cause before
+    // re-enabling it.
     // tilingOptions.setLoopType(linalg::LinalgTilingLoopType::AffineLoops);
     FailureOr<linalg::TiledLinalgOp> tiledGeneric =
         linalg::tileLinalgOp(rewriter, op, tilingOptions);

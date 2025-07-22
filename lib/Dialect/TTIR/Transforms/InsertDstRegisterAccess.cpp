@@ -93,7 +93,8 @@ public:
           rewriter.eraseOp(linalgGenericOp);
           modified |= insertDstRegisterAccess(
               rewriter, op.getLoc(), region,
-              linalgLoops.value()[0] ? linalgLoops.value()[0] : nullptr,
+              !linalgLoops.value().empty() ? linalgLoops.value().front()
+                                           : nullptr,
               [&](int64_t index) {
                 return op.getNonParticipatingLoopDims(index);
               });
@@ -107,8 +108,8 @@ public:
       ttir::ThreadAttr threadAttr =
           op->template getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
       if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
-        modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
-                                            nullptr);
+        modified |=
+            insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody());
       }
     }
     return success(modified);
@@ -116,7 +117,7 @@ public:
 
   static bool insertDstRegisterAccess(
       PatternRewriter &rewriter, Location loc, Region &region,
-      Operation *outermostInnerComputeLoop,
+      Operation *outermostInnerComputeLoop = nullptr,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
               [](int64_t) { return SmallVector<int64_t>{}; }) {
@@ -245,12 +246,12 @@ public:
   }
 
   static BlockArgument lookThroughSubview(Value memref) {
+    while (auto subview =
+               mlir::dyn_cast<memref::SubViewOp>(memref.getDefiningOp())) {
+      memref = subview.getSource();
+    }
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(memref)) {
       return blockArg;
-    }
-    if (auto subview =
-            mlir::dyn_cast<memref::SubViewOp>(memref.getDefiningOp())) {
-      return lookThroughSubview(subview.getSource());
     }
     llvm_unreachable("Could not find block argument from subview");
   }
