@@ -55,7 +55,8 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait,
 }
 
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>,
+      TTNNLayoutUpdatableInterface]
       > {
     let summary = "ToLayout op.";
     let description = [{
@@ -1683,7 +1684,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTNNLayoutUpdatableInterface]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1733,7 +1734,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait, TTNNLayoutUpdatableInterface] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
