@@ -21,9 +21,9 @@ namespace mlir::tt::stablehlo {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
-// Options for StableHLO Pipeline
-struct StableHLOPipelineOptions
-    : public PassPipelineOptions<StableHLOPipelineOptions> {
+// Options for the Automatic Sharding Pipeline
+struct AutomaticShardingPipelineOptions
+    : public PassPipelineOptions<AutomaticShardingPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
@@ -52,11 +52,11 @@ struct StableHLOPipelineOptions
           llvm::cl::init(ttcore::TTArgumentTypeMap())};
 };
 
-void createStableHLOPipeline(OpPassManager &pm,
-                             const StableHLOPipelineOptions &options);
+void createAutomaticShardingPipeline(
+    OpPassManager &pm, const AutomaticShardingPipelineOptions &options);
 
-// Registers all StableHLO passes.
-void registerStableHLOPipeline();
+// Registers all StableHLO pipeliens.
+void registerAutomaticShardingPipeline();
 
 #endif // TTMLIR_ENABLE_STABLEHLO
 

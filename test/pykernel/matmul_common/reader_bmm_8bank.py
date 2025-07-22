@@ -13,14 +13,14 @@ from pykernel.types import *
 def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     src0_addr = get_arg_val(int, 0)
     src1_addr = get_arg_val(int, 1)
     Mt = get_arg_val(int, 2)

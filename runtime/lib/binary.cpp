@@ -603,7 +603,7 @@ Binary::getProgramMeshShape(std::uint32_t programIndex) const {
     const tt::target::Dim2d *const mesh_shape =
         ttnn::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
     assert(mesh_shape != nullptr);
-    return std::make_pair(mesh_shape->y(), mesh_shape->x());
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
   }
 
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
@@ -611,7 +611,7 @@ Binary::getProgramMeshShape(std::uint32_t programIndex) const {
     const tt::target::Dim2d *const mesh_shape =
         metal::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
     assert(mesh_shape != nullptr);
-    return std::make_pair(mesh_shape->y(), mesh_shape->x());
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
   }
 
   LOG_FATAL("Unsupported binary format");

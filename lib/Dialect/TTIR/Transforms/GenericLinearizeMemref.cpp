@@ -52,7 +52,7 @@ public:
 
   LogicalResult matchAndRewrite(LoadStoreOp op,
                                 PatternRewriter &rewriter) const final {
-    Value val = op.getMemRef();
+    Value val = op.getMemref();
     auto memref = mlir::cast<MemRefType>(val.getType());
     if (memref.getRank() == 1) {
       // Already linearized.
@@ -63,7 +63,6 @@ public:
     auto linearMap = linearizeAffineMap(
         rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
 
-    // Create or get collapsed memref
     memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);
     if (!linearizedArg) {
       rewriter.setInsertionPointAfterValue(val);
@@ -78,25 +77,10 @@ public:
       collapseOps->insert({val, linearizedArg});
     }
 
-    // Create new indices using the linear map
-    SmallVector<Value> indices(op.getIndices());
-
-    rewriter.setInsertionPoint(op);
-
-    Value linearIndex =
-        rewriter.create<affine::AffineApplyOp>(op.getLoc(), linearMap, indices);
-
-    // Create new load/store with linearized access
-    if constexpr (std::is_same_v<LoadStoreOp, memref::LoadOp>) {
-      rewriter.replaceOpWithNewOp<memref::LoadOp>(op, linearizedArg.getResult(),
-                                                  ValueRange{linearIndex});
-    } else if constexpr (std::is_same_v<LoadStoreOp, memref::StoreOp>) {
-      rewriter.replaceOpWithNewOp<memref::StoreOp>(op, op.getValueToStore(),
-                                                   linearizedArg.getResult(),
-                                                   ValueRange{linearIndex});
-    } else {
-      return failure();
-    }
+    rewriter.modifyOpInPlace(op, [&]() {
+      op.setMemRef(linearizedArg.getResult());
+      op.setMap(linearMap.compose(op.getMap()));
+    });
 
     return success();
   }
@@ -115,8 +99,8 @@ public:
   void runOnOperation() final {
     DenseMap<Value, memref::CollapseShapeOp> collapseOps;
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRLinearizeMemrefAccessRewriter<memref::LoadOp>,
-                 TTIRLinearizeMemrefAccessRewriter<memref::StoreOp>>(
+    patterns.add<TTIRLinearizeMemrefAccessRewriter<affine::AffineLoadOp>,
+                 TTIRLinearizeMemrefAccessRewriter<affine::AffineStoreOp>>(
         &getContext(), collapseOps);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {

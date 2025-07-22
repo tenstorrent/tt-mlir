@@ -24,8 +24,13 @@ add_custom_command(TARGET pykernel-demo
 
 # Run the test
 add_custom_command(TARGET pykernel-demo
-    COMMENT "Running Pykernel Tests"
-    COMMAND pytest ${CMAKE_CURRENT_SOURCE_DIR}/test.py
+    COMMENT "Running Eltwise SFPU (Exp) Test with Pykernel"
+    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/eltwise_sfpu_demo.py
+)
+
+add_custom_command(TARGET pykernel-demo
+    COMMENT "Running Vector Add Test with Pykernel"
+    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/vecadd_multicore_demo.py
 )
 
 # Add info message

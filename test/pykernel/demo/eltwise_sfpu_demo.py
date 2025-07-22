@@ -44,16 +44,20 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
     @writer_thread()
     def writer_unary_interleaved(
+        cb_in: CircularBuffer,
         cb_out: CircularBuffer,
         dst_addr,
         num_tiles,
         start_id,
+        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
+        dataformat = get_dataformat(cb_out)
 
-        tensor_accessor_args = TensorAccessorArgs(1, 0)
-        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
+        s0 = get_interleaved_addr_gen_fast(
+            dst_is_dram, dst_addr, tile_bytes, dataformat
+        )
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -69,15 +73,19 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
     @reader_thread()
     def reader_unary_interleaved(
         cb_in: CircularBuffer,
+        cb_out: CircularBuffer,
         src_addr,
         num_tiles,
         start_id,
+        src_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
+        dataformat = get_dataformat(cb_in)
 
-        tensor_accessor_args = TensorAccessorArgs(1, 0)
-        s0 = TensorAccessor(tensor_accessor_args, src_addr, tile_bytes)
+        s0 = get_interleaved_addr_gen_fast(
+            src_is_dram, src_addr, tile_bytes, dataformat
+        )
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -98,9 +106,8 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         cb_in = self.create_cb(in_tensor, 0)
         cb_out = self.create_cb(out_tensor, 1)
         start_id = 0
+        is_dram_input = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
         num_tiles = ceil(max(map(lambda t: t.volume(), [in_tensor, out_tensor])) / 1024)
-
-        self.set_tensor_accessor_config([in_tensor, out_tensor])
 
         kernels = [
             self.create_kernel(
@@ -112,69 +119,69 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.writer_unary_interleaved,
+                cb_in,
                 cb_out,
                 out_tensor.buffer_address(),
                 num_tiles,
                 start_id,
+                dst_is_dram=is_dram_input,
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
                 cb_in,
+                cb_out,
                 in_tensor.buffer_address(),
                 num_tiles,
                 start_id,
+                src_is_dram=is_dram_input,
             ),
         ]
 
         return self.create_program(kernels, [cb_in, cb_out])
 
 
-def main(device):
-    # I/O Tensor Definitions
-    num_tiles = 4
-    shape = [1, num_tiles, 32, 32]
-    data = torch.rand(shape).to(torch.bfloat16)
+# Device Definitions
+device = ttnn.open_device(device_id=0)
 
-    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+# I/O Tensor Definitions
+num_tiles = 4
+shape = [1, num_tiles, 32, 32]
+data = torch.rand(shape).to(torch.bfloat16)
 
-    input_tensor = ttnn.from_torch(
-        data,
-        dtype=ttnn.bfloat16,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=dram_memory_config,
-    )
+dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-    output_tensor = ttnn.allocate_tensor_on_device(
-        ttnn.Shape(shape),
-        ttnn.bfloat16,
-        ttnn.TILE_LAYOUT,
-        device,
-        dram_memory_config,
-    )
+input_tensor = ttnn.from_torch(
+    data,
+    dtype=ttnn.bfloat16,
+    layout=ttnn.TILE_LAYOUT,
+    device=device,
+    memory_config=dram_memory_config,
+)
 
-    io_tensors = [input_tensor, output_tensor]
+output_tensor = ttnn.allocate_tensor_on_device(
+    ttnn.Shape(shape),
+    ttnn.bfloat16,
+    ttnn.TILE_LAYOUT,
+    device,
+    dram_memory_config,
+)
 
-    # Define Custom Generic Op
-    eltwise_exp_op = EltwiseSFPUPyKernelOp()
+io_tensors = [input_tensor, output_tensor]
 
-    # Run tests against the golden "exp" op.
-    output = eltwise_exp_op(input_tensor, output_tensor)
-    golden = ttnn.exp(input_tensor)
+# Define Custom Generic Op
+eltwise_exp_op = EltwiseSFPUPyKernelOp()
 
-    torch_golden = ttnn.to_torch(golden)
-    torch_output = ttnn.to_torch(output)
+# Run tests against the golden "exp" op.
+output = eltwise_exp_op(input_tensor, output_tensor)
+golden = ttnn.exp(input_tensor)
 
-    print(f"input_tensor: {input_tensor}")
-    print(f"torch_golden: {torch_golden}")
-    print(f"torch_output: {torch_output}")
+torch_golden = ttnn.to_torch(golden)
+torch_output = ttnn.to_torch(output)
 
-    matching = torch.allclose(torch_golden, torch_output)
-    print(f"Tensors are matching: {matching}")
-    assert matching
+print(f"input_tensor: {input_tensor}")
+print(f"torch_golden: {torch_golden}")
+print(f"torch_output: {torch_output}")
 
-
-if __name__ == "__main__":
-    device = ttnn.open_device(device_id=0)
-    main(device)
-    ttnn.close_device(device)
+matching = torch.allclose(torch_golden, torch_output)
+print(f"Tensors are matching: {matching}")
+assert matching

@@ -13,10 +13,10 @@ from pykernel.types import *
 def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     src0_addr = get_arg_val(int, 0)
     src1_addr = get_arg_val(int, 1)
     src0_bank_id = get_arg_val(int, 2)

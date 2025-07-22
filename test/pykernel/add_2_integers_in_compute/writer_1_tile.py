@@ -13,8 +13,8 @@ from pykernel.types import *
 def write_1_tile(cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
-    # CHECK: {{.*}}ttkernel.get_arg_val{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     dst_addr = get_arg_val(int, 0)
     dst_bank_id = get_arg_val(int, 0)
 

@@ -85,7 +85,10 @@ private:
   std::atomic<bool> retain;
   std::atomic<uint64_t> version;
 
-  static uint64_t getLatestVersion();
+  static std::atomic<uint64_t> getLatestVersion() {
+    static std::atomic<uint64_t> latestVersion{0};
+    return latestVersion++;
+  }
 };
 
 struct LayoutDesc {
@@ -133,10 +136,6 @@ public:
       const ::tt::target::ttnn::TensorRef *tensorRef) const;
   ::ttnn::Tensor &
   getTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
-
-  std::pair<TensorPtrMapIterator, bool>
-  insertRuntimeTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
-                                 const ::tt::runtime::Tensor &runtimeTensor);
 
   std::pair<TensorPtrMapIterator, bool>
   insertTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,

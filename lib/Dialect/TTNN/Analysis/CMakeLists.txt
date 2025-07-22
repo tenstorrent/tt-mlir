@@ -1,12 +1,10 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
+        AllPossibleLayoutsAnalysis.cpp
         BFInterleavedPolicy.cpp
-        Conv2dConfigSearchSpace.cpp
         DFShardingPolicy.cpp
         GreedyL1InterleavedPolicy.cpp
         L1ChainConfig.cpp
-        LegalOpConfigAnalysis.cpp
-        LegalOpLayoutAnalysis.cpp
-        LegalTensorLayoutAnalysis.cpp
+        LegalLayoutAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         ScalarDataTypeAnalysis.cpp

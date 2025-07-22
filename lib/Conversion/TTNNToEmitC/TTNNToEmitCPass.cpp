@@ -5,7 +5,6 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -117,13 +116,9 @@ struct ConvertTTNNToEmitCPass
       //
       populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
           patterns, typeConverter);
-      // Disallow arg attrs on func op
-      //
       target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
         return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-               typeConverter.isLegal(&op.getBody()) &&
-               (!op.getArgAttrs().has_value() ||
-                op.getArgAttrs().value().empty());
+               typeConverter.isLegal(&op.getBody());
       });
       populateReturnOpTypeConversionPattern(patterns, typeConverter);
       target.addDynamicallyLegalOp<func::ReturnOp>(

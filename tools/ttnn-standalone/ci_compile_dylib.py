@@ -49,9 +49,8 @@ def run_cmake_setup(args):
         standalone_build_dir,
         "-S",
         standalone_source_dir,
-        f"-DCMAKE_BUILD_TYPE={args.build_type}",
-        f"-DCMAKE_C_COMPILER={os.environ.get('CC', 'clang')}",
-        f"-DCMAKE_CXX_COMPILER={os.environ.get('CXX', 'clang++')}",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CXX_COMPILER=clang++",
     ]
 
     if args.metal_src_dir:
@@ -102,25 +101,14 @@ def compile_shared_object(cpp_file_path, output_dir, args):
     #
     standalone_source_dir = get_standalone_dir()
     standalone_build_dir = os.path.join(standalone_source_dir, "build")
-    source_cpp_path = os.path.join(standalone_source_dir, f"ttnn-{args.mode}.cpp")
+    source_cpp_path = os.path.join(standalone_source_dir, "ttnn-dylib.cpp")
     ttnn_precompiled_header_path = os.path.join(
         standalone_source_dir, "ttnn-precompiled.hpp"
     )
-    compiled_bin_path = os.path.join(
-        standalone_build_dir,
-        {
-            "dylib": "libttnn-dylib.so",
-            "standalone": "ttnn-standalone",
-        }[args.mode],
-    )
-
-    extension = {
-        "dylib": ".so",
-        "standalone": ".exe",
-    }[args.mode]
+    compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
     # Determine output .so path
-    output_file_name = cpp_base_name + extension
+    output_file_name = cpp_base_name + ".so"
     destination_path = os.path.join(output_dir, output_file_name)
 
     # If the build is run in incremental mode, check if rebuild is needed by comparing modification times
@@ -143,8 +131,8 @@ def compile_shared_object(cpp_file_path, output_dir, args):
         run_cmake_setup(args)
 
         # Remove previous .so if exists
-        if os.path.exists(compiled_bin_path):
-            os.remove(compiled_bin_path)
+        if os.path.exists(compiled_so_path):
+            os.remove(compiled_so_path)
 
         # Run build
         #
@@ -154,7 +142,7 @@ def compile_shared_object(cpp_file_path, output_dir, args):
             "--build",
             standalone_build_dir,
             "--",
-            f"ttnn-{args.mode}",
+            "ttnn-dylib",
         ]
         subprocess.run(
             build_command,
@@ -166,13 +154,13 @@ def compile_shared_object(cpp_file_path, output_dir, args):
         print(f"  Build finished successfully!")
 
         # Confirm .so exists
-        if not os.path.isfile(compiled_bin_path):
-            print(f"Error: Compiled file '{compiled_bin_path}' not found.")
+        if not os.path.isfile(compiled_so_path):
+            print(f"Error: Compiled file '{compiled_so_path}' not found.")
             sys.exit(1)
 
         # Copy the compiled .so
         #
-        shutil.copy2(compiled_bin_path, destination_path)
+        shutil.copy2(compiled_so_path, destination_path)
         print(f"  Successfully copied compiled file to {destination_path}.")
     except subprocess.CalledProcessError as e:
         print(f"  Error during build process: {e}")
@@ -200,33 +188,12 @@ def parse_arguments():
         help="Specify a custom build directory instead of the default 'build' directory",
     )
     group.add_argument(
-        "--dir",
-        dest="dir",
-        type=str,
-        default=None,
-        metavar="DIR",
-        help="Specify a directory filled with cpp sources for compilation",
-    )
-    group.add_argument(
         "--file",
         dest="file",
         type=str,
         default=None,
         metavar="FILE",
         help="Specify a single cpp file for compilation",
-    )
-    parser.add_argument(
-        "--build-type",
-        type=str,
-        default="Release",
-        help="Specify a custom build type for CMAKE_BUILD_TYPE",
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="dylib",
-        choices=["dylib", "standalone"],
-        help="Compile dylib or standalone binaries",
     )
     parser.add_argument(
         "-i",
@@ -256,8 +223,7 @@ def parse_arguments():
 
 def main():
     args = parse_arguments()
-    build_dir = args.build_dir if args.build_dir is not None else args.dir
-    needs_test_path = args.dir is None
+    build_dir = args.build_dir
     file = args.file
 
     # Enumerate files for compilation
@@ -282,7 +248,7 @@ def main():
             build_dir = os.path.join(os.environ["TT_MLIR_HOME"], "build")
             print(f"Building tt-mlir tests in {build_dir}")
 
-        test_path = get_emitc_tests_path(build_dir) if needs_test_path else build_dir
+        test_path = get_emitc_tests_path(build_dir)
 
         if not os.path.isdir(test_path):
             print(f"Error: Test path directory '{test_path}' does not exist.")

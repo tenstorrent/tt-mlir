@@ -217,7 +217,7 @@ class Perf:
         if not hasattr(self, "binary"):
             # load from Capsule instead. only TTNN Path is supported for now
             bin = Binary(self.logger, self.file_manager, "", self["--capsule"])
-            if not bin.check_version(ignore=self["--ignore-version"]):
+            if not bin.check_version():
                 self.logger.warning(
                     "Flatbuffer version not present, are you sure that the binary is valid? - Skipped"
                 )
@@ -385,6 +385,12 @@ class Perf:
                         tracy_capture_tool_command, shell=True
                     )
 
+                    if self["--benchmark"]:
+                        self["--loops"] = 2
+                        self["--enable-program-cache"] = True
+                        self["--disable-golden"] = True
+                        self["--program-index"] = 0
+
                     command_options = f"--enable-perf-trace --program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
                     if self["--memory"]:
@@ -411,12 +417,6 @@ class Perf:
                         command_options += (
                             f" --dump-device-rate {self['--dump-device-rate']} "
                         )
-
-                    if self["--benchmark"]:
-                        command_options += " --benchmark "
-
-                    if self["--ignore-version"]:
-                        command_options += " --ignore-version "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (

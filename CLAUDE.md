@@ -22,8 +22,6 @@ targets tt-metal.
 
 
 # Testing
-- `source env/activate`: Activates the project's virtual environment.  Run this
-  command before running any other commands.
 - `cmake --build ${BUILD_DIR} --target check-ttmlir`: Runs compiler tests.
 - `llvm-lit test/ttmlir/.../*.mlir`: Runs LLVM lit driven compiler tests.
 - `pytest test/python`: Runs Python driven compiler tests and generates flatbuffers.

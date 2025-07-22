@@ -79,21 +79,6 @@ def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "i
     let description = "InterleavedAddrGenFast type in TTKernel dialect";
 }
 
-def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
-  let summary = "TensorAccessorArgs type";
-  let description = "TensorAccessor args type that stores compile + runtime information";
-}
-
-def TTKernel_TensorAccessor : TTKernel_Type<"TensorAccessor", "TensorAccessor"> {
-  let summary = "TensorAccessor type";
-  let description = "Accessor that encapsulates logic to access tensor information";
-}
-
-def TTKernel_TensorAccessorPageMapping : TTKernel_Type<"TensorAccessorPageMapping", "PageMapping"> {
-  let summary = "TensorAccessor PageMapping struct";
-  let description = "TensorAccessor struct that holds bank_id and bank_page_offset";
-}
-
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
     let summary = "TTKernel compute data format type";
     let description = "Data format type in TTKernel dialect";

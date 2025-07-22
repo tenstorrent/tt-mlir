@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,1" --stablehlo-to-ttir-pipeline %s | \
+// RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,1" --stablehlo-to-ttir-pipeline %s | \
 // RUN:     ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,1" > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 

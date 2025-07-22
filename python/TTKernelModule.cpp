@@ -76,17 +76,6 @@ void populateTTKernelModule(nb::module_ &m) {
   tt_type_class<tt::ttkernel::DataFormatType>(m, "DataFormatType")
       .def_static("get", &ttmlirTTKernelDataFormatTypeGet);
 
-  tt_type_class<tt::ttkernel::TensorAccessorArgsType>(m,
-                                                      "TensorAccessorArgsType")
-      .def_static("get", &ttmlirTTKernelTensorAccessorArgsTypeGet);
-
-  tt_type_class<tt::ttkernel::TensorAccessorType>(m, "TensorAccessorType")
-      .def_static("get", &ttmlirTTKernelTensorAccessorTypeGet);
-
-  tt_type_class<tt::ttkernel::TensorAccessorPageMappingType>(
-      m, "TensorAccessorPageMappingType")
-      .def_static("get", &ttmlirTTKernelTensorAccessorPageMappingTypeGet);
-
   tt_attribute_class<tt::ttkernel::ArgAttr>(m, "ArgAttr")
       .def_static(
           "get",
