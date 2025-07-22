@@ -82,7 +82,9 @@ runs:
 
     - name: Install chisel
       shell: bash
-      run: cmake --build ${{ inputs.build-output-dir }} -- chisel
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- chisel
 
     - name: Compile dylibs for EmitC
       shell: bash
