@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <cstdint>

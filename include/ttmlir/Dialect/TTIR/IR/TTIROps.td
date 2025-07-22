@@ -2005,6 +2005,7 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
 
       Mathematical definition: maximum(x, y) = max(x, y)
     }];
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {

@@ -22,6 +22,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
@@ -4500,4 +4502,77 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       getOperation(),
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
+}
+
+//===----------------------------------------------------------------------===//
+// MaximumOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Pattern to transform max(input, 0) into relu(input)
+struct MaximumToReluPattern
+    : public mlir::OpRewritePattern<mlir::tt::ttir::MaximumOp> {
+  using mlir::OpRewritePattern<mlir::tt::ttir::MaximumOp>::OpRewritePattern;
+
+  llvm::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::MaximumOp maximumOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    // Helper lambda to check if a value is a zero constant
+    auto isZeroConstant = [](mlir::Value operand) -> bool {
+      // Check for ttir.full with zero fill_value
+      if (auto fullOp = operand.getDefiningOp<mlir::tt::ttir::FullOp>()) {
+        auto fillValue = fullOp.getFillValue();
+        if (auto fAttr = llvm::dyn_cast<mlir::FloatAttr>(fillValue)) {
+          return fAttr.getValueAsDouble() == 0.0;
+        } else if (auto iAttr = llvm::dyn_cast<mlir::IntegerAttr>(fillValue)) {
+          return iAttr.getInt() == 0;
+        }
+      }
+
+      // Check for traditional constant operations
+      if (auto constOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
+        auto attr = constOp.getValue();
+        if (auto denseAttr = llvm::dyn_cast<mlir::DenseElementsAttr>(attr)) {
+          if (denseAttr.isSplat()) {
+            if (auto fType = llvm::dyn_cast<mlir::FloatType>(
+                    denseAttr.getElementType())) {
+              llvm::APFloat splatValue =
+                  denseAttr.getSplatValue<llvm::APFloat>();
+              return splatValue.isZero();
+            } else if (auto iType = llvm::dyn_cast<mlir::IntegerType>(
+                           denseAttr.getElementType())) {
+              llvm::APInt splatValue = denseAttr.getSplatValue<llvm::APInt>();
+              return splatValue.isZero();
+            }
+          }
+        }
+      }
+      return false;
+    };
+
+    // Check if the right operand is zero: max(input, 0) -> relu(input)
+    if (isZeroConstant(maximumOp.getRhs())) {
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReluOp>(
+          maximumOp, maximumOp.getResult().getType(), maximumOp.getLhs(),
+          maximumOp.getOperand(2));
+      return llvm::success();
+    }
+
+    // Check if the left operand is zero: max(0, input) -> relu(input)
+    if (isZeroConstant(maximumOp.getLhs())) {
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReluOp>(
+          maximumOp, maximumOp.getResult().getType(), maximumOp.getRhs(),
+          maximumOp.getOperand(2));
+      return llvm::success();
+    }
+
+    return llvm::failure();
+  }
+};
+} // namespace
+
+// MaximumOp canonicalization patterns
+void mlir::tt::ttir::MaximumOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<MaximumToReluPattern>(context);
 }
