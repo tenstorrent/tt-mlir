@@ -15,6 +15,7 @@ from enum import Enum, auto
 import re
 from .ccl_golden import *
 from .ops import TTIRBuilderOps
+from sharded_tensor import ShardedTensor
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -90,6 +91,9 @@ def get_loc_from_str(loc: Union[str, Location]) -> Location:
         return loc
 
 
+TensorLike = Union[torch.Tensor, ShardedTensor]
+
+
 @dataclass(frozen=True)
 class Golden:
     """
@@ -100,7 +104,7 @@ class Golden:
     should generate same outputs.
     """
 
-    tensor: torch.Tensor
+    tensor: TensorLike
 
     # `torch.manual_seed` arg with which tensor was generated. Valid (not None)
     # only for randomly generated tensors, for example args of MLIR function
@@ -114,7 +118,7 @@ class Golden:
         return s
 
     def contiguous(self) -> Golden:
-        return Golden(self.tensor.contiguous())
+        return Golden(self.tensor.contiguous(), self.seed)
 
 
 @dataclass
