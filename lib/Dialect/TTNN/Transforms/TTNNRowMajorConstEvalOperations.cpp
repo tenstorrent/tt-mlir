@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -51,9 +52,11 @@ struct ElementTypeConverter : public mlir::TypeConverter {
     auto encoding =
         mlir::cast<ttnn::TTNNLayoutAttr>(rankedResultType.getEncoding());
     Layout layout = encoding.getLayout();
-    return builder.create<ttnn::ToLayoutOp>(loc, resultType, inputs[0], layout,
+    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(loc, resultType, inputs[0], layout,
                                             /*dtype=*/nullptr,
                                             /*memory_config=*/nullptr);
+    utils::moveDeviceOpToTopOfBlock(toLayoutOp);
+    return toLayoutOp;
   }
 };
 
@@ -78,6 +81,7 @@ public:
       layoutUpdatableOp.updateLayoutAttribute(ttnn::LayoutAttr::get(
         newOp->getContext(), ttnn::Layout::RowMajor));
     }
+
     rewriter.replaceOp(op, newOp);
     return success();
   }
