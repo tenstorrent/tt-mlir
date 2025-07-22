@@ -80,6 +80,10 @@ runs:
         cmake --build ${{ inputs.build-output-dir }} -- ttrt
         cmake --build ${{ inputs.build-output-dir }} -- compile-ttmlir-tests
 
+    - name: Install chisel
+      shell: bash
+      run: cmake --build ${{ inputs.build-output-dir }} -- chisel
+
     - name: Compile dylibs for EmitC
       shell: bash
       if: inputs.enable-emitc == 'ON'

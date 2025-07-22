@@ -204,6 +204,7 @@ jobs:
           {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
           {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
           {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
+          {runs-on: n150,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "pytest",          path: "runtime/tools/chisel"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
           {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
         ]

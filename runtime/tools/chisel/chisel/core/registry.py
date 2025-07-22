@@ -25,19 +25,20 @@ from ..utils.location import hash_location, UNKNOWN_LOCATION
 class OpGroup:
     """
     Groups related operations from GOLDEN and DEVICE execution contexts that share the same location.
-    
+
     This class maintains a collection of operations from both execution contexts that are considered
     equivalent based on their source locations. In cases where GOLDEN operations don't have matching
     DEVICE operations (e.g., due to operation fusion), they are merged into the next group.
-    
+
     Args:
         id: Unique identifier for the operation group
         skip_group: If True, this group should be skipped during execution
-        
+
     Attributes:
         ops (Dict[ExecutionType, List[Operation]]): Maps execution types to their operations
         skip_group (bool): Flag indicating if this group should be skipped
     """
+
     def __init__(self, id, skip_group=False):
         """Initialize a new operation group with the given ID and skip status."""
         self.id = id
@@ -75,21 +76,26 @@ class OpGroup:
 class Registry:
     """
     Central registry for managing and correlating MLIR operations between execution contexts.
-    
+
     This class maintains the relationship between operations in the GOLDEN (reference) and
     DEVICE (target) execution contexts. It provides methods to:
     - Load and group operations from both contexts
     - Track tensor locations and their relationships
     - Retrieve operation groups and their inputs/outputs
     - Manage operation execution and comparison
-    
+
     Args:
         golden_module: The IRModule containing golden/reference operations
         device_module: The IRModule containing device/target operations
         should_skip_op: Callable that determines if an operation should be skipped
     """
-    def __init__(self, golden_module: IRModule, device_module: IRModule, 
-                should_skip_op: Callable[[Operation], bool] = lambda op: False) -> None:
+
+    def __init__(
+        self,
+        golden_module: IRModule,
+        device_module: IRModule,
+        should_skip_op: Callable[[Operation], bool] = lambda op: False,
+    ) -> None:
         # TODO: check what is actual type of tensors, it is not Operation
         self.tensors: Dict[
             Tuple[int, int], Dict[ExecutionType, Operation]
@@ -123,7 +129,7 @@ class Registry:
     def load_all_ops(self) -> None:
         """
         Load and process all operations from both GOLDEN and DEVICE modules.
-        
+
         This method iterates through all operations in both execution contexts,
         groups them by location, and builds the tensor tracking infrastructure.
         It should be called after initialization to prepare the registry for use.
@@ -144,7 +150,7 @@ class Registry:
     # def init_ops_until(self, location: Tuple[int, int]):
     #     """
     #     Initialize ops until location.
-        
+
     #     """
     #     max_location = UNKNOWN_LOCATION
     #     last_loc_line = -1
@@ -163,8 +169,6 @@ class Registry:
     #             if i == last_loc_line:
     #                 break
 
-        
-
     def should_compare(
         self,
         op: Operation,
@@ -180,35 +184,39 @@ class Registry:
     def add_tensor(self, tensor: Operation, kind: ExecutionType) -> None:
         """
         Register a tensor in the registry and track its location.
-        
+
         Args:
             tensor: The tensor operation to register
             kind: The execution context (GOLDEN or DEVICE)
         """
         location_hash = hash_location(tensor.location)
         # Map tensor name to its location
-        self.tensor_to_location[kind][tensor.get_name(self.modules[kind].get_asm_state())] = location_hash
+        self.tensor_to_location[kind][
+            tensor.get_name(self.modules[kind].get_asm_state())
+        ] = location_hash
         # Store tensor by its location
         self.tensors[location_hash][kind] = tensor
 
     def get_tensor(self, location, kind: ExecutionType):
         return self.tensors[location][kind]
 
-    def find_op(self, location: Tuple[int, int], asm: str, execution_type: ExecutionType) -> Operation | None:
+    def find_op(
+        self, location: Tuple[int, int], asm: str, execution_type: ExecutionType
+    ) -> Operation | None:
         """
         Find an operation by its location and assembly representation.
-        
+
         Args:
             location: The location hash to search in
             asm: The assembly representation of the operation to find
             execution_type: The execution context to search in
-            
+
         Returns:
             The matching operation, or None if not found
         """
         if location not in self.op_groups:
             return None
-            
+
         # Search through all operations in the group for a matching assembly string
         for op in self.op_groups[location].ops[execution_type]:
             if op.get_asm(enable_debug_info=True) == asm:
@@ -234,14 +242,14 @@ class Registry:
     ) -> List[Operation]:
         """
         Get the input tensors for an operation group.
-        
+
         This method identifies the input tensors that are consumed but not produced
         within the same operation group.
-        
+
         Args:
             group_id: The ID of the operation group
             execution_type: The execution context to get inputs for
-            
+
         Returns:
             List of input tensor operations that are external to the group
         """
@@ -249,7 +257,7 @@ class Registry:
         # First collect all input tensors from all operations in the group
         for op in self.op_groups[group_id][execution_type]:
             tensors.update([t for t in get_op_inputs(op)])
-            
+
         # Remove any tensors that are produced within the same group
         for op in self.op_groups[group_id][execution_type]:
             outputs = get_op_outputs(op)
@@ -259,7 +267,7 @@ class Registry:
                 if t not in tensors:
                     continue
                 tensors.remove(t)
-                
+
         return list(tensors)
 
     @cache
@@ -273,12 +281,14 @@ class Registry:
             return None
         return self.op_groups[group_id].get_last_op(execution_type, with_output)
 
-    def _add_op(self, op: Operation, execution_type: ExecutionType, should_skip: bool = False):
+    def _add_op(
+        self, op: Operation, execution_type: ExecutionType, should_skip: bool = False
+    ):
         location_hash = hash_location(op.location)
         # Create a new operation group if one doesn't exist for this location
         if location_hash not in self.op_groups:
             self.op_groups[location_hash] = OpGroup(location_hash)
-        
+
         # Add the operation to the appropriate group and execution context
         self.op_groups[location_hash].add_op(op, execution_type)
         if should_skip:
@@ -308,7 +318,6 @@ class Registry:
             if len(next_group.ops[ExecutionType.GOLDEN]) == 0:
                 idx += 1
                 continue
-
 
             next_group.ops[ExecutionType.GOLDEN] = (
                 group.ops[ExecutionType.GOLDEN] + next_group.ops[ExecutionType.GOLDEN]
