@@ -40,25 +40,34 @@ protected:
     assert(!targetGridShape.empty());
   }
 
-  // Layout information for a single value; useful because we need a phased
-  // approach to compute the optimal grid between all inputs+outputs.
-  struct LayoutInfo {
-    ttcore::MetalLayoutAttr layout;
-    Type elementType;
-    llvm::SmallVector<int64_t> tileShape;
-    llvm::SmallVector<int64_t> physicalShape;
-    ttcore::MemorySpace memorySpace;
-  };
+  // Compute optimal grid shape that works for all provided layout infos.
+  llvm::SmallVector<int64_t>
+  computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
+    llvm::SmallVector<int64_t> grid;
 
-  // Compute layout information for a single value with a 1-filled grid.
-  LayoutInfo
-  computeLayoutInfo(Value value, ttcore::MemorySpace memSpace, bool tiled,
-                    mlir::ConversionPatternRewriter &rewriter) const {
-    mlir::RankedTensorType tensorType =
-        mlir::cast<mlir::RankedTensorType>(value.getType());
-    llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+    assert(physicalShape.size() == targetGridShape.size());
 
-    // Create tile element type if needed.
+    for (size_t i = 0; i < physicalShape.size(); ++i) {
+      const int64_t dim = physicalShape[i];
+      // Find largest grid dimension that divides evenly
+      for (int64_t g = targetGridShape[i]; g > 0; g--) {
+        if (dim % g == 0) {
+          grid.push_back(g);
+          break;
+        }
+      }
+    }
+
+    return grid;
+  }
+
+  // Create a ToLayout op for a value using the provided layout info and grid.
+  Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
+                              bool tiled,
+                              mlir::ConversionPatternRewriter &rewriter) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    auto logicalShape = tensorType.getShape();
+
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
     if (tiled) {
@@ -67,118 +76,53 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, targetGridShape,
-        ttcore::OOBVal::Undef, memSpace);
+    auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
+                                               logicalShape, targetGridShape,
+                                               ttcore::OOBVal::Undef, memSpace);
 
-    // Get physical shape pre-sharding.
-    auto physicalShape = layout.getPhysicalShape(tileShape);
+    // Get raw, unsharded physical shape.
+    llvm::SmallVector<int64_t> unshardedShape =
+        layout.getPhysicalShape(tileShape);
 
-    return {layout, elementType, tileShape, physicalShape, memSpace};
-  }
+    // Calculate optimal grid for given physical shape.
+    llvm::SmallVector<int64_t> optimalGrid = computeOptimalGrid(unshardedShape);
 
-  // Compute optimal grid shape that works for all provided layout infos.
-  llvm::SmallVector<int64_t>
-  computeOptimalGrid(const llvm::SmallVector<LayoutInfo> &layoutInfos) const {
-    llvm::SmallVector<int64_t> gridShape(targetGridShape.size(), 1);
+    // Get optimal sharded, on-device shape.
+    llvm::SmallVector<int64_t> shardedShape =
+        layout.getDeviceShape(optimalGrid, tileShape);
 
-    for (size_t dim = 0; dim < targetGridShape.size(); ++dim) {
-      int64_t minShard = std::numeric_limits<int64_t>::max();
-      const int64_t maxGridDim = targetGridShape[dim];
+    auto resultType =
+        mlir::RankedTensorType::get(shardedShape, elementType, layout);
 
-      // Find minimum shard size across all values.
-      for (const auto &info : layoutInfos) {
-        if (dim < info.physicalShape.size()) {
-          minShard = std::min(minShard, info.physicalShape[dim]);
-        }
-      }
-
-      // Find largest grid that works for all values.
-      for (int64_t g = std::min(maxGridDim, minShard); g > 0; g--) {
-        bool validForAll = true;
-
-        for (const auto &info : layoutInfos) {
-          if (dim < info.physicalShape.size()) {
-            if (info.physicalShape[dim] % g != 0) {
-              validForAll = false;
-              break;
-            }
-          }
-        }
-
-        if (validForAll) {
-          gridShape[dim] = g;
-          break;
-        }
-      }
-    }
-
-    return gridShape;
-  }
-
-  // Create a ToLayout op for a value using the provided layout info and grid.
-  Value createToLayoutOp(Value value, const LayoutInfo &info,
-                         const llvm::SmallVector<int64_t> &gridShape,
-                         mlir::ConversionPatternRewriter &rewriter) const {
-    // Calculate true physical shape with optimal grid.
-    auto physicalShape = info.layout.getDeviceShape(gridShape, info.tileShape);
-
-    mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
-        physicalShape, info.elementType, info.layout);
-
-    auto output =
-        rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
-    return rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
+    auto emptyOp =
+        rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), resultType);
+    return rewriter
+        .create<tt::ttir::ToLayoutOp>(value.getLoc(), value, emptyOp)
         ->getResult(0);
   }
 
   // Insert toLayout ops for a genericOp's operands and results; this includes
   // sharding, tilizing, etc. This func computes appropriate optimal grid shape
   // as well.
-  std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperandsAndResults(mlir::ConversionPatternRewriter &rewriter,
-                             std::array<mlir::SmallVector<Value>, 2> operands,
-                             bool tiled) const {
-
-    // First pass: canonicalize all values with tilizing etc. but with 1-filled
-    // grid.
-    llvm::SmallVector<LayoutInfo> layoutInfos;
-
-    // Collect layout info for operands.
-    for (Value operand : operands[0]) {
-      layoutInfos.push_back(
-          computeLayoutInfo(operand, memorySpaces[0], tiled, rewriter));
-    }
-
-    // Collect layout info for results.
-    for (Value result : operands[1]) {
-      layoutInfos.push_back(
-          computeLayoutInfo(result, memorySpaces[1], tiled, rewriter));
-    }
-
-    // Now we can compute optimal grid between all values based on 1-filled
-    // grids.
-    auto gridShape = computeOptimalGrid(layoutInfos);
-
-    // Second pass: create the actual operands with the shared optimal grid, and
-    // emit ToLayout ops.
+  std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
+      mlir::ConversionPatternRewriter &rewriter,
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
+      bool tiled) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
-    size_t layoutIdx = 0;
-    for (Value operand : operands[0]) {
-      result[0].push_back(createToLayoutOp(operand, layoutInfos[layoutIdx++],
-                                           gridShape, rewriter));
+    for (Value operand : operandsAndResults[0]) {
+      result[0].push_back(
+          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
     }
-
-    for (Value resultValue : operands[1]) {
-      result[1].push_back(createToLayoutOp(
-          resultValue, layoutInfos[layoutIdx++], gridShape, rewriter));
+    for (Value operand : operandsAndResults[1]) {
+      result[1].push_back(
+          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
     }
 
     return result;
   }
 
-  // Helper to apply alignments
+  // Helper to apply alignments.
   llvm::SmallVector<int64_t>
   applyAlignments(llvm::ArrayRef<int64_t> shape,
                   llvm::ArrayRef<int64_t> alignments) const {
