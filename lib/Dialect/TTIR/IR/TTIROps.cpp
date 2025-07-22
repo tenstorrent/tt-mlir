@@ -75,23 +75,24 @@ MemRefType getBufferType(Type type, bool isView) {
 //===----------------------------------------------------------------------===//
 
 bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
-    mlir::ArrayRef<mlir::Value> quantizedOperands) {
+    mlir::ArrayRef<mlir::Value> transformedOperands) {
   // If the operands are both quantized but the types do not align, return
   // false.
-  return mlir::tt::ttir::utils::areQuantizationParamsAligned(quantizedOperands);
+  return mlir::tt::ttir::utils::areQuantizationParamsAligned(
+      transformedOperands);
 }
 
 mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> quantizedOperands,
+    mlir::ArrayRef<mlir::Value> transformedOperands,
     mlir::ValueRange outputOperands) {
   // two cases:
   // one operand is quantized and the other is not : apply quantization and
   // proceed to case two: both operands are quantized : supported, return
   // quantized add.
-  assert(quantizedOperands.size() == 2 && "AddOp should have two operands");
-  auto lhs = quantizedOperands[0];
-  auto rhs = quantizedOperands[1];
+  assert(transformedOperands.size() == 2 && "AddOp should have two operands");
+  auto lhs = transformedOperands[0];
+  auto rhs = transformedOperands[1];
 
   RankedTensorType lhsType = mlir::cast<RankedTensorType>(lhs.getType());
   RankedTensorType rhsType = mlir::cast<RankedTensorType>(rhs.getType());
@@ -1088,7 +1089,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // - A pointer to the newly created quantized PoolingOp.
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> quantizedOperands,
+    mlir::ArrayRef<mlir::Value> transformedOperands,
     mlir::ValueRange outputOperands) {
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
@@ -1096,7 +1097,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   }
   SmallVector<Value> updatedOutputs;
   SmallVector<Type> resultTypes;
-  for (auto [in, out] : llvm::zip(quantizedOperands, outputOperands)) {
+  for (auto [in, out] : llvm::zip(transformedOperands, outputOperands)) {
     // Can only commute in the per tensor quantized case.
     if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
             in.getType())) {
@@ -1118,7 +1119,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     }
   }
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), resultTypes, quantizedOperands, updatedOutputs,
+      getLoc(), resultTypes, transformedOperands, updatedOutputs,
       getPoolingMethod(), getWindowDimensions(), getWindowStrides(),
       getBaseDilations(), getWindowDilations(), getPadding());
   return newOp.getOperation();
