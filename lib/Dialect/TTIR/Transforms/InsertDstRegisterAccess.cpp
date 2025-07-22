@@ -246,8 +246,8 @@ public:
   }
 
   static BlockArgument lookThroughSubview(Value memref) {
-    while (auto subview =
-               mlir::dyn_cast<memref::SubViewOp>(memref.getDefiningOp())) {
+    while (auto subview = mlir::dyn_cast_or_null<memref::SubViewOp>(
+               memref.getDefiningOp())) {
       memref = subview.getSource();
     }
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(memref)) {
