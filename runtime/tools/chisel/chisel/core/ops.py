@@ -15,14 +15,14 @@ Key Components:
 - get_op_inputs: Extracts input tensors from operations
 - IRModule: A wrapper around MLIR Module with enhanced functionality
 """
-from typing import List, Dict, Tuple
 from functools import cache
+from typing import Dict, List, Tuple
 
-from ttmlir.ir import Operation, WalkOrder, WalkResult, Context, Module, AsmState
 from ttmlir.dialects import func
+from ttmlir.ir import AsmState, Context, Module, Operation, WalkOrder, WalkResult
 
-from .enums import ExecutionType
 from ..utils.location import hash_location
+from .enums import ExecutionType
 
 
 @cache

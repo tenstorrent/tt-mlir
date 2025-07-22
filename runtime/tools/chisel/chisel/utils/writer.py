@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from typing import List, Dict, Any, Tuple
 import csv
+from typing import List
 
 from ttmlir.ir import Operation
 

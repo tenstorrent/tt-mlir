@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from setuptools import setup, find_packages
-import os
 from pathlib import Path
+
+from setuptools import setup
 
 # Read the contents of README file if it exists
 this_directory = Path(__file__).parent

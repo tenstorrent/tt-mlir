@@ -7,6 +7,7 @@ This file provides two utils functions to extract that info from MLIR Location c
 and from raw debug info string that is provided by MLIR runtime.
 """
 from typing import Tuple
+
 from ttmlir.ir import Location
 
 UNKNOWN_LOCATION = (-1, -1)

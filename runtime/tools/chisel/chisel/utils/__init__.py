@@ -6,5 +6,5 @@
 Utility modules for chisel operations.
 """
 
-from .location import hash_location, UNKNOWN_LOCATION
+from .location import UNKNOWN_LOCATION, hash_location
 from .writer import ReportWriter

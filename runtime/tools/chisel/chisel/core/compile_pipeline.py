@@ -1,17 +1,16 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from typing import Tuple
 from pathlib import Path
-from copy import copy
-from ttmlir.ir import Context, Module, Location
+from typing import Tuple
+
+from ttmlir.ir import Context, Module
 from ttmlir.passmanager import PassManager
-from ttmlir.passes import ttir_to_ttnn_backend_pipeline, ttnn_to_flatbuffer_file
 
 
 def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
     """Run ttir-to-ttir-decomposition using PassManager"""
-    with Context() as ctx:
+    with Context():
         module = Module.parseFile(str(module_path))
         pm = PassManager.parse(
             "builtin.module(ttir-implicit-broadcast-fold, ttir-to-ttir-decomposition,canonicalize)"

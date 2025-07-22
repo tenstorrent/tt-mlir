@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-import pytest
 from pathlib import Path
-from chisel.core.ops import IRModule
-from ttmlir.ir import Context
-from chisel.core.enums import ExecutionType
-from chisel.core.registry import Registry
+
+import pytest
 from chisel.core.compile_pipeline import chisel_pipeline
+from chisel.core.enums import ExecutionType
+from chisel.core.ops import IRModule
+from chisel.core.registry import Registry
 from chisel.utils.writer import ReportWriter
-from ttmlir.passes import ttnn_to_flatbuffer_file
+from ttmlir.ir import Context
 
 
 @pytest.mark.parametrize(

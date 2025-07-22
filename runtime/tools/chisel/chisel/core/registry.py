@@ -10,16 +10,15 @@ This module provides the OpGroup and Registry classes which are responsible for:
 - Managing operation groups and their inputs/outputs
 - Facilitating comparison between golden and device execution paths
 """
-from operator import __getitem__
 from collections import defaultdict
-from typing import Dict, Tuple, List, Callable
 from functools import cache
+from typing import Callable, Dict, List, Tuple
 
 from ttmlir.ir import Operation
 
-from .ops import IRModule, get_op_outputs, get_op_inputs
+from ..utils.location import hash_location
 from .enums import ExecutionType
-from ..utils.location import hash_location, UNKNOWN_LOCATION
+from .ops import IRModule, get_op_inputs, get_op_outputs
 
 
 class OpGroup:
@@ -135,8 +134,7 @@ class Registry:
         It should be called after initialization to prepare the registry for use.
         """
         for execution_type in [ExecutionType.GOLDEN, ExecutionType.DEVICE]:
-            module: IRModule = self.modules[execution_type]
-            for i, op in self.module_iters[execution_type]:
+            for _, op in self.module_iters[execution_type]:
                 self._add_op(op, execution_type, should_skip=self.should_skip(op))
                 # Track all tensor outputs from operations
                 for output in get_op_outputs(op):
