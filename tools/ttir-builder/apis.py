@@ -91,9 +91,6 @@ def get_loc_from_str(loc: Union[str, Location]) -> Location:
         return loc
 
 
-TensorLike = Union[torch.Tensor, ShardedTensor]
-
-
 @dataclass(frozen=True)
 class Golden:
     """

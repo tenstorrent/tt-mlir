@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import operator
 from functools import reduce
-from typing import Any, Iterable, Iterator, List, Tuple
+from typing import Any, Iterable, Iterator, List, Tuple, Union
 
 import torch
 
@@ -164,6 +164,9 @@ class ShardedTensor:
             stride *= extent
         return self._shards[idx]
 
+    def clone(self) -> ShardedTensor:
+        return ShardedTensor([t.clone() for t in self._shards], self._shard_shape)
+
     # ------------------------------------------------------------------
     # contiguous
     # ------------------------------------------------------------------
@@ -210,3 +213,6 @@ def _walk(*trees):
                 yield from _walk(v)
         else:
             yield tree
+
+
+TensorLike = Union[torch.Tensor, ShardedTensor]
