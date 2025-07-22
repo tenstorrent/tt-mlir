@@ -1098,7 +1098,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //     0,                                                                    # Device index
 //     0,                                                                    # Not Applicable
 //     global_page_index % num_dram_banks,                                   # Channel Idx
-//     (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address    # Byte Offset In Channel
+//     (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address  # Byte Offset In Channel
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
@@ -1125,7 +1125,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
     shardVolumeExpr = shardDim * shardVolumeExpr;
   }
 
-  // addr is an expression representing the address as-if the memory was completely flat 
+  // flatAddr is an expression representing the address as-if the memory was completely flat 
   mlir::AffineExpr flatAddr = getAffineDimExpr(workerMap.getNumDims(), context);
   mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
