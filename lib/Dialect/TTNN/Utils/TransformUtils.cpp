@@ -33,8 +33,8 @@ static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
 // operation.
 GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   Block *block = op->getBlock();
-  for (auto &op : block->getOperations()) {
-    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
+  for (auto &blockOp : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(blockOp)) {
       return deviceOp;
     }
   }
@@ -62,6 +62,19 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Block *block) {
       insertGetDeviceOp(rewriter, deviceAttr, parentOp->getLoc());
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp;
+}
+
+void moveDeviceOpToTopOfBlock(Operation *op) {
+  Block *block = op->getBlock();
+  for (auto &blockOp : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(blockOp)) {
+      // Move device op to the top of the block if it is not already there.
+      if (&blockOp != &block->front()) {
+        deviceOp->moveBefore(block, block->begin());
+      }
+      return;
+    }
+  }
 }
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
