@@ -186,6 +186,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
       .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
 
+  nb::enum_<::tt::runtime::FabricConfig>(m, "FabricConfig")
+      .value("DISABLED", ::tt::runtime::FabricConfig::DISABLED)
+      .value("FABRIC_1D", ::tt::runtime::FabricConfig::FABRIC_1D)
+      .value("FABRIC_1D_RING", ::tt::runtime::FabricConfig::FABRIC_1D_RING)
+      .value("FABRIC_2D", ::tt::runtime::FabricConfig::FABRIC_2D)
+      .value("FABRIC_2D_TORUS", ::tt::runtime::FabricConfig::FABRIC_2D_TORUS)
+      .value("FABRIC_2D_DYNAMIC",
+             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
+      .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
+
   nb::enum_<::tt::runtime::Arch>(m, "Arch")
       .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
       .value("WORMHOLE_B0", ::tt::runtime::Arch::WORMHOLE_B0)
@@ -284,6 +294,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("get_layout", &tt::runtime::getLayout, nb::arg("executable"),
         nb::arg("program_index"), nb::arg("input_index"),
         "Get the layout of the input tensor");
+  m.def("set_fabric_config", &tt::runtime::setFabricConfig, nb::arg("config"),
+        "Set the fabric config");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
