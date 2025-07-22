@@ -32,12 +32,11 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
-  TTIRNamedRewriterCommon(const ttir::TTIRToTTIRGenericOptions &options)
-      : memorySpaces{options.defaultInputMemSpace,
-                     options.defaultOutputMemSpace},
-        targetGridShape(options.overrideDeviceShape) {
-    // Note that at this point, options.overrideDeviceShape will be either
-    // user-provided override, overwritten with module's grid shape.
+  TTIRNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
+                          ttcore::MemorySpace defaultOutputMemSpace,
+                          const llvm::SmallVector<int64_t> &targetGridShape)
+      : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
+        targetGridShape(targetGridShape) {
     assert(!targetGridShape.empty());
   }
 
@@ -47,7 +46,7 @@ protected:
     ttcore::MetalLayoutAttr layout;
     Type elementType;
     llvm::SmallVector<int64_t> tileShape;
-    llvm::SmallVector<int64_t> shardShape;
+    llvm::SmallVector<int64_t> physicalShape;
     ttcore::MemorySpace memorySpace;
   };
 
@@ -72,20 +71,10 @@ protected:
         rewriter.getContext(), logicalShape, targetGridShape.size(),
         ttcore::OOBVal::Undef, memSpace);
 
-    // Get physical shape with 1x1 grid to extract shard shape.
-    llvm::SmallVector<int64_t> onesGrid(targetGridShape.size(), 1);
-    auto physicalWithOnesGrid = ttcore::MetalLayoutAttr::derivePhysicalShape(
-        logicalShape, onesGrid, tileShape, layout.getCollapsedIntervals(),
-        layout.getDimAlignments());
+    // Get physical shape pre-sharding.
+    auto physicalShape = layout.getPhysicalShape(tileShape);
 
-    // Extract shard shape (last gridRank dimensions).
-    llvm::SmallVector<int64_t> shardShape;
-    for (size_t j = targetGridShape.size(); j < physicalWithOnesGrid.size();
-         ++j) {
-      shardShape.push_back(physicalWithOnesGrid[j]);
-    }
-
-    return {layout, elementType, tileShape, shardShape, memSpace};
+    return {layout, elementType, tileShape, physicalShape, memSpace};
   }
 
   // Compute optimal grid shape that works for all provided layout infos.
@@ -99,8 +88,8 @@ protected:
 
       // Find minimum shard size across all values.
       for (const auto &info : layoutInfos) {
-        if (dim < info.shardShape.size()) {
-          minShard = std::min(minShard, info.shardShape[dim]);
+        if (dim < info.physicalShape.size()) {
+          minShard = std::min(minShard, info.physicalShape[dim]);
         }
       }
 
@@ -109,8 +98,8 @@ protected:
         bool validForAll = true;
 
         for (const auto &info : layoutInfos) {
-          if (dim < info.shardShape.size()) {
-            if (info.shardShape[dim] % g != 0) {
+          if (dim < info.physicalShape.size()) {
+            if (info.physicalShape[dim] % g != 0) {
               validForAll = false;
               break;
             }
@@ -132,9 +121,7 @@ protected:
                          const llvm::SmallVector<int64_t> &gridShape,
                          mlir::ConversionPatternRewriter &rewriter) const {
     // Calculate true physical shape with optimal grid.
-    auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
-        info.layout.getLogicalShape(), gridShape, info.tileShape,
-        info.layout.getCollapsedIntervals(), info.layout.getDimAlignments());
+    auto physicalShape = info.layout.getDeviceShape(gridShape, info.tileShape);
 
     mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
         physicalShape, info.elementType, info.layout);
@@ -310,9 +297,12 @@ class TTIRNamedElementwiseRewriter final
 public:
   TTIRNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const ttir::TTIRToTTIRGenericOptions &options)
+      ttcore::MemorySpace defaultInputMemSpace,
+      ttcore::MemorySpace defaultOutputMemSpace,
+      const llvm::SmallVector<int64_t> &targetGridShape)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options) {}
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
 
 private:
   LogicalResult
@@ -416,9 +406,12 @@ class TTIRNamedReductionRewriter final
 public:
   TTIRNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const ttir::TTIRToTTIRGenericOptions &options)
+      ttcore::MemorySpace defaultInputMemSpace,
+      ttcore::MemorySpace defaultOutputMemSpace,
+      const llvm::SmallVector<int64_t> &targetGridShape)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options) {}
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
 
 private:
   LogicalResult
@@ -643,9 +636,12 @@ class TTIRMatmulRewriter final
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                     const ttir::TTIRToTTIRGenericOptions &options)
+                     ttcore::MemorySpace defaultInputMemSpace,
+                     ttcore::MemorySpace defaultOutputMemSpace,
+                     const llvm::SmallVector<int64_t> &targetGridShape)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(options) {}
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
 
 private:
   LogicalResult
@@ -776,7 +772,9 @@ namespace mlir::tt {
 
 void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const ttir::TTIRToTTIRGenericOptions &options) {
+    ttcore::MemorySpace defaultInputMemSpace,
+    ttcore::MemorySpace defaultOutputMemSpace,
+    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -805,14 +803,14 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
-  >(typeConverter, ctx, options);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
 
   // Matmul.
-  if (options.useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, options);
+  if (useTileMatmul) {
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   }
   else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, options);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   }
   // clang-format on
 }

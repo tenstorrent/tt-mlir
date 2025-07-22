@@ -723,90 +723,41 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
   return resultShape;
 }
 
-// Takes various shape fields and returns the expected physical shape, which
-// should be the actual tensor shape.
-llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
-    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> gridShape,
-    ArrayRef<int64_t> tileShape, mlir::DenseIntElementsAttr collapseIntervals,
-    ArrayRef<int64_t> alignmentDims) {
-  llvm::SmallVector<int64_t> physicalShape;
-
-  // Apply collapse intervals to get collapsed logical shape.
-  llvm::SmallVector<int64_t> collapsedShape =
-      applyCollapseIntervalsAndAlignments(logicalShape, collapseIntervals,
-                                          alignmentDims);
-
-  // Add grid dimensions to physical shape.
-  physicalShape.append(gridShape.begin(), gridShape.end());
-
-  assert(collapsedShape.size() == gridShape.size() &&
-         "Grid rank must equalcollapsed tensor rank");
-
-  if (tileShape.empty()) {
-    // Without tiling, distribute dimensions across grid.
-    for (size_t i = 0; i < collapsedShape.size(); ++i) {
-      int64_t dim = collapsedShape[i];
-      if (i < gridShape.size()) {
-        assert(
-            dim % gridShape[i] == 0 &&
-            "Collapsed dimension must be evenly divisible by grid dimension");
-        physicalShape.push_back(dim / gridShape[i]);
-      } else {
-        physicalShape.push_back(dim);
-      }
-    }
-  } else {
-    // With tiling, distribute first and then tile.
-    assert(tileShape.size() == 2 &&
-           "Tile shape must have exactly 2 dimensions");
-
-    // Handle all but the last tileShape.size() dimensions.
-    size_t nonTiledDims = collapsedShape.size() - tileShape.size();
-    for (size_t i = 0; i < nonTiledDims; ++i) {
-      int64_t dim = collapsedShape[i];
-      if (i < gridShape.size()) {
-        assert(dim % gridShape[i] == 0);
-        physicalShape.push_back(dim / gridShape[i]);
-      } else {
-        physicalShape.push_back(dim);
-      }
-    }
-
-    // Handle tiled dimensions - convert to tile counts.
-    for (size_t i = 0; i < tileShape.size(); ++i) {
-      size_t collapsedIdx = nonTiledDims + i;
-      int64_t dim = collapsedShape[collapsedIdx];
-      int64_t tileDim = tileShape[i];
-
-      // First compute shard size.
-      int64_t shardDim = dim;
-      if (collapsedIdx < gridShape.size()) {
-        assert(dim % gridShape[collapsedIdx] == 0);
-        shardDim = dim / gridShape[collapsedIdx];
-      }
-
-      // Then tilize the shard.
-      const int64_t tileCount = (shardDim + tileDim - 1) / tileDim;
-      physicalShape.push_back(tileCount);
-    }
+llvm::SmallVector<int64_t>
+MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
+  llvm::SmallVector<int64_t> physicalShape =
+      applyCollapseIntervalsAndAlignments(
+          getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
+  if (!tileShape.empty()) {
+    assert(physicalShape.size() >= 2);
+    assert(tileShape.size() == 2);
+    assert(physicalShape[physicalShape.size() - 2] % tileShape[0] == 0);
+    physicalShape[physicalShape.size() - 2] /= tileShape[0];
+    assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
+    physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
-
   return physicalShape;
 }
 
-// Returns gridShape multiplied with shard shape, elementwise.
-// eg. gridShape = [2, 3], shardShape = [6, 4] -> [12, 12]
+// Takes various shape fields and returns the expected physical shape, which
+// should be the actual tensor shape.
 llvm::SmallVector<int64_t>
-MetalLayoutAttr::getUnshardedShape(llvm::ArrayRef<int64_t> gridShape,
-                                   llvm::ArrayRef<int64_t> shardShape) {
-  assert(gridShape.size() == shardShape.size());
-  // Initialize empty unsharded shape vector
-  llvm::SmallVector<int64_t> unshardedShape(gridShape.size());
-  // Use std::transform to multiply each element of gridShape with corresponding
-  // element of shardShape, and store in unshardedShape.
-  std::transform(gridShape.begin(), gridShape.end(), shardShape.begin(),
-                 unshardedShape.begin(), std::multiplies<int64_t>());
-  return unshardedShape;
+MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
+                                ArrayRef<int64_t> tileShape) const {
+  llvm::SmallVector<int64_t> physicalShape = getPhysicalShape(tileShape);
+  llvm::SmallVector<int64_t> deviceShape(gridShape);
+  deviceShape.reserve(physicalShape.size() * 2);
+
+  assert(physicalShape.size() == gridShape.size() &&
+         "Grid rank must equalcollapsed tensor rank");
+  // Without tiling, distribute dimensions across grid.
+  for (size_t i = 0; i < physicalShape.size(); ++i) {
+    const int64_t dim = physicalShape[i];
+    assert(dim % gridShape[i] == 0 &&
+           "Collapsed dimension must be evenly divisible by grid dimension");
+    deviceShape.push_back(dim / gridShape[i]);
+  }
+  return deviceShape;
 }
 
 static llvm::SmallVector<int64_t>
