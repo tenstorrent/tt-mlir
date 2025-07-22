@@ -30,9 +30,14 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   }
 
   std::string mode = op->mode()->str();
+
   std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+      op->memory_config()
+          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                op->memory_config())
+          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(
+                    op->out()));
 
   ::ttnn::Tensor output =
       ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);

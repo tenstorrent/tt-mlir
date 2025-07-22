@@ -155,9 +155,3 @@ if "TT_METAL_BUILD_HOME" in os.environ:
     )
 else:
     raise OSError("Error: TT_METAL_BUILD_HOME not set")
-
-# Add `ARCH_NAME` to lit environment.
-if "ARCH_NAME" in os.environ:
-    llvm_config.with_environment("ARCH_NAME", os.environ["ARCH_NAME"])
-else:
-    raise OSError("Error: ARCH_NAME not set.")

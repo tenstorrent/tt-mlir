@@ -16,6 +16,15 @@
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
+
+bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
+  auto ttnnLayoutAttr =
+      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  bool isOnDevice =
+      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+  return isOnDevice;
+}
+
 // Map ttcore::MemorySpace to TTNN::BufferType
 //
 mlir::tt::ttnn::BufferType

@@ -71,3 +71,10 @@ table TransposeOp {
   dim0: int32;
   dim1: int32;
 }
+
+table WriteTensorOp {
+  host_tensor: tt.target.ttnn.TensorRef;
+  device_tensor: tt.target.ttnn.TensorRef;
+  blocking: bool;
+  cq_id: uint32;
+}

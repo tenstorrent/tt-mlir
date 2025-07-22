@@ -1,0 +1,10 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table FuncCallOp {
+  program_id: uint32;
+  inputs: [tt.target.ttnn.TensorRef];
+  outputs: [tt.target.ttnn.TensorRef];
+}

@@ -8,7 +8,7 @@
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
