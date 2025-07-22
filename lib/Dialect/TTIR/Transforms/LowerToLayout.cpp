@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWERTOLAYOUT
@@ -170,6 +171,7 @@ public:
   RankedTensorType
   createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
                      ttcore::MetalLayoutAttr baseLayout,
+                     ArrayRef<int64_t> workerGridShape,
                      std::optional<ttcore::MemorySpace> newMemSpace = {},
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
@@ -198,7 +200,7 @@ public:
 
     // Create new layout
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), gridShape.size(),
+        ctx, baseLayout.getLogicalShape(), workerGridShape,
         baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
         baseLayout.getDimAlignments());
 
@@ -240,21 +242,25 @@ public:
     bool outputL1 =
         outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
 
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+    llvm::ArrayRef<int64_t> workerGridShape =
+        deviceAttr.getWorkerGrid().getShape();
+
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // Read into L1, then do other conversions.
       // If we're going from no grid -> grid, we need to use the output grid.
       if (!hasInputLayout && hasOutputLayout) {
         auto gridShape = outputLayout.getGridShape(outputType);
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               ttcore::MemorySpace::DeviceL1, gridShape);
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), inputType, inputLayout, workerGridShape,
+            ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use input's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               ttcore::MemorySpace::DeviceL1);
+                               workerGridShape, ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
     } else if (!outputL1) {
@@ -265,33 +271,33 @@ public:
       // input grid.
       if (!hasOutputLayout && hasInputLayout) {
         auto gridShape = inputLayout.getGridShape(inputType);
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               ttcore::MemorySpace::DeviceL1, gridShape);
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), outputType, outputLayout, workerGridShape,
+            ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use output's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               ttcore::MemorySpace::DeviceL1);
+                               workerGridShape, ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
     } else if (ttcore::isTiled(inputType) != ttcore::isTiled(outputType)) {
       // Prioritize moving tiled data
       if (ttcore::isTiled(inputType)) {
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               /*memSpace=*/{},
-                               /*grid=*/{}, inputType.getElementType(),
-                               ttcore::getTensorTileShapeOrEmpty(inputType));
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), outputType, outputLayout, workerGridShape,
+            /*memSpace=*/{},
+            /*grid=*/{}, inputType.getElementType(),
+            ttcore::getTensorTileShapeOrEmpty(inputType));
         bounce(rewriter, op, bounceType);
       } else {
         assert(ttcore::isTiled(outputType));
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               /*memSpace=*/{},
-                               /*grid=*/{}, outputType.getElementType(),
-                               ttcore::getTensorTileShape(outputType));
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), inputType, inputLayout, workerGridShape,
+            /*memSpace=*/{},
+            /*grid=*/{}, outputType.getElementType(),
+            ttcore::getTensorTileShape(outputType));
         bounce(rewriter, op, bounceType);
       }
     } else if (components.isLayoutChange && ttcore::isTiled(inputType)) {
@@ -303,10 +309,10 @@ public:
       }
 
       // Create untiled version with scalar type
-      auto bounceType =
-          createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                             /*memSpace=*/{}, /*grid=*/{}, scalarType,
-                             /*tileShape=*/std::nullopt);
+      auto bounceType = createModifiedType(
+          rewriter.getContext(), inputType, inputLayout, workerGridShape,
+          /*memSpace=*/{}, /*grid=*/{}, scalarType,
+          /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
       assert(!components.isLayoutChange &&
@@ -314,7 +320,7 @@ public:
              "not supported");
       // Keep output layout but with input's grid
       auto bounceType = createModifiedType(
-          rewriter.getContext(), outputType, outputLayout,
+          rewriter.getContext(), outputType, outputLayout, workerGridShape,
           /*memSpace=*/{}, inputLayout.getGridShape(inputType));
       bounce(rewriter, op, bounceType);
     } else {
