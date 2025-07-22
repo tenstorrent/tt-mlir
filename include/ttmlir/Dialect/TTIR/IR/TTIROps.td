@@ -1884,7 +1884,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
     }];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable"]>]> {
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
       The `add` operation performs an elementwise addition between two tensors.
