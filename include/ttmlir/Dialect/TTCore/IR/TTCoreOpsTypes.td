@@ -344,7 +344,7 @@ def TTCore_MetalLayoutAttr
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     uint64_t deviceGridRank,
+                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals = {},
                                      ArrayRef<int64_t> dimAlignments = {});

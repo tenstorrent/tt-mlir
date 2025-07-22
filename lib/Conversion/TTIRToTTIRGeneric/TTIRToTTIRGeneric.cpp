@@ -68,7 +68,7 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, targetGridShape.size(),
+        rewriter.getContext(), logicalShape, targetGridShape,
         ttcore::OOBVal::Undef, memSpace);
 
     // Get physical shape pre-sharding.

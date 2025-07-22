@@ -815,26 +815,27 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
 
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     uint64_t deviceGridRank, OOBVal oobVal,
-                                     MemorySpace memorySpace,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   if (!collapseIntervals) {
     // Create collapse intervals.
-    int64_t numDimsToCollapse = logicalShape.size() - deviceGridRank + 1;
+    int64_t numDimsToCollapse =
+        logicalShape.size() - deviceGridShape.size() + 1;
     llvm::SmallVector<int64_t> flattenedIntervals;
 
     // First interval will be [0, numDimsToCollapse).
     flattenedIntervals.push_back(0);
     flattenedIntervals.push_back(numDimsToCollapse);
-    for (int64_t i = 1; i < static_cast<int64_t>(deviceGridRank); ++i) {
+    for (int64_t i = 1; i < static_cast<int64_t>(deviceGridShape.size()); ++i) {
       // Last gridRank - 1 intervals will be [i, i + 1).
       flattenedIntervals.push_back(numDimsToCollapse + i - 1);
       flattenedIntervals.push_back(numDimsToCollapse + i);
     }
 
     auto intervalType =
-        RankedTensorType::get({static_cast<int64_t>(deviceGridRank), 2},
+        RankedTensorType::get({static_cast<int64_t>(deviceGridShape.size()), 2},
                               IntegerType::get(context, 64));
     collapseIntervals =
         DenseIntElementsAttr::get(intervalType, flattenedIntervals);
@@ -851,13 +852,12 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
         normalizeAndFlattenIntervals(collapseIntervals, logicalShape.size());
 
     constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
-    constexpr int64_t gridSize = 8;
 
     // Handle the last two intervals (which will map to tiles) with
     // grid-aware alignments.
-    assert(deviceGridRank >= 2);
-    for (int64_t idx = static_cast<int64_t>(deviceGridRank) - 2;
-         idx < static_cast<int64_t>(deviceGridRank); ++idx) {
+    assert(deviceGridShape.size() >= 2);
+    for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
+         idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
 
       const int64_t intervalStart = normIntervals[idx * 2];
       const int64_t intervalEnd = normIntervals[idx * 2 + 1];
@@ -870,9 +870,9 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
       // Determine which tile dimension corresponds with this interval.
       const int64_t tileIdx =
-          (idx == static_cast<int64_t>(deviceGridRank) - 2) ? 0 : 1;
+          (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
       const int64_t tileDim = tileShape[tileIdx];
-      const int64_t gridAlignmentThreshold = gridSize * tileDim;
+      const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
 
       // Determine alignment based on collapsed size
       // If size > gridAlignmentThreshold, align to grid boundary, else align to

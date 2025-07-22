@@ -2376,14 +2376,14 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 static mlir::tt::ttcore::MetalLayoutAttr
-createDefaultLayout(mlir::MLIRContext *ctx, mlir::RankedTensorType tensorType) {
-  // This can be safely hardcoded for now; we may need to revisit in the future.
-  static constexpr size_t kDefaultGridRank = 2;
+createDefaultLayout(mlir::MLIRContext *ctx,
+                    mlir::ArrayRef<int64_t> workerGridShape,
+                    mlir::RankedTensorType tensorType) {
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
-      ctx, logicalShape, kDefaultGridRank, mlir::tt::ttcore::OOBVal::Undef,
+      ctx, logicalShape, workerGridShape, mlir::tt::ttcore::OOBVal::Undef,
       mlir::tt::ttcore::MemorySpace::System);
 }
 
@@ -2396,7 +2396,10 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
     return inputLayout;
   }
 
-  return createDefaultLayout(getContext(), tensorType);
+  ArrayRef<int64_t> workerGridShape =
+      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
+
+  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::tt::ttcore::MetalLayoutAttr
@@ -2407,7 +2410,11 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
   if (outputLayout) {
     return outputLayout;
   }
-  return createDefaultLayout(getContext(), tensorType);
+
+  ArrayRef<int64_t> workerGridShape =
+      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
+
+  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
