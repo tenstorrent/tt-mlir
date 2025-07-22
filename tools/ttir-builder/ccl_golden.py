@@ -6,6 +6,7 @@ from typing import Tuple, List, Union
 from ttmlir.ir import Attribute
 import torch
 from sharded_tensor import ShardedTensor, TensorLike
+import itertools
 
 # We cannot inspect the intermediate buffer on a multi-device.
 # Therefore, we only support Graph Level golden.
@@ -107,6 +108,29 @@ def mesh_shard_golden(
         return full
 
 
+def _ravel_nd(idx: Tuple[int, ...], shape: Tuple[int, ...]) -> int:
+    """Convert N-D index to row-major flat index."""
+    out, mult = 0, 1
+    for size, i in zip(reversed(shape), reversed(idx)):
+        out += i * mult
+        mult *= size
+    return out
+
+
+def _replica_groups(shape: Tuple[int, ...], cluster_axis: int) -> List[List[int]]:
+    """Groups that vary cluster_axis while fixing all other axes."""
+    other_axes = [ax for ax in range(len(shape)) if ax != cluster_axis]
+    groups: List[List[int]] = []
+    for fixed in itertools.product(*[range(shape[ax]) for ax in other_axes]):
+        group: List[int] = []
+        for v in range(shape[cluster_axis]):
+            full = list(fixed)
+            full.insert(cluster_axis, v)
+            group.append(_ravel_nd(tuple(full), shape))
+        groups.append(group)
+    return groups
+
+
 def all_gather_golden(
     input: ShardedTensor,
     mesh_shape: Tuple[int],
@@ -114,9 +138,14 @@ def all_gather_golden(
     cluster_axis: int,
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
-    out_shape = list(input.shape)
-    out_shape[all_gather_dim] *= mesh_shape[cluster_axis]
-    return torch.randn(out_shape, dtype=input.dtype)
+    output = input.clone()
+    replica_groups = _replica_groups(mesh_shape, cluster_axis)
+    for group in replica_groups:
+        group_tensors = [input.get_shard(i) for i in group]
+        group_tensor = torch.cat(group_tensors, dim=all_gather_dim)
+        for i in group:
+            output.shards[i] = group_tensor
+    return output
 
 
 def all_reduce_golden(

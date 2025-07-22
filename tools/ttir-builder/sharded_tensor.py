@@ -149,7 +149,10 @@ class ShardedTensor:
         "Return the logical shard grid shape."
         return self._shard_shape
 
-    def get_shard(self, coord: Tuple[int, ...]) -> torch.Tensor:
+    def get_shard(self, idx: int) -> torch.Tensor:
+        return self._shards[idx]
+
+    def get_shard_by_coord(self, coord: Tuple[int, ...]) -> torch.Tensor:
         """
         Return shard at `coord` (row-major).
         """
