@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -split-input-file --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt -split-input-file --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @mesh_shard_test attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
   func.func @forward(%arg0: tensor<8192x784xf32>) -> tensor<8192x392xf32> {

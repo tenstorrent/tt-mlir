@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-generic="use-tile-matmul=false" %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-generic="use-tile-matmul=false" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
 

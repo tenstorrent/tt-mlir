@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-remove-return-values %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-remove-return-values -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // CHECK-LABEL: func.func @single_return_value
 // CHECK-SAME: (%{{.*}}: tensor<64x128xf32>, %{{.*}}: tensor<64x128xf32>)

@@ -1,5 +1,6 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memory-layout-analysis-policy=BFInterleaved" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memory-layout-analysis-policy=BFInterleaved" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @forward(%arg0: tensor<6144x1024xbf16>, %arg1: tensor<1024x6144xbf16>) -> tensor<6144x6144xbf16> {
     // CHECK: #[[L1_:.*]] = #ttnn.buffer_type<l1>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-generate-loops %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-generate-loops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #dram = #ttcore.memory_space<dram>
 #l1_ = #ttcore.memory_space<l1>

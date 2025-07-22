@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func public @test_reduce_prod_full_workaround(%arg0: tensor<128x10x32x4xf32>) -> tensor<f32> {

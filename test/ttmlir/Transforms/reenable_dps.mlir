@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-reenable-dps %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-reenable-dps -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // This simulates a broken DPS pattern where the output buffer %arg1 is unused
 // and a new empty tensor is created instead

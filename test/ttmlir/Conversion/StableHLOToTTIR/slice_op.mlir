@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_eltwise_subtract attributes {} {
   func.func @slice_op(%arg0: tensor<32x64xf32>) -> tensor<8x8xf32> {
   // CHECK: = ttir.empty

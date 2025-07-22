@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func public @test_reduce_min_4to3dim(%arg0: tensor<128x64x32x4xf32>) -> tensor<128x32x4xf32> {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @idempotence_two_in_the_row(%arg0: tensor<64x64xf32>) -> tensor<64x64xf32> {
     // CHECK: "ttir.relu"

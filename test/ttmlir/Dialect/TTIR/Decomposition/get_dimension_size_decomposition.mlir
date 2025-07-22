@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module  {
   func.func @get_dimension_size_decomposition(%arg0: tensor<32x64x128xf32>) -> tensor<1xi32> {
     // CHECK: [[VAL:%.+]] = "ttir.constant"

@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_constant attributes {} {
   func.func public @test_boolean_scalar() -> tensor<i1> {
     // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<true> : tensor<i1>}> : () -> tensor<i1>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @test_repeat_interleave(%arg0: tensor<4xf32>) -> tensor<8xf32> {
     // CHECK: "ttnn.repeat_interleave"

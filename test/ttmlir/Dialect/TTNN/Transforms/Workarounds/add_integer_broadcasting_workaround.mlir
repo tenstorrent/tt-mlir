@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-workaround %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-workaround -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 128 + d2, d3), <1x1>, memref<4x4x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>

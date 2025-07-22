@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_clamp(%arg0: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {
     %0 = tosa.clamp %arg0 { min_val = 2.0 : f32, max_val = 3.0 : f32 } : (tensor<13x21x3xf32>) -> tensor<13x21x3xf32>

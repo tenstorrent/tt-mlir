@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops="enable-commute-upwards=false" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="enable-commute-upwards=false" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
     func.func @test_commute_reshape_downwards(%arg0: tensor<32x64xbf16>) -> tensor<1x2048xbf16> {

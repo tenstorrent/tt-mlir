@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @main(%arg0: tensor<64x3x7x7xf32>, %arg1: tensor<1x3x256x256xf32>, %arg2: tensor<1x64x128x128xf32>, %arg3: tensor<512x64x7x7xf32>) -> tensor<1x512x64x64xf32> {
     // This module tests whether the permute on the output of the first conv2d is erased along with the permute on the input of the second conv2d.

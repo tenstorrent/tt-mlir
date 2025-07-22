@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
     // Test case to verify the folding of typecast operation.

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-repeat-folding-workaround-pass=false" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-repeat-folding-workaround-pass=false" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @repeat_on_one_dim(%arg0: tensor<1x32x32xf32>) -> tensor<32x32x32xf32> {

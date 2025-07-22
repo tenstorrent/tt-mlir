@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s | FileCheck %s
+// RUN: ttmlir-opt -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func @conv_transpose2d_simple(%arg0: tensor<4x8x8x256xbf16>, %arg1: tensor<256x256x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<4x10x10x256xbf16> {

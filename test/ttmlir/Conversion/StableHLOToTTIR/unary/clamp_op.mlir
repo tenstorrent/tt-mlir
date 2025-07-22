@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_clamp attributes {} {
   func.func public @test_clamp_constant(%arg0: tensor<4xf32>) -> tensor<4xf32> {
     // CHECK-LABEL: func.func public @test_clamp_constant

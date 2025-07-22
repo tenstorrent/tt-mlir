@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 // TODO(mrakita): Enable when all ops are supported.
 // UNSUPPORTED: true
 module @jit_predict attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-apply-interchange="matmul-interchange=2,0,1" %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-apply-interchange="matmul-interchange=2,0,1" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // CHECK: affine_map<(d0, d1, d2) -> (d1, d0)>
 // CHECK: affine_map<(d0, d1, d2) -> (d0, d2)>

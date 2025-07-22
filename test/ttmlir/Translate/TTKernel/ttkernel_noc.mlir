@@ -1,4 +1,6 @@
-// RUN: ttmlir-opt --convert-ttkernel-to-emitc %s | ttmlir-translate --ttkernel-to-cpp | FileCheck %s
+// RUN: ttmlir-opt --convert-ttkernel-to-emitc -o %t %s
+// RUN: ttmlir-translate --ttkernel-to-cpp -o %t.cpp %t
+// RUN: FileCheck %s --input-file=%t.cpp
 
 // CHECK: #include "dataflow_api.h"
 // CHECK: void kernel_main

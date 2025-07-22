@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // Commute multiply before conv2d.
 module {

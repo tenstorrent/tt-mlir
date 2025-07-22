@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-ttir-to-linalg %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttir-to-linalg -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @test_exp(%arg0: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func public @main(%arg0: tensor<32x32xui32>) -> tensor<32x32xui16> {
     %0 = ttir.empty() : tensor<32x32xui16>

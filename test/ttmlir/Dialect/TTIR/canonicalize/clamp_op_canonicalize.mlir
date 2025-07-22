@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @jit_clamp {
   func.func public @test_clamp_constant(%arg0: tensor<4xf32>) -> tensor<4xf32> {

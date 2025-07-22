@@ -1,5 +1,6 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=prepare_conv2d_weights=input,constant,input" --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false enable-const-eval=true" %s | FileCheck %s
+// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=prepare_conv2d_weights=input,constant,input" --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false enable-const-eval=true" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // CHECK: func.func @prepare_conv2d_weights_const_eval_0
 // CHECK: = "ttnn.get_device"()

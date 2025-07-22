@@ -1,5 +1,6 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=add_0_1_2=0 override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=add_0_1_2=0 override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 // XFAIL: *
 // TODO(rpavlovicTT): #https://github.com/tenstorrent/tt-metal/issues/21846 re-enable
 

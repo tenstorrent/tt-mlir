@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @forward(%arg0: tensor<20x50x100x16xf32>, %arg1: tensor<16x32x3x3xf32>) -> tensor<20x197x395x32xf32> {
