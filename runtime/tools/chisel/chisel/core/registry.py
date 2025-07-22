@@ -140,7 +140,6 @@ class Registry:
                     self.add_tensor(output, execution_type)
         self._merge_empty_golden_groups()
 
-
     def should_compare(
         self,
         op: Operation,

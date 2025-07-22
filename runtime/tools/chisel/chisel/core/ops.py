@@ -19,7 +19,15 @@ from functools import cache
 from typing import Dict, List, Tuple
 
 from ttmlir.dialects import func
-from ttmlir.ir import AsmState, Context, Module, Operation, WalkOrder, WalkResult, BlockArgument
+from ttmlir.ir import (
+    AsmState,
+    Context,
+    Module,
+    Operation,
+    WalkOrder,
+    WalkResult,
+    BlockArgument,
+)
 
 from ..utils.location import hash_location
 from .enums import ExecutionType
@@ -185,7 +193,6 @@ class IRModule:
         """
         return self._last_loc_line[self.current_function_name]
 
-
     def _extract_function_ops(self, name: str) -> List[Operation]:
         assert name in self._functions
 
@@ -198,14 +205,14 @@ class IRModule:
                     ops.append(op)
 
         return ops
-    
+
     def _add_function(self, name: str) -> Operation:
         # Search through all operations to find the function
         for op in self._dfs(self.mlir_module.operation):
             if isinstance(op, func.FuncOp) and op.name.value == name:
                 return op
         raise ValueError(f"Function {name} not found in module")
-    
+
     def _generate_last_loc_line(self, name: str) -> Dict[Tuple[int, int], int]:
         last_loc_line = {}
         for i, op in enumerate(self._function_ops[name]):

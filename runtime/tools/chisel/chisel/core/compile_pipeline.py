@@ -12,10 +12,10 @@ def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
     """
     Run ttir-to-ttir-decomposition using PassManager
     Following passes are executed:
-    - ttir-implicit-broadcast-fold: 
+    - ttir-implicit-broadcast-fold:
         This is executed before TTIR Golden Module as it can be tricky to compare tensors
         in golden which are not implicit broadcasted and device which are implicit broadcasted
-    - ttir-to-ttir-decomposition: 
+    - ttir-to-ttir-decomposition:
         This is executed to decompose the TTIR OPs so that we can reduce number of ops for which golden are needed.
         Also allows for easier comparison of tensors in golden and device.
     - canonicalize: This is executed to canonicalize the module
@@ -49,7 +49,7 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     pass_params = {
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
-        "system-desc-path": "ttrt-artifacts/system_desc.ttsys", # TODO: make this configurable as in the rest of the code
+        "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code
     }
     pm = PassManager.parse(
         "builtin.module(ttir-to-ttnn-backend-pipeline{{{}}})".format(
