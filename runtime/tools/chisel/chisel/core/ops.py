@@ -19,7 +19,7 @@ from functools import cache
 from typing import Dict, List, Tuple
 
 from ttmlir.dialects import func
-from ttmlir.ir import AsmState, Context, Module, Operation, WalkOrder, WalkResult
+from ttmlir.ir import AsmState, Context, Module, Operation, WalkOrder, WalkResult, BlockArgument
 
 from ..utils.location import hash_location
 from .enums import ExecutionType
@@ -99,7 +99,8 @@ class IRModule:
         mlir_module: Module,
         context: Context,
         execution_type: ExecutionType,
-        main_function_name: str,
+        functions: List[str],
+        current_function_name: str | None = None,
         ignored_ops: List[str] = [],
     ):
         """
@@ -109,120 +110,63 @@ class IRModule:
             mlir_text (str): MLIR text
             context (Context): Context
             execution_type (ExecutionType): Execution type
-            main_function_name (str): Main function name
+            functions (List[str]): List of function names
+            current_function_name (str, optional): Current function name. If not provided, the first function is used.
             ignored_ops (List[str], optional): Ops in MLIR to ignore.
         """
         self.mlir_module: Module = mlir_module
-        self.context = context
-        self.execution_type = execution_type
-        self.main_function_name = main_function_name
-        # Function name -> Operation
-        self._functions: Dict[str, Operation] = {}
-        # Function name -> List of main body operations
-        self._function_ops: Dict[str, List[Operation]] = {}
-        # AsmState reduces time of .get_asm and .get_name methods
-        self._asm_state: Dict[str, AsmState] = {}
-        # Last line number for each location
-        self._last_loc_line: Dict[Tuple[int, int], int] = {}
-
+        self.context: Context = context
+        self.execution_type: ExecutionType = execution_type
         # Ops that can be ignored for example: `ttir.empty`, `ttnn.deallocate`
-        self.ignored_ops = ignored_ops
+        self.ignored_ops: List[str] = ignored_ops
 
-        if main_function_name is not None:
-            self.add_function(main_function_name)
+        # Function name -> Operation
+        self._functions: Dict[str, Operation] = {
+            name: self._add_function(name) for name in functions
+        }
+        # Function name -> List of main body operations
+        self._function_ops: Dict[str, List[Operation]] = {
+            name: self._extract_function_ops(name) for name in functions
+        }
+        # AsmState reduces time of .get_asm and .get_name methods
+        self._asm_state: Dict[str, AsmState] = {
+            name: AsmState(self._functions[name]) for name in functions
+        }
+        # Last line number for each location
+        self._last_loc_line: Dict[str, Dict[Tuple[int, int], int]] = {
+            name: self._generate_last_loc_line(name) for name in functions
+        }
 
-    def add_function(self, name: str) -> Operation:
-        """
-        Find and register a function by name in the MLIR module.
+        # Set current function name if provided, otherwise use the first function
+        if current_function_name is not None:
+            self.current_function_name = current_function_name
+        else:
+            self.current_function_name = functions[0]
 
-        This method performs a depth-first search to locate a function with the specified
-        name and caches it for future lookups. It also initializes an AsmState for
-        efficient name and assembly lookups.
-
-        Args:
-            name (str): Name of the function to find and register
-
-        Returns:
-            Operation: The function operation if found, None otherwise
-
-        Note:
-            Prints a message to stderr if the function is already registered.
-            The function is cached in self._functions and self._asm_state.
-        """
-        if name in self._functions:
-            print(f"Function with name {name} already exists")
-            return self._functions[name]
-
-        # Search through all operations to find the function
-        for op in self._dfs(self.mlir_module.operation):
-            if isinstance(op, func.FuncOp) and op.name.value == name:
-                # Cache the function and initialize its assembly state
-                self._functions[name] = op
-                self._asm_state[name] = AsmState(op)
-                return op
-
-    def get_asm_state(self, name: str | None = None) -> AsmState:
+    def get_asm_state(self) -> AsmState:
         """
         Returns the `AsmState` for the `func.FuncOp` with the given name.
         Used for faster execution of .get_asm and .get_name methods on ir.Values and ir.BlockArguments
         """
-        if name is None:
-            name = self.main_function_name
-        return self._asm_state[name]
+        return self._asm_state[self.current_function_name]
 
-    def get_function(self, name: str | None = None) -> Operation:
+    def get_function(self) -> Operation:
         """
         Returns the `func.FuncOp` with the given name
         """
-        if name is None:
-            name = self.main_function_name
-        return self._functions[name]
+        return self._functions[self.current_function_name]
 
-    def get_function_inputs(self, name: str | None = None) -> List[Operation]:
+    def get_function_inputs(self) -> List[BlockArgument]:
         """
         Returns the input arguments of the `func.FuncOp` with the given name
         """
-        if name is None:
-            name = self.main_function_name
-        if name not in self._functions:
-            raise KeyError(f"Function '{name}' not found in cache")
-        return self._functions[name].arguments
+        return self._functions[self.current_function_name].arguments
 
-    def get_function_ops(self, name: str | None = None) -> List[Operation]:
+    def get_function_ops(self) -> List[Operation]:
         """
-        Retrieve the operations in the body of a function.
-
-        This method returns the list of operations in the function's body, excluding
-        any operations that are in the ignored_ops list. The results are cached
-        for better performance on subsequent calls.
-
-        Args:
-            name (str, optional): Name of the function. Defaults to main function.
-
-        Returns:
-            List[Operation]: List of operations in the function body
+        Returns the operations of the `func.FuncOp` with the given name
         """
-        if name is None:
-            name = self.main_function_name
-
-        # Return cached operations if available
-        if name in self._function_ops:
-            return self._function_ops[name]
-        op = self._functions[name]
-        assert op is not None
-
-        ops = []
-        # NOTE: not sure if this is nessary, or we can assume that there is only one region and one block
-        for region in op.regions:
-            for block in region.blocks:
-                for op in block.operations:
-                    if op.name in self.ignored_ops:
-                        continue
-                    ops.append(op)
-
-        # Cache the results for future use
-        self._function_ops[name] = ops
-        return ops
+        return self._function_ops[self.current_function_name]
 
     @property
     def last_loc_line(self) -> Dict[Tuple[int, int], int]:
@@ -239,16 +183,34 @@ class IRModule:
         Note:
             The mapping must be populated using populate_last_loc_line() before use.
         """
-        return self._last_loc_line
+        return self._last_loc_line[self.current_function_name]
 
-    def populate_last_loc_line(self, name: str | None = None) -> None:
-        """
-        Populates the `last_loc_line` dictionary
-        """
-        if name is None:
-            name = self.main_function_name
-        for i, op in enumerate(self.get_function_ops(name)):
-            self._last_loc_line[hash_location(op.location)] = i
+
+    def _extract_function_ops(self, name: str) -> List[Operation]:
+        assert name in self._functions
+
+        ops = []
+        for region in self._functions[name].regions:
+            for block in region.blocks:
+                for op in block.operations:
+                    if op.name in self.ignored_ops:
+                        continue
+                    ops.append(op)
+
+        return ops
+    
+    def _add_function(self, name: str) -> Operation:
+        # Search through all operations to find the function
+        for op in self._dfs(self.mlir_module.operation):
+            if isinstance(op, func.FuncOp) and op.name.value == name:
+                return op
+        raise ValueError(f"Function {name} not found in module")
+    
+    def _generate_last_loc_line(self, name: str) -> Dict[Tuple[int, int], int]:
+        last_loc_line = {}
+        for i, op in enumerate(self._function_ops[name]):
+            last_loc_line[hash_location(op.location)] = i
+        return last_loc_line
 
     def _dfs(self, op: Operation, walk_order: WalkOrder = WalkOrder.POST_ORDER):
         """
@@ -260,8 +222,7 @@ class IRModule:
         def _walk_ops(op):
             """Callback function for MLIR's walk operation"""
             nonlocal ops
-            if op.name not in self.ignored_ops:
-                ops.append(op.opview)
+            ops.append(op.opview)
             return WalkResult.ADVANCE
 
         # Perform the actual walk using MLIR's built-in walker

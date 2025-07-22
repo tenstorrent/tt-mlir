@@ -14,7 +14,7 @@ from collections import defaultdict
 from functools import cache
 from typing import Callable, Dict, List, Tuple
 
-from ttmlir.ir import Operation
+from ttmlir.ir import BlockArgument, Operation, OpResult
 
 from ..utils.location import hash_location
 from .enums import ExecutionType
@@ -97,7 +97,7 @@ class Registry:
     ) -> None:
         # TODO: check what is actual type of tensors, it is not Operation
         self.tensors: Dict[
-            Tuple[int, int], Dict[ExecutionType, Operation]
+            Tuple[int, int], Dict[ExecutionType, OpResult | BlockArgument]
         ] = defaultdict(dict)
         self.tensor_to_location: Dict[ExecutionType, Dict[str, Tuple[int, int]]] = {
             ExecutionType.GOLDEN: {},
@@ -121,7 +121,6 @@ class Registry:
         self.should_skip = should_skip_op
 
         for execution_type, module in self.modules.items():
-            module.populate_last_loc_line()
             for arg in module.get_function_inputs():
                 self.add_tensor(arg, execution_type)
 
@@ -141,31 +140,6 @@ class Registry:
                     self.add_tensor(output, execution_type)
         self._merge_empty_golden_groups()
 
-    """
-    This was implemented before I realized that get_name is extremly slow
-    After properly calling get_name, code is fast enough so it is okay to wait for everything to load at once
-    """
-    # def init_ops_until(self, location: Tuple[int, int]):
-    #     """
-    #     Initialize ops until location.
-
-    #     """
-    #     max_location = UNKNOWN_LOCATION
-    #     last_loc_line = -1
-    #     for execution_type in [ExecutionType.GOLDEN, ExecutionType.DEVICE]:
-    #         module: IRModule = self.modules[execution_type]
-    #         for i, op in self.module_iters[execution_type]:
-    #             op_location = hash_location(op.location)
-    #             if execution_type == ExecutionType.GOLDEN:
-    #                 max_location = max(max_location, op_location)
-
-    #             self._add_op(op, execution_type)
-    #             for output in get_op_outputs(op):
-    #                 self.add_tensor(output, execution_type)
-
-    #             last_loc_line = max(last_loc_line, module.last_loc_line.get(max_location, -1))
-    #             if i == last_loc_line:
-    #                 break
 
     def should_compare(
         self,
@@ -295,11 +269,11 @@ class Registry:
 
     def _merge_empty_golden_groups(self):
         """
-        Ida behing this is that if the golden ops were fused together,
+        This is needed because if the golden ops were fused together,
         then the new op would get the last golden op's location.
+        This is not what we want, so we merge the groups together.
         """
-        # TODO: improve if its too slow
-        # Groups are keyed by (line, col); sorting gives textual order.
+        # Groups are keyed by (line, col); sorting gives the order of the golden ops in the function.
         sorted_ids = sorted(self.op_groups.keys())
         idx = 0
         while idx < len(sorted_ids) - 1:  # last group has no “next”

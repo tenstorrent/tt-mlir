@@ -29,16 +29,16 @@ def test_ir_module(ttir_path: str, function_name: str):
         mlir_module=ttnn_module,
         context=context,
         execution_type=ExecutionType.DEVICE,
-        main_function_name=function_name,
+        functions=[function_name],
     )
     golden_ir_module = IRModule(
         mlir_module=ttir_module,
         context=context,
         execution_type=ExecutionType.GOLDEN,
-        main_function_name=function_name,
+        functions=[function_name],
     )
     print(ttnn_module.operation.get_asm(enable_debug_info=True))
-    print(str(ttir_module))
+    print(ttir_module.operation.get_asm(enable_debug_info=True))
     report = ReportWriter(
         "report.csv",
         asm_state={
@@ -50,6 +50,10 @@ def test_ir_module(ttir_path: str, function_name: str):
     registry = Registry(golden_module=golden_ir_module, device_module=device_ir_module)
     registry.load_all_ops()
     print(sorted(registry.op_groups.keys()))
+    # print set of all type of tensors in registry.tensors that have type Dict[
+        #     Tuple[int, int], Dict[ExecutionType, Tensor]
+        # ] 
+    print(set(map(lambda x: type(x), sum(map(lambda x: list(x.values()), registry.tensors.values()), []))))
     for loc_hash in sorted(registry.op_groups.keys()):
         print(loc_hash)
         report.write_row(
