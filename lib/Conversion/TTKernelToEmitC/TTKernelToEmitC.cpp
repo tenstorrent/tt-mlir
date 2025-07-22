@@ -14,7 +14,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
@@ -329,14 +328,6 @@ public:
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
-    // else if constexpr (std::is_same_v<
-    //                          SourceOp,
-    //                          ttkernel::MakeTensorAccessorFromArgsOp>) {
-    //   SmallVector<Attribute, 1> template_args;
-    //   template_args.push_back(emitc::OpaqueAttr::get(
-    //       op.getContext(), "tensor_accessor::ArgsOffsets"));
-    //   return ArrayAttr::get(op.getContext(), template_args);
-    // }
     return ArrayAttr();
   }
 
@@ -592,41 +583,12 @@ public:
   TTKernelTensorAccessorOpsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
                                     MLIRContext *ctx)
       : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
-
-  // ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
-  //   if constexpr (std::is_same_v<SourceOp,
-  //                                       ttkernel::GetNocAddrFromBankIDOp>) {
-  //     SmallVector<Attribute, 1> template_args;
-
-  //     template_args.push_back(
-  //         emitc::OpaqueAttr::get(op.getContext(), "true")); // default to
-  //         DRAM
-  //     return ArrayAttr::get(op.getContext(), template_args);
-  //   } else if constexpr (std::is_same_v<SourceOp, ttkernel::PackTileOp>) {
-  //     SmallVector<Attribute, 1> template_args;
-
-  //     auto packTileOp = mlir::cast<ttkernel::PackTileOp>(op);
-
-  //     template_args.push_back(packTileOp.getOutOfOrderAttr());
-  //     return ArrayAttr::get(op.getContext(), template_args);
-  //   } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp>)
-  //   {
-  //     SmallVector<Attribute, 2> template_args;
-  //     template_args.push_back(
-  //         datatypeToDataformatEnumValue(builder, op.getInDtype()));
-  //     template_args.push_back(
-  //         datatypeToDataformatEnumValue(builder, op.getOutDtype()));
-  //     return ArrayAttr::get(op.getContext(), template_args);
-  //   }
-  //   return ArrayAttr();
-  // }
-
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto name = op.getOperation()->getName().getStringRef().drop_front(9);
     if (name.ends_with("_from_tensor_accessor")) {
-      name = name.drop_back(21); // "_from_tensor_accessor" has 21 characters
+      name = name.drop_back(21);
     }
 
     auto operands = adaptor.getOperands();
@@ -649,18 +611,12 @@ public:
     std::string ssaName;
     llvm::raw_string_ostream os(ssaName);
     mlir::OpPrintingFlags flags;
-    mlir::AsmState state(op.getContext());
     op->getResult(0).printAsOperand(os, flags);
     os.flush();
     std::string varName = "temp_" + ssaName.substr(1);
 
-    // Declare the variable using verbatim.
-    // Call and assign the member function using verbatim with placeholders {}
-    // for args.
-    rewriter.create<emitc::VerbatimOp>(
-        op->getLoc(), rewriter.getStringAttr("uint32_t " + varName + ";"));
-
-    std::string callStr = varName + " = {}." + name.str() + "(";
+    // Call the member function using verbatim with placeholders {} for args.
+    std::string callStr = "uint32_t " + varName + " = {}." + name.str() + "(";
     for (size_t i = 0; i < operands.size() - 1; i++) {
       if (i > 0) {
         callStr += ", ";
@@ -672,7 +628,7 @@ public:
     rewriter.create<emitc::VerbatimOp>(
         op->getLoc(), rewriter.getStringAttr(callStr), operands);
 
-    // Create a literal referencing the temp variable to be used later.
+    // create a literal referencing the temp variable to be used later.
     auto literalOp =
         rewriter.create<emitc::LiteralOp>(op->getLoc(), resultTypes, varName);
 

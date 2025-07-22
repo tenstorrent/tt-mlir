@@ -18,7 +18,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         self.max_core_ranges = max_core_ranges
 
     # KERNEL DEFINITIONS
-    @compute_thread(verbose=True)
+    @compute_thread()
     def add_multicore(
         cb_in0: CircularBuffer,
         cb_in1: CircularBuffer,
@@ -50,7 +50,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
             tile_regs_release()
         return
 
-    @writer_thread(verbose=True)
+    @writer_thread()
     def writer_multicore(
         cb_out: CircularBuffer,
         dst_addr,
@@ -72,7 +72,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
             cb_pop_front(cb_out, onetile)
         return
 
-    @reader_thread(verbose=True)
+    @reader_thread()
     def reader_binary_interleaved(
         cb_in0: CircularBuffer,
         cb_in1: CircularBuffer,

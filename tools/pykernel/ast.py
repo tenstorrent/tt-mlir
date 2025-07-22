@@ -128,16 +128,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         "is_local_shard": ttkernel.is_local_shard,
     }
 
-    tensor_accessor_fn = [
-        "get_noc_addr",
-        "get_shard_noc_addr",
-        "get_bank_and_offset",
-        "is_local_bank",
-        "is_local_addr",
-        "is_local_page",
-        "is_local_shard",
-    ]
-
     def __init__(self, name, kernel_type=None, *args, **kwargs):
         assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
         self.name = name
@@ -919,22 +909,11 @@ class TTKernelCompiler(ast.NodeVisitor):
             return memref.LoadOp(arr, idx)
 
     def visit_Attribute(self, node):
-        print(node.value.id)
-        print(node.attr)
-        node_attr = node.attr
-        assert node_attr in self.tensor_accessor_fn
-
-        # help(emitc.member)
-        symtable = self.var_exists(node.value.id)
-        operand = symtable[node.value.id]
-        print(operand)
-        print(operand.type)
-        # help(emitc)
-
-        # Not possible as we can't get the lvalue type of operand w emitc pybinds rn
+        # TODO(vtang): Unsure how to get the lvalue type of operand w emitc pybinds rn
         # emitc::LValueType::get(adaptor.getDataFormat().getType())
         # operand_lvalue = emitc.LValueType.get()
         # emitc.member(IntegerType.get_signless(32, self.ctx), node.attr, operand)
+        raise NotImplementedError("Attributes not supported yet")
 
     def visit_List(self, node):
         # Snoop List for nested loops and get size

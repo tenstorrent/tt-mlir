@@ -1134,8 +1134,8 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @tensor_accessor_constructors
-    func.func @tensor_accessor_constructors() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-LABEL: func @tensor_accessor
+    func.func @tensor_accessor() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: "emitc.constant"() <{value = [[CTA_OFFSET:.*]] : i32}>
       // CHECK: "emitc.constant"() <{value = [[CRTA_OFFSET:.*]] : i32}>
       %cta_offset = arith.constant 2 : i32
@@ -1146,8 +1146,31 @@ module {
       %page_size = arith.constant 32 : i32
       // CHECK: %[[ARGS:.*]] = emitc.call_opaque "TensorAccessorArgs"() {template_args = [[[CTA_OFFSET]] : i32, [[CRTA_OFFSET]] : i32]} : () -> !emitc.opaque<"TensorAccessorArgs">
       %tensor_accessor_args = "ttkernel.TensorAccessorArgs"(%cta_offset, %crta_offset) : (i32, i32) -> !ttkernel.TensorAccessorArgs
-      // CHECK: emitc.call_opaque "TensorAccessor"(%[[ARGS]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      // CHECK: %[[TENSOR_ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"(%[[ARGS]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%tensor_accessor_args, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+      %temp1 = arith.constant 0 : i32
+      %temp2 = arith.constant 32: i32
+      // CHECK: emitc.verbatim "uint32_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.literal "[[NOC_ADDR]]" : i64
+      %noc_addr = "ttkernel.get_noc_addr_from_tensor_accessor"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> !ttkernel.noc_addr
+      // CHECK: emitc.verbatim "uint32_t [[SHARD_ADDR:.*]] = {}.get_shard_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.literal "[[SHARD_ADDR]]"
+      %shard_noc_addr = "ttkernel.get_shard_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i32
+      // CHECK: emitc.verbatim "uint32_t [[BANK_AND_OFFSET:.*]] = {}.get_bank_and_offset({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      // CHECK: emitc.literal "[[BANK_AND_OFFSET]]" : !emitc.opaque<"PageMapping">
+      %bank_and_offset = "ttkernel.get_bank_and_offset"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> !ttkernel.PageMapping
+      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_BANK:.*]] = {}.is_local_bank({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.literal "[[IS_LOCAL_BANK]]" : i1
+      %is_local_bank = "ttkernel.is_local_bank"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
+      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_ADDR:.*]] = {}.is_local_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.literal "[[IS_LOCAL_ADDR]]" : i1
+      %is_local_addr = "ttkernel.is_local_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
+      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_PAGE:.*]] = {}.is_local_page({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      // CHECK: emitc.literal "[[IS_LOCAL_PAGE]]" : i1
+      %is_local_page = "ttkernel.is_local_page"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
+      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_SHARD:.*]] = {}.is_local_shard({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      // CHECK: emitc.literal "[[IS_LOCAL_SHARD]]" : i1
+      %is_local_shard = "ttkernel.is_local_shard"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
       return
     }
 

@@ -13,7 +13,7 @@ import torch
 
 class EltwiseSFPUPyKernelOp(PyKernelOp):
     # KERNEL DEFINITIONS
-    @compute_thread(optimize=True)
+    @compute_thread()
     def eltwise_sfpu(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
@@ -42,7 +42,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             cb_push_back(cb_out, per_core_block_dim)
         return
 
-    @writer_thread(optimize=True)
+    @writer_thread()
     def writer_unary_interleaved(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
@@ -67,7 +67,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    @reader_thread(optimize=True)
+    @reader_thread()
     def reader_unary_interleaved(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
