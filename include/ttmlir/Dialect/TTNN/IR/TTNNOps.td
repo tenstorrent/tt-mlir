@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
+
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -243,7 +244,7 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.
@@ -710,7 +711,7 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
     }];
 }
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
