@@ -154,5 +154,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 # ttnn-standalone
 /tools/ttnn-standalone @tenstorrent/forge-developers-mlir-core
 
+# tt-alchemist
+/tools/tt-alchemist/ @tenstorrent/forge-developers-mlir-core
+
 # Scripts
 /tools/scripts/ @nsmithtt @ddilbazTT
