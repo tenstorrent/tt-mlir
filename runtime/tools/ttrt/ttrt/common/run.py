@@ -1039,8 +1039,29 @@ class Run:
                         self.logging.debug(
                             f"output tensors for program={program_index}"
                         )
+
+                        import math
+                        def pad_up(dim):
+                            return (math.ceil(dim / 32) * 32) - dim
+
+                        golden_fs = [
+                            lambda ts: torch.sum(ts[0], 0, keepdim=True),
+                            lambda ts: torch.sum(ts[0], -1, keepdim=True),
+                            lambda ts: torch.sum(ts[0], (0, -1), keepdim=True),
+                        ]
+
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
+
+                            for golden_f in golden_fs:
+                                golden_tensor = golden_f(program.input_tensors)
+                                golden_tensor = torch.nn.functional.pad(golden_tensor, (0, pad_up(golden_tensor.shape[1]), 0, pad_up(golden_tensor.shape[0])))
+                                if (golden_tensor.shape == tensor.shape):
+                                    if (torch.allclose(golden_tensor, tensor)):
+                                        self.logging.debug("MATCH!")
+                                    else:
+                                        self.logging.debug("NO MATCH!")
+                                        self.logging.debug(f"{golden_tensor}\n")
 
                         # Dump the perf data before deallocating buffers
                         device.dump_device_profile_results()
