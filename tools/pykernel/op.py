@@ -32,8 +32,6 @@ class PyKernelOp:
         """Initialize the PyKernelOp with an empty kernel selection dictionary. Intakes the `ttnn` module to operate."""
         self.kernel_selection = {}
         self.kernel_cache = {}
-        self.tensor_accessor_config = 0
-
         # Keep a mobile statewise reference to the ttnn module
         if isinstance(ttnn, Exception):
             raise ttnn
@@ -87,6 +85,25 @@ class PyKernelOp:
         # Returns a 0, 0 core range:
         core = self.ttnn.CoreCoord(0, 0)
         return self.ttnn.CoreRangeSet([self.ttnn.CoreRange(core, core)])
+
+    def set_tensor_accessor_config(self, tensors):
+        """
+        Set the tensor accessor config based on the passed tensors.
+        Right now, the only relevant flags are IsDram and Sharded.
+        """
+        config = TensorAccessorConfig.NONE
+        if not tensors:
+            raise ValueError("Must provide at least one tensor.")
+        if not isinstance(tensors, (list, tuple)):
+            tensors = [tensors]
+        memory_config = tensors[0].memory_config()
+
+        if memory_config.buffer_type == self.ttnn.BufferType.DRAM:
+            config |= TensorAccessorConfig.IsDram
+        if memory_config.is_sharded():
+            config |= TensorAccessorConfig.Sharded
+
+        self.tensor_accessor_config = config
 
     def _compute_input_hash(self, tensors, options):
         """Compute a hash of the input tensors and compile-time options."""
@@ -231,8 +248,6 @@ class PyKernelOp:
 
         config = self._config_from_thread_type(kernel._decorator_name)
         compile_time_args = [cb.cb_id for cb in cb_args] + [self.tensor_accessor_config]
-
-        print(compile_time_args)
 
         kernel_desc_args = {
             "kernel_source": kernel_path,

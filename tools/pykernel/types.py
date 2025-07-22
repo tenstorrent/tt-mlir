@@ -91,13 +91,16 @@ class TensorAccessorConfig(Enum):
     RuntimeShardShape = 1 << 5  # 0x20 = 0b0010_0000 = 32
     RuntimeBankCoords = 1 << 6  # 0x40 = 0b0100_0000 = 64
 
-    @classmethod
-    def combine(cls, *configs):
-        # Combine multiple config flags using bitwise OR
-        result = 0
-        for config in configs:
-            if isinstance(config, cls):
-                result |= config.value
-            else:
-                result |= config
-        return result
+    def __or__(self, other):
+        """Enable | operator"""
+        self_val = self.value if hasattr(self, "value") else self
+        other_val = other.value if hasattr(other, "value") else other
+        return self_val | other_val
+
+    def __ror__(self, other):
+        """Enable | operator"""
+        return other | self.value
+
+    def __ior__(self, other):
+        """Enable |= operator"""
+        return self.__or__(other)

@@ -102,9 +102,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         start_id = 0
         num_tiles = ceil(max(map(lambda t: t.volume(), [in_tensor, out_tensor])) / 1024)
 
-        self.tensor_accessor_config = TensorAccessorConfig.combine(
-            TensorAccessorConfig.IsDram
-        )
+        self.set_tensor_accessor_config([in_tensor, out_tensor])
 
         kernels = [
             self.create_kernel(

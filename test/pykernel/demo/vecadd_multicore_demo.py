@@ -126,9 +126,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         cb_out = self.create_cb(out_tensor, 2)
         start_id = 0
 
-        self.tensor_accessor_config = TensorAccessorConfig.combine(
-            TensorAccessorConfig.IsDram
-        )
+        self.set_tensor_accessor_config(a_tensor)
 
         num_tiles = ceil(
             max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024
