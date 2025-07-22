@@ -85,10 +85,6 @@ struct TTIRToTTIRGenericPass final
     }
 
     mlir::RewritePatternSet patterns{&ctx};
-    // Note that the options we pass here include a target grid shape, whether
-    // or not an override was provided; this makes the name
-    // `overrideDeviceShape` a bit disingenuous, but seems cleaner than passing
-    // this field separately; it will only be accessed a single time anyway.
     populateTTIRToTTIRGenericPatterns(
         &ctx, patterns, typeConverter, defaultInputMemSpace,
         defaultOutputMemSpace, getTargetGridShape(), useTileMatmul);
