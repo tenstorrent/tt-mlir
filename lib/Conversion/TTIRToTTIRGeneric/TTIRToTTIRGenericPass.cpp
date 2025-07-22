@@ -101,18 +101,9 @@ struct TTIRToTTIRGenericPass final
       return llvm::to_vector(overrideDeviceShape);
     }
 
-<<<<<<< HEAD
     // Get from device if no override given.
-<<<<<<< HEAD
     mlir::ModuleOp moduleOp = getOperation();
     ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
-=======
-=======
-    // Get from device if not overridden
->>>>>>> 343c00414 (working, need to cleanup comments and so on)
-    auto moduleOp = getOperation();
-    auto device = ttcore::lookupDevice(moduleOp);
->>>>>>> 4fc042d4c (working, need to cleanup comments and so on)
     assert(device && "Device not found");
     return llvm::to_vector(device.getWorkerGrid().getShape());
   }

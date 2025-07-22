@@ -21,13 +21,9 @@ namespace mlir::tt {
 
 void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-<<<<<<< HEAD
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
     const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul);
-=======
-    const ttir::TTIRToTTIRGenericOptions &options);
->>>>>>> 343c00414 (working, need to cleanup comments and so on)
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
 std::unique_ptr<OperationPass<ModuleOp>>
