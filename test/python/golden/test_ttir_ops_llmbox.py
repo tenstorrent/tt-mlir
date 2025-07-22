@@ -11,13 +11,6 @@ from ttir_builder import Operand, TTIRBuilder, Shape
 pytestmark = pytest.mark.llmbox
 
 
-def pseudo_golden_all_gather(
-    input_tensor: torch.Tensor,
-):
-    output_tensor = input_tensor.clone()
-    return output_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -42,10 +35,6 @@ def pseudo_golden_all_gather(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_gather(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_gather(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -67,7 +56,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        all_gather, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        all_gather,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
