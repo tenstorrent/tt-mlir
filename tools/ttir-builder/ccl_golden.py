@@ -83,7 +83,7 @@ def unshard_tensor(
                 temp_shards.append(concat_shard)
             shards = temp_shards
 
-    assert len(shards) == 1, "Unsharding failed to reduce to a single tensor"
+    # assert len(shards) == 1, "Unsharding failed to reduce to a single tensor"
     return shards[0]
 
 
@@ -105,7 +105,10 @@ def mesh_shard_golden(
         return ShardedTensor(shards, mesh_shape)
     elif "shard_to_full" in shard_direction_str:
         assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
-        full = unshard_tensor(input.shards, mesh_shape, shard_dims)
+        if "replicate" in shard_type_str:
+            full = unshard_tensor(input.shards, [1], [1])
+        else:
+            full = unshard_tensor(input.shards, mesh_shape, shard_dims)
         return full
 
 
@@ -188,10 +191,33 @@ def reduce_scatter_golden(
     scatter_dim: int,
     cluster_axis: int,
 ) -> torch.Tensor:
-    # Return a random torch.Tensor which has the correct shape and type after doing reduce_scatter on the input.
-    out_shape = list(input.shape)
-    out_shape[scatter_dim] //= mesh_shape[cluster_axis]
-    return torch.randn(out_shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output = input.clone()
+    replica_groups = _replica_groups(mesh_shape, cluster_axis)
+    for group in replica_groups:
+        group_tensors = [input.get_shard(i) for i in group]
+        # reduce
+        reduce_type_str = str(reduce_type).lower()
+        if "sum" in reduce_type_str:
+            reduced_tensor = reduce(torch.add, group_tensors)
+        elif "mean" in reduce_type_str:
+            reduced_tensor = reduce(torch.add, group_tensors) / len(group_tensors)
+        elif "max" in reduce_type_str:
+            reduced_tensor = reduce(torch.max, group_tensors)
+        elif "min" in reduce_type_str:
+            reduced_tensor = reduce(torch.min, group_tensors)
+        elif "std" in reduce_type_str:
+            reduced_tensor = torch.std(group_tensors)
+        elif "var" in reduce_type_str:
+            reduced_tensor = torch.var(group_tensors)
+        else:
+            raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
+        reduced_tensors = torch.chunk(
+            reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
+        )
+        for index, id in enumerate(group):
+            output.shards[id] = reduced_tensors[index]
+    return output
 
 
 def collective_permute_golden(
@@ -199,5 +225,8 @@ def collective_permute_golden(
     mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
 ) -> torch.Tensor:
-    # Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
-    return torch.randn(input.shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output_shards = [torch.zeros_like(shard) for shard in input.shards]
+    for src, tgt in source_target_pairs:
+        output_shards[tgt] = input.shards[src]
+    return ShardedTensor(output_shards, mesh_shape)

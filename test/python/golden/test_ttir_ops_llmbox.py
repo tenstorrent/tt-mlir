@@ -109,14 +109,6 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_reduce_scatter(
-    input_tensor: torch.Tensor,
-    scatter_dim: int,
-):
-    shards = torch.chunk(input_tensor, 4, dim=scatter_dim)
-    return sum(shards)
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -146,10 +138,6 @@ def pseudo_golden_reduce_scatter(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     def reduce_scatter(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_reduce_scatter(input, 3)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -179,29 +167,6 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_collective_permute(
-    input_tensor: torch.Tensor,
-    source_target_pairs: List[Tuple[int, int]],
-):
-    # sharding
-    shards = [
-        chunk
-        for shard in torch.chunk(input_tensor, 2, dim=2)
-        for chunk in torch.chunk(shard, 4, dim=3)
-    ]
-
-    # permute
-    permuted = [torch.zeros_like(shard) for shard in shards]
-    for src, tgt in source_target_pairs:
-        permuted[tgt] = shards[src]
-
-    # unsharding
-    return torch.cat(
-        [torch.cat(permuted[i : i + 4], dim=3) for i in range(0, len(permuted), 4)],
-        dim=2,
-    )
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -221,11 +186,7 @@ def pseudo_golden_collective_permute(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     def collective_permute(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
         pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
-        golden_output = pseudo_golden_collective_permute(input, pairs)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
