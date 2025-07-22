@@ -25,9 +25,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 ::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
     const ::tt::target::ttnn::DistributionStrategy *strategy);
 
-bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
-                              const ::ttnn::Tensor &rhs);
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
 

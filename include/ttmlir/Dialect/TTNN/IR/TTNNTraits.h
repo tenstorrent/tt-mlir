@@ -136,6 +136,16 @@ public:
   }
 };
 
+template <typename ConcreteType>
+class ExplicateOperandBroadcastsTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType,
+                                      ExplicateOperandBroadcastsTrait> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return mlir::success();
+  }
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif

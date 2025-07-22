@@ -24,10 +24,6 @@ static void runEltwiseBinaryOp(
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
-  if (operations::utils::shouldSwapBinaryOperands(*lhs, *rhs)) {
-    std::swap(lhs, rhs);
-  }
-
   std::optional<::ttnn::DataType> outputDataType = std::nullopt;
   if (op->output_dtype()) {
     outputDataType =
