@@ -28,23 +28,46 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 ::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout);
 
 ::tt::tt_metal::CoreRangeSet
+getCoreRangeSet(const mlir::tt::ttnn::CoreRangeSetAttr &coreRangeSetAttr);
+
+::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+
+::tt::tt_metal::ShardOrientation getShardOrientation(
+    const mlir::tt::ttnn::ShardOrientationAttr &shardOrientationAttr);
+
+::tt::tt_metal::ShardMode
+getShardMode(const mlir::tt::ttnn::ShardModeAttr &shardModeAttr);
 
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
+::tt::tt_metal::ShardSpec
+getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr);
+
+::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::BufferType &bufferType);
+
 ::tt::tt_metal::BufferType
 getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+
 mlir::tt::ttnn::BufferType
 getBufferType(const ::tt::tt_metal::BufferType bufferType);
 
 ::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
     const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr);
+
 mlir::tt::ttnn::TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+
+::tt::tt_metal::ShardSpec
+getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr);
+
+::tt::tt_metal::MemoryConfig
+getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr);
 
 ::tt::tt_metal::TensorLayout
 getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);

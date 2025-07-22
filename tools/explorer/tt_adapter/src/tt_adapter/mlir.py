@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
+from datetime import datetime, timezone
 
 from ttmlir.dialects import ttcore, ttnn, ttir
 from ttmlir import ir, util
@@ -849,14 +850,21 @@ FILTERED_OPS = [
 
 
 def build_graph(
-    module_path: str,
+    model_path: str,
     module,
+    model_runner,
     perf_trace=None,
     memory_trace=None,
     golden_results=None,
     cpp_code=None,
 ):
-    graph_id = Path(module_path).name
+    graph_id = Path(model_path).name
+
+    if model_runner.get_last_run(model_path):
+        graph_id = (
+            f'{graph_id} - Execution {datetime.now(timezone.utc).strftime("%H:%M:%S")}'
+        )
+
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id=graph_id)
 

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 

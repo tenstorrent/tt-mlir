@@ -373,6 +373,9 @@ public:
         callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(),
         fromDeviceOperands);
 
+    newCallOp->setAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName,
+                       mlir::UnitAttr::get(rewriter.getContext()));
+
     rewriter.replaceOp(callOp, newCallOp);
 
     return success();

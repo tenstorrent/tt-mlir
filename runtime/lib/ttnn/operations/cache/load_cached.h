@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_TTNN_OPERATIONS_CACHE_LOAD_CACHED_H
 #define TT_RUNTIME_TTNN_OPERATIONS_CACHE_LOAD_CACHED_H
 
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
 namespace tt::runtime::ttnn::operations::cache {

@@ -96,10 +96,9 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
     return emitOpError(
         "UntilizeInitOp must be inside of a EnqueueProgramOp region");
   }
-  std::string err =
-      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
-  if (!err.empty()) {
-    return emitOpError(err);
+  auto inputCBType = getCbIn().getType();
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+    return emitOpError("Input to UntilizeInitOp must have tile element type");
   }
   return success();
 }

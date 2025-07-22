@@ -15,7 +15,6 @@
 #include <vector>
 
 #define FMT_HEADER_ONLY
-#include "eth_l1_address_map.h"
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/allocator.hpp"
 #include "tt-metalium/hal.hpp"
@@ -250,7 +249,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         &coordTranslationOffsets, device->l1_size_per_core(),
         device->num_dram_channels(), device->dram_size_per_channel(),
         l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
-        ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
+        ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, chipPhysicalHelperCores, supportedDataTypes,
         supportedTileSizes, kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS,
         kNumComputeThreads, kNumDatamovementThreads));
