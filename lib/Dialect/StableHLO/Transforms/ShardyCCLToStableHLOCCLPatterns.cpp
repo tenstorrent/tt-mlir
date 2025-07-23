@@ -68,10 +68,16 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 populateReplicaGroups(mlir::tt::shardy_utils::MeshMap meshMap,
                       mlir::StringRef meshAxis) {
-  assert(meshMap.size() == 2 && "Meshmap must have exactly 2 elements when "
-                                "trying to populate replica groups\n.");
-  auto it = meshMap.begin();
-  llvm::SmallVector<int64_t> meshShape = {it->second, (it + 1)->second};
+  auto *it = meshMap.begin();
+  llvm::SmallVector<int64_t> meshShape;
+  if (meshMap.size() < 2) {
+    meshShape.push_back(it->second);
+    meshShape.push_back(it->second);
+  } else {
+    meshShape.push_back(it->second);
+    meshShape.push_back((it + 1)->second);
+  }
+  
   llvm::SmallVector<llvm::SmallVector<int64_t>> replicaGroups =
       generateDefaultReplicaGroups(meshShape);
 
