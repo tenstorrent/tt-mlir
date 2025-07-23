@@ -5,7 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGATTRS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGATTRS_H
 
+#include "mlir/IR/Attributes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 
@@ -24,6 +26,7 @@ struct UninitializedAttrs {
   bool operator==(const UninitializedAttrs &) const { return true; }
   bool operator!=(const UninitializedAttrs &) const { return false; }
   void dump() const {}
+  std::string toString() const { return "UninitializedAttrs"; }
 };
 
 struct Conv2dAttrs {
@@ -36,19 +39,38 @@ struct Conv2dAttrs {
            deviceComputeKernelConfig == other.deviceComputeKernelConfig;
   }
   bool operator!=(const Conv2dAttrs &other) const { return !(*this == other); }
-  void dump() const {
-    llvm::outs() << "Conv2dAttrs{";
+
+  std::string toString() const {
+    std::string result = "Conv2dAttrs{";
     if (conv2dConfig.has_value() && conv2dConfig.value()) {
-      llvm::outs() << "\n\tconv2dConfig=";
-      conv2dConfig->dump();
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+
+      // Use MLIR's operator<< which calls attr.print(os)
+      stream << conv2dConfig.value();
+      stream.flush();
+
+      result += "conv2dConfig=" + attrStr;
+    } else {
+      result += "conv2dConfig=<null>";
     }
     if (deviceComputeKernelConfig.has_value() &&
         deviceComputeKernelConfig.value()) {
-      llvm::outs() << "\tdeviceComputeKernelConfig=";
-      deviceComputeKernelConfig->dump();
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+
+      stream << deviceComputeKernelConfig.value();
+      stream.flush();
+
+      result += ", deviceComputeKernelConfig=" + attrStr;
+    } else {
+      result += ", deviceComputeKernelConfig=<null>";
     }
-    llvm::outs() << "}";
+    result += "}";
+    return result;
   }
+
+  void dump() const { llvm::outs() << toString(); }
 };
 
 } // namespace mlir::tt::ttnn
