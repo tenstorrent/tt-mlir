@@ -140,10 +140,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in, cb_out])
 
 
-def main():
-    # Device Definitions
-    device = ttnn.open_device(device_id=0)
-
+def main(device):
     # I/O Tensor Definitions
     num_tiles = 4
     shape = [1, num_tiles, 32, 32]
@@ -189,4 +186,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)
