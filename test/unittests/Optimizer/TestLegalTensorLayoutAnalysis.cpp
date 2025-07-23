@@ -4,8 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
-#include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -29,8 +28,8 @@
 
 using namespace mlir::tt::ttnn;
 
-// Test fixture for testing the AllPossibleLayoutsAnalysis
-class AllPossibleLayoutsAnalysisTest
+// Test fixture for testing the LegalTensorLayoutAnalysis
+class LegalTensorLayoutAnalysisTest
     : public testing::TestWithParam<
           std::tuple<std::vector<int64_t>, std::vector<int64_t>>> {
 protected:
@@ -127,16 +126,16 @@ protected:
 // includes calls into TensorSpec APIs that require the creation of the cluster
 // descriptor file. If multiple processes/threads attempt that in parallel, the
 // test will fail
-TEST_P(AllPossibleLayoutsAnalysisTest, GenerateAndCategorizeLayouts) {
+TEST_P(LegalTensorLayoutAnalysisTest, GenerateAndCategorizeLayouts) {
   createTestOps();
 
   // Create the analysis input
   auto scalarTypes = createScalarTypeSet();
   auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
-  AllPossibleLayoutsAnalysisInput input(gridAttr, &scalarTypes, true);
+  LegalTensorLayoutAnalysisInput input(gridAttr, &scalarTypes, true);
 
   // Run the analysis
-  AllPossibleLayoutsAnalysis analysis(module.get());
+  LegalTensorLayoutAnalysis analysis(module.get());
   analysis.init(input);
   auto result = analysis.getResult();
 
@@ -178,7 +177,7 @@ TEST_P(AllPossibleLayoutsAnalysisTest, GenerateAndCategorizeLayouts) {
 
 // Instantiate the test with different tensor shapes and grid sizes
 INSTANTIATE_TEST_SUITE_P(
-    ShapeAndGridVariations, AllPossibleLayoutsAnalysisTest,
+    ShapeAndGridVariations, LegalTensorLayoutAnalysisTest,
     testing::Combine(
         // Different tensor shapes to test
         testing::Values(std::vector<int64_t>{256, 512, 32},

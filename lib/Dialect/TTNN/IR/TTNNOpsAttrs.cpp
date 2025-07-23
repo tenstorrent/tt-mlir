@@ -8,7 +8,9 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <cstdint>
 #include <numeric>
+#include <optional>
 
 using namespace mlir::tt::ttnn;
 
@@ -715,19 +717,19 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 // Conv2dConfigAttr. Instead iwe will use this struct to store the params and
 // build a new Conv2dConfigAttr.
 struct Conv2dConfigAttrParams {
-  mlir::tt::ttcore::DataType dtype;
-  mlir::tt::ttcore::DataType weightsDtype;
+  std::optional<mlir::tt::ttcore::DataType> dtype;
+  std::optional<mlir::tt::ttcore::DataType> weightsDtype;
   mlir::StringAttr activation;
   mlir::BoolAttr deallocateActivation;
   mlir::BoolAttr reallocateHaloOutput;
-  uint32_t actBlockHOverride;
-  uint32_t actBlockWDiv;
+  std::optional<uint32_t> actBlockHOverride;
+  std::optional<uint32_t> actBlockWDiv;
   mlir::BoolAttr reshardIfNotOptimal;
   mlir::BoolAttr overrideShardingConfig;
   std::optional<TensorMemoryLayout> shardLayout;
   CoreRangeSetAttr coreGrid;
   mlir::BoolAttr transposeShards;
-  Layout outputLayout;
+  std::optional<Layout> outputLayout;
   mlir::BoolAttr enableActDoubleBuffer;
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
@@ -735,34 +737,63 @@ struct Conv2dConfigAttrParams {
 
   Conv2dConfigAttrParams() = delete;
 
-  Conv2dConfigAttrParams(Conv2dConfigAttr attr) {
-    mlir::MLIRContext *ctx = attr.getContext();
-    auto getOrDefault = [ctx](mlir::BoolAttr attr, bool defaultValue = false) {
-      return attr ? attr : mlir::BoolAttr::get(ctx, defaultValue);
-    };
+private:
+  template <typename T>
+  std::optional<T> getOrDefaultOpt(std::optional<T> attr, T defaultValue,
+                                   bool partial) {
+    return attr.has_value()
+               ? attr.value()
+               : (partial ? std::nullopt : std::optional<T>(defaultValue));
+  }
 
-    dtype = attr.getDtype().value_or(mlir::tt::ttcore::DataType::BFloat16);
-    weightsDtype =
-        attr.getWeightsDtype().value_or(mlir::tt::ttcore::DataType::BFloat16);
-    activation = attr.getActivation() ? attr.getActivation()
-                                      : mlir::StringAttr::get(ctx, "");
-    deallocateActivation = getOrDefault(attr.getDeallocateActivation());
-    reallocateHaloOutput =
-        getOrDefault(attr.getReallocateHaloOutput(), /*defaultValue=*/true);
-    actBlockHOverride = attr.getActBlockHOverride().value_or(0);
-    actBlockWDiv = attr.getActBlockWDiv().value_or(1);
-    reshardIfNotOptimal = getOrDefault(attr.getReshardIfNotOptimal());
-    overrideShardingConfig = getOrDefault(attr.getOverrideShardingConfig());
-    shardLayout = attr.getShardLayout();
+  mlir::BoolAttr getOrDefaultBool(mlir::BoolAttr attr, mlir::MLIRContext *ctx,
+                                  bool partial = true,
+                                  bool defaultValue = false) {
+    return attr ? attr
+                : (partial ? nullptr : mlir::BoolAttr::get(ctx, defaultValue));
+  }
+
+public:
+  // Constructor for Conv2dConfigAttrParams. Takes a Conv2dConfigAttr copies its
+  // properties into the struct. If a property is not set and partial is true,
+  // the property will be set to null. If a property is not set and partial is
+  // false, the property will be set to the default value.
+  Conv2dConfigAttrParams(Conv2dConfigAttr attr, bool partial = true) {
+    mlir::MLIRContext *ctx = attr.getContext();
+
+    dtype = getOrDefaultOpt(attr.getDtype(),
+                            mlir::tt::ttcore::DataType::BFloat16, partial);
+    weightsDtype = getOrDefaultOpt(
+        attr.getWeightsDtype(), mlir::tt::ttcore::DataType::BFloat16, partial);
+    activation = attr.getActivation()
+                     ? attr.getActivation()
+                     : (partial ? nullptr : mlir::StringAttr::get(ctx, ""));
+    deallocateActivation =
+        getOrDefaultBool(attr.getDeallocateActivation(), ctx, partial);
+    reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput(), ctx,
+                                            partial, /*defaultValue=*/true);
+    actBlockHOverride =
+        getOrDefaultOpt<uint32_t>(attr.getActBlockHOverride(), 0, partial);
+    actBlockWDiv =
+        getOrDefaultOpt<uint32_t>(attr.getActBlockWDiv(), 1, partial);
+    reshardIfNotOptimal =
+        getOrDefaultBool(attr.getReshardIfNotOptimal(), ctx, partial);
+    overrideShardingConfig =
+        getOrDefaultBool(attr.getOverrideShardingConfig(), ctx, partial);
+    shardLayout = getOrDefaultOpt(attr.getShardLayout(),
+                                  TensorMemoryLayout::HeightSharded, partial);
     coreGrid = attr.getCoreGrid() ? attr.getCoreGrid() : CoreRangeSetAttr{};
-    transposeShards =
-        getOrDefault(attr.getTransposeShards(), /*defaultValue=*/true);
-    outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
-    enableActDoubleBuffer = getOrDefault(attr.getEnableActDoubleBuffer());
+    transposeShards = getOrDefaultBool(attr.getTransposeShards(), ctx, partial);
+    outputLayout =
+        getOrDefaultOpt(attr.getOutputLayout(), Layout::Tile, partial);
+    enableActDoubleBuffer =
+        getOrDefaultBool(attr.getEnableActDoubleBuffer(), ctx, partial);
     enableWeightsDoubleBuffer =
-        getOrDefault(attr.getEnableWeightsDoubleBuffer());
-    enableSplitReader = getOrDefault(attr.getEnableSplitReader());
-    enableSubblockPadding = getOrDefault(attr.getEnableSubblockPadding());
+        getOrDefaultBool(attr.getEnableWeightsDoubleBuffer(), ctx, partial);
+    enableSplitReader =
+        getOrDefaultBool(attr.getEnableSplitReader(), ctx, partial);
+    enableSubblockPadding =
+        getOrDefaultBool(attr.getEnableSubblockPadding(), ctx, partial);
   }
 
   Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
@@ -775,27 +806,32 @@ struct Conv2dConfigAttrParams {
   }
 };
 
+// Returns empty configuration.
+Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
+  return Conv2dConfigAttr::get(context, /*dtype=*/std::nullopt,
+                               /*weightsDtype=*/std::nullopt,
+                               /*activation=*/nullptr,
+                               /*deallocateActivation=*/nullptr,
+                               /*reallocateHaloOutput=*/nullptr,
+                               /*actBlockHOverride=*/std::nullopt,
+                               /*actBlockWDiv=*/std::nullopt,
+                               /*reshardIfNotOptimal=*/nullptr,
+                               /*overrideShardingConfig=*/nullptr,
+                               /*shardLayout=*/std::nullopt,
+                               /*coreGrid=*/nullptr,
+                               /*transposeShards=*/nullptr,
+                               /*outputLayout=*/std::nullopt,
+                               /*enableActDoubleBuffer=*/nullptr,
+                               /*enableWeightsDoubleBuffer=*/nullptr,
+                               /*enableSplitReader=*/nullptr,
+                               /*enableSubblockPadding=*/nullptr);
+}
+
+// Returns default configuration.
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
-  auto convConfig =
-      Conv2dConfigAttr::get(context,
-                            std::nullopt, // dtype
-                            std::nullopt, // weights_dtype
-                            nullptr,      // activation
-                            nullptr,      // deallocate_activation
-                            nullptr,      // reallocate_halo_output
-                            std::nullopt, // act_block_h_override
-                            std::nullopt, // act_block_w_div
-                            nullptr,      // reshard_if_not_optimal
-                            nullptr,      // override_sharding_config
-                            std::nullopt, // shard_layout
-                            nullptr,      // core_grid
-                            nullptr,      // transpose_shards
-                            std::nullopt, // output_layout
-                            nullptr,      // enable_act_double_buffer
-                            nullptr,      // enable_weights_double_buffer
-                            nullptr,      // enable_split_reader
-                            nullptr);     // enable_subblock_padding
-  return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
+  Conv2dConfigAttr convConfig = getEmpty(context);
+  return Conv2dConfigAttrParams(convConfig, /*partial=*/false)
+      .buildConv2dConfig(context);
 }
 
 Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
@@ -907,6 +943,66 @@ Conv2dConfigAttr Conv2dConfigAttr::withEnableSubblockPadding(bool value) const {
 
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr && getActivation().getValue() != "";
+}
+
+bool Conv2dConfigAttr::hasDtype() const { return getDtype().has_value(); }
+
+bool Conv2dConfigAttr::hasWeightsDtype() const {
+  return getWeightsDtype().has_value();
+}
+
+bool Conv2dConfigAttr::hasDeallocateActivation() const {
+  return getDeallocateActivation() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasReallocateHaloOutput() const {
+  return getReallocateHaloOutput() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasActBlockHOverride() const {
+  return getActBlockHOverride().has_value();
+}
+
+bool Conv2dConfigAttr::hasActBlockWDiv() const {
+  return getActBlockWDiv().has_value();
+}
+
+bool Conv2dConfigAttr::hasReshardIfNotOptimal() const {
+  return getReshardIfNotOptimal() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasOverrideShardingConfig() const {
+  return getOverrideShardingConfig() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasShardLayout() const {
+  return getShardLayout().has_value();
+}
+
+bool Conv2dConfigAttr::hasCoreGrid() const { return getCoreGrid() != nullptr; }
+
+bool Conv2dConfigAttr::hasTransposeShards() const {
+  return getTransposeShards() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasOutputLayout() const {
+  return getOutputLayout().has_value();
+}
+
+bool Conv2dConfigAttr::hasEnableActDoubleBuffer() const {
+  return getEnableActDoubleBuffer() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
+  return getEnableWeightsDoubleBuffer() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasEnableSplitReader() const {
+  return getEnableSplitReader() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasEnableSubblockPadding() const {
+  return getEnableSubblockPadding() != nullptr;
 }
 
 CoreRangeSetAttr
