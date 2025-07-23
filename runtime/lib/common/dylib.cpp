@@ -10,6 +10,21 @@
 
 namespace tt::runtime::common {
 
+template <>
+std::vector<uint32_t> get_stride<const target::metal::BufferRef>(
+    const target::metal::BufferRef *bufferRef) {
+  std::cout << "is BufferRef" << std::endl;
+
+  const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
+  assert(bufferDesc->buffer_detail_type() ==
+         target::metal::BufferDetail::SystemBuffer);
+  const target::metal::SystemBuffer *systemBuffer =
+      bufferDesc->buffer_detail_as_SystemBuffer();
+  std::vector<uint32_t> stride(systemBuffer->stride()->begin(),
+                               systemBuffer->stride()->end());
+  return stride;
+}
+
 void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   // Create an in-memory file descriptor
   int memfd = memfd_create("dylib", MFD_CLOEXEC);

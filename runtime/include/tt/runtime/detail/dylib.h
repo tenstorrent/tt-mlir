@@ -10,6 +10,8 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 
+#include "ttmlir/Target/TTMetal/Target.h"
+
 #include <cstring>
 #include <dlfcn.h>
 #include <functional>
@@ -40,6 +42,18 @@ struct WrappedTensor {
 
 using WrappedFunc = void (*)(WrappedTensor *);
 
+template <typename TensorRefType>
+std::vector<uint32_t> get_stride(TensorRefType *tensorRef) {
+  std::vector<std::uint32_t> shape(tensorRef->desc()->shape()->begin(),
+                                   tensorRef->desc()->shape()->end());
+
+  return tt::runtime::utils::calculateStride(shape);
+}
+
+template <>
+std::vector<uint32_t> get_stride<const target::metal::BufferRef>(
+    const target::metal::BufferRef *bufferRef);
+
 // Common function to pack tensors, using std::function for the customizable
 // parts
 template <typename TensorRefType>
@@ -56,6 +70,7 @@ std::vector<common::WrappedTensor> inline packTensors(
   for (size_t i = 0; i < ins->size(); ++i) {
     auto tensorRef = ins->Get(i);
     auto shape = tensorRef->desc()->shape();
+    std::vector<uint32_t> stride = get_stride(tensorRef);
     const size_t rank = shape->size();
 
     std::vector<int64_t> sizes(rank);
@@ -63,12 +78,17 @@ std::vector<common::WrappedTensor> inline packTensors(
       sizes[j] = shape->Get(j);
     }
 
-    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
     allSizesAndStrides.emplace_back(2 * rank);
     std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
-    std::transform(strides.begin(), strides.end(),
+    std::transform(stride.begin(), stride.end(),
                    allSizesAndStrides.back().begin() + rank,
                    [](uint32_t s) -> int64_t { return s; });
+
+    std::cout << "allSizesAndStrides.back(): ";
+    for (auto s : allSizesAndStrides.back()) {
+      std::cout << s << ",";
+    }
+    std::cout << std::endl;
 
     float *rawDataPtr = static_cast<float *>(getTensorDataPtr(tensorRef));
     packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,

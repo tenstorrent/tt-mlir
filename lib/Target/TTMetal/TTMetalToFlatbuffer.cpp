@@ -8,10 +8,12 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
+#include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Target/Utils/Utils.h"
@@ -241,12 +243,37 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
   ttcore::DataType dtype = ttcore::DataType::Float32;
-  target::MemorySpace memorySpace =
-      memref.getMemorySpace()
-          ? toFlatbuffer(cache, mlir::cast<ttcore::MemorySpaceAttr>(
-                                    memref.getMemorySpace())
-                                    .getValue())
-          : target::MemorySpace::System;
+
+  target::metal::BufferDetail bufferDetailType;
+  flatbuffers::Offset<void> bufferDetail;
+
+  if (memref.getMemorySpace()) {
+    target::BufferType bufferType = toFlatbuffer(
+        cache, mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
+                   .getValue());
+
+    flatbuffers::Offset<target::metal::ShardedBufferConfig>
+        shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
+            cache, memref, device, elementShape);
+
+    flatbuffers::Offset<target::metal::CircularBufferConfig>
+        circularBufferConfig =
+            memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+
+    bufferDetailType = target::metal::BufferDetail::MetalBuffer;
+    bufferDetail = target::metal::CreateMetalBuffer(*cache.fbb, bufferType,
+                                                    shardedBufferConfig,
+                                                    circularBufferConfig)
+                       .Union();
+  } else {
+    std::vector<int32_t> stride =
+        ttmlir::utils::castContainer<std::vector<int32_t>>(
+            memref.getStridesAndOffset().first);
+
+    bufferDetailType = target::metal::BufferDetail::SystemBuffer;
+    bufferDetail =
+        target::metal::CreateSystemBufferDirect(*cache.fbb, &stride).Union();
+  }
 
   Type elementType = memref.getElementType();
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
@@ -256,17 +283,9 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
-  flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
-      memrefTypeToShardedBufferConfigFlatbuffer(cache, memref, device,
-                                                elementShape);
-
-  flatbuffers::Offset<target::metal::CircularBufferConfig>
-      circularBufferConfig =
-          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
-
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
-      memorySpace, shardedBufferConfig, circularBufferConfig);
+      *cache.fbb, &shape, toFlatbuffer(cache, dtype), &elementShape,
+      bufferDetailType, bufferDetail);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -294,6 +313,9 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
+  std::vector<int32_t> stride =
+      ttmlir::utils::castContainer<std::vector<int32_t>>(
+          memref.getStridesAndOffset().first);
   std::vector<int32_t> meshShape;
   int32_t elementSize = getElementSizeBytes(dtype);
   std::uint64_t size =
@@ -303,7 +325,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
       target::metal::CreateMemoryDesc(*cache.fbb, toFlatbuffer(cache, dtype));
   auto layoutDesc = target::metal::CreateLayoutDesc(*cache.fbb, memoryDesc);
   auto tensorDesc = target::metal::CreateTensorDescDirect(
-      *cache.fbb, &shape, &meshShape, layoutDesc);
+      *cache.fbb, &stride, &shape, &meshShape, layoutDesc);
   return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
 }
 
