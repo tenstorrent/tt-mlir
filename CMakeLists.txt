@@ -54,6 +54,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(TTMLIR_ENABLE_DEBUG_LOGS)
 endif()
 
+add_subdirectory(third_party)
+
+# Set our default compiler options AFTER we've processed third party deps so we don't influence their flags
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 set(CMAKE_LINKER_TYPE DEFAULT)
@@ -116,7 +119,7 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
 
-add_subdirectory(third_party)
+#add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
   set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)

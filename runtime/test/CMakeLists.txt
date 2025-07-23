@@ -37,7 +37,7 @@ target_include_directories(TTRuntimeGTestLib INTERFACE
 target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTBinary
     TTMLIRRuntime
-    TTNN_LIBRARY
+    TTNN::CPP
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
     ${Python3_LIBRARIES}

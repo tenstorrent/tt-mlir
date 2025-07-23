@@ -1,10 +1,27 @@
-include(ExternalProject)
 
 set(TT_METAL_VERSION "81412069f02b01a483cc0fb29fec5c9bf28ac1ab")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
+include(FetchContent)
 
+if(TARGET pybind11::pybind11_headers)
+  message(FATAL_ERROR "pybind11::pybind11_headers already exists, TODO: find a way to skip CPM")
+endif()
+
+FetchContent_Declare(
+  tt-metal
+  GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
+  GIT_TAG ${TT_METAL_VERSION}
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+
+FetchContent_MakeAvailable(tt-metal)
+
+
+#[[
+include(ExternalProject)
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
@@ -242,3 +259,4 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME
+#]]

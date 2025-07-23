@@ -7,6 +7,7 @@ third_party/tt-metal
 *pycache*
 *.egg-info
 cluster_descriptor.yaml
+/build
 
 # ttnn-dylib and ttnn-standalone artifacts
 tools/ttnn-standalone/ttnn-dylib.cpp
