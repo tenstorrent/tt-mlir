@@ -869,6 +869,7 @@ public:
       rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
                                                shapeOp.getResult());
       rhs3DType = newType;
+
     } else if (rhsRank > 3) {
       // For tensors with rank > 3, collapse all but the last two dimensions
       int64_t collapsedBatchSize = 1;

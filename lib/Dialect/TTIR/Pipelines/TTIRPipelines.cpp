@@ -165,6 +165,12 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // linalg funcs.
   // manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(createConvertTTIRToLinalgPass());
+  TosaToLinalgOptions tosaToLinalgOptions;
+  tosaToLinalgOptions.aggressiveReduceConstant = true;
+  tosa::addTosaToLinalgPasses(manager, tosaToLinalgOptions, {}, {});
+  // Add tosa-to-tensor/arith passes to handle tosa.const operations
+  manager.addPass(createTosaToTensorPass());
+  manager.addPass(createTosaToArithPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
@@ -218,7 +224,7 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts GPU dialect operations to NVVM dialect (NVIDIA's LLVM-based IR),
   //  using bare pointer calling conventions for memrefs.
   ConvertGpuOpsToNVVMOpsOptions convertGpuOpsToNVVMOpsOptions;
-  convertGpuOpsToNVVMOpsOptions.useBarePtrCallConv = true;
+  convertGpuOpsToNVVMOpsOptions.useBarePtrCallConv = false;
   convertGpuOpsToNVVMOpsOptions.indexBitwidth = 0;
   manager.addPass(createConvertGpuOpsToNVVMOps(convertGpuOpsToNVVMOpsOptions));
 
@@ -242,8 +248,8 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining GPU dialect operations to LLVM dialect,
   //  using bare pointers for both host and device code.
   GpuToLLVMConversionPassOptions gputollvmOptions;
-  gputollvmOptions.hostBarePtrCallConv = true;
-  gputollvmOptions.kernelBarePtrCallConv = true;
+  gputollvmOptions.hostBarePtrCallConv = false;
+  gputollvmOptions.kernelBarePtrCallConv = false;
   manager.addPass(createGpuToLLVMConversionPass(gputollvmOptions));
 }
 
