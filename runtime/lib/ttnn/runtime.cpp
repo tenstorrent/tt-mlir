@@ -4,10 +4,12 @@
 
 #include "Constants.h"
 
+#include "tt-metalium/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
@@ -691,6 +693,11 @@ getMemoryView(Device deviceHandle) {
       createMemoryView(traceMemoryView);
 
   return memoryMap;
+}
+
+void setFabricConfig(FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+  RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
 void wait(Event event) {

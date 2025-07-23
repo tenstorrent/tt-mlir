@@ -755,6 +755,16 @@ void updateTensorInPool(CallbackContext programContextHandle,
       });
 }
 
+void setFabricConfig(FabricConfig config) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::setFabricConfig(config); },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::setFabricConfig(config);
+      });
+}
+
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {

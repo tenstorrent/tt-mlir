@@ -114,6 +114,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
         "exp_tile_init": ttkernel.exp_tile_init,
         "exp_tile": ttkernel.exp_tile,
+        "mm_init": ttkernel.mm_init,
+        "matmul_tiles": ttkernel.matmul_tiles,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):

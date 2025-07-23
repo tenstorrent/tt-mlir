@@ -28,6 +28,11 @@ add_custom_command(TARGET pykernel-demo
     COMMAND pytest ${CMAKE_CURRENT_SOURCE_DIR}/test.py
 )
 
+add_custom_command(TARGET pykernel-demo
+    COMMENT "Running Matrix Mult. Single Core Test with Pykernel"
+    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/matmul_singlecore_demo.py
+)
+
 # Add info message
 add_custom_command(
     TARGET pykernel-demo
