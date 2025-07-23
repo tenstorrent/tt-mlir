@@ -858,15 +858,18 @@ public:
       auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
 
       // Create shape tensor for reshape
-      auto shapeType = RankedTensorType::get({3}, rewriter.getI64Type());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, rhsType.getDimSize(0),
+                                          rhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<arith::ConstantOp>(op.getLoc(), shapeType, shapeAttr);
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
       rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
                                                shapeOp.getResult());
       rhs3DType = newType;
+
     } else if (rhsRank > 3) {
       // For tensors with rank > 3, collapse all but the last two dimensions
       int64_t collapsedBatchSize = 1;
@@ -880,10 +883,12 @@ public:
       auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
 
       // Create shape tensor for reshape
-      auto shapeType = RankedTensorType::get({3}, rewriter.getI64Type());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, rhsType.getDimSize(0),
+                                          rhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<arith::ConstantOp>(op.getLoc(), shapeType, shapeAttr);
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
       rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
