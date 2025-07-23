@@ -142,14 +142,15 @@ def all_gather_golden(
     cluster_axis: int,
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
-    output = input.clone()
+    output = [None] * len(input.shards)
     replica_groups = _replica_groups(mesh_shape, cluster_axis)
     for group in replica_groups:
         group_tensors = [input.get_shard(i) for i in group]
         group_tensor = torch.cat(group_tensors, dim=all_gather_dim)
         for i in group:
-            output.shards[i] = group_tensor
-    return output
+            output[i] = group_tensor.clone()
+    assert None not in output, "Not all shards are gathered"
+    return ShardedTensor(output, mesh_shape)
 
 
 def all_reduce_golden(
@@ -159,7 +160,7 @@ def all_reduce_golden(
     reduce_type: Attribute,
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
-    output = input.clone()
+    output = [None] * len(input.shards)
     replica_groups = _replica_groups(mesh_shape, cluster_axis)
     for group in replica_groups:
         group_tensors = [input.get_shard(i) for i in group]
@@ -180,8 +181,9 @@ def all_reduce_golden(
         else:
             raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
         for i in group:
-            output.shards[i] = reduced_tensor
-    return output
+            output[i] = reduced_tensor.clone()
+    assert None not in output, "Not all shards are reduced"
+    return ShardedTensor(output, mesh_shape)
 
 
 def reduce_scatter_golden(
@@ -192,7 +194,7 @@ def reduce_scatter_golden(
     cluster_axis: int,
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
-    output = input.clone()
+    output = [None] * len(input.shards)
     replica_groups = _replica_groups(mesh_shape, cluster_axis)
     for group in replica_groups:
         group_tensors = [input.get_shard(i) for i in group]
@@ -216,8 +218,9 @@ def reduce_scatter_golden(
             reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
         )
         for index, id in enumerate(group):
-            output.shards[id] = reduced_tensors[index]
-    return output
+            output[id] = reduced_tensors[index].clone()
+    assert None not in output, "Not all shards are reduced"
+    return ShardedTensor(output, mesh_shape)
 
 
 def collective_permute_golden(
