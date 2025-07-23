@@ -17,7 +17,7 @@ from functools import reduce
 # ToDo(hongseok): Develop support for generating Op Level golden for CCL Ops.
 
 
-def shard_tensor(
+def sharding(
     tensor: torch.Tensor, mesh_shape: Tuple[int], shard_dims: Tuple[Union[int, None]]
 ) -> List[torch.Tensor]:
     """
@@ -50,7 +50,7 @@ def shard_tensor(
     return shards
 
 
-def unshard_tensor(
+def unsharding(
     shards: List[torch.Tensor],
     mesh_shape: Tuple[int],
     shard_dims: Tuple[Union[int, None]],
@@ -101,14 +101,14 @@ def mesh_shard_golden(
         assert isinstance(input, torch.Tensor), "Input must be a torch.Tensor"
         if "replicate" in shard_type_str:
             shard_dims = [None] * len(mesh_shape)
-        shards = shard_tensor(input, mesh_shape, shard_dims)
+        shards = sharding(input, mesh_shape, shard_dims)
         return ShardedTensor(shards, mesh_shape)
     elif "shard_to_full" in shard_direction_str:
         assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
         if "replicate" in shard_type_str:
-            full = unshard_tensor(input.shards, [1], [1])
+            full = unsharding(input.shards, [1], [1])
         else:
-            full = unshard_tensor(input.shards, mesh_shape, shard_dims)
+            full = unsharding(input.shards, mesh_shape, shard_dims)
         return full
 
 
