@@ -8,8 +8,29 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include <cmath>
+#include <type_traits>
+
 namespace mlir::tt::ttir::verification_utils {
-namespace conv2d_verification {
+
+struct Spatial2DParam {
+  int64_t vertical, horizontal;
+
+  Spatial2DParam(std::pair<int64_t, int64_t> p)
+      : vertical(p.first), horizontal(p.second) {}
+};
+
+struct Spatial4DParam {
+  int64_t top, left, bottom, right;
+
+  Spatial4DParam(std::tuple<int64_t, int64_t, int64_t, int64_t> p)
+      : top(std::get<0>(p)), left(std::get<1>(p)), bottom(std::get<2>(p)),
+        right(std::get<3>(p)) {}
+
+  int64_t getVertical() const { return top + bottom; }
+  int64_t getHorizontal() const { return left + right; }
+};
+
 enum InputDim : unsigned {
   INPUT_BATCH = 0,
   INPUT_HEIGHT = 1,
@@ -28,15 +49,6 @@ enum OutputDim : unsigned {
 // which they are flattened.
 constexpr unsigned int FLATTENED_DIM = 2;
 
-enum WeightDim : unsigned {
-  WEIGHT_OUT_CHANNEL = 0,
-  WEIGHT_IN_CHANNEL = 1,
-  WEIGHT_KERNEL_HEIGHT = 2,
-  WEIGHT_KERNEL_WIDTH = 3
-};
-
-enum BiasDim : unsigned { BIAS_OUT_CHANNEL = 3 };
-
 struct InputTensorDims {
   int64_t batchSize;
   int64_t inputHeight;
@@ -49,6 +61,29 @@ struct InputTensorDims {
             static_cast<uint32_t>(inputWidth + horizontalPadding)};
   }
 };
+
+struct OutputTensorDims {
+  int64_t batchSize;
+  int64_t outputHeight;
+  int64_t outputWidth;
+  int64_t outputChannels;
+  std::optional<int64_t> flattenedDim;
+
+  bool isFlattened() const { return flattenedDim.has_value(); }
+
+  int64_t getFlattenedDim() const { return flattenedDim.value(); }
+};
+
+namespace conv2d_verification {
+
+enum WeightDim : unsigned {
+  WEIGHT_OUT_CHANNEL = 0,
+  WEIGHT_IN_CHANNEL = 1,
+  WEIGHT_KERNEL_HEIGHT = 2,
+  WEIGHT_KERNEL_WIDTH = 3
+};
+
+enum BiasDim : unsigned { BIAS_OUT_CHANNEL = 3 };
 
 struct WeightTensorDims {
   int64_t outputChannels;
@@ -68,36 +103,6 @@ struct WeightTensorDims {
 
 struct BiasTensorDims {
   int64_t outputChannels;
-};
-
-struct OutputTensorDims {
-  int64_t batchSize;
-  int64_t outputHeight;
-  int64_t outputWidth;
-  int64_t outputChannels;
-  std::optional<int64_t> flattenedDim;
-
-  bool isFlattened() const { return flattenedDim.has_value(); }
-
-  int64_t getFlattenedDim() const { return flattenedDim.value(); }
-};
-
-struct Spatial2DParam {
-  int64_t vertical, horizontal;
-
-  Spatial2DParam(std::pair<int64_t, int64_t> p)
-      : vertical(p.first), horizontal(p.second) {}
-};
-
-struct Spatial4DParam {
-  int64_t top, left, bottom, right;
-
-  Spatial4DParam(std::tuple<int64_t, int64_t, int64_t, int64_t> p)
-      : top(std::get<0>(p)), left(std::get<1>(p)), bottom(std::get<2>(p)),
-        right(std::get<3>(p)) {}
-
-  int64_t getVertical() const { return top + bottom; }
-  int64_t getHorizontal() const { return left + right; }
 };
 
 struct Conv2dParams {
@@ -359,6 +364,295 @@ inline ::mlir::LogicalResult verifyOutputDimensions(
 }
 
 } // namespace conv2d_verification
+
+namespace pool2d_verification {
+
+struct Pool2dParams {
+  Spatial2DParam kernel;
+  Spatial2DParam stride;
+  Spatial2DParam dilation;
+  Spatial4DParam padding;
+  bool ceilMode;
+
+  llvm::SmallVector<uint32_t, 2> getEffectiveKernelSize() const {
+    int64_t effectiveKernelHeight =
+        dilation.vertical * (kernel.vertical - 1) + 1;
+    int64_t effectiveKernelWidth =
+        dilation.horizontal * (kernel.horizontal - 1) + 1;
+    return {static_cast<uint32_t>(effectiveKernelHeight),
+            static_cast<uint32_t>(effectiveKernelWidth)};
+  }
+};
+
+template <typename PoolOp>
+inline mlir::LogicalResult verifyTensorRanks(PoolOp *op) {
+  if (op->getInput().getType().getRank() != 4) {
+    return op->emitOpError("input must be a 4D tensor");
+  }
+
+  if (op->getOutput().getType().getRank() != 4) {
+    return op->emitOpError("output must be a 4D tensor");
+  }
+
+  return mlir::success();
+}
+
+template <typename PoolOp>
+inline mlir::LogicalResult verifyFlattenedCompatInfo(PoolOp *op) {
+  mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
+      op->getFlattenedCompatInfo();
+  if (flatInfo) {
+    int64_t batchSize = flatInfo.getBatchSize();
+    int64_t inputHeight = flatInfo.getInputHeight();
+    int64_t inputWidth = flatInfo.getInputWidth();
+    int64_t expectedSize = batchSize * inputHeight * inputWidth;
+    int64_t actualSize = op->getInput().getType().getDimSize(FLATTENED_DIM);
+
+    if (expectedSize != actualSize) {
+      return op->emitOpError()
+             << "the input tensor's flattened dimension (" << actualSize
+             << ") does not match the product of batch_size * input_height * "
+                "input_width from FlattenedCompatInfo ("
+             << flatInfo.getBatchSize() << " * " << flatInfo.getInputHeight()
+             << " * " << flatInfo.getInputWidth() << " = " << expectedSize
+             << ")";
+    }
+  }
+  return mlir::success();
+}
+
+template <typename PoolOp>
+inline InputTensorDims getPool2dInputDims(PoolOp *op) {
+  mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
+      op->getFlattenedCompatInfo();
+  if (flatInfo) {
+    return {flatInfo.getBatchSize(), flatInfo.getInputHeight(),
+            flatInfo.getInputWidth(),
+            op->getInput().getType().getDimSize(INPUT_CHANNEL)};
+  }
+  return {op->getInput().getType().getDimSize(INPUT_BATCH),
+          op->getInput().getType().getDimSize(INPUT_HEIGHT),
+          op->getInput().getType().getDimSize(INPUT_WIDTH),
+          op->getInput().getType().getDimSize(INPUT_CHANNEL)};
+}
+
+template <typename PoolOp>
+inline OutputTensorDims getPool2dOutputDims(PoolOp *op) {
+  mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
+      op->getFlattenedCompatInfo();
+  OutputTensorDims outputDims;
+  if (flatInfo) {
+    outputDims.flattenedDim =
+        op->getOutput().getType().getDimSize(FLATTENED_DIM);
+    outputDims.outputChannels =
+        op->getOutput().getType().getDimSize(OUTPUT_CHANNEL);
+  } else {
+    outputDims.batchSize = op->getOutput().getType().getDimSize(OUTPUT_BATCH);
+    outputDims.outputHeight =
+        op->getOutput().getType().getDimSize(OUTPUT_HEIGHT);
+    outputDims.outputWidth = op->getOutput().getType().getDimSize(OUTPUT_WIDTH);
+    outputDims.outputChannels =
+        op->getOutput().getType().getDimSize(OUTPUT_CHANNEL);
+  }
+
+  return outputDims;
+}
+
+template <typename PoolOp>
+inline llvm::Expected<Pool2dParams> getPool2dParams(PoolOp *op) {
+  auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op->getKernel());
+  if (!kernel) {
+    return llvm::createStringError(llvm::toString(kernel.takeError()) +
+                                   " for kernel size");
+  }
+
+  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(op->getStride());
+  if (!stride) {
+    return llvm::createStringError(llvm::toString(stride.takeError()) +
+                                   " for stride");
+  }
+
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op->getDilation());
+  if (!dilation) {
+    return llvm::createStringError(llvm::toString(dilation.takeError()) +
+                                   " for dilation");
+  }
+
+  auto padding =
+      ttmlir::utils::getQuadrupleOfInteger<int32_t>(op->getPadding());
+  if (!padding) {
+    return llvm::createStringError(llvm::toString(padding.takeError()) +
+                                   " for padding");
+  }
+
+  bool ceilMode = op->getCeilMode();
+
+  return Pool2dParams{Spatial2DParam(*kernel), Spatial2DParam(*stride),
+                      Spatial2DParam(*dilation), Spatial4DParam(*padding),
+                      ceilMode};
+}
+
+template <typename PoolOp>
+inline mlir::LogicalResult
+verifyPool2dInputDims(PoolOp *op, const InputTensorDims &inputDims,
+                      const Pool2dParams &params) {
+  llvm::SmallVector<uint32_t, 2> paddedInputSize = inputDims.getPaddedInputSize(
+      params.padding.getVertical(), params.padding.getHorizontal());
+  llvm::SmallVector<uint32_t, 2> effectiveKernelSize =
+      params.getEffectiveKernelSize();
+  if (paddedInputSize[0] < effectiveKernelSize[0] ||
+      paddedInputSize[1] < effectiveKernelSize[1]) {
+    return op->emitOpError()
+           << "effective kernel size (" << effectiveKernelSize[0] << ", "
+           << effectiveKernelSize[1]
+           << ") cannot be greater than the padded input size per channel ("
+           << paddedInputSize[0] << ", " << paddedInputSize[1] << ")";
+  }
+
+  return mlir::success();
+}
+
+template <typename PoolOp>
+inline mlir::LogicalResult
+verifyPool2dOutputDims(PoolOp *op, const InputTensorDims &inputDims,
+                       const OutputTensorDims &outputDims,
+                       const Pool2dParams &params) {
+
+  // Calculate expected output dimensions
+  int32_t paddedHeight =
+      inputDims.inputHeight + params.padding.top + params.padding.bottom;
+  int32_t paddedWidth =
+      inputDims.inputWidth + params.padding.left + params.padding.right;
+
+  int32_t effectiveKernelHeight = params.getEffectiveKernelSize()[0];
+  int32_t effectiveKernelWidth = params.getEffectiveKernelSize()[1];
+
+  int32_t calculatedHOut, calculatedWOut;
+  if (params.ceilMode) {
+    // Ceiling mode: use ceiling division
+    calculatedHOut =
+        static_cast<int32_t>(std::ceil(
+            static_cast<double>(paddedHeight - effectiveKernelHeight) /
+            params.stride.vertical)) +
+        1;
+    calculatedWOut =
+        static_cast<int32_t>(
+            std::ceil(static_cast<double>(paddedWidth - effectiveKernelWidth) /
+                      params.stride.horizontal)) +
+        1;
+
+    // Adjust output dimensions for average pooling with ceil_mode.
+    // If the last pooling window would start in the padded region (i.e.,
+    // (H_out - 1) * stride[0] >= H_in + padding[0]), we must reduce H_out by 1.
+    // Similarly for W_out.
+    if (std::is_same_v<PoolOp, AvgPool2dOp>) {
+      if (params.padding.top != params.padding.bottom ||
+          params.padding.left != params.padding.right) {
+        return op->emitOpError() << "padding must be symmetric for AvgPool2dOp "
+                                    "with ceil_mode=true";
+      }
+      if ((calculatedHOut - 1) * params.stride.vertical >=
+          inputDims.inputHeight + params.padding.top) {
+        calculatedHOut--;
+      }
+      if ((calculatedWOut - 1) * params.stride.horizontal >=
+          inputDims.inputWidth + params.padding.left) {
+        calculatedWOut--;
+      }
+    }
+  } else {
+    // Floor mode: use floor division (standard integer division)
+    calculatedHOut =
+        (paddedHeight - effectiveKernelHeight) / params.stride.vertical + 1;
+    calculatedWOut =
+        (paddedWidth - effectiveKernelWidth) / params.stride.horizontal + 1;
+  }
+
+  if (!outputDims.isFlattened()) {
+    // Validate each dimension of the output tensor individually since it is not
+    // flattened
+    if (inputDims.batchSize != outputDims.batchSize) {
+      return op->emitOpError()
+             << "batch size from the input tensor (" << inputDims.batchSize
+             << ") must match the first dimension of the output tensor ("
+             << outputDims.batchSize << ")";
+    }
+
+    if (outputDims.outputChannels != inputDims.inputChannels) {
+      return op->emitOpError()
+             << "number of output channels from the output tensor ("
+             << outputDims.outputChannels
+             << ") must match the number of input channels ("
+             << inputDims.inputChannels << ")";
+    }
+
+    if (calculatedHOut != outputDims.outputHeight ||
+        calculatedWOut != outputDims.outputWidth) {
+      return op->emitOpError()
+             << "output tensor height and width dimension ("
+             << outputDims.outputHeight << ", " << outputDims.outputWidth
+             << ") do not match the expected dimensions (" << calculatedHOut
+             << ", " << calculatedWOut << ")";
+    }
+  } else {
+    // Validate only the last two dimensions of the output tensor since it is
+    // flattened
+    if (outputDims.outputChannels != inputDims.inputChannels) {
+      return op->emitOpError()
+             << "number of output channels from the output tensor ("
+             << outputDims.outputChannels
+             << ") must match the number of input channels ("
+             << inputDims.inputChannels << ")";
+    }
+
+    if (calculatedHOut * calculatedWOut * inputDims.batchSize !=
+        outputDims.getFlattenedDim()) {
+      return op->emitOpError()
+             << "output tensor's flattened dimension ("
+             << outputDims.getFlattenedDim()
+             << ") does not match the product of batch_size * output_height * "
+                "output_width ("
+             << inputDims.batchSize << " * " << calculatedHOut << " * "
+             << calculatedWOut << " = "
+             << inputDims.batchSize * calculatedHOut * calculatedWOut << ")";
+    }
+  }
+
+  return mlir::success();
+}
+
+template <typename PoolOp>
+inline mlir::LogicalResult verifyPool2dParams(PoolOp *op,
+                                              const Pool2dParams &params) {
+  auto isPositive = [](int64_t v) { return v > 0; };
+  auto isNonNegative = [](int64_t v) { return v >= 0; };
+
+  if (!isPositive(params.kernel.vertical) ||
+      !isPositive(params.kernel.horizontal)) {
+    return op->emitOpError("kernel size attribute values must be > 0");
+  }
+
+  if (!isPositive(params.stride.vertical) ||
+      !isPositive(params.stride.horizontal)) {
+    return op->emitOpError("stride attribute values must be > 0");
+  }
+
+  if (!isPositive(params.dilation.vertical) ||
+      !isPositive(params.dilation.horizontal)) {
+    return op->emitOpError("dilation attribute values must be > 0");
+  }
+
+  if (!isNonNegative(params.padding.top) ||
+      !isNonNegative(params.padding.left) ||
+      !isNonNegative(params.padding.bottom) ||
+      !isNonNegative(params.padding.right)) {
+    return op->emitOpError("padding attribute values must be >= 0");
+  }
+
+  return mlir::success();
+}
+
+} // namespace pool2d_verification
 
 } // namespace mlir::tt::ttir::verification_utils
 

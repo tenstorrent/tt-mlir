@@ -451,6 +451,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
+  using namespace mlir::tt::ttir::verification_utils;
   using namespace mlir::tt::ttir::verification_utils::conv2d_verification;
 
   if (verifyTensorRanks(this).failed()) {
@@ -1007,92 +1008,45 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// Common verifier for pooling ops
+// Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
-static mlir::LogicalResult verifyPoolingOp(
-    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
-    mlir::RankedTensorType inputType, mlir::RankedTensorType outputType,
-    mlir::tt::ttir::FlattenedCompatInfoAttr flattenInfo, int32_t kernelHeight,
-    int32_t kernelWidth, llvm::StringRef opName) {
-  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
-  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  if (inputType.getRank() != 4) {
-    return emitOpError()
-           << "Input tensor rank must be 4. Received input with rank "
-           << inputType.getRank() << ". Shape: (" << inputShape << ").";
+template <typename PoolingOp>
+static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
+  using namespace mlir::tt::ttir::verification_utils;
+  using namespace mlir::tt::ttir::verification_utils::pool2d_verification;
+  // Verify tensor ranks
+  if (mlir::failed(verifyTensorRanks(op))) {
+    return mlir::failure();
   }
 
-  if (outputType.getRank() != 4) {
-    return emitOpError()
-           << "Output tensor rank must be 4. Received output with rank "
-           << outputType.getRank() << ". Shape: (" << outputShape << ").";
+  // Verify flattened compatibility info if present
+  if (mlir::failed(verifyFlattenedCompatInfo(op))) {
+    return mlir::failure();
   }
 
-  // FLATTEN_DIM corresponds to the second last dimension as it is where N, H, W
-  // are flattened to by FlattenSlidingWindow.
-  constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
-                         CHANNEL_DIM = 3, FLATTEN_DIM = 2;
+  // Get input and output dimensions with flattened support
+  InputTensorDims inputDims = getPool2dInputDims(op);
+  OutputTensorDims outputDims = getPool2dOutputDims(op);
+  auto expectedParams = getPool2dParams(op);
+  if (auto error = expectedParams.takeError()) {
+    return op->emitOpError() << llvm::toString(std::move(error));
+  }
+  Pool2dParams params = *expectedParams;
 
-  int64_t inputHeight = inputType.getDimSize(HEIGHT_DIM);
-  int64_t inputWidth = inputType.getDimSize(WIDTH_DIM);
-  int64_t inChannels = inputType.getDimSize(CHANNEL_DIM);
-  int64_t outChannels = outputType.getDimSize(CHANNEL_DIM);
-  if (flattenInfo) {
-    auto batchSize = flattenInfo.getBatchSize();
-    inputHeight = flattenInfo.getInputHeight();
-    inputWidth = flattenInfo.getInputWidth();
-
-    if (inputType.getDimSize(2) != batchSize * inputHeight * inputWidth) {
-      return emitOpError() << "Expected dim 2 of the input tensor to have size "
-                           << batchSize * inputHeight * inputWidth
-                           << " but got " << inputType.getDimSize(FLATTEN_DIM);
-    }
+  // Verify pooling parameters
+  if (mlir::failed(verifyPool2dParams(op, params))) {
+    return mlir::failure();
   }
 
-  if (!flattenInfo &&
-      inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
-    return emitOpError()
-           << "Batch size from the input tensor ("
-           << inputType.getDimSize(BATCH_DIM)
-           << ") must match the first dimension of the output tensor ("
-           << outputType.getDimSize(BATCH_DIM) << ")";
+  // Verify input dimensions constraints
+  if (mlir::failed(verifyPool2dInputDims(op, inputDims, params))) {
+    return mlir::failure();
   }
 
-  if (outChannels != outputType.getDimSize(CHANNEL_DIM)) {
-    return emitOpError() << "Expected dim 3 of the output tensor to have size "
-                         << outChannels << " but got "
-                         << outputType.getDimSize(CHANNEL_DIM);
-  }
-
-  if (inChannels != inputType.getDimSize(CHANNEL_DIM)) {
-    return emitOpError() << "Expected dim 3 of the input tensor to have size "
-                         << inChannels << " but got "
-                         << inputType.getDimSize(CHANNEL_DIM);
-  }
-
-  if (outChannels != inChannels) {
-    return emitOpError() << "Output tensor channels (" << outChannels
-                         << ") must match input tensor channels (" << inChannels
-                         << ").";
-  }
-
-  if (kernelHeight > inputHeight) {
-    return emitOpError() << "Kernel height " << kernelHeight
-                         << " is greater than input height " << inputHeight
-                         << (flattenInfo
-                                 ? " (as defined in flattened_compat_info)"
-                                 : "")
-                         << ". This " << opName << " configuration is invalid.";
-  }
-
-  if (kernelWidth > inputWidth) {
-    return emitOpError() << "Kernel width " << kernelWidth
-                         << " is greater than input width " << inputWidth
-                         << (flattenInfo
-                                 ? " (as defined in flattened_compat_info)"
-                                 : "")
-                         << ". This " << opName << " configuration is invalid.";
+  // Verify output dimensions match expected calculations
+  if (mlir::failed(verifyPool2dOutputDims(op, inputDims, outputDims, params))) {
+    return mlir::failure();
   }
 
   return mlir::success();
@@ -1104,10 +1058,7 @@ static mlir::LogicalResult verifyPoolingOp(
 
 // AvgPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AvgPool2dOp::verify() {
-  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
-                         getOutput().getType(), getFlattenedCompatInfo(),
-                         getKernelHeight(), getKernelWidth(),
-                         getOperationName());
+  return verifyPooling2dOp(this);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1116,10 +1067,7 @@ static mlir::LogicalResult verifyPoolingOp(
 
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
-                         getOutput().getType(), getFlattenedCompatInfo(),
-                         getKernelHeight(), getKernelWidth(),
-                         getOperationName());
+  return verifyPooling2dOp(this);
 }
 
 //===----------------------------------------------------------------------===//

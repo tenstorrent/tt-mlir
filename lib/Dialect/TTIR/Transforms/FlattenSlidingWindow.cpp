@@ -103,12 +103,8 @@ public:
 
     auto newPool = ttir::utils::createDPSOp<Pooling2dOp>(
         rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
-        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
-        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
-        adaptor.getCeilMode(), adaptor.getPaddingLeft(),
-        adaptor.getPaddingRight(), adaptor.getPaddingTop(),
-        adaptor.getPaddingBottom(), flattenedCompatInfoAttr);
+        adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
+        adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
 
     Value output = generateReshape(newPool, outputType, rewriter);
 
