@@ -4,10 +4,11 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+
+#include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttir {
 
@@ -20,6 +21,24 @@ public:
   using TTIRCommuteOpRewritePattern<
       PermuteOp, ConcatOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
+  // Consider the following IR snippet:
+  // %0 = tensor.empty() : tensor<64x64xbf16>
+  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32}> :
+  // (tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<64x64xbf16>) ->
+  // tensor<64x64xbf16> %2 = tensor.empty() : tensor<64x64xbf16> %3 =
+  // "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> :
+  // (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+  //
+  // This method will transform this into:
+  // %0 = ttir.empty() : tensor<64x32xbf16>
+  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> :
+  // (tensor<32x64xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16> %2 =
+  // ttir.empty() : tensor<64x32xbf16> %3 = "ttir.permute"(%arg1, %2)
+  // <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>,
+  // tensor<64x32xbf16>) -> tensor<64x32xbf16> %4 = ttir.empty() :
+  // tensor<64x64xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 1 : si32}> :
+  // (tensor<64x32xbf16>, tensor<64x32xbf16>, tensor<64x64xbf16>) ->
+  // tensor<64x64xbf16>
   void performCommuteUpwardsRewrite(ConcatOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
     // We want to index shapes with the concat dim so we must ensure we are
@@ -40,22 +59,22 @@ public:
 
     SmallVector<Value> newConcatOperands;
 
-    for (size_t i = 0; i < op->getNumOperands(); i++) {
+    for (OpOperand &opOperand : op->getOpOperands()) {
       // Skip DPS operands
-      if (op.isDpsInit(&op->getOpOperand(i))) {
+      if (op.isDpsInit(&opOperand)) {
         continue;
       }
-      Value operand = op->getOperand(i);
+      Value operand = opOperand.get();
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
 
       RankedTensorType permuteOperandType = RankedTensorType::get(
           ttmlir::utils::applyPermutation(operandType.getShape(),
                                           permuteUser.getPermutation()),
-          operandType.getElementType(), operandType.getEncoding());
+          operandType.getElementType());
 
       newConcatOperands.push_back(
           utils::createDPSOp<PermuteOp>(rewriter, op->getLoc(),
-                                        permuteOperandType, op->getOperand(i),
+                                        permuteOperandType, operand,
                                         permuteUser.getPermutation())
               ->getResult(0));
     }
@@ -63,7 +82,7 @@ public:
     RankedTensorType newConcatType = RankedTensorType::get(
         ttmlir::utils::applyPermutation(op.getType().getShape(),
                                         permuteUser.getPermutation()),
-        op.getType().getElementType(), op.getType().getEncoding());
+        op.getType().getElementType());
     ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
         rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
@@ -71,28 +90,49 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(permuteUser, user) &&
              "shouldCommute should have ensured this is true");
-    }
-
-    for (auto *user : users) {
       rewriter.replaceOp(user, newConcat);
     }
   }
 
+  // Consider the follwing IR snippet:
+  // %0 = ttir.empty() : tensor<64x32xbf16>
+  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> :
+  // (tensor<32x64xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16> %2 =
+  // ttir.empty() : tensor<64x32xbf16> %3 = "ttir.permute"(%arg1, %2)
+  // <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>,
+  // tensor<64x32xbf16>) -> tensor<64x32xbf16> %4 = ttir.empty() :
+  // tensor<64x64xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 1 : si32}> :
+  // (tensor<64x32xbf16>, tensor<64x32xbf16>, tensor<64x64xbf16>) ->
+  // tensor<64x64xbf16>
+  //
+  // This method will transform this into
+  // %0 = tensor.empty() : tensor<64x64xbf16>
+  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32}> :
+  // (tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<64x64xbf16>) ->
+  // tensor<64x64xbf16> %2 = tensor.empty() : tensor<64x64xbf16> %3 =
+  // "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> :
+  // (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
   void
   performCommuteDownwardsRewrite(ConcatOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
     // Create inverse permutes for each of the other concat operands
     SmallVector<Value> newConcatOperands;
-    for (size_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
+    for (OpOperand &opOperand : op->getOpOperands()) {
+      if (op.isDpsInit(&opOperand)) {
         continue;
       }
 
-      Value operand = op->getOperand(i);
+      Value operand = opOperand.get();
       if (operand.getDefiningOp() == permuteOperand) {
         newConcatOperands.push_back(permuteOperand.getOperand(0));
         continue;
       }
+
+      // We are adding an inverse permute operand to all the other concat
+      // operands as they may not be and identical op to permuteOperand. If it
+      // is, this inserted operand will be folded against the existing permute
+      // to produce a single permute. That permute will be an identity
+      // permutation and will be folded again to nothing.
       auto newOperand = getInverseTM(permuteOperand, operand, rewriter);
       newConcatOperands.push_back(newOperand.getResult());
     }
@@ -107,7 +147,7 @@ public:
         ttmlir::utils::applyPermutation(
             op.getType().getShape(),
             ttmlir::utils::inversePermutation(permuteOperand.getPermutation())),
-        op.getType().getElementType(), op.getType().getEncoding());
+        op.getType().getElementType());
     int64_t newConcatDim = permuteOperand.getPermutation()[currentConcatDim];
     ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
         rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
@@ -115,7 +155,7 @@ public:
     RankedTensorType newPermuteType = RankedTensorType::get(
         ttmlir::utils::applyPermutation(newConcatType.getShape(),
                                         permuteOperand.getPermutation()),
-        newConcatType.getElementType(), newConcatType.getEncoding());
+        newConcatType.getElementType());
     PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
         rewriter, op->getLoc(), newPermuteType, newConcat,
         permuteOperand.getPermutation());
@@ -143,7 +183,7 @@ private:
 
   bool isCommuteDownwardsFavorable(ConcatOp op,
                                    PermuteOp permuteOperand) const override {
-    // Commuting downwards is favorable if the all other operands a satisfy one
+    // Commuting downwards is favorable if the all other operands satisfy one
     // of the following:
     // - Are an identical TM
     // - Are on a consteval-able path
@@ -174,6 +214,24 @@ public:
   using TTIRCommuteOpRewritePattern<
       ReshapeOp, ConcatOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
+  // Consider the follwing IR snippet:
+  // %0 = tensor.empty() : tensor<1x64x64x2xbf16>
+  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 3 : si32}> :
+  // (tensor<1x64x64x1xbf16>, tensor<1x64x64x1xbf16>, tensor<1x64x64x2xbf16>) ->
+  // tensor<1x64x64x2xbf16> %2 = tensor.empty() : tensor<1x4096x2xbf16> %3 =
+  // "ttir.reshape"(%1, %2) <{shape = [1: i32, 4096: i32, 2: i32]}> :
+  // (tensor<1x64x64x2xbf16>, tensor<1x4096x2xbf16>) -> tensor<1x4096x2xbf16>
+  //
+  // This method will transform this into:
+  // %0 = ttir.empty() : tensor<1x4096x1xbf16>
+  // %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 4096 : i32, 1 : i32]}> :
+  // (tensor<1x64x64x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> %2
+  // = ttir.empty() : tensor<1x4096x1xbf16> %3 = "ttir.reshape"(%arg1, %2)
+  // <{shape = [1 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x64x64x1xbf16>,
+  // tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> %4 = ttir.empty() :
+  // tensor<1x4096x2xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 2 : si32}> :
+  // (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x2xbf16>) ->
+  // tensor<1x4096x2xbf16>
   void performCommuteUpwardsRewrite(ConcatOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
     SmallVector<Value> newConcatOperands;
@@ -188,25 +246,24 @@ public:
                         : op.getDim();
 
     ArrayRef<int64_t> newConcatShape = reshapeUser.getType().getShape();
-    for (int64_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
+    for (OpOperand &opOperand : op->getOpOperands()) {
+      if (op.isDpsInit(&opOperand)) {
         continue;
       }
-      Value operand = op->getOperand(i);
+      Value operand = opOperand.get();
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
       SmallVector<int32_t> newOperandShape(newConcatShape);
       newOperandShape[newConcatDim] = operandType.getShape()[currentConcatDim];
       RankedTensorType newOperandType = RankedTensorType::get(
           SmallVector<int64_t>(newOperandShape.begin(), newOperandShape.end()),
-          operandType.getElementType(), operandType.getEncoding());
+          operandType.getElementType());
       newConcatOperands.push_back(utils::createDPSOp<ReshapeOp>(
           rewriter, op->getLoc(), newOperandType, operand,
           rewriter.getI32ArrayAttr(newOperandShape)));
     }
 
     RankedTensorType newConcatType =
-        RankedTensorType::get(newConcatShape, op.getType().getElementType(),
-                              op.getType().getEncoding());
+        RankedTensorType::get(newConcatShape, op.getType().getElementType());
     ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
         rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
@@ -214,9 +271,6 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(reshapeUser, user) &&
              "shouldCommute should have ensured this is true");
-    }
-
-    for (auto *user : users) {
       rewriter.replaceOp(user, newConcat);
     }
   }
@@ -285,7 +339,7 @@ private:
 
   bool isCommuteUpwardsFavorable(ConcatOp op, ReshapeOp) const override {
     // We should always commute a reshape above a concat if all users are an
-    // identical concat. This includes the case where there is one user.
+    // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }

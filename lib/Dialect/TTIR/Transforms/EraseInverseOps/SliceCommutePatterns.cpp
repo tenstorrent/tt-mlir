@@ -19,6 +19,25 @@ public:
   using TTIRCommuteOpRewritePattern<
       PermuteOp, SliceOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
+  // Consider the following IR snippet:
+  // %0 = tensor.empty() : tensor<1x80x160x160xbf16>
+  // %1 = "ttir.slice"(%arg0, %0) <{begins = [0 : i32, 80 : i32, 0 : i32, 0 :
+  // i32], ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32], step = [1 : i32, 1
+  // : i32, 1 : i32, 1 : i32]}> : (tensor<1x160x160x160xbf16>,
+  // tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> %2 = tensor.empty()
+  // : tensor<1x160x160x80xbf16> %3 = "ttir.permute"(%1, %2) <{permutation =
+  // array<i64: 0, 2, 3, 1>}> : (tensor<1x80x160x160xbf16>,
+  // tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16>
+  //
+  // This method will transform this into:
+  // %0 = ttir.empty() : tensor<1x160x160x160xbf16>
+  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 3, 1>}> :
+  // (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) ->
+  // tensor<1x160x160x160xbf16> %2 = ttir.empty() : tensor<1x160x160x80xbf16> %3
+  // = "ttir.slice"(%1, %2) <{begins = [0 : i32, 0 : i32, 0 : i32, 80 : i32],
+  // ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32], step = [1 : i32, 1 :
+  // i32, 1 : i32, 1 : i32]}> : (tensor<1x160x160x160xbf16>,
+  // tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16>
   void performCommuteUpwardsRewrite(SliceOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
 
@@ -55,13 +74,30 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(permuteUser, user) &&
              "shouldCommute should have ensured this is true");
-    }
-
-    for (auto *user : users) {
       rewriter.replaceOp(user, newSlice);
     }
   }
 
+  // Consider the following IR snippet:
+  // %0 = ttir.empty() : tensor<1x160x160x160xbf16>
+  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 3, 1>}> :
+  // (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) ->
+  // tensor<1x160x160x160xbf16> %2 = ttir.empty() : tensor<1x160x160x80xbf16> %3
+  // = "ttir.slice"(%1, %2) <{begins = [0 : i32, 0 : i32, 0 : i32, 80 : i32],
+  // ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32], step = [1 : i32, 1 :
+  // i32, 1 : i32, 1 : i32]}> : (tensor<1x160x160x160xbf16>,
+  // tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16>
+  //
+  // This method will transform this into:
+  // %0 = tensor.empty() : tensor<1x80x160x160xbf16>
+  // %1 = "ttir.slice"(%arg0, %0) <{begins = [0 : i32, 80 : i32, 0 : i32, 0 :
+  // i32], ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32], step = [1 : i32, 1
+  // : i32, 1 : i32, 1 : i32]}> : (tensor<1x160x160x160xbf16>,
+  // tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> %2 = tensor.empty()
+  // : tensor<1x160x160x80xbf16> %3 = "ttir.permute"(%1, %2) <{permutation =
+  // array<i64: 0, 2, 3, 1>}> : (tensor<1x80x160x160xbf16>,
+  // tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16>
+  //
   void
   performCommuteDownwardsRewrite(SliceOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
