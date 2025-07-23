@@ -259,35 +259,17 @@ CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 ExpOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::ttnn::ExpOpInterface::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::ExpOpInterface::getOpConstraints);
 }
 
 llvm::Expected<size_t>
 ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const OpConfig &opConfig) {
 
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto outputShape = getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::ttnn::ExpOpInterface::getOpRuntime, *this, inputShape,
-      inputs[0], outputShape, opConfig.outputLayout);
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::ExpOpInterface::getOpRuntime);
 }
 
 //===----------------------------------------------------------------------===//
@@ -297,35 +279,17 @@ ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 TanhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::ttnn::TanhOpInterface::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::TanhOpInterface::getOpConstraints);
 }
 
 llvm::Expected<size_t>
 TanhOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
 
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto outputShape = getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::ttnn::TanhOpInterface::getOpRuntime, *this, inputShape,
-      inputs[0], outputShape, opConfig.outputLayout);
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::TanhOpInterface::getOpRuntime);
 }
 
 //===----------------------------------------------------------------------===//

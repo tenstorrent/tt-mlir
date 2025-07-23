@@ -906,25 +906,9 @@ TanhOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                                   llvm::ArrayRef<int64_t> outputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-
-  // Create query closure
-  auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::tanh, device, inputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
-  };
-
-  return operation::getOpConstraints(
-      "TanhOpInterface", inputLayout.getContext(), deviceGrid, query);
+  return getEltwiseUnaryOpConstraints("TanhOpInterface", ::ttnn::tanh,
+                                      deviceGrid, inputShape, inputLayout,
+                                      outputShape, outputLayout);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -936,24 +920,8 @@ TanhOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                               llvm::ArrayRef<int64_t> outputShape,
                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-
-  // Create query closure
-  auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::tanh, device, inputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
-  };
-
-  return operation::getOpRuntime("TanhOpInterface", query);
+  return getEltwiseUnaryOpRuntime("TanhOpInterface", ::ttnn::tanh, inputShape,
+                                  inputLayout, outputShape, outputLayout);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
