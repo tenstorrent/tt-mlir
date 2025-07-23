@@ -722,7 +722,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             case ast.Mult():
                 return arith.muli(lhs, rhs)
             case ast.FloorDiv():
-                return arith.floordivsi(lhs, rhs)
+                # arith.floordivsi has no conversion to emitc..
+                # return arith.floordivsi(lhs, rhs)
+                return arith.divui(lhs, rhs)
             case ast.Mod():
                 return arith.remsi(lhs, rhs)
             case ast.LShift():
