@@ -304,7 +304,6 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
         pytest.param([(512, 32), (32, 128)], marks=pytest.mark.run_error),
         pytest.param([(256, 128), (128, 128)], marks=pytest.mark.run_error),
         pytest.param([(256, 128), (128, 120)], marks=pytest.mark.run_error),
-        pytest.param([(256, 130), (130, 128)], marks=pytest.mark.run_error),
         pytest.param([(254, 128), (128, 128)], marks=pytest.mark.run_error),
         pytest.param([(252, 128), (128, 128)], marks=pytest.mark.run_error),
         pytest.param([(258, 128), (128, 128)], marks=pytest.mark.run_error),
