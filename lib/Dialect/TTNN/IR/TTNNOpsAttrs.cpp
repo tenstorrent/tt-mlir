@@ -730,11 +730,6 @@ struct Conv2dConfigAttrParams {
   CoreRangeSetAttr coreGrid;
   mlir::BoolAttr transposeShards;
   std::optional<Layout> outputLayout;
-
-  // check if to remove these 2 fields
-  mlir::BoolAttr preprocessWeightsOnDevice;
-  mlir::BoolAttr alwaysPreprocessWeights;
-
   mlir::BoolAttr enableActDoubleBuffer;
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
