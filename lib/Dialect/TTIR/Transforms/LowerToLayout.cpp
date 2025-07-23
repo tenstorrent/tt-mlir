@@ -58,13 +58,11 @@ public:
     }
 
     // Get the shapes to determine if we need a view.
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
 
     Value viewInput = op.getInput();
 
     // If grid shapes differ, we need a view to reblock.
-    auto inputGridShape = inputLayout.getGridShape(inputType);
     auto outputGridShape = outputLayout.getGridShape(outputType);
 
     viewInput = rewriter
