@@ -141,7 +141,7 @@ class PyKernelOp:
 
         cb_type = CircularBuffer(
             buffer_index,
-            tuple(tensor.shape)[1:],
+            tuple(tensor.shape),
             dtype=self._mlir_dtype_from_ttnn_dtype(int(dtype)),
         )
 
