@@ -52,9 +52,10 @@ struct ElementTypeConverter : public mlir::TypeConverter {
     auto encoding =
         mlir::cast<ttnn::TTNNLayoutAttr>(rankedResultType.getEncoding());
     Layout layout = encoding.getLayout();
-    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(loc, resultType, inputs[0], layout,
-                                            /*dtype=*/nullptr,
-                                            /*memory_config=*/nullptr);
+    auto toLayoutOp =
+        builder.create<ttnn::ToLayoutOp>(loc, resultType, inputs[0], layout,
+                                         /*dtype=*/nullptr,
+                                         /*memory_config=*/nullptr);
     utils::moveDeviceOpToTopOfBlock(toLayoutOp);
     return toLayoutOp;
   }
@@ -73,13 +74,13 @@ public:
     mapping.map(op->getOperands(), operands);
     Operation *newOp = rewriter.clone(*op, mapping);
 
-    SmallVector<Type> convertedTypes;
     Type newType = getTypeConverter()->convertType(op->getResult(0).getType());
     rewriter.modifyOpInPlace(newOp,
                              [&]() { newOp->getResult(0).setType(newType); });
-    if (auto layoutUpdatableOp = dyn_cast<TTNNLayoutUpdatableInterface>(newOp)) {
-      layoutUpdatableOp.updateLayoutAttribute(ttnn::LayoutAttr::get(
-        newOp->getContext(), ttnn::Layout::RowMajor));
+    if (auto layoutUpdatableOp =
+            dyn_cast<TTNNLayoutUpdatableInterface>(newOp)) {
+      layoutUpdatableOp.updateLayoutAttribute(
+          ttnn::LayoutAttr::get(newOp->getContext(), ttnn::Layout::RowMajor));
     }
 
     rewriter.replaceOp(op, newOp);
@@ -109,7 +110,7 @@ public:
     }
 
     if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-        return true;
+      return true;
     }
 
     if (isa<PrepareConv2dWeightsOp>(op) || isa<PrepareConv2dBiasOp>(op)) {
