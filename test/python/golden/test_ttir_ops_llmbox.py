@@ -105,7 +105,12 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        all_reduce, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        all_reduce,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -164,6 +169,8 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -211,6 +218,8 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -286,6 +295,8 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
         shapes,
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -356,6 +367,8 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
         shapes,
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -404,6 +417,8 @@ def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -452,6 +467,8 @@ def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -500,6 +517,8 @@ def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -548,6 +567,8 @@ def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], req
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -596,6 +617,8 @@ def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], r
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -645,6 +668,8 @@ def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -694,6 +719,8 @@ def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -751,6 +778,8 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         shapes,
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 

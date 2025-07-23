@@ -118,7 +118,6 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
-        module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
