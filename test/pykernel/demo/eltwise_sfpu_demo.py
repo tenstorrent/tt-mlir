@@ -140,7 +140,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in, cb_out])
 
 
-if __name__ == "__main__":
+def main():
     # Device Definitions
     device = ttnn.open_device(device_id=0)
 
@@ -186,3 +186,7 @@ if __name__ == "__main__":
     matching = torch.allclose(torch_golden, torch_output)
     print(f"Tensors are matching: {matching}")
     assert matching
+
+
+if __name__ == "__main__":
+    main()

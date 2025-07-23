@@ -198,10 +198,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-if __name__ == "__main__":
-    # Device Definitions
-    device = ttnn.open_device(device_id=0)
-
+def main(device):
     # I/O Tensor Definitions
     num_tiles = 4
     shape = [1, num_tiles, 32, 32]
@@ -253,3 +250,9 @@ if __name__ == "__main__":
     matching = torch.allclose(torch_golden, torch_output)
     print(f"Tensors are matching: {matching}")
     assert matching
+
+
+if __name__ == "__main__":
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)
