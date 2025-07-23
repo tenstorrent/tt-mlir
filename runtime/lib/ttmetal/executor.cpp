@@ -207,7 +207,6 @@ void CQExecutor::execute(const target::metal::Command *command) {
 void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
