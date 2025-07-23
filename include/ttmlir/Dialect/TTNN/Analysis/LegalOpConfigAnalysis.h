@@ -42,15 +42,19 @@ struct Conv2dConfigSearchSpaceFactory {
   static Conv2dConfigSearchSpace get() {
     static Conv2dConfigSearchSpace searchSpace;
 
+    // Return empty search space for now.
+    // TODO(rpavlovicTT): Enable search space for conv2d configs when priority
+    // is set.
+
     // 0 is default and will use most memory. Must be multiple of 32. 32 is
     // recommended for memory savings.
-    searchSpace.actBlockHOverride = {0, 32, 64};
+    // searchSpace.actBlockHOverride = {0, 32, 64};
 
-    searchSpace.deallocateActivation = {false, true};
+    // searchSpace.deallocateActivation = {false, true};
 
-    searchSpace.reshardIfNotOptimal = {false, true};
+    // searchSpace.reshardIfNotOptimal = {false, true};
 
-    searchSpace.enableSplitReader = {false, true};
+    // searchSpace.enableSplitReader = {false, true};
 
     return searchSpace;
   }

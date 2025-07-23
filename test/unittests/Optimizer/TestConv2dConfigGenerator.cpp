@@ -32,7 +32,8 @@ TEST_F(Conv2dConfigGeneratorTest, ConstructionMinimal) {
 TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16, mlir::tt::ttcore::DataType::Float32,
+  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
+                 mlir::tt::ttcore::DataType::Float32,
                  mlir::tt::ttcore::DataType::UInt32};
   Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
   std::vector<mlir::tt::ttcore::DataType> seen;
@@ -42,16 +43,17 @@ TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
     ASSERT_TRUE(config.getDtype().has_value());
     seen.push_back(config.getDtype().value());
   }
-  std::vector<mlir::tt::ttcore::DataType> expected = {mlir::tt::ttcore::DataType::BFloat16,
-                                              mlir::tt::ttcore::DataType::Float32,
-                                              mlir::tt::ttcore::DataType::UInt32};
+  std::vector<mlir::tt::ttcore::DataType> expected = {
+      mlir::tt::ttcore::DataType::BFloat16, mlir::tt::ttcore::DataType::Float32,
+      mlir::tt::ttcore::DataType::UInt32};
   EXPECT_EQ(seen, expected);
 }
 
 TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16, mlir::tt::ttcore::DataType::Float32};
+  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
+                 mlir::tt::ttcore::DataType::Float32};
   space.activation = {"relu", "gelu"};
   Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
   std::set<std::pair<mlir::tt::ttcore::DataType, std::string>> seen;
@@ -71,7 +73,8 @@ TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
 TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16, mlir::tt::ttcore::DataType::UInt32};
+  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
+                 mlir::tt::ttcore::DataType::UInt32};
   space.reshardIfNotOptimal = {true, false};
 
   // Filter everything out.
@@ -110,13 +113,15 @@ TEST_F(Conv2dConfigGeneratorTest, NonEmptyBaseConfig) {
   baseConfig = baseConfig.withDtype(mlir::tt::ttcore::DataType::Float32);
 
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::Float32, mlir::tt::ttcore::DataType::UInt32};
+  space.dtype = {mlir::tt::ttcore::DataType::Float32,
+                 mlir::tt::ttcore::DataType::UInt32};
   space.activation = {"relu", "gelu"};
   space.weightsDtype = {mlir::tt::ttcore::DataType::Float32,
                         mlir::tt::ttcore::DataType::UInt32};
 
   Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
-  std::set<std::tuple<mlir::tt::ttcore::DataType, std::string, mlir::tt::ttcore::DataType>>
+  std::set<std::tuple<mlir::tt::ttcore::DataType, std::string,
+                      mlir::tt::ttcore::DataType>>
       seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
@@ -126,12 +131,12 @@ TEST_F(Conv2dConfigGeneratorTest, NonEmptyBaseConfig) {
   }
 
   EXPECT_EQ(seen.size(), 4u);
-  EXPECT_TRUE(seen.count(
-      {mlir::tt::ttcore::DataType::Float32, "relu", mlir::tt::ttcore::DataType::UInt32}));
-  EXPECT_TRUE(seen.count(
-      {mlir::tt::ttcore::DataType::Float32, "gelu", mlir::tt::ttcore::DataType::UInt32}));
-  EXPECT_TRUE(seen.count(
-      {mlir::tt::ttcore::DataType::Float32, "relu", mlir::tt::ttcore::DataType::Float32}));
-  EXPECT_TRUE(seen.count(
-      {mlir::tt::ttcore::DataType::Float32, "gelu", mlir::tt::ttcore::DataType::Float32}));
+  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "relu",
+                          mlir::tt::ttcore::DataType::UInt32}));
+  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "gelu",
+                          mlir::tt::ttcore::DataType::UInt32}));
+  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "relu",
+                          mlir::tt::ttcore::DataType::Float32}));
+  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "gelu",
+                          mlir::tt::ttcore::DataType::Float32}));
 }

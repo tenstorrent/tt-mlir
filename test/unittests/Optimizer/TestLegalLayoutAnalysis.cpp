@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -144,7 +144,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
   auto scalarTypes = createScalarTypeSet();
   auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
   LegalTensorLayoutAnalysisInput allLayoutsInput(gridAttr, &scalarTypes,
-                                                  /*rowMajorAllowed=*/true);
+                                                 /*rowMajorAllowed=*/true);
   LegalTensorLayoutAnalysis allLayoutsAnalysis(module.get());
   allLayoutsAnalysis.init(allLayoutsInput);
   auto allLayoutsResult = allLayoutsAnalysis.getResult();
@@ -174,8 +174,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
       // Step 3: Run LegalLayoutAnalysis for this tensor type
       LegalOpLayoutAnalysisInput legalLayoutsInput(
           &layoutsForTensor, maxShardedConfigs,
-          /*outputLayoutOverrides=*/nullptr,
-          rowMajorEnabled);
+          /*outputLayoutOverrides=*/nullptr, rowMajorEnabled);
       LegalOpLayoutAnalysis legalLayoutsAnalysis(op);
       legalLayoutsAnalysis.init(legalLayoutsInput);
       auto legalLayoutsResult = legalLayoutsAnalysis.getResult();
