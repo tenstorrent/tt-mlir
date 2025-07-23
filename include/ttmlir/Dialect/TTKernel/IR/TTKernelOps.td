@@ -33,7 +33,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
                          TTKernel_CB:$ocb);
 
     let assemblyFormat = [{
-      `(` $icb0 `,` ($icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
+      `(` $icb0 (`,` $icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1453,7 +1453,7 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
     let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
 
     let assemblyFormat = [{
-      `(` $addr `,` $incr `,` ($noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $addr `,` $incr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1530,7 +1530,7 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
                          OptionalAttr<BoolAttr>:$multicast_path_reserve);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1703,7 +1703,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 
     let assemblyFormat = [{
-      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr `,` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1717,7 +1717,7 @@ def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 
     let assemblyFormat = [{
-      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr `,` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1731,7 +1731,7 @@ def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_mu
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests `,` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1764,7 +1764,7 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests `,` ($noc^)? `)` attr-dict `:`functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:`functional-type(operands, results)
   }];
 }
 
@@ -1777,7 +1777,7 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests `,` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
