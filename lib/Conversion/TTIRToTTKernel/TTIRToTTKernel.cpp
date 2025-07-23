@@ -605,37 +605,39 @@ public:
         ->getResult(0);
   }
 
-  static Value buildDramNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                                   ValueRange index) {
-    auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
-    assert(index.size() == 3);
-    auto bankID = index[1];
-    auto bankIDInt =
-        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
-    auto offset = index[2];
-    auto offsetInt =
-        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-
-    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
-                                                             addr);
-  }
-
   static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                               ValueRange index,
-                               ttcore::ChipDescAttr chipDesc) {
+                               ValueRange index, ttcore::ChipDescAttr chipDesc,
+                               ttcore::MemorySpace memspace) {
+    assert(memspace == ttcore::MemorySpace::DeviceL1 ||
+           memspace == ttcore::MemorySpace::DeviceDRAM);
     auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
     assert(index.size() == 3);
-    auto gridY = index[0];
-    auto gridX = index[1];
-    auto offset = index[2];
-    auto offsetInt =
-        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-    // Translate the src coordinates to virtual coordinates.
-    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-        rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-    return rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+    Value noc_addr_op;
+    if (memspace == ttcore::MemorySpace::DeviceL1) {
+      auto gridY = index[0];
+      auto gridX = index[1];
+      auto offset = index[2];
+      auto offsetInt = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), offset);
+      auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+      // Translate the src coordinates to virtual coordinates.
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+      noc_addr_op =
+          rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+    } else {
+      auto bankID = index[1];
+      auto bankIDInt = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), bankID);
+      auto offset = index[2];
+      auto offsetInt = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), offset);
+      auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+
+      return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
+                                                               addr);
+    }
+    return noc_addr_op;
   }
 
   template <typename ReadWritePtrOp>
@@ -662,30 +664,8 @@ public:
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
-    bool isSrcDram = op.getSrcMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
-    bool isDstDram = op.getDstMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
     bool isRead = false;
-    if (isSrcDram || isDstDram) {
-      isRead = isSrcDram;
-      if (isRead) {
-
-        auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
-            rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
-        auto nocAddr = buildDramNocAddress(
-            rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-        auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-        rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), nocAddr,
-                                                  dstL1Addr, size);
-      } else {
-        auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
-            rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-        auto dstNocAddr = buildDramNocAddress(
-            rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
-        auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                   dstNocAddr, size);
-      }
-    } else if (op.isSrcLocal() && op.isDstLocal()) {
+    if (op.isSrcLocal() && op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
 
       // Both src and dst are local, use the metal cb pointers to determine
@@ -745,15 +725,17 @@ public:
     } else if (op.isSrcLocal() && op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstNocAddr = buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                                        op.getDstIndices(), chipDesc);
+      auto dstNocAddr =
+          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
+                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  dstNocAddr, size);
       isRead = false;
     } else if (op.isSrcRemote() && op.isDstLocal()) {
-      auto srcNocAddr = buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
-                                        op.getSrcIndices(), chipDesc);
+      auto srcNocAddr =
+          buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
+                          op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
       auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
           rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
