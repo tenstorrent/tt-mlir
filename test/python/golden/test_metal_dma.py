@@ -39,11 +39,20 @@ def test_dram_tilize(shape: Shape, request):
 
         return untilize_out
 
+    # Back to back tolayout ops are normally folded during canonicalization into
+    # a single ToLayoutOp representing the final result. The option
+    # 'disable-tolayout-folding' prevents this
+    pipeline_options="{disable-tolayout-folding=1}"
+    pipeline = ",".join([
+        "ttir-lower-to-layout",
+        f"ttir-to-ttmetal-me-pipeline{pipeline_options}",
+        f"ttir-to-ttmetal-be-pipeline{pipeline_options}"
+    ])
     compile_to_flatbuffer(
         tilize,
         [shape],
         target="ttmetal",
-        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline=pipeline,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
