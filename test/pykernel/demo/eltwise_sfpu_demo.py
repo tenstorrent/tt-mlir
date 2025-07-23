@@ -44,7 +44,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
     @writer_thread()
     def writer_unary_interleaved(
-        cb_in: CircularBuffer,
         cb_out: CircularBuffer,
         dst_addr,
         num_tiles,
@@ -53,7 +52,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
 
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
         s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
@@ -70,7 +69,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
     @reader_thread()
     def reader_unary_interleaved(
         cb_in: CircularBuffer,
-        cb_out: CircularBuffer,
         src_addr,
         num_tiles,
         start_id,
@@ -78,7 +76,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
 
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
         s0 = TensorAccessor(tensor_accessor_args, src_addr, tile_bytes)
 
         end_id = start_id + num_tiles
@@ -114,7 +112,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.writer_unary_interleaved,
-                cb_in,
                 cb_out,
                 out_tensor.buffer_address(),
                 num_tiles,
@@ -123,7 +120,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
                 cb_in,
-                cb_out,
                 in_tensor.buffer_address(),
                 num_tiles,
                 start_id,
