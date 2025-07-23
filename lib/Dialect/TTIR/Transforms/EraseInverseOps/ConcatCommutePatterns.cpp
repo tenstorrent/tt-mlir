@@ -21,24 +21,14 @@ public:
   using TTIRCommuteOpRewritePattern<
       PermuteOp, ConcatOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Consider the following IR snippet:
-  // %0 = tensor.empty() : tensor<64x64xbf16>
-  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32}> :
-  // (tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<64x64xbf16>) ->
-  // tensor<64x64xbf16> %2 = tensor.empty() : tensor<64x64xbf16> %3 =
-  // "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> :
-  // (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+  // Consider the following IR pseudocode:
+  // %0 = concat(%arg0, %arg1) <{dim = 0 : si32}>
+  // %1 = permute(%0) <{permutation = array<i64: 1, 0>}>
   //
   // This method will transform this into:
-  // %0 = ttir.empty() : tensor<64x32xbf16>
-  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> :
-  // (tensor<32x64xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16> %2 =
-  // ttir.empty() : tensor<64x32xbf16> %3 = "ttir.permute"(%arg1, %2)
-  // <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>,
-  // tensor<64x32xbf16>) -> tensor<64x32xbf16> %4 = ttir.empty() :
-  // tensor<64x64xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 1 : si32}> :
-  // (tensor<64x32xbf16>, tensor<64x32xbf16>, tensor<64x64xbf16>) ->
-  // tensor<64x64xbf16>
+  // %0 = permute(%arg0) <{permutation = array<i64: 1, 0>}>
+  // %1 = permute(%arg1) <{permutation = array<i64: 1, 0>}>
+  // %2 = concat(%0, %1) <{dim = 1 : si32}>
   void performCommuteUpwardsRewrite(ConcatOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
     // We want to index shapes with the concat dim so we must ensure we are
@@ -94,24 +84,14 @@ public:
     }
   }
 
-  // Consider the follwing IR snippet:
-  // %0 = ttir.empty() : tensor<64x32xbf16>
-  // %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> :
-  // (tensor<32x64xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16> %2 =
-  // ttir.empty() : tensor<64x32xbf16> %3 = "ttir.permute"(%arg1, %2)
-  // <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>,
-  // tensor<64x32xbf16>) -> tensor<64x32xbf16> %4 = ttir.empty() :
-  // tensor<64x64xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 1 : si32}> :
-  // (tensor<64x32xbf16>, tensor<64x32xbf16>, tensor<64x64xbf16>) ->
-  // tensor<64x64xbf16>
+  // Consider the follwing IR pseudocode:
+  // %0 = permute(%arg0) <{permutation = array<i64: 1, 0>}>
+  // %1 = permute(%arg1) <{permutation = array<i64: 1, 0>}>
+  // %2 = concat(%0, %1) <{dim = 1 : si32}>
   //
   // This method will transform this into
-  // %0 = tensor.empty() : tensor<64x64xbf16>
-  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32}> :
-  // (tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<64x64xbf16>) ->
-  // tensor<64x64xbf16> %2 = tensor.empty() : tensor<64x64xbf16> %3 =
-  // "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> :
-  // (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+  // %0 = concat(%arg0, %arg1) <{dim = 0 : si32}>
+  // %1 = permute(%0) <{permutation = array<i64: 1, 0>}>
   void
   performCommuteDownwardsRewrite(ConcatOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
@@ -214,24 +194,18 @@ public:
   using TTIRCommuteOpRewritePattern<
       ReshapeOp, ConcatOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Consider the follwing IR snippet:
-  // %0 = tensor.empty() : tensor<1x64x64x2xbf16>
-  // %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 3 : si32}> :
-  // (tensor<1x64x64x1xbf16>, tensor<1x64x64x1xbf16>, tensor<1x64x64x2xbf16>) ->
-  // tensor<1x64x64x2xbf16> %2 = tensor.empty() : tensor<1x4096x2xbf16> %3 =
-  // "ttir.reshape"(%1, %2) <{shape = [1: i32, 4096: i32, 2: i32]}> :
-  // (tensor<1x64x64x2xbf16>, tensor<1x4096x2xbf16>) -> tensor<1x4096x2xbf16>
+  // Consider the follwing IR pseudocode:
+  // arg0 shape: [1, 64, 64, 1]
+  // arg1 shape: [1, 64, 64, 1]
+  // %0 = concat(%arg0, %arg1) <{dim = 3 : si32}>
+  // %1 = reshape"(%0) <{shape = [1: i32, 4096: i32, 2: i32]}>
   //
   // This method will transform this into:
-  // %0 = ttir.empty() : tensor<1x4096x1xbf16>
-  // %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 4096 : i32, 1 : i32]}> :
-  // (tensor<1x64x64x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> %2
-  // = ttir.empty() : tensor<1x4096x1xbf16> %3 = "ttir.reshape"(%arg1, %2)
-  // <{shape = [1 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x64x64x1xbf16>,
-  // tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> %4 = ttir.empty() :
-  // tensor<1x4096x2xbf16> %5 = "ttir.concat"(%1, %3, %4) <{dim = 2 : si32}> :
-  // (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x2xbf16>) ->
-  // tensor<1x4096x2xbf16>
+  // arg0 shape: [1, 64, 64, 1]
+  // arg1 shape: [1, 64, 64, 1]
+  // %0 = reshape(%arg0) <{shape = [1 : i32, 4096 : i32, 1 : i32]}>
+  // %1 = reshape(%arg1) <{shape = [1 : i32, 4096 : i32, 1 : i32]}>
+  // %2 = concat(%0, %1) <{dim = 2 : si32}>
   void performCommuteUpwardsRewrite(ConcatOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
     SmallVector<Value> newConcatOperands;
