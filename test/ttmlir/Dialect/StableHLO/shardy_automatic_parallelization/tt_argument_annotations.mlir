@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,2 argument-types=op_sequence=input,parameter,input automatic-arg-analysis" %s > %t.mlir
+// RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2 argument-types=op_sequence=input,parameter,input" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 func.func public @op_sequence(%arg0: tensor<32x1x8192x256xf32>, %arg1: tensor<256x2048xf32>, %arg2: tensor<32x1x8192x2048xf32>) -> (tensor<32x1x8192x2048xf32> {jax.result_info = ""}) {

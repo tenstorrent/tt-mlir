@@ -196,16 +196,4 @@ def TTCore_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
   let symbolToStringFnName = "ArgumentTypeEnumToString";
 }
 
-def TTCore_ShardStatus_Presharded: I32EnumAttrCase<"Presharded", 0, "presharded">;
-def TTCore_ShardStatus_Unsharded: I32EnumAttrCase<"Unsharded", 1, "unsharded">;
-
-def TTCore_ShardStatus : I32EnumAttr<"ShardStatus", "Shard Status Type",
-                            [
-                              TTCore_ShardStatus_Presharded,
-                              TTCore_ShardStatus_Unsharded,
-                            ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttcore";
-}
-
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPSENUMS_TD

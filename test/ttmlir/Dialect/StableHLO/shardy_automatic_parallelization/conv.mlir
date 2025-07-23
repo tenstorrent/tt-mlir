@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2024 The Shardy Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 sdy.mesh @mesh = <["model"=1, "batch"=2]>

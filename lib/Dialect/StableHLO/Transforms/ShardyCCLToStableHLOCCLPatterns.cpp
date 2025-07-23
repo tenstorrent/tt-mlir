@@ -3,10 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::stablehlo {
 
@@ -48,6 +64,7 @@ generateDefaultReplicaGroups(const llvm::SmallVector<int64_t> &meshShape) {
 // default replica groups. For example, if the mesh shape = [2, 4], we generate
 // a default replica groups as: [[0,1,2,3],[4,5,6,7]]. Then we transpose it
 // [[0,4],[1,5],[2,6],[3,7]].
+
 static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
     const llvm::SmallVector<llvm::SmallVector<int64_t>> &replicaGroups) {
   assert(!replicaGroups.empty() &&
@@ -66,11 +83,11 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>> transposeReplicaGroups(
 
 // Get the correct replica groups for the given mesh and mesh axis.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
-populateReplicaGroups(mlir::tt::shardy_utils::MeshMap meshMap,
+populateReplicaGroups(mlir::tt::sdy_utils::MeshMap meshMap,
                       mlir::StringRef meshAxis) {
   assert(meshMap.size() == 2 && "Meshmap must have exactly 2 elements when "
                                 "trying to populate replica groups\n.");
-  auto it = meshMap.begin();
+  auto *it = meshMap.begin();
   llvm::SmallVector<int64_t> meshShape = {it->second, (it + 1)->second};
   llvm::SmallVector<llvm::SmallVector<int64_t>> replicaGroups =
       generateDefaultReplicaGroups(meshShape);
@@ -83,7 +100,7 @@ populateReplicaGroups(mlir::tt::shardy_utils::MeshMap meshMap,
 }
 
 template <typename SrcOp>
-static mlir::tt::shardy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
+static mlir::tt::sdy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
   // Get the mesh attr that relates to the sdy.all_gather.
   mlir::sdy::MeshAttr meshAttr;
   mlir::Attribute attr = srcOp.getOutSharding().getMeshOrRef();
@@ -98,8 +115,8 @@ static mlir::tt::shardy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
     mlir::sdy::MeshOp meshOp = mlir::cast<mlir::sdy::MeshOp>(symbolOp);
     meshAttr = meshOp.getMesh();
   }
-  mlir::tt::shardy_utils::MeshMap meshMap =
-      mlir::tt::shardy_utils::createMeshMapFromMeshAttr(meshAttr);
+  mlir::tt::sdy_utils::MeshMap meshMap =
+      mlir::tt::sdy_utils::createMeshMapFromMeshAttr(meshAttr);
 
   return meshMap;
 }
@@ -139,7 +156,7 @@ public:
 
     // Iterate through gathering axes and create an all gather operation for
     // each axes that needs to be gathered.
-    mlir::tt::shardy_utils::MeshMap meshMap =
+    mlir::tt::sdy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllGatherOp>(srcOp);
 
     Value result = srcOp.getOperand();
@@ -168,7 +185,7 @@ public:
           mlir::cast<mlir::RankedTensorType>(result.getType());
       llvm::SmallVector<int64_t> newShape =
           llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[allGatherDim] *= meshMap[meshAxis.str()];
+      newShape[allGatherDim] *= meshMap[meshAxis];
       mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
           newShape, prevOutputType.getElementType());
 
@@ -206,7 +223,7 @@ public:
 
     // Iterate through reduce scatter axes and create a reduce scatter operation
     // for each axes that needs to be reduced.
-    mlir::tt::shardy_utils::MeshMap meshMap =
+    mlir::tt::sdy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::ReduceScatterOp>(srcOp);
 
     Value result = srcOp.getOperand();
@@ -236,7 +253,7 @@ public:
           mlir::cast<mlir::RankedTensorType>(result.getType());
       llvm::SmallVector<int64_t> newShape =
           llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[reduceScatterDim] /= meshMap[meshAxis.str()];
+      newShape[reduceScatterDim] /= meshMap[meshAxis];
       mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
           newShape, prevOutputType.getElementType());
 
@@ -281,7 +298,7 @@ public:
 
     // Iterate through reduction axes and create a all reduce operation for
     // each axes that needs to be reduced.
-    mlir::tt::shardy_utils::MeshMap meshMap =
+    mlir::tt::sdy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllReduceOp>(srcOp);
     Value result = srcOp.getOperand();
 
@@ -330,7 +347,7 @@ public:
 
     // Iterate through all all to all parameter attributes and insert a new all
     // to all op for each axis to perform the operation on.
-    mlir::tt::shardy_utils::MeshMap meshMap =
+    mlir::tt::sdy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllToAllOp>(srcOp);
     Value result = srcOp.getOperand();
 
@@ -360,14 +377,14 @@ public:
           mlir::cast<mlir::RankedTensorType>(result.getType());
       llvm::SmallVector<int64_t> newShape =
           llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[sliceDim] /= meshMap[meshAxis.str()];
-      newShape[concatDim] *= meshMap[meshAxis.str()];
+      newShape[sliceDim] /= meshMap[meshAxis];
+      newShape[concatDim] *= meshMap[meshAxis];
       mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
           newShape, prevOutputType.getElementType());
       mlir::stablehlo::AllToAllOp allToAllOp =
           rewriter.create<mlir::stablehlo::AllToAllOp>(
               srcOp.getLoc(), newOutputType, result, sliceDim, concatDim,
-              meshMap[meshAxis.str()],
+              meshMap[meshAxis],
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);

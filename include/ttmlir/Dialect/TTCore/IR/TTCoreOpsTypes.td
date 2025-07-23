@@ -464,10 +464,6 @@ def TTCore_MeshShardDirectionAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardDir
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_ShardStatusAttr : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
 def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
   let summary = "MeshShard shard_type attribute in TT dialect";
   let description = [{

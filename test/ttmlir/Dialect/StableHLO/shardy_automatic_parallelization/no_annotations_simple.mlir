@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,2 automatic-arg-analysis" %s > %t.mlir
+// RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2 automatic-arg-analysis" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 func.func public @abs(%arg0: tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32> {
