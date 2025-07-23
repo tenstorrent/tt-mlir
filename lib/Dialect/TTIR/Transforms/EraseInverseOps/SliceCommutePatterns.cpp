@@ -19,7 +19,7 @@ public:
   using TTIRCommuteOpRewritePattern<
       PermuteOp, SliceOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Consider the following IR snippet:
+  // Consider the following IR pseudocode:
   // %0 = slice(%arg0) <{
   //      begins = [0 : i32, 80 : i32, 0 : i32, 0 : i32],
   //      ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32],
@@ -72,7 +72,7 @@ public:
     }
   }
 
-  // Consider the following IR snippet:
+  // Consider the following IR pseudocode:
   // %0 = permute(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}>
   // %1 = slice(%0) <{
   //      begins = [0 : i32, 0 : i32, 0 : i32, 80 : i32],
