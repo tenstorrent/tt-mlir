@@ -34,9 +34,10 @@ protected:
 
   TTIRNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
                           ttcore::MemorySpace defaultOutputMemSpace,
-                          const llvm::SmallVector<int64_t> &targetGridShape)
+                          const llvm::SmallVector<int64_t> &targetGridShape,
+                          bool collapseTensors)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        targetGridShape(targetGridShape) {
+        targetGridShape(targetGridShape), collapseTensors(collapseTensors) {
     assert(!targetGridShape.empty());
   }
 
@@ -76,9 +77,17 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
-                                               logicalShape, targetGridShape,
-                                               ttcore::OOBVal::Undef, memSpace);
+    DenseIntElementsAttr emptyCollapseIntervals;
+    if (!collapseTensors) {
+      auto emptyIntervalType = RankedTensorType::get(
+          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+
+      emptyCollapseIntervals =
+          DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+    }
+    auto layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetGridShape,
+        ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -226,6 +235,8 @@ protected:
   std::array<ttcore::MemorySpace, 2> memorySpaces;
   mlir::ArrayRef<int64_t> targetGridShape;
 
+  bool collapseTensors;
+
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 };
 } // namespace
@@ -243,10 +254,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -352,10 +363,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -582,10 +593,11 @@ public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace,
-                     const llvm::SmallVector<int64_t> &targetGridShape)
+                     const llvm::SmallVector<int64_t> &targetGridShape,
+                     bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -718,7 +730,8 @@ void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
+    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul,
+    bool collapseTensors) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -747,14 +760,14 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
 
   // Matmul.
   if (useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
   }
   else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
   }
   // clang-format on
 }

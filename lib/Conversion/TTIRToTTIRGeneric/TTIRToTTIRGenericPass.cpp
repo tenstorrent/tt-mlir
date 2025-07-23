@@ -87,7 +87,8 @@ struct TTIRToTTIRGenericPass final
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(
         &ctx, patterns, typeConverter, defaultInputMemSpace,
-        defaultOutputMemSpace, getTargetGridShape(), useTileMatmul);
+        defaultOutputMemSpace, getTargetGridShape(), useTileMatmul,
+        collapseTensorsTo2D);
 
     if (failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {
