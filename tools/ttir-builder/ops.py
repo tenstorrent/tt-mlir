@@ -2859,17 +2859,11 @@ class TTIRBuilderOps:
         self,
         in0: Operand,
         in1: Operand,
-        kernel_height: int,
-        kernel_width: int,
-        stride_height: int,
-        stride_width: int,
-        dilation_height: int,
-        dilation_width: int,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
         ceil_mode: bool,
-        padding_left: int,
-        padding_right: int,
-        padding_top: int,
-        padding_bottom: int,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2906,24 +2900,34 @@ class TTIRBuilderOps:
             ttir.MaxPool2dOp,
             [in0],
             golden_kwargs={
-                "kernel_size": (kernel_height, kernel_width),
-                "stride": (stride_height, stride_width),
-                "padding": (padding_top, padding_left),
-                "dilation": (dilation_height, dilation_width),
+                "kernel": kernel,
+                "stride": stride,
+                "dilation": dilation,
+                "padding": padding,
                 "ceil_mode": ceil_mode,
             },
             ttir_kwargs={
-                "kernel_height": kernel_height,
-                "kernel_width": kernel_width,
-                "stride_height": stride_height,
-                "stride_width": stride_width,
-                "dilation_height": dilation_height,
-                "dilation_width": dilation_width,
+                "kernel": (
+                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    if isinstance(kernel, int)
+                    else DenseI32ArrayAttr.get(kernel)
+                ),
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
                 "ceil_mode": ceil_mode,
-                "padding_left": padding_left,
-                "padding_right": padding_right,
-                "padding_top": padding_top,
-                "padding_bottom": padding_bottom,
             },
             unit_attrs=unit_attrs,
         )
@@ -2992,20 +2996,28 @@ class TTIRBuilderOps:
     def max_pool2d_golden_function(
         self,
         input_tensor: Operand,
-        kernel_size: tuple[int],
-        stride: tuple[int],
-        padding: tuple[int],
-        dilation: tuple[int],
+        kernel: List[int],
+        stride: List[int],
+        dilation: List[int],
+        padding: List[int],
         ceil_mode: bool,
     ):
-        # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
-        # We need to transpose the input tensor to channels first before applying max_pool2d,
-        # and transpose back to channels last afterward to properly calculate the golden tensor.
+        # We model TTIR padding with 4 values that can be different for each side:
+        # [top, left, bottom, right]
+        # PyTorch max_pool2d uses a single value or a tuple of two values for padding:
+        # - single value: pads all sides with the same amount
+        # - tuple of two values: pads top/bottom and left/right with the same amount
+        if len(padding) == 4:
+            assert (padding[0] == padding[2]) and (
+                padding[1] == padding[3]
+            ), "TTIR max_pool2d padding must be symmetric for top/bottom and left/right in order to match PyTorch's padding behavior."
+            padding = [padding[0], padding[1]]
+
         # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
         # We need to transpose the input tensor to channels first before applying max_pool2d,
         # and transpose back to channels last afterward to properly calculate the golden tensor.
         maxpool_object = torch.nn.MaxPool2d(
-            kernel_size, stride, padding, dilation, ceil_mode
+            kernel, stride, padding, dilation, ceil_mode
         )
         input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
         result = maxpool_object(input_tensor)

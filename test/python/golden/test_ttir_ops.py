@@ -1075,25 +1075,19 @@ def test_conv_transpose2d(
 
 
 @pytest.mark.parametrize(
-    "kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom",
-    [(2, 2, 2, 2, 1, 1, False, 0, 0, 0, 0)],
+    "kernel,stride,dilation,padding,ceil_mode",
+    [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
 @pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
 def test_max_pool2d(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
-    kernel_height: int,
-    kernel_width: int,
-    stride_height: int,
-    stride_width: int,
-    dilation_height: int,
-    dilation_width: int,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
     ceil_mode: bool,
-    padding_left: int,
-    padding_right: int,
-    padding_top: int,
-    padding_bottom: int,
     request,
 ):
     def max_pool2d(
@@ -1105,17 +1099,11 @@ def test_max_pool2d(
         return builder.max_pool2d(
             in0,
             in1,
-            kernel_height=kernel_height,
-            kernel_width=kernel_width,
-            stride_height=stride_height,
-            stride_width=stride_width,
-            dilation_height=dilation_height,
-            dilation_width=dilation_width,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
             ceil_mode=ceil_mode,
-            padding_left=padding_left,
-            padding_right=padding_right,
-            padding_top=padding_top,
-            padding_bottom=padding_bottom,
             unit_attrs=unit_attrs,
         )
 
