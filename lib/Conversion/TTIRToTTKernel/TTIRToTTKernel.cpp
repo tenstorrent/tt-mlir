@@ -664,10 +664,11 @@ public:
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
-    bool isDramDma = op.isSrcDeviceDram() || op.isDstDeviceDram();
+    bool isSrcDram = op.getSrcMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+    bool isDstDram = op.getDstMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
     bool isRead = false;
-    if (isDramDma) {
-      isRead = op.isSrcDeviceDram() && op.isDstDeviceL1();
+    if (isSrcDram || isDstDram) {
+      isRead = isSrcDram;
       if (isRead) {
 
         auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
@@ -678,7 +679,6 @@ public:
         rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), nocAddr,
                                                   dstL1Addr, size);
       } else {
-        assert(op.isSrcDeviceL1() && op.isDstDeviceDram());
         auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
             rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
         auto dstNocAddr = buildDramNocAddress(

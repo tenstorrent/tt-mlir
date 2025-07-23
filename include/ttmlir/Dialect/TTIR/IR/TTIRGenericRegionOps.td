@@ -567,17 +567,11 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isLowered() {
         return bool(getIsLoweredState());
       }
-      bool isSrcDeviceDram() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceDRAM;
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
-      bool isDstDeviceDram() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceDRAM;
-      }
-      bool isSrcDeviceL1() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceL1;
-      }
-      bool isDstDeviceL1() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceL1;
+      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
       }
 
     }];
