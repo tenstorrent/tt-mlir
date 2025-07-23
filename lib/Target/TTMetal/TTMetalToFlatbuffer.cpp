@@ -160,11 +160,11 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       ttcore::MemorySpace::DeviceDRAM);
 
   // for now, D2M assumes that all dram buffers are interleaved and use 8K pages
-  constexpr size_t PAGE_SIZE = 8192;
-  uint64_t memref_size =
-      device.getMemrefSizeBytes(memref, PAGE_SIZE, false /*includeBuffers*/);
-  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, memref_size,
-                                                      PAGE_SIZE);
+  constexpr size_t kPageSize = 8192;
+  uint64_t memrefSize =
+      device.getMemrefSizeBytes(memref, kPageSize, false /*includeBuffers*/);
+  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, memrefSize,
+                                                      kPageSize);
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
@@ -285,13 +285,13 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
         interleavedBufferConfig = memrefTypeToInterleavedBufferConfigFlatbuffer(
             cache, memref, device);
     bufferConfigTag = target::metal::BufferConfig::InterleavedBufferConfig;
-    bufferConfigOffset = interleavedBufferConfig.o;
+    bufferConfigOffset = interleavedBufferConfig.Union();
   } else {
     flatbuffers::Offset<target::metal::ShardedBufferConfig>
         shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
             cache, memref, device, elementShape);
     bufferConfigTag = target::metal::BufferConfig::ShardedBufferConfig;
-    bufferConfigOffset = shardedBufferConfig.o;
+    bufferConfigOffset = shardedBufferConfig.Union();
   }
 
   return target::metal::CreateBufferDescDirect(

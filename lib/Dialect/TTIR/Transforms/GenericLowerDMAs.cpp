@@ -142,7 +142,10 @@ public:
         } else {
           coalescingFactor =
               std::gcd(coalescingFactor, currentCoalescingFactor);
-
+          // early exit if coalescing is not possible
+          if (coalescingFactor == 1) {
+            return;
+          }
           // current memory access can potentially be coalesced with next
           // access!
           currentCoalescingFactor = 1;
@@ -235,7 +238,6 @@ public:
 
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
-    loopNest.loops[0]->dumpPretty();
     return loopNest;
   }
 

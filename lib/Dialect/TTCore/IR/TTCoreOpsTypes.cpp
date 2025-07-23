@@ -1152,9 +1152,9 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
       (channelPageIndex * dramPageSizeExpr) + (flatAddr % dramPageSizeExpr) +
           baseAddressExpr};
 
-  unsigned dim_count = workerMap.getNumDims() + 1;
-  unsigned symbol_count = workerMap.getNumDims() * 2 + 2;
-  return mlir::AffineMap::get(dim_count, symbol_count, dramMapResults, context);
+  unsigned dimCount = workerMap.getNumDims() + 1;
+  unsigned symbolCount = workerMap.getNumDims() * 2 + 2;
+  return mlir::AffineMap::get(dimCount, symbolCount, dramMapResults, context);
 }
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
