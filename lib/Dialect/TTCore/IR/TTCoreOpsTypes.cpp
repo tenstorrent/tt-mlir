@@ -948,7 +948,17 @@ MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {
   shardStride[shardStride.size() - 1] =
       getElementSizeBytes(tensorType.getElementType());
   for (int64_t i = static_cast<int64_t>(shardStride.size()) - 2; i >= 0; i--) {
-    shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
+    int64_t shardShapeDim = shardShape[i + 1];
+
+    if (!mlir::isa<mlir::tt::ttcore::TileType>(tensorType.getElementType()) &&
+        (shardStride.size() >= 2 &&
+         static_cast<size_t>(i) == shardStride.size() - 2)) {
+      // Align up second to last shape dimension to TILE_WIDTH.
+
+      constexpr int64_t TILE_WIDTH = 32;
+      shardShapeDim = ttmlir::utils::alignUp(shardShapeDim, TILE_WIDTH);
+    }
+    shardStride[i] = shardShapeDim * shardStride[i + 1];
   }
   return shardStride;
 }

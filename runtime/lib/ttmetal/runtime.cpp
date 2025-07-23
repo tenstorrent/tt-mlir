@@ -411,19 +411,58 @@ void memcpy(void *dst, Tensor src,
 void memcpy(Tensor dst, Tensor src) {
   auto &metalDst = dst.as<MetalTensor>(DeviceRuntime::TTMetal);
   const auto &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
+
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalDst),
              "Only TensorDesc supported for now");
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
              "Only TensorDesc supported for now");
+
   auto &hostDst = std::get<TensorDesc>(metalDst);
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  std::int64_t maxAlignment = std::max(hostDst.alignment, hostSrc.alignment);
-  LOG_ASSERT(utils::alignUp(hostDst.sizeBytes(), maxAlignment) ==
-                 utils::alignUp(hostSrc.sizeBytes(), maxAlignment),
-             "Tensor size mismatch");
-  LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
-  std::int64_t copySize = std::min(hostDst.sizeBytes(), hostSrc.sizeBytes());
-  std::memcpy(dst.data.get(), src.data.get(), copySize);
+
+  LOG_ASSERT(hostDst.itemsize == hostSrc.itemsize, "Item size mismatch");
+  LOG_ASSERT(hostDst.shape == hostSrc.shape, "Tensor shape mismatch");
+  LOG_ASSERT(hostDst.stride.size() == hostSrc.stride.size(),
+             "Tensor stride order mismatch");
+
+  if (hostDst.stride == hostSrc.stride) {
+    std::int64_t maxAlignment = std::max(hostDst.alignment, hostSrc.alignment);
+    LOG_ASSERT(utils::alignUp(hostDst.sizeBytes(), maxAlignment) ==
+                   utils::alignUp(hostSrc.sizeBytes(), maxAlignment),
+               "Tensor size mismatch");
+    LOG_ASSERT(hostDst.dataType == hostSrc.dataType,
+               "Tensor data type mismatch");
+    std::int64_t copySize = std::min(hostDst.sizeBytes(), hostSrc.sizeBytes());
+    std::memcpy(dst.data.get(), src.data.get(), copySize);
+  } else {
+    std::vector<std::uint32_t> ordinates(hostDst.shape.size(), 0);
+
+    for (std::int64_t i = 0; i < hostDst.volume(); i++) {
+      ptrdiff_t offsetSrc = 0;
+      ptrdiff_t offsetDst = 0;
+
+      for (size_t j = 0; j < ordinates.size(); j++) {
+        offsetSrc += ordinates[j] * hostSrc.stride[j];
+        offsetDst += ordinates[j] * hostDst.stride[j];
+      }
+
+      std::memcpy(reinterpret_cast<std::uint8_t *>(dst.data.get()) +
+                      (hostDst.itemsize * offsetDst),
+                  reinterpret_cast<const std::uint8_t *>(src.data.get()) +
+                      (hostSrc.itemsize * offsetSrc),
+                  hostSrc.itemsize);
+
+      for (ssize_t j = hostDst.shape.size() - 1; j >= 0; j--) {
+        ordinates[j]++;
+
+        if (ordinates[j] < hostDst.shape[j]) {
+          break;
+        }
+
+        ordinates[j] = 0;
+      }
+    }
+  }
 }
 
 void deallocateTensor(Tensor &tensor, bool) {
