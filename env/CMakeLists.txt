@@ -50,6 +50,7 @@ ExternalProject_Add(
     llvm-project
     # Super hacky way to install the python dependencies before the build
     PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
+    PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/pass-options-superset.patch" && git commit -m "Enable PassPipelineOptions superset"
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
