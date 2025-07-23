@@ -1095,19 +1095,20 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //                |   |   +- Shard Dim Y
 //                |   +- Grid Dim X
 //                +- Grid Dim Y
-//     0,                                                                    # Device index
-//     0,                                                                    # Not Applicable
-//     global_page_index % num_dram_banks,                                   # Channel Idx
-//     (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address  # Byte Offset In Channel
+//     0,                                                                    #
+//     Device index 0, # Not Applicable global_page_index % num_dram_banks, #
+//     Channel Idx (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) +
+//     base_address  # Byte Offset In Channel
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat:
 //   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
-//  
-// Where global_page_index is the global page index corresponding to the address:
+//
+// Where global_page_index is the global page index corresponding to the
+// address:
 //   global_page_index  = addr floorDiv PAGE_SIZE
-// 
+//
 // Where channel_page_index is the page index within a bank
 //   channel_page_index = global_page_index floorDiv NUM_DRAM_BANKS
 //
@@ -1125,7 +1126,8 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
     shardVolumeExpr = shardDim * shardVolumeExpr;
   }
 
-  // flatAddr is an expression representing the address as-if the memory was completely flat 
+  // flatAddr is an expression representing the address as-if the memory was
+  // completely flat
   mlir::AffineExpr flatAddr = getAffineDimExpr(workerMap.getNumDims(), context);
   mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
@@ -1145,11 +1147,10 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   mlir::AffineExpr channelPageIndex = pageIndex.floorDiv(numDramBanksExpr);
 
   mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
-      getAffineConstantExpr(0, context),
-      getAffineConstantExpr(0, context),
+      getAffineConstantExpr(0, context), getAffineConstantExpr(0, context),
       pageIndex % numDramBanksExpr,
-      (channelPageIndex * dramPageSizeExpr) + (flatAddr % dramPageSizeExpr) + baseAddressExpr
-  };
+      (channelPageIndex * dramPageSizeExpr) + (flatAddr % dramPageSizeExpr) +
+          baseAddressExpr};
 
   unsigned dim_count = workerMap.getNumDims() + 1;
   unsigned symbol_count = workerMap.getNumDims() * 2 + 2;

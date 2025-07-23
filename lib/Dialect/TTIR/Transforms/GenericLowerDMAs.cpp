@@ -143,7 +143,8 @@ public:
           coalescingFactor =
               std::gcd(coalescingFactor, currentCoalescingFactor);
 
-          // current memory access can potentially be coalesced with next access!
+          // current memory access can potentially be coalesced with next
+          // access!
           currentCoalescingFactor = 1;
         }
         nextAddress = address;
@@ -182,8 +183,7 @@ public:
 
     size_t inner_loop_bound_size = shardShape[1];
 
-    auto [lbs, ubs, steps] =
-        getLoopBounds(builder, loc, shardShape);
+    auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
     auto nullDmaTx = builder.create<ttir::NullTxOp>(dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(

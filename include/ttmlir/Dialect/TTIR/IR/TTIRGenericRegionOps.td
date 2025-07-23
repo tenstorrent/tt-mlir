@@ -476,7 +476,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape, 
+                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
                          OptionalAttr<BoolAttr>:$isLoweredState);
     let results = (outs TTIR_MemTx:$result);
 
@@ -579,7 +579,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isDstDeviceL1() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceL1;
       }
-      
+
     }];
 }
 

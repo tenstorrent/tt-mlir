@@ -605,7 +605,8 @@ public:
         ->getResult(0);
   }
 
-  static Value buildDramNocAddress(OpBuilder &rewriter, Location loc, Value cb, ValueRange index) {
+  static Value buildDramNocAddress(OpBuilder &rewriter, Location loc, Value cb,
+                                   ValueRange index) {
     auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
     assert(index.size() == 3);
     auto bankID = index[1];
@@ -616,7 +617,8 @@ public:
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
     auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
 
-    //rewriter.create<ttkernel::DPrintOp>(loc, "base addr: {} bank ID: {} addr: {}\\n", baseAddr, bankIDInt, addr);
+    // rewriter.create<ttkernel::DPrintOp>(loc, "base addr: {} bank ID: {} addr:
+    // {}\\n", baseAddr, bankIDInt, addr);
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
                                                              addr);
   }

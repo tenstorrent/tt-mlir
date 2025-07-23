@@ -106,7 +106,8 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
 
   std::shared_ptr<tt_metal::Buffer> buffer;
-  if (bufferDesc->buffer_config_type() == target::metal::BufferConfig::ShardedBufferConfig) {
+  if (bufferDesc->buffer_config_type() ==
+      target::metal::BufferConfig::ShardedBufferConfig) {
 
     const target::metal::ShardedBufferConfig *shardedBufferConfig =
         bufferDesc->buffer_config_as_ShardedBufferConfig();
@@ -150,7 +151,8 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
         .shard_parameters = metalShardSpecBuffer,
     };
 
-    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating Sharded Buffer ",
+    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation,
+              "Creating Sharded Buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
     uint32_t address = deviceAddressValidator(
         bufferRef->address(), bufferRef->desc()->memory_space());
@@ -165,7 +167,8 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
     const target::metal::InterleavedBufferConfig *interleavedBufferConfig =
         bufferDesc->buffer_config_as_InterleavedBufferConfig();
 
-    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating Interleaved Buffer ",
+    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation,
+              "Creating Interleaved Buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
     uint32_t address = deviceAddressValidator(
         bufferRef->address(), bufferRef->desc()->memory_space());

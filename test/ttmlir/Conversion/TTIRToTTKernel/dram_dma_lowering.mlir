@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-lower-dmas --ttir-generic-generate-loops --canonicalize --convert-ttir-to-ttkernel %s | FileCheck %s -dump-input=always 
+// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-lower-dmas --ttir-generic-generate-loops --canonicalize --convert-ttir-to-ttkernel %s | FileCheck %s -dump-input=always
 
 // The above passes are all necessary!
 
@@ -9,7 +9,7 @@
 
 module {
 
-// Test 1: Small DRAM read, only accessing bank 0 
+// Test 1: Small DRAM read, only accessing bank 0
 // CHECK-LABEL: func.func @test_dram_read_onebank
 func.func @test_dram_read_onebank(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<dram>>) {
 
@@ -32,7 +32,7 @@ func.func @test_dram_read_onebank(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128
   return
 }
 
-// Test 2: DRAM read spanning all DRAM banks 
+// Test 2: DRAM read spanning all DRAM banks
 // CHECK-LABEL: func.func @test_dram_read_multibank
 func.func @test_dram_read_multibank(%arg0: memref<1x1x128x128xf32, #ttcore.shard<128x4>, #ttcore.memory_space<dram>>) {
 
