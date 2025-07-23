@@ -115,6 +115,8 @@ def TTIRToTTIRGeneric : Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   let options =
       [Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true",
               "Use tile_matmul">,
+       Option<"collapseTensorsTo2D", "collapse-tensors-2d", "bool", /*default=*/"true",
+              "Default collapse all tensors to 2D">,
        Option<"defaultInputMemSpace", "default-input-memspace",
               "ttcore::MemorySpace",
               /*default=*/"ttcore::MemorySpace::DeviceL1",
