@@ -241,6 +241,8 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Translates NVVM dialect to standard LLVM dialect for further processing.
   manager.addPass(createConvertNVVMToLLVMPass());
 
+  manager.addPass(mlir::createSCFToControlFlowPass());
+  manager.addPass(mlir::createConvertControlFlowToLLVMPass());
   // Resolves any remaining type conversion issues by reconciling unrealized
   // cast operations.
   manager.addPass(createReconcileUnrealizedCastsPass());

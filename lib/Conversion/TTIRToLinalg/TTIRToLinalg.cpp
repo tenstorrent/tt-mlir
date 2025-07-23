@@ -341,11 +341,56 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
+    // Get operand types
+    auto lhsType = cast<RankedTensorType>(lhs.getType());
+    auto rhsType = cast<RankedTensorType>(rhs.getType());
+
+    // Handle rank mismatch by broadcasting lower-rank operand
+    if (lhsType.getRank() != rhsType.getRank()) {
+      if (lhsType.getRank() < rhsType.getRank()) {
+        // Broadcast lhs to match rhs rank
+        lhs = broadcastToRank(rewriter, op.getLoc(), lhs, rhsType.getRank());
+      } else {
+        // Broadcast rhs to match lhs rank
+        rhs = broadcastToRank(rewriter, op.getLoc(), rhs, lhsType.getRank());
+      }
+    }
+
     auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
                                             ValueRange{lhs, rhs});
 
     rewriter.replaceOp(op, result);
     return success();
+  }
+
+private:
+  // Helper function to broadcast a tensor to a higher rank
+  Value broadcastToRank(ConversionPatternRewriter &rewriter, Location loc,
+                        Value input, int64_t targetRank) const {
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t currentRank = inputType.getRank();
+
+    if (currentRank >= targetRank) {
+      return input; // No broadcasting needed
+    }
+
+    // Create new shape by prepending 1s
+    SmallVector<int64_t> newShape;
+    for (int64_t i = 0; i < targetRank - currentRank; ++i) {
+      newShape.push_back(1);
+    }
+    for (int64_t dim : inputType.getShape()) {
+      newShape.push_back(dim);
+    }
+
+    // Create reshape using TOSA reshape
+    auto newType = RankedTensorType::get(newShape, inputType.getElementType());
+    auto shapeType =
+        mlir::tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShape);
+    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
+
+    return rewriter.create<tosa::ReshapeOp>(loc, newType, input, shapeOp);
   }
 };
 } // namespace
@@ -634,7 +679,7 @@ public:
     auto elementType = resultType.getElementType();
     assert(elementType.isF32());
     DenseElementsAttr zerosAttr =
-        DenseElementsAttr::get(resultType, ArrayRef<float>(0));
+        DenseElementsAttr::get(resultType, /*value=*/0.0f);
 
     auto zerosConst =
         rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, zerosAttr);
