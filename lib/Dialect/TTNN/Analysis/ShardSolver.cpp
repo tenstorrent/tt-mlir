@@ -37,20 +37,11 @@ ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 static std::vector<OpConfig::OpSpecificAttrs>
 getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
+  llvm::DenseSet<OpConfig::OpSpecificAttrs> uniqueAttrs;
   std::vector<OpConfig::OpSpecificAttrs> attrVec;
+
   for (const OpConfig &config : configs) {
-    if (config.isAttrUninitialized()) {
-      continue;
-    }
-    // Check if already present
-    bool found = false;
-    for (const auto &existing : attrVec) {
-      if (existing == config.opSpecificAttrs) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    if (uniqueAttrs.insert(config.opSpecificAttrs).second) {
       attrVec.push_back(config.opSpecificAttrs);
     }
   }
@@ -389,11 +380,13 @@ void ShardSolver::checkShardCompatibleForInputLayout(
     llvm::Expected<TTNNLayoutAttr> shardCompatible =
         checkShardCompatible(op->getOperand(edge.operandIndex), inputLayout, op,
                              consumerConfigNoLayout);
+
     if (shardCompatible) {
       TTNNLayoutAttr outputLayout = shardCompatible.get();
       size_t consumerConfigIdx;
       for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
            ++consumerConfigIdx) {
+
         if (consumerConfigs[consumerConfigIdx].outputLayout == outputLayout &&
             consumerConfigs[consumerConfigIdx].opSpecificAttrs ==
                 opSpecificAttr) {
@@ -405,16 +398,17 @@ void ShardSolver::checkShardCompatibleForInputLayout(
         // Once we enable row-major, this case should not occur, at that point
         // we can add a fatal error.
 
-        TTMLIR_TRACE(
-            ttmlir::LogComponent::Optimizer,
-            "Did not find consumer config (layout {}, op-specific attr {}) "
+        std::string errorMsg = llvm::formatv(
+            "Did not find consumer config (layout {0}, op-specific attr {1}) "
             "among generated configs",
             outputLayout, opSpecificAttr);
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", errorMsg);
+        callback(llvm::createStringError(errorMsg));
         continue;
       }
 
       callback(consumerConfigIdx);
-      break;
+      continue;
     }
     callback(shardCompatible.takeError());
   }

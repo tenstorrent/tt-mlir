@@ -280,26 +280,42 @@ private:
   bool preprocessFirstOp();
 
   // Performs backend check to see if producer tensor is compatible with
-  // consumer op. Backend may or may not respect consumer config. Backend
-  // returns actual output tensor layout that is being created for the given
-  // producer tensor. This function will return error if producer and consumer
-  // are not compatible. Also, it will return an error if provided consumer
-  // config is not the same as actual consumer layout. Otherwise, it will return
-  // TTNNLayoutAttr with actual consumer layout.
+  // consumer op using the given consumer config. The backend may use the
+  // provided consumerConfig.outputLayout as a constraint, or determine its
+  // own optimal output layout based on producer layout and op-specific
+  // attributes.
+  //
+  // Returns the backend's actual consumer output layout on success.
+  // Returns error if:
+  // - Producer and consumer are incompatible (L1 memory, constraints, etc.)
+  // - consumerConfig.outputLayout is specified and the backend's actual output
+  //   layout differs from the requested layout
+  //
+  // The function validates that when a specific output layout is requested,
+  // the backend respects that constraint. When consumerConfig.outputLayout
+  // is nullptr, the backend has freedom to choose the optimal layout.
   llvm::Expected<TTNNLayoutAttr> checkShardCompatible(
       Value producerOperand, const TTNNLayoutAttr &producerLayout,
       Operation *consumerOp, const OpConfig &consumerConfig) const;
 
-  // Helper to check if producer and consumer are compatible for a given
-  // input layout. We try all consumer configs (basically op specific
-  // attributes) without consumer tensor layout. Then we check if backend
-  // returned output layout is found among consumer configs. If so, we return
-  // the index of the consumer config. If backend yielded an error, we return
-  // the error to the callback. Caller provides callback to handle the result or
-  // error.
+  // Checks compatibility of inputLayout with consumer op across multiple
+  // op-specific attributes. For each unique op-specific attribute in
+  // consumerOpSpecificAttrs, calls checkShardCompatible() to determine
+  // if the inputLayout is compatible with that attribute combination.
+  //
+  // For each op-specific attribute tested:
+  // - On backend compatibility success: searches consumerConfigs for matching
+  //   output layout and op-specific attribute, calls callback(configIndex)
+  // - On backend compatibility failure: calls callback(error)
+  // - On missing matching config: calls callback(error) for configuration
+  // mismatch
+  //
+  // The callback is invoked exactly once per element in
+  // consumerOpSpecificAttrs, enabling exploration of compatibility across
+  // different attribute combinations for the same input layout.
   void checkShardCompatibleForInputLayout(
       const Edge &edge, Operation *op, TTNNLayoutAttr inputLayout,
-      std::vector<OpConfig::OpSpecificAttrs> &consumerOpSpecificAttrSet,
+      std::vector<OpConfig::OpSpecificAttrs> &consumerOpSpecificAttrs,
       const std::vector<OpConfig> &consumerConfigs,
       std::function<void(llvm::Expected<std::size_t>)> callback);
 

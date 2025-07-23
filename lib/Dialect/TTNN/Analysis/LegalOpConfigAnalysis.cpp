@@ -188,6 +188,13 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             : std::get<Conv2dAttrs>(analysisResult.begin()->opSpecificAttrs)
                   .conv2dConfig.value();
 
+    // If weights dtype is not set, set it to the weight tensor dtype.
+    if (!conv2dConfigAttrBase.getWeightsDtype().has_value()) {
+      conv2dConfigAttrBase =
+          conv2dConfigAttrBase.withWeightsDtype(ttcore::elementTypeToDataType(
+              conv2dOp.getWeight().getType().getElementType()));
+    }
+
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                  "Op {} Base conv2d config: {}", conv2dOp.getLoc(),
                  conv2dConfigAttrBase);
