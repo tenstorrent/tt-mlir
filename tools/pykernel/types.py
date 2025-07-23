@@ -79,7 +79,7 @@ class TensorAccessorConfig(Enum):
     """
     Python equivalent ArgConfig from tt_metal/hostdevcommon/api/hostdevcommon/tensor_accessor/arg_config.hpp.
     Bit encoding of fundamental configuration of a tensor accessor that must be available at compile time.
-    #TODO: Can probably remove this once pybinds for TensorAccessor is implemented.
+    #TODO: Remove once pybinds for TensorAccessorArgs implemented - Metal Issue #25655
     """
 
     NONE = 0
