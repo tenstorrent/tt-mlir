@@ -1930,11 +1930,36 @@ public:
   matchAndRewrite(mlir::ModuleOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.modifyOpInPlace(srcOp, [&]() {
+    rewriter.modifyOpInPlace(srcOp, [&srcOp]() {
       for (const NamedAttribute &attr : srcOp->getAttrs()) {
         srcOp->removeAttr(attr.getName());
       }
     });
+
+    return success();
+  }
+};
+} // namespace
+
+// Func Op conversion pattern
+//
+// This conversion pattern removes arg attrs from the FuncOp. Previously,
+// ttmlir-translate would complain when translating to C++ if there were any
+// attributes from "unregistered" dialects.
+//
+namespace {
+class FuncOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<func::FuncOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      func::FuncOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::FuncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(srcOp, [&srcOp]() { srcOp.removeArgAttrsAttr(); });
 
     return success();
   }
@@ -2385,7 +2410,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern>(typeConverter, ctx);
+               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //
@@ -2419,9 +2445,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 
-  // BatchNorm op
+  // FuncOp
   //
-  patterns.add<BatchNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 
