@@ -1,4 +1,4 @@
-include(ExternalProject)
+include(FetchContent)
 
 set(TT_METAL_VERSION "81412069f02b01a483cc0fb29fec5c9bf28ac1ab")
 
@@ -94,41 +94,23 @@ endif()
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
-ExternalProject_Add(
+FetchContent_Declare(
   tt-metal
-  PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  BINARY_DIR ${METAL_BUILD_DIR}
-  # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
-  CMAKE_ARGS
-    -DCMAKE_INSTALL_MESSAGE=LAZY
-  CMAKE_GENERATOR Ninja
-  CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
-    -DCMAKE_INSTALL_PREFIX=${METAL_INSTALL_PREFIX}
-    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
-    -DCMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE}
-    -DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}
-    -DENABLE_CCACHE=${TTMETAL_ENABLE_CCACHE}
-    -DWITH_PYTHON_BINDINGS=ON
-    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
-    -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
-    -DENABLE_LIBCXX=OFF
-    -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
-  GIT_PROGRESS OFF
-  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
-ExternalProject_Add_StepTargets(tt-metal download update configure)
-set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
-set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
-set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set(CMAKE_C_FLAGS_BACKUP "${CMAKE_C_FLAGS}")
+set(CMAKE_CXX_FLAGS_BACKUP "${CMAKE_CXX_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 
-set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
+FetchContent_MakeAvailable(tt-metal)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_BACKUP}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
+unset(CMAKE_C_FLAGS_BACKUP)
+unset(CMAKE_CXX_FLAGS_BACKUP)
 
 # When installing, copy all needed files (for runtime) from `tt-metal` repo to the install directory.
 # EXCLUDE_FROM_ALL is used to avoid installing these files when installing the default component.
@@ -206,7 +188,11 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-list(APPEND library_names TTNN_LIBRARY TTNN_PY_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
+add_library(TTNN_LIBRARY ALIAS ttnncpp)
+add_library(TTNN_PY_LIBRARY ALIAS ttnn)
+add_library(TTMETAL_LIBRARY ALIAS tt_metal)
+add_library(DEVICE_LIBRARY ALIAS device)
+list(APPEND library_names ttnncpp ttnn tt_metal device)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
@@ -215,9 +201,9 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
 endif()
 
 foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
-  add_library(${lib_name} SHARED IMPORTED GLOBAL)
-  set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
-  add_dependencies(${lib_name} tt-metal)
+  #set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
+  set_property(TARGET ${lib_name} PROPERTY CXX_STANDARD 20)
+  #set_target_properties(${lib_name} PROPERTIES CXX_STANDARD 20)
 endforeach()
 
 install(CODE

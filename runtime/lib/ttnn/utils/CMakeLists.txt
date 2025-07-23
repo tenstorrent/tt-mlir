@@ -16,6 +16,6 @@ target_include_directories(TTRuntimeTTNNUtils PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTNNUtils SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeTTNNUtils TTNN_LIBRARY tt-metal FBS_GENERATION)
+add_dependencies(TTRuntimeTTNNUtils TTNN_LIBRARY tt_metal FBS_GENERATION)
 target_link_libraries(TTRuntimeTTNNUtils PUBLIC TTNN_LIBRARY)
 target_link_libraries(TTRuntimeTTNNUtils PUBLIC coverage_config)

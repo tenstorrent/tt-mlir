@@ -50,7 +50,7 @@ target_include_directories(TTRuntimeSysDesc
 )
 
 target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
+add_dependencies(TTRuntimeSysDesc tt_metal FBS_GENERATION)
 target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config)
 
 add_library(TTRuntimeContext STATIC runtime_context.cpp)
@@ -76,7 +76,7 @@ target_include_directories(TTRuntimePerf
     ${PROJECT_SOURCE_DIR}/runtime/include
     "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
 )
-add_dependencies(TTRuntimePerf tt-metal)
+add_dependencies(TTRuntimePerf tt_metal)
 target_link_libraries(TTRuntimePerf PUBLIC coverage_config)
 
 add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)

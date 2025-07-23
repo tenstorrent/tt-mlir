@@ -93,4 +93,4 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
 endif()
 
 
-add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug)
+add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt_metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug)
