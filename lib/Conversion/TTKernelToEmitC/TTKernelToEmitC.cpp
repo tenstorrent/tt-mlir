@@ -586,10 +586,8 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto name = op.getOperation()->getName().getStringRef().drop_front(9);
-    if (name.ends_with("_from_tensor_accessor")) {
-      name = name.drop_back(21);
-    }
+    // Drop "ttkernel.tensor_accessor_" prefix
+    auto name = op.getOperation()->getName().getStringRef().drop_front(25);
 
     auto operands = adaptor.getOperands();
     if (operands.empty()) {

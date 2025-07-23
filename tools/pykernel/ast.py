@@ -119,13 +119,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         "matmul_tiles": ttkernel.matmul_tiles,
         "TensorAccessorArgs": ttkernel.TensorAccessorArgs,
         "TensorAccessor": ttkernel.TensorAccessor,
-        "get_noc_addr_from_tensor_accessor": ttkernel.get_noc_addr_from_tensor_accessor,
-        "get_shard_noc_addr": ttkernel.get_shard_noc_addr,
-        "get_bank_and_offset": ttkernel.get_bank_and_offset,
-        "is_local_bank": ttkernel.is_local_bank,
-        "is_local_addr": ttkernel.is_local_addr,
-        "is_local_page": ttkernel.is_local_page,
-        "is_local_shard": ttkernel.is_local_shard,
+        "tensor_accessor_get_noc_addr": ttkernel.tensor_accessor_get_noc_addr,
+        "tensor_accessor_get_shard_noc_addr": ttkernel.tensor_accessor_get_shard_noc_addr,
+        "tensor_accessor_get_bank_and_offset": ttkernel.tensor_accessor_get_bank_and_offset,
+        "tensor_accessor_is_local_bank": ttkernel.tensor_accessor_is_local_bank,
+        "tensor_accessor_is_local_addr": ttkernel.tensor_accessor_is_local_addr,
+        "tensor_accessor_is_local_page": ttkernel.tensor_accessor_is_local_page,
+        "tensor_accessor_is_local_shard": ttkernel.tensor_accessor_is_local_shard,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):
