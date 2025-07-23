@@ -18,18 +18,16 @@ pytestmark = pytest.mark.llmbox
         (1, 1, 64, 128),
         (1, 1, 66, 128),
         (1, 1, 62, 128),
-        pytest.param(
-            (1, 1, 64, 132), marks=pytest.mark.fails_golden
-        ),  # https://github.com/tenstorrent/tt-metal/issues/21964
-        pytest.param((1, 1, 66, 132), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 64, 124), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 62, 124), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 258, 516), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 260, 520), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 254, 508), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 252, 504), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 32, 64), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 2, 4), marks=pytest.mark.fails_golden),
+        (1, 1, 64, 132),
+        (1, 1, 66, 132),
+        (1, 1, 64, 124),
+        (1, 1, 62, 124),
+        (1, 32, 258, 516),
+        (1, 32, 260, 520),
+        (1, 32, 254, 508),
+        (1, 32, 252, 504),
+        (1, 32, 32, 64),
+        (1, 1, 2, 4),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
