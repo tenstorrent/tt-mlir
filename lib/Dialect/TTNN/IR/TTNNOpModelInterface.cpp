@@ -373,6 +373,26 @@ FloorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GeluOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+GeluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::GeluOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+GeluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::GeluOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

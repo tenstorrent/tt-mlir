@@ -344,7 +344,9 @@ def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor",
     }];
 }
 
-def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
+def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Eltwise GELU.";
   let description = [{
     Eltwise GELU operation.

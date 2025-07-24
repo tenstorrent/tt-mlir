@@ -76,7 +76,8 @@ enum class UnaryEltwiseOpType {
   Sign,
   Erf,
   Erfc,
-  Floor
+  Floor,
+  Gelu
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -104,6 +105,7 @@ protected:
           {UnaryEltwiseOpType::Erf, ErfOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Erfc, ErfcOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Floor, FloorOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Gelu, GeluOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -125,6 +127,7 @@ protected:
           {UnaryEltwiseOpType::Erf, ErfOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Erfc, ErfcOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Floor, FloorOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Gelu, GeluOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -324,6 +327,10 @@ INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelUnaryEltwiseParam,
 
 INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Floor,
+                                                     unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Gelu,
                                                      unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
