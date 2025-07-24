@@ -317,7 +317,9 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
-def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
+def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise erf op.";
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
