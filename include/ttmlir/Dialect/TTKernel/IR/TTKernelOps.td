@@ -437,6 +437,47 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrai
     }];
 }
 
+def TTKernel_BcastBinaryInitOp : TTKernel_InitOp<"init_bcast"> {
+  let summary = "Init function for binary operations with tile-level broadcast support.";
+  let description = [{
+    Must be run before any_tiles_bcast.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       TTKernel_CB:$ocb,
+                       TTKernel_BcastBinaryOpAttr:$bcast_op,
+                       TTKernel_BcastBinaryTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $ocb `,` $bcast_op `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_BcastBinaryTilesOp : TTKernel_FPUOp<"any_tiles_bcast", [TTKernel_BinaryOpTrait]> {
+  let summary = "Binary operations with tile-level broadcast support.";
+  let description = [{
+    Perform a binary operation on the FPU with a pre-op broadcast on the second input tile.
+    Supported operations: Add, Sub, Mul.
+    Supported broadcast types: None, Col, Row, Scalar.
+    For column-broadcast, the 0th column of the second input tile should contain the input data.
+    For row-broadcast, the 0th row of the second input tile should contain the input data.
+    For scalar-broadcast, the top-left corner of the second input tile should contain the value.
+  }];
+
+  let arguments = (ins TTKernel_CB:$icb0,
+                       TTKernel_CB:$icb1,
+                       IndexLike:$in0_tile_index,
+                       IndexLike:$in1_tile_index,
+                       IndexLike:$dst_index,
+                       TTKernel_BcastBinaryOpAttr:$bcast_op,
+                       TTKernel_BcastBinaryTypeAttr:$bcast_type);
+
+  let assemblyFormat = [{
+    `(` $icb0 `,` $icb1 `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `,` $bcast_op `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//

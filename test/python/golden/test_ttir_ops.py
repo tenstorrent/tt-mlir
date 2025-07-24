@@ -2605,7 +2605,6 @@ def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, req
         signs_rhs = torch.randint(0, 2, shape) * 2 - 1
         tensor_lhs *= signs_lhs
         tensor_rhs *= signs_rhs
-        tensor_out = torch.add(tensor_lhs, tensor_rhs)
         builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
         return builder.add(in0, in1, unit_attrs=unit_attrs)
 
@@ -3042,4 +3041,65 @@ def test_rms_norm(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+bcast_hw_only_shapes = [
+    [(32, 32), (1, 32)],
+    [(32, 32), (32, 1)],
+    [(32, 32), (1, 1)],
+    [(64, 32), (64, 1)],
+    [(64, 32), (1, 32)],
+    [(64, 32), (1, 1)],
+    [(64, 64), (64, 1)],
+    [(512, 32), (512, 1)],
+    [(512, 32), (1, 32)],
+    [(512, 64), (512, 1)],
+    [(512, 64), (1, 64)],
+    [(512, 512), (512, 1)],
+    [(512, 512), (1, 512)],
+    [(512, 512), (1, 1)],
+]
+
+bcast_hw_only_shape_ids = [
+    "32x32-1x32",
+    "32x32-32x1",
+    "32x32-1x1",
+    "64x32-64x1",
+    "64x32-1x32",
+    "64x32-1x1",
+    "64x64-64x1",
+    "512x32-512x1",
+    "512x32-1x32",
+    "512x64-512x1",
+    "512x64-1x64",
+    "512x512-512x1",
+    "512x512-1x512",
+    "512x512-1x1",
+]
+
+
+@pytest.mark.parametrize("shapes", bcast_hw_only_shapes, ids=bcast_hw_only_shape_ids)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_bcast_hw_only(shapes: List[Shape], dtype: torch.dtype, target: str, request):
+    def add_ones(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        input_A = torch.ones(shapes[0], dtype=dtype)
+        input_B = torch.ones(shapes[1], dtype=dtype)
+        builder.set_goldens(inputs={in0: input_A, in1: input_B})
+        return builder.add(in0, in1, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        add_ones,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
