@@ -14,6 +14,7 @@ if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
 endif()
 
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
+option(TT_RUNTIME_ENABLE_DISTRIBUTED "Enable multihost distributed compute support (OpenMPI)" ON)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
@@ -22,10 +23,6 @@ option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
-
-if (TTMLIR_ENABLE_STABLEHLO)
-  add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
-endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
@@ -41,17 +38,21 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  add_compile_options(-DTRACY_ENABLE=ON)
-endif()
-
 if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
     message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
 endif()
 
+add_subdirectory(third_party)
+
+set(BUILD_SHARED_LIBS OFF)
+
 # Enable debug logs only in Debug mode
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(TTMLIR_ENABLE_DEBUG_LOGS)
+endif()
+
+if (TTMLIR_ENABLE_STABLEHLO)
+  add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
@@ -116,7 +117,6 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
 
-add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
   set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)

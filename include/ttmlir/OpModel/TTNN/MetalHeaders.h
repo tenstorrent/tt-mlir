@@ -5,7 +5,9 @@
 #ifndef TTMLIR_OPMODEL_TTNN_METALHEADERS_H
 #define TTMLIR_OPMODEL_TTNN_METALHEADERS_H
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 
 #include "tt-metalium/buffer.hpp"
 #include "tt-metalium/buffer_types.hpp"

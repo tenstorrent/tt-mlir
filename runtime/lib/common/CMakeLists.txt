@@ -49,9 +49,8 @@ target_include_directories(TTRuntimeSysDesc
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
-target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
-target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config)
+add_dependencies(TTRuntimeSysDesc FBS_GENERATION)
+target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config TT::Metalium)
 
 add_library(TTRuntimeContext STATIC runtime_context.cpp)
 set_property(TARGET TTRuntimeContext PROPERTY CXX_STANDARD 20)
@@ -74,9 +73,7 @@ set_property(TARGET TTRuntimePerf PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimePerf
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
-    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
 )
-add_dependencies(TTRuntimePerf tt-metal)
 target_link_libraries(TTRuntimePerf PUBLIC coverage_config)
 
 add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)

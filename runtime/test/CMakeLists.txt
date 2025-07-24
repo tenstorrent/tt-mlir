@@ -37,9 +37,9 @@ target_include_directories(TTRuntimeGTestLib INTERFACE
 target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTBinary
     TTMLIRRuntime
-    TTNN_LIBRARY
-    TTMETAL_LIBRARY
-    DEVICE_LIBRARY
+    TTNN::CPP
+    TT::Metalium
+    umd::device
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main

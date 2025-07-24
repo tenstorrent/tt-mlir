@@ -14,7 +14,9 @@
 #include <cstdint>
 #include <vector>
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/allocator.hpp"
 #include "tt-metalium/hal.hpp"

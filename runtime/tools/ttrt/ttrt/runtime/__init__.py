@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 try:
-    from ttrt.runtime._ttmlir_runtime.runtime import (
+    from ttrt.runtime.lib._ttmlir_runtime.runtime import (
         Device,
         Event,
         Tensor,
@@ -57,7 +57,7 @@ except ModuleNotFoundError:
     )
 
 try:
-    from ttrt.runtime._ttmlir_runtime.runtime import test
+    from ttrt.runtime.lib._ttmlir_runtime.runtime import test
 except ImportError:
     print(
         "Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON"
