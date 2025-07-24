@@ -170,65 +170,69 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-# Device Definitions
-device = ttnn.open_device(device_id=0)
+def main(device):
+    # I/O Tensor Definitions
 
-# I/O Tensor Definitions
+    # Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
+    M = 4
+    K = 4
+    N = 4
 
-# Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
-M = 4
-K = 4
-N = 4
+    a_shape = [M * 32, K * 32]
+    a_data = torch.rand(a_shape).to(torch.bfloat16)
 
-a_shape = [M * 32, K * 32]
-a_data = torch.rand(a_shape).to(torch.bfloat16)
+    b_shape = [K * 32, N * 32]
+    b_data = torch.rand(b_shape).to(torch.bfloat16)
 
-b_shape = [K * 32, N * 32]
-b_data = torch.rand(b_shape).to(torch.bfloat16)
+    out_shape = [M * 32, N * 32]
 
-out_shape = [M * 32, N * 32]
+    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    a_tensor = ttnn.from_torch(
+        a_data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-a_tensor = ttnn.from_torch(
-    a_data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    b_tensor = ttnn.from_torch(
+        b_data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-b_tensor = ttnn.from_torch(
-    b_data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    output_tensor = ttnn.allocate_tensor_on_device(
+        ttnn.Shape(out_shape),
+        ttnn.bfloat16,
+        ttnn.TILE_LAYOUT,
+        device,
+        dram_memory_config,
+    )
 
-output_tensor = ttnn.allocate_tensor_on_device(
-    ttnn.Shape(out_shape),
-    ttnn.bfloat16,
-    ttnn.TILE_LAYOUT,
-    device,
-    dram_memory_config,
-)
+    matmul_op = MatmulSinglecorePyKernelOp()
 
-matmul_op = MatmulSinglecorePyKernelOp()
+    # Run tests against the golden "add" op.
+    output = matmul_op(a_tensor, b_tensor, output_tensor)
+    golden = ttnn.matmul(a_tensor, b_tensor)
 
-# Run tests against the golden "add" op.
-output = matmul_op(a_tensor, b_tensor, output_tensor)
-golden = ttnn.matmul(a_tensor, b_tensor)
+    torch_golden = ttnn.to_torch(golden)
+    torch_output = ttnn.to_torch(output)
 
-torch_golden = ttnn.to_torch(golden)
-torch_output = ttnn.to_torch(output)
+    print(f"a_tensor: {a_tensor}")
+    print(f"b_tensor: {b_tensor}")
+    print(f"torch_golden: {torch_golden}")
+    print(f"torch_output: {torch_output}")
 
-print(f"a_tensor: {a_tensor}")
-print(f"b_tensor: {b_tensor}")
-print(f"torch_golden: {torch_golden}")
-print(f"torch_output: {torch_output}")
+    # Accuracy errors due to device flags that we may not be setting and using (which ttnn could be using)
+    matching = torch.allclose(torch_golden, torch_output, atol=1)
+    print(f"Tensors are matching: {matching}")
+    assert matching
 
-# Accuracy errors due to device flags that we may not be setting and using (which ttnn could be using)
-matching = torch.allclose(torch_golden, torch_output, atol=1)
-print(f"Tensors are matching: {matching}")
-assert matching
+
+if __name__ == "__main__":
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)

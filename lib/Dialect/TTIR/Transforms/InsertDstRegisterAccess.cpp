@@ -9,6 +9,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -76,10 +78,30 @@ public:
         }
 
         Region &region = op.getRegion(regionIndex);
-        modified |= insertDstRegisterAccess(
-            rewriter, op.getLoc(), region, [&](int64_t index) {
-              return op.getNonParticipatingLoopDims(index);
-            });
+        Block &block = region.getBlocks().front();
+
+        bool linalgToAffineFailed = false;
+        block.walk([&](linalg::GenericOp linalgGenericOp) {
+          rewriter.setInsertionPoint(linalgGenericOp);
+          // Apply linalg to affine loops pass
+          auto linalgLoops =
+              linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+          if (failed(linalgLoops)) {
+            linalgToAffineFailed = true;
+            return;
+          }
+          rewriter.eraseOp(linalgGenericOp);
+          modified |= insertDstRegisterAccess(
+              rewriter, op.getLoc(), region,
+              !linalgLoops.value().empty() ? linalgLoops.value().front()
+                                           : nullptr,
+              [&](int64_t index) {
+                return op.getNonParticipatingLoopDims(index);
+              });
+        });
+        if (linalgToAffineFailed) {
+          return failure();
+        }
       }
     } else {
       static_assert(std::is_same_v<GenericOrFuncOp, func::FuncOp>);
@@ -95,6 +117,7 @@ public:
 
   static bool insertDstRegisterAccess(
       PatternRewriter &rewriter, Location loc, Region &region,
+      Operation *outermostInnerComputeLoop = nullptr,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
               [](int64_t) { return SmallVector<int64_t>{}; }) {
@@ -104,15 +127,17 @@ public:
     }
 
     // 1. Collect all loads/stores to dst organized by loop nest.
-    DenseMap<Operation *, CopyInfo> copyInfo =
-        collectDstAccesses(region, getNonParticipatingLoopDims);
+    DenseMap<Operation *, CopyInfo> copyInfo = collectDstAccesses(
+        region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
     if (copyInfo.empty()) {
       return false;
     }
 
     // 2. Insert acquire dst.
-    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyInfo);
+    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyInfo,
+                                               outermostInnerComputeLoop);
     Value dst = acquireDst.getResult();
+
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
     return true;
@@ -135,9 +160,14 @@ public:
 
   static AcquireDstOp
   insertAcquireDst(PatternRewriter &rewriter, Location loc, Region &region,
-                   const DenseMap<Operation *, CopyInfo> &copyInfos) {
+                   const DenseMap<Operation *, CopyInfo> &copyInfos,
+                   Operation *outermostInnerComputeLoop) {
     assert(!copyInfos.empty());
-    rewriter.setInsertionPointToStart(&region.front());
+    if (outermostInnerComputeLoop) {
+      rewriter.setInsertionPoint(outermostInnerComputeLoop);
+    } else {
+      rewriter.setInsertionPointToStart(&region.front());
+    }
 
     auto [firstLoopNest, firstCopyInfo] = *copyInfos.begin();
     unsigned dstRegisterSizeTiles = getDstRegisterSizeTiles(firstLoopNest);
@@ -172,7 +202,8 @@ public:
   static DenseMap<Operation *, CopyInfo>
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
-                         getNonParticipatingLoopDims) {
+                         getNonParticipatingLoopDims,
+                     Operation *outermostInnerComputeLoop) {
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
     region.walk([&](OperandLoadRegisterOpInterface op) {
@@ -192,7 +223,7 @@ public:
               collectDstAccess<affine::AffineLoadOp>(
                   potentialLoad, loopNests,
                   dstRegisterAllocationState.allocate(),
-                  getNonParticipatingLoopDims);
+                  getNonParticipatingLoopDims, outermostInnerComputeLoop);
         }
       }
 
@@ -204,13 +235,22 @@ public:
                  "Multiple stores to dst not supported");
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
-                  potentialStore, loopNests, 0, getNonParticipatingLoopDims);
+                  potentialStore, loopNests, 0, getNonParticipatingLoopDims,
+                  outermostInnerComputeLoop);
           dstRegisterAllocationState.allocate();
           dstRegisterAllocationState.setStoreToDst();
         }
       }
     });
     return loopNests;
+  }
+
+  static BlockArgument lookThroughSubView(Value memref) {
+    while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
+               memref.getDefiningOp())) {
+      memref = subView.getSource();
+    }
+    return mlir::cast<BlockArgument>(memref);
   }
 
   // Collect a single load or store to dst organized by loop nest. Returns the
@@ -221,20 +261,19 @@ public:
                    DenseMap<Operation *, CopyInfo> &loopNests,
                    int64_t nextDstIndex,
                    llvm::function_ref<SmallVector<int64_t>(int64_t)>
-                       getNonParticipatingLoopDims) {
-    Operation *ancestor =
-        ttmlir::utils::loop::getOutermostLoopNest<affine::AffineForOp>(
-            loadOrStore.getOperation());
-    if (!ancestor) {
-      // If there is no loop nest the common ancestor is the operation itself.
-      ancestor = loadOrStore;
+                       getNonParticipatingLoopDims,
+                   Operation *outermostInnerComputeLoop) {
+    if (!outermostInnerComputeLoop) {
+      // If there is no outermostInnerComputeLoop, the common ancestor is the
+      // operation itself.
+      outermostInnerComputeLoop = loadOrStore;
     }
 
-    auto [iter, inserted] = loopNests.try_emplace(ancestor);
+    auto [iter, inserted] = loopNests.try_emplace(outermostInnerComputeLoop);
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstIndex);
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
-        mlir::cast<BlockArgument>(loadOrStore.getMemRef()).getArgNumber());
+        lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
       copyInfo.guardIndices = guardIndices;
     }
@@ -340,7 +379,8 @@ public:
     if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
       rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
         // Erase the loop bodies except for other nested loops / yields.
-        if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp>(op)) {
+        if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
+                       affine::AffineApplyOp>(op)) {
           op->dropAllUses();
           rewriter.eraseOp(op);
         }
