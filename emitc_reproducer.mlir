@@ -16,9 +16,9 @@ module attributes {polyblocks.cpu_target_info = {l1_cache_associativity = 8 : i8
     emitc.call_opaque "cb_reserve_back"(%5, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     // %6 = 1 read
     %6 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-    %a = emitc.literal "get_compile_time_arg_val(2)" : !emitc.opaque<"::tt::CB">
-    emitc.call_opaque "binary_op_init_common"(%6, %a, %5) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-    emitc.call_opaque "add_tiles_init"(%6, %a) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+    %dummy = emitc.literal "get_compile_time_arg_val(2)" : !emitc.opaque<"::tt::CB">
+    emitc.call_opaque "binary_op_init_common"(%6, %6, %5) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+    emitc.call_opaque "add_tiles_init"(%6, %6) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
     emitc.for %arg0 = %1 to %4 step %3  : !emitc.size_t {
       for %arg1 = %1 to %4 step %3  : !emitc.size_t {
         call_opaque "cb_wait_front"(%6, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
@@ -28,7 +28,7 @@ module attributes {polyblocks.cpu_target_info = {l1_cache_associativity = 8 : i8
             %8 = add %7, %arg3 : (!emitc.size_t, !emitc.size_t) -> !emitc.size_t
 
             call_opaque "tile_regs_acquire"() : () -> ()
-            call_opaque "add_tiles"(%6, %a, %8, %8, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+            call_opaque "add_tiles"(%6, %6, %8, %8, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
             call_opaque "tile_regs_commit"() : () -> ()
 
             call_opaque "tile_regs_wait"() : () -> ()
@@ -36,8 +36,18 @@ module attributes {polyblocks.cpu_target_info = {l1_cache_associativity = 8 : i8
             call_opaque "tile_regs_release"() : () -> ()
           }
         }
+
+        // Dummy CB Workaround: Stall the unpack thread until the pack thread is done
+        call_opaque "cb_wait_front"(%dummy, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        call_opaque "cb_pop_front"(%dummy, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+
         call_opaque "cb_push_back"(%5, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
         call_opaque "cb_reserve_back"(%5, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+
+        // Dummy CB Workaround: Signal unpack thread that pack thread is done
+        call_opaque "cb_reserve_back"(%dummy, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        call_opaque "cb_push_back"(%dummy, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+
         call_opaque "cb_pop_front"(%6, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
       }
     }
