@@ -682,10 +682,10 @@ private:
     // If the output data type is untilizable on device, untilize on device then
     // move to host
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      currentInput =
-          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
