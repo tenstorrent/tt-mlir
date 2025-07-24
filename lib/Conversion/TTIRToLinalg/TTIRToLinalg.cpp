@@ -393,7 +393,7 @@ public:
     auto newShape = resultType.getShape();
     SmallVector<int64_t> newShapeValues(newShape.begin(), newShape.end());
     auto shapeType =
-        mlir::tosa::shapeType::get(rewriter.getContext(), newShape.size());
+        tosa::shapeType::get(rewriter.getContext(), newShape.size());
     auto attr = rewriter.getIndexTensorAttr(newShapeValues);
     auto shapeOp =
         rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
@@ -813,7 +813,7 @@ public:
       auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
 
       // Create shape tensor for reshape - matching your original approach
-      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
       SmallVector<int64_t> shapeValues = {1, lhsType.getDimSize(0),
                                           lhsType.getDimSize(1)};
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
@@ -837,7 +837,7 @@ public:
       auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
 
       // Create shape tensor for reshape
-      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
       SmallVector<int64_t> shapeValues = {collapsedBatchSize,
                                           lhsType.getShape()[lhsRank - 2],
                                           lhsType.getShape()[lhsRank - 1]};
@@ -858,10 +858,12 @@ public:
       auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
 
       // Create shape tensor for reshape
-      auto shapeType = RankedTensorType::get({3}, rewriter.getI64Type());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, rhsType.getDimSize(0),
+                                          rhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<arith::ConstantOp>(op.getLoc(), shapeType, shapeAttr);
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
       rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
@@ -880,10 +882,13 @@ public:
       auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
 
       // Create shape tensor for reshape
-      auto shapeType = RankedTensorType::get({3}, rewriter.getI64Type());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {collapsedBatchSize,
+                                          rhsType.getShape()[rhsRank - 2],
+                                          rhsType.getShape()[rhsRank - 1]};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<arith::ConstantOp>(op.getLoc(), shapeType, shapeAttr);
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
       rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
@@ -947,8 +952,8 @@ public:
     // Reshape result back to original rank if needed
     if (resultType.getRank() != matmulResultType.getRank()) {
       // Create shape tensor for reshape
-      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(),
-                                                  resultType.getRank());
+      auto shapeType =
+          tosa::shapeType::get(rewriter.getContext(), resultType.getRank());
       SmallVector<int64_t> shapeValues;
       for (auto dim : resultType.getShape()) {
         shapeValues.push_back(dim);
@@ -1655,6 +1660,8 @@ public:
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
   patterns.add<
+      ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>,
       ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
       ElementwiseBinaryOpConversionPattern<ttir::DivOp, linalg::DivOp>,
       ElementwiseBinaryOpConversionPattern<ttir::PowOp, linalg::PowFOp>,
@@ -1680,12 +1687,6 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseUnaryOpConversionPattern<ttir::RsqrtOp, tosa::RsqrtOp>,
       ElementwiseUnaryOpConversionPattern<ttir::SigmoidOp, tosa::SigmoidOp>,
       ElementwiseUnaryOpConversionPattern<ttir::TanhOp, tosa::TanhOp>>(
-      typeConverter, ctx);
-
-  // Elementwise binary operations
-  patterns.add<
-      TosaElementwiseBinaryOpConversionPattern<ttir::AddOp, tosa::AddOp>,
-      TosaElementwiseBinaryOpConversionPattern<ttir::SubtractOp, tosa::SubOp>>(
       typeConverter, ctx);
 
   // Comparison operations
