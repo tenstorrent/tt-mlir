@@ -31,34 +31,35 @@ getStorageTypeMinMax(IntegerType intType, mlir::Location loc) {
   return std::make_pair(min, max);
 }
 
-// Returns true if all values are ranked tensors with the same quantized element
-// type.
+// Returns true if all values that are quantized are ranked tensors with the
+// same quantized element type.
 inline bool
 areQuantizationParamsAligned(mlir::ArrayRef<mlir::Value> quantizedValues) {
   if (quantizedValues.empty()) {
     return true;
   }
 
-  auto firstType =
-      mlir::dyn_cast<mlir::RankedTensorType>(quantizedValues[0].getType());
-  if (!firstType) {
-    return false;
-  }
+  mlir::quant::QuantizedType referenceQType = nullptr;
+  return llvm::all_of(quantizedValues, [&](mlir::Value val) {
+    auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!rankedType) {
+      return true;
+    }
 
-  auto firstQuantType =
-      mlir::dyn_cast<mlir::quant::QuantizedType>(firstType.getElementType());
-  if (!firstQuantType) {
-    return false;
-  }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(rankedType.getElementType());
+    // Ignore non-quantized values.
+    if (!qType) {
+      return true;
+    }
 
-  return llvm::all_of(quantizedValues.drop_front(), [&](mlir::Value val) {
-    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
-    if (!type) {
+    if (!referenceQType) {
+      referenceQType = qType;
+    } else if (qType != referenceQType) {
       return false;
     }
-    auto qType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
-    return qType && qType == firstQuantType;
+
+    return true;
   });
 }
 

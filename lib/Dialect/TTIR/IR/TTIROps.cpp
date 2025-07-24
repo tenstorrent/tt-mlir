@@ -106,22 +106,31 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   if ((lhsElemQ && !rhsElemQ) || (!lhsElemQ && rhsElemQ)) {
     Value dequantVal = lhsElemQ ? rhs : lhs;
     Value quantVal = lhsElemQ ? lhs : rhs;
-    RankedTensorType quantType =
-        mlir::cast<mlir::RankedTensorType>(quantVal.getType());
-    mlir::quant::UniformQuantizedType quantElemType =
-        mlir::cast<mlir::quant::UniformQuantizedType>(
-            quantType.getElementType());
+    auto quantElemQ = lhsElemQ ? lhsElemQ : rhsElemQ;
+    auto quantType = mlir::cast<mlir::RankedTensorType>(quantVal.getType());
+    auto expressedType =
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType())
+            .getElementType();
 
     // Insert quantize op for the dequantized value (the types must be
     // compatible).
-    auto newQuantType = quantElemType.castFromExpressedType(
-        mlir::cast<mlir::RankedTensorType>(dequantVal.getType())
-            .getElementType());
-    if (!newQuantType) {
+    mlir::Type newElemType = nullptr;
+    if (auto perTensor =
+            llvm::dyn_cast<mlir::quant::UniformQuantizedType>(quantElemQ)) {
+      newElemType = perTensor.castFromExpressedType(expressedType);
+    } else if (auto perAxis =
+                   llvm::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+                       quantElemQ)) {
+      newElemType = perAxis.castFromExpressedType(expressedType);
+    } else {
+      return nullptr; // Unsupported quantized type
+    }
+    if (!newElemType) {
       return nullptr;
     }
+
     RankedTensorType newType = RankedTensorType::get(
-        quantType.getShape(), newQuantType, quantType.getEncoding());
+        quantType.getShape(), newElemType, quantType.getEncoding());
 
     auto quantizedInput = ttir::utils::createDPSOp<ttir::QuantizeOp>(
         rewriter, getLoc(), newType, dequantVal);
