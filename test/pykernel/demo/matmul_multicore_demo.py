@@ -62,12 +62,18 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         num_tiles,
     ):
         in0_tile_bytes = get_tile_size(cb_in0)
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
-        addr_gen_a = TensorAccessor(tensor_accessor_args, src_addr0, in0_tile_bytes)
+        in0_dataformat = get_dataformat(cb_in0)
+
+        addr_gen_a = get_interleaved_addr_gen_fast(
+            True, src_addr0, in0_tile_bytes, in0_dataformat
+        )
 
         in1_tile_bytes = get_tile_size(cb_in1)
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
-        addr_gen_b = TensorAccessor(tensor_accessor_args, src_addr1, in1_tile_bytes)
+        in1_dataformat = get_dataformat(cb_in1)
+
+        addr_gen_b = get_interleaved_addr_gen_fast(
+            True, src_addr1, in1_tile_bytes, in1_dataformat
+        )
 
         for output_tile in range(0, num_tiles, 1):
             current_tile_id = start_id + output_tile
@@ -99,8 +105,11 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         start_id,
     ):
         tile_bytes = get_tile_size(cb_out)
-        tensor_accessor_args = TensorAccessorArgs(1, 0)
-        addr_gen_c = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
+        dataformat = get_dataformat(cb_out)
+
+        addr_gen_c = get_interleaved_addr_gen_fast(
+            True, dst_addr, tile_bytes, dataformat
+        )
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, 1):
@@ -130,8 +139,6 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         cb_in1 = self.create_cb(b_tensor, 1)
         cb_out = self.create_cb(out_tensor, 2)
         start_id = 0
-
-        self.set_tensor_accessor_config(a_tensor)
 
         Mt = a_tensor.shape[0] // 32
         Kt = a_tensor.shape[1] // 32
@@ -190,65 +197,59 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-def main(device):
-    # Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
-    M = 4
-    K = 4
-    N = 4
+device = ttnn.open_device(device_id=0)
+# Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
+M = 4
+K = 4
+N = 4
 
-    a_shape = [M * 32, K * 32]
-    a_data = torch.rand(a_shape).to(torch.bfloat16)
+a_shape = [M * 32, K * 32]
+a_data = torch.rand(a_shape).to(torch.bfloat16)
 
-    b_shape = [K * 32, N * 32]
-    b_data = torch.rand(b_shape).to(torch.bfloat16)
+b_shape = [K * 32, N * 32]
+b_data = torch.rand(b_shape).to(torch.bfloat16)
 
-    out_shape = [M * 32, N * 32]
+out_shape = [M * 32, N * 32]
 
-    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-    a_tensor = ttnn.from_torch(
-        a_data,
-        dtype=ttnn.bfloat16,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=dram_memory_config,
-    )
+a_tensor = ttnn.from_torch(
+    a_data,
+    dtype=ttnn.bfloat16,
+    layout=ttnn.TILE_LAYOUT,
+    device=device,
+    memory_config=dram_memory_config,
+)
 
-    b_tensor = ttnn.from_torch(
-        b_data,
-        dtype=ttnn.bfloat16,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=dram_memory_config,
-    )
+b_tensor = ttnn.from_torch(
+    b_data,
+    dtype=ttnn.bfloat16,
+    layout=ttnn.TILE_LAYOUT,
+    device=device,
+    memory_config=dram_memory_config,
+)
 
-    output_tensor = ttnn.allocate_tensor_on_device(
-        ttnn.Shape(out_shape),
-        ttnn.bfloat16,
-        ttnn.TILE_LAYOUT,
-        device,
-        dram_memory_config,
-    )
+output_tensor = ttnn.allocate_tensor_on_device(
+    ttnn.Shape(out_shape),
+    ttnn.bfloat16,
+    ttnn.TILE_LAYOUT,
+    device,
+    dram_memory_config,
+)
 
-    multicore_matmul_op = MatmulMulticorePyKernelOp()
+multicore_matmul_op = MatmulMulticorePyKernelOp()
 
-    output = multicore_matmul_op(a_tensor, b_tensor, output_tensor)
-    golden = ttnn.matmul(a_tensor, b_tensor)
+output = multicore_matmul_op(a_tensor, b_tensor, output_tensor)
+golden = ttnn.matmul(a_tensor, b_tensor)
 
-    torch_output = ttnn.to_torch(output)
-    torch_golden = ttnn.to_torch(golden)
+torch_output = ttnn.to_torch(output)
+torch_golden = ttnn.to_torch(golden)
 
-    print(f"a_tensor: {a_tensor}")
-    print(f"b_tensor: {b_tensor}")
-    print(f"torch_golden: {torch_golden}")
-    print(f"torch_output: {torch_output}")
+print(f"a_tensor: {a_tensor}")
+print(f"b_tensor: {b_tensor}")
+print(f"torch_golden: {torch_golden}")
+print(f"torch_output: {torch_output}")
 
-    matching = torch.allclose(torch_golden, torch_output, atol=0.75)
-    print(f"Tensors are matching: {matching}")
-    assert matching
-
-
-if __name__ == "__main__":
-    device = ttnn.open_device(device_id=0)
-    main(device)
-    ttnn.close_device(device)
+matching = torch.allclose(torch_golden, torch_output, atol=0.75)
+print(f"Tensors are matching: {matching}")
+assert matching

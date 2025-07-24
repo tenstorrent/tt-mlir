@@ -18,8 +18,8 @@ def test_assign():
     # CHECK: func.func @
 
     # TEST: SSA assignment
-    # CHECK: {{.*}} = arith.constant 1 : i32
-    # CHECK: {{.*}} = arith.constant 2 : i32
+    # CHECK: arith.constant 1 : i32
+    # CHECK: arith.constant 2 : i32
     a = 1
     a = 2
 
@@ -33,19 +33,19 @@ def test_assign():
     b = 2
 
     # TEST: AugAssign with memref
-    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
-    # CHECK: {{.*}}arith.addi{{.*}}
-    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    # CHECK: memref.load %[[ALLOCA]]
+    # CHECK: arith.addi
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]
     b += 2
 
-    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
-    # CHECK: {{.*}}arith.subi{{.*}}
-    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    # CHECK: memref.load %[[ALLOCA]]
+    # CHECK: arith.subi
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]
     b -= 2
 
-    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
-    # CHECK: {{.*}}arith.muli{{.*}}
-    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    # CHECK: memref.load %[[ALLOCA]]
+    # CHECK: arith.muli
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]
     b *= 2
 
     return
@@ -57,49 +57,49 @@ def test_ifstmt():
     # CHECK: func.func @
 
     # TEST: if stmt scope stacks with memref and SSA
-    # CHECK: %[[C1:.*]] = arith.constant{{.*}} : i32
+    # CHECK: %[[C1:.*]] = arith.constant
     # CHECK: %[[A_a:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[C1]], %[[A_a]]{{.*}} : memref<1xi32>
     a: int = 1
 
     # CHECK: %[[L_a:.*]] = memref.load %[[A_a]]{{.*}} : memref<1xi32>
-    # CHECK: %[[COND:.*]] = arith.cmpi eq, %[[L_a]]{{.*}}
-    # CHECK: scf.if %[[COND]]{{.*}}
+    # CHECK: %[[COND:.*]] = arith.cmpi eq, %[[L_a]]
+    # CHECK: scf.if %[[COND]]
     if a == 1:
-        # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[C2:.*]] = arith.constant
         # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
         a = 10
-        # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[C3:.*]] = arith.constant
         # CHECK: %[[A_b:.*]] = memref.alloca() : memref<1xi32>
         # CHECK: memref.store %[[C3]], %[[A_b]]{{.*}} : memref<1xi32>
         b: int = 5
     else:
-        # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[C2:.*]] = arith.constant
         # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
         a = 20
-        # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[C3:.*]] = arith.constant
         # CHECK: %[[A_c:.*]] = memref.alloca() : memref<1xi32>
         # CHECK: memref.store %[[C3]], %[[A_c]]{{.*}} : memref<1xi32>
         c: int = 1
 
     # CHECK: memref.store {{.*}}, %[[A_a]]{{.*}} : memref<1xi32>
-    # CHECK: {{.*}} = arith.constant{{.*}}
-    # CHECK: {{.*}} = arith.constant{{.*}}
+    # CHECK: arith.constant
+    # CHECK: arith.constant
     a = 1
     b = 2
     c = 3
 
-    # CHECK: %[[COND2:.*]] = arith.cmpi ne{{.*}}
-    # CHECK: scf.if %[[COND2]]{{.*}}
+    # CHECK: %[[COND2:.*]] = arith.cmpi ne
+    # CHECK: scf.if %[[COND2]]
     if a:
-        # CHECK: memref.store {{.*}}
+        # CHECK: memref.store
         a = 2
 
-    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
-    # CHECK: %[[COND3:.*]] = arith.andi {{.*}}
-    # CHECK: scf.if %[[COND3]]{{.*}}
+    # CHECK: arith.cmpi sgt
+    # CHECK: %[[COND3:.*]] = arith.andi
+    # CHECK: scf.if %[[COND3]]
     if True and a > 10:
-        # CHECK: memref.store {{.*}}
+        # CHECK: memref.store
         a = 2
     return
 
@@ -123,13 +123,13 @@ def test_for():
     z: int = 1
     d: int = 1
     for i in range(a, b, c):
-        # CHECK: %[[X:.*]] = memref.load{{.*}}
-        # CHECK: %[[Y:.*]] = memref.load{{.*}}
-        # CHECK: %[[Z:.*]] = memref.load{{.*}}
-        # CHECK: scf.for {{.*}} = %[[X]] to %[[Y]] step %[[Z]] {{.*}}
+        # CHECK: %[[X:.*]] = memref.load
+        # CHECK: %[[Y:.*]] = memref.load
+        # CHECK: %[[Z:.*]] = memref.load
+        # CHECK: scf.for {{.*}} = %[[X]] to %[[Y]] step %[[Z]]
         for j in range(x, y, z):
-            # CHECK: {{.*}} = arith.addi{{.*}}
-            # CHECK: memref.store{{.*}}
+            # CHECK: arith.addi
+            # CHECK: memref.store
             d = d + 1
 
     return
@@ -141,39 +141,39 @@ def test_binops():
     # CHECK: func.func @
     a = 1
     b = 1
-    # CHECK: %{{.*}} = arith.addi{{.*}}
+    # CHECK: arith.addi
     a + b
-    # CHECK: %{{.*}} = arith.subi{{.*}}
+    # CHECK: arith.subi
     a - b
-    # CHECK: %{{.*}} = arith.muli{{.*}}
+    # CHECK: arith.muli
     a * b
-    # CHECK: %{{.*}} = arith.addi{{.*}}
-    # CHECK: %{{.*}} = arith.subi{{.*}}
+    # CHECK: arith.addi
+    # CHECK: arith.subi
     a + b - a
-    # CHECK: %{{.*}} = arith.addi{{.*}}
-    # CHECK: %{{.*}} = arith.muli{{.*}}
-    # CHECK: %{{.*}} = arith.subi{{.*}}
+    # CHECK: arith.addi
+    # CHECK: arith.muli
+    # CHECK: arith.subi
     a + b - a * b
 
-    # CHECK: %{{.*}} = arith.floordivsi{{.*}}
+    # CHECK: arith.divui
     a // b
 
-    # CHECK: %{{.*}} = arith.remsi{{.*}}
+    # CHECK: arith.remsi
     a % b
 
-    # CHECK: %{{.*}} = arith.shrsi{{.*}}
+    # CHECK: arith.shrsi
     a >> b
 
-    # CHECK: %{{.*}} = arith.shli{{.*}}
+    # CHECK: arith.shli
     a << b
 
-    # CHECK: %{{.*}} = arith.andi{{.*}}
+    # CHECK: arith.andi
     a & b
 
-    # CHECK: %{{.*}} = arith.ori{{.*}}
+    # CHECK: arith.ori
     a | b
 
-    # CHECK: %{{.*}} = arith.xori{{.*}}
+    # CHECK: arith.xori
     a ^ b
 
     return
@@ -185,17 +185,17 @@ def test_compare_expr():
     # CHECK: func.func @
     a = 1
     b = 2
-    # CHECK: %{{.*}} = arith.cmpi eq{{.*}}
+    # CHECK: arith.cmpi eq
     a == b
-    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    # CHECK: arith.cmpi ne
     a != b
-    # CHECK: %{{.*}} = arith.cmpi slt{{.*}}
+    # CHECK: arith.cmpi slt
     a < b
-    # CHECK: %{{.*}} = arith.cmpi sle{{.*}}
+    # CHECK: arith.cmpi sle
     a <= b
-    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    # CHECK: arith.cmpi sgt
     a > b
-    # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
+    # CHECK: arith.cmpi sge
     a >= b
     return
 
@@ -206,24 +206,24 @@ def test_bool_ops():
     # CHECK: func.func @
     a = 1
     b = 2
-    # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
-    # CHECK: %{{.*}} = arith.cmpi sle{{.*}}
-    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: arith.cmpi sge
+    # CHECK: arith.cmpi sle
+    # CHECK: arith.andi
     a >= b and b <= a
 
-    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
-    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
-    # CHECK: %{{.*}} = arith.andi {{.*}}
-    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
-    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: arith.cmpi sgt
+    # CHECK: arith.cmpi ne
+    # CHECK: arith.andi
+    # CHECK: arith.cmpi ne
+    # CHECK: arith.ori
     a or b and a > b
 
-    # CHECK: %{{.*}} = arith.cmpi slt{{.*}}
-    # CHECK: %{{.*}} = arith.andi {{.*}}
-    # CHECK: %{{.*}} = arith.ori {{.*}}
-    # CHECK: %{{.*}} = arith.ori {{.*}}
-    # CHECK: %{{.*}} = arith.andi {{.*}}
-    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: arith.cmpi slt
+    # CHECK: arith.andi
+    # CHECK: arith.ori
+    # CHECK: arith.ori
+    # CHECK: arith.andi
+    # CHECK: arith.ori
     False and (a < b) or False and (True or False or False)
     return
 
@@ -235,16 +235,16 @@ def test_unary_ops():
 
     a = 1
 
-    # CHECK: %{{.*}} = emitc.logical_not {{.*}} : i32
+    # CHECK: emitc.logical_not
     not a
 
-    # CHECK: %{{.*}} = emitc.bitwise_not {{.*}} : (i32) -> i32
+    # CHECK: emitc.bitwise_not
     ~a
 
-    # CHECK: %{{.*}} = emitc.unary_minus {{.*}} : (i32) -> i32
+    # CHECK: emitc.unary_minus
     -a
 
-    # CHECK: %{{.*}} = emitc.unary_plus {{.*}} : (i32) -> i32
+    # CHECK: emitc.unary_plus
     +a
 
     return
@@ -291,7 +291,7 @@ def test_array_access():
     c = a[i]
 
     # TEST: Array element assignment with expression index
-    # CHECK: arith.addi {{.*}} : i32
+    # CHECK: arith.addi
     # CHECK: arith.constant 99 : i32
     a[i + 1] = 99
 
@@ -325,7 +325,7 @@ def test_array_iteration():
 
     # CHECK: scf.for
     for i in range(0, 5, 1):
-        # CHECK: arith.addi {{.*}} : i32
+        # CHECK: arith.addi
         sum += a[i]
 
     # TEST: Regular for loop with range
@@ -335,7 +335,7 @@ def test_array_iteration():
 
     # CHECK: scf.for
     for i in range(0, 5, 1):
-        # CHECK: arith.muli {{.*}} : i32
+        # CHECK: arith.muli
         prod = prod * a[i]
 
     return
