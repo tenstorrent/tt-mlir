@@ -73,8 +73,6 @@ void L1InterleavedAnalysis::analysisImplementation() {
         continue;
       }
       TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
-      // should be redundant
-      assert(l1InterleavedLayout.hasInterleavedL1TensorMemoryLayout());
       assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayout &&
              "Expected output layout to match the one in OpConfig");
       analysisResult.upgradedConfigs[op] = opL1InterleavedConfig;
@@ -233,10 +231,7 @@ L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
       l1UsageExp.get();
 
   // Check if the output layout matches the expected interleaved L1 layout
-  // The second check seems redundant, but currently there is a runtime error of
-  // Memory config mismatch(DRAM vs L1)
-  if (outputLayout != consumerConfig.outputLayout ||
-      !outputLayout.hasInterleavedL1TensorMemoryLayout()) {
+  if (outputLayout != consumerConfig.outputLayout) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Output layout mismatch for op %s",
                                    consumerOp->getName().getStringRef().data());
