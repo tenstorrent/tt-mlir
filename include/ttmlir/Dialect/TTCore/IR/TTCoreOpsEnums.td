@@ -138,6 +138,22 @@ def TTCore_ReduceType: I32EnumAttr<"ReduceType", "TT Reduce Type",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+def TTCore_TileBcastType_None   : I32EnumAttrCase<"None",   0, "none">;
+def TTCore_TileBcastType_Row    : I32EnumAttrCase<"Row",    1, "row">;
+def TTCore_TileBcastType_Col    : I32EnumAttrCase<"Column", 2, "col">;
+def TTCore_TileBcastType_Scalar : I32EnumAttrCase<"Scalar", 3, "scalar">;
+
+def TTCore_TileBcastType : I32EnumAttr<"TileBcastType", "TT TileBcastType",
+                          [
+                           TTCore_TileBcastType_None,
+                           TTCore_TileBcastType_Row,
+                           TTCore_TileBcastType_Col,
+                           TTCore_TileBcastType_Scalar
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 def TTCore_MeshShardDirection_FullToShard : I32EnumAttrCase<"FullToShard",  0, "full_to_shard">;
 def TTCore_MeshShardDirection_ShardToFull : I32EnumAttrCase<"ShardToFull",  1, "shard_to_full">;
 
