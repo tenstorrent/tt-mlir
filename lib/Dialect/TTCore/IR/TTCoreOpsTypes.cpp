@@ -1095,10 +1095,12 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //                |   |   +- Shard Dim Y
 //                |   +- Grid Dim X
 //                +- Grid Dim Y
-//     0,                                                                    #
-//     Device index 0, # Not Applicable global_page_index % num_dram_banks, #
-//     Channel Idx (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) +
-//     base_address  # Byte Offset In Channel
+//     index[0]: Device ID
+//     index[1]: _unused_
+//     index[2]: Channel Idx
+//       global_page_index % num_dram_banks
+//     index[3]: Byte Offset In Channel
+//       (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
