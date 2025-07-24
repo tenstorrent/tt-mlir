@@ -326,7 +326,9 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
       }];
 }
 
-def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise erfc op.";
     let description = [{
         Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.

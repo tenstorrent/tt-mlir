@@ -230,6 +230,10 @@ const auto createErf = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<ErfOp>(loc, type, ops).getOperation();
 };
+const auto createErfc = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<ErfcOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -241,7 +245,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Abs", createAbs, expected},   {"Cbrt", createCbrt, cbrtExpected},
     {"Ceil", createCeil, expected}, {"Sign", createSign, expected},
     {"Cos", createCos, expected},   {"Reciprocal", createReciprocal, expected},
-    {"Erf", createErf, expected}};
+    {"Erf", createErf, expected},   {"Erfc", createErfc, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(

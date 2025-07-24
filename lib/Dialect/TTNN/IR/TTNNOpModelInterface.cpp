@@ -333,6 +333,26 @@ ErfOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ErfcOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ErfcOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::ErfcOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+ErfcOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::ErfcOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
