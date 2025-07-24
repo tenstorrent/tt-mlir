@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import torch
 
 from chisel.utils.mapping import ttrt_dtype_maps
@@ -5,8 +8,9 @@ from chisel.utils.mapping import ttrt_dtype_maps
 from ttrt.runtime import (
     create_owned_host_tensor,
     update_tensor_in_pool,
-    Tensor as RtTensor
+    Tensor as RtTensor,
 )
+
 
 def get_torch_tensor(tensor):
     rt_data_ptr = tensor.get_data_buffer()

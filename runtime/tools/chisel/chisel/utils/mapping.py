@@ -34,11 +34,6 @@ def resolve_dense_attr(dense_attr):
         value = dense_attr.get_splat_value()
         if dense_attr.type.shape != [1]:
             value = torch.ones(dense_attr.type.shape) * value.value
-        # assert dense_attr.type.shape == [
-        #     1
-        # ], "Not implemented: splat value must be a scalar, got shape: " + str(
-        #     dense_attr.type.shape
-        # )
         return value
     try:
         values = [dense_attr[i] for i in range(len(dense_attr))]
@@ -109,23 +104,22 @@ class OpMapping:
                 torch_args[arg_name] = arg_value
 
         if op.name == "ttir.constant":
-            torch_args["dtype"] = ttir_dtype_maps[str(get_op_outputs(op)[0].type.element_type)]
+            torch_args["dtype"] = ttir_dtype_maps[
+                str(get_op_outputs(op)[0].type.element_type)
+            ]
             torch_args["shape"] = get_op_outputs(op)[0].type.shape
 
         if op.name == "ttir.typecast":
-            torch_args["dtype"] = ttir_dtype_maps[str(get_op_outputs(op)[0].type.element_type)]
-
+            torch_args["dtype"] = ttir_dtype_maps[
+                str(get_op_outputs(op)[0].type.element_type)
+            ]
 
         if not self.unpack_inputs:
             print("torch op", self.torch_op, result_inputs, torch_args)
             result = self.torch_op(result_inputs, **torch_args)
-            # if result is not None:
-            #     print("torch op result", result.shape, result)
             return result
 
         result = self.torch_op(*result_inputs, **torch_args)
-        # if result is not None:
-        #     print("torch op result", result.shape, result)
         return result
 
 
@@ -266,13 +260,9 @@ def custom_slice(x, begins=None, ends=None, step=None):
         step = [1] * len(x.shape)
 
     tmp1 = list(zip(begins, ends, step))
-    slice = ""
-    for b, e, s in tmp1:
-        slice = slice + f"{b}:{e}:{s},"  # holy smokes this is ugly
 
-    slice = slice[:-1]
-    slice = "x[" + slice + "]"
-    result = eval(slice)
+    slices = tuple(slice(b, e, s) for b, e, s in tmp1)
+    result = x[slices]
 
     return result
 
@@ -345,9 +335,9 @@ def custom_avg_pool2d(*args, **kwargs):
 
 def custom_matmul(x, y, transpose_a=False, transpose_b=False):
     if transpose_a:
-        x = torch.transpose(x.copy(), -1, -2)
+        x = torch.transpose(x.clone(), -1, -2)
     if transpose_b:
-        y = torch.transpose(y.copy(), -1, -2)
+        y = torch.transpose(y.clone(), -1, -2)
     return torch.matmul(x, y)
 
 
@@ -355,9 +345,10 @@ def custom_transpose(x, dim0, dim1):
     # import pdb; pdb.set_trace()
     return x.transpose(dim0, dim1)
 
-def custom_fill_cache(cache: torch.Tensor,
-                      input: torch.Tensor,
-                      batch_offset: int = 0) -> torch.Tensor:
+
+def custom_fill_cache(
+    cache: torch.Tensor, input: torch.Tensor, batch_offset: int = 0
+) -> torch.Tensor:
     """
     Reference implementation of ttir.fill_cache (FillCacheOp).
 
@@ -371,11 +362,14 @@ def custom_fill_cache(cache: torch.Tensor,
     # Clone so we don’t mutate the original tensor held by the executor.
     result = cache.clone()
 
-    b_end   = batch_offset + input.shape[0]          # batch range to update                         # length on the seq axis
+    b_end = (
+        batch_offset + input.shape[0]
+    )  # batch range to update                         # length on the seq axis
 
     # We assume layout [batch, sequence, *rest]; trailing dims must match.
-    result[:, :, batch_offset:input.shape[-2] ] = input
+    result[:, :, batch_offset : input.shape[-2]] = input
     return result
+
 
 def custom_update_cache(
     cache: torch.Tensor,
@@ -390,13 +384,15 @@ def custom_update_cache(
     result[..., idx, :] = input
     return result
 
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
     "func.return": OpMapping(lambda x=None, *args, **kwargs: x),
     "ttir.add": OpMapping(torch.add),
     "ttir.arange": OpMapping(
-        torch.arange, {"start": "start", "end": "end", "step": "step", "arange_dimension": ""}
+        torch.arange,
+        {"start": "start", "end": "end", "step": "step", "arange_dimension": ""},
     ),
     "ttir.broadcast": OpMapping(
         custom_broadcast, {"broadcast_dimensions": "size"}, unpack_inputs=False
@@ -447,7 +443,9 @@ ttir_to_torch_mapping = {
     "ttir.reciprocal": OpMapping(torch.reciprocal, unpack_inputs=False),
     "ttir.tanh": OpMapping(torch.tanh, unpack_inputs=False),
     "ttir.typecast": OpMapping(
-        custom_typecast, {"dtype": "dtype", "conservative_folding" :""}, unpack_inputs=False
+        custom_typecast,
+        {"dtype": "dtype", "conservative_folding": ""},
+        unpack_inputs=False,
     ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
