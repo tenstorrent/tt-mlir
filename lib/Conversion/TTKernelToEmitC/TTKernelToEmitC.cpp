@@ -277,6 +277,34 @@ public:
     return {reduceType, reduceDim};
   }
 
+  template <typename BcastKindOp>
+  StringRef getBcastOp(BcastKindOp op) const {
+    const auto bcastOp = op.getBcastOpAttr().getValue();
+    switch (bcastOp) {
+    case ttkernel::BcastBinaryOp::Add:
+      return "EltwiseBinaryType::ELWADD";
+    case ttkernel::BcastBinaryOp::Sub:
+      return "EltwiseBinaryType::ELWSUB";
+    default:
+      assert(bcastOp == ttkernel::BcastBinaryOp::Mul);
+      return "EltwiseBinaryType::ELWMUL";
+    }
+  }
+
+  template <typename BcastKindOp>
+  StringRef getBcastType(BcastKindOp op) const {
+    const auto bcastType = op.getBcastTypeAttr().getValue();
+    switch (bcastType) {
+    case ttkernel::BcastBinaryType::Col:
+      return "BroadcastType::COL";
+    case ttkernel::BcastBinaryType::Row:
+      return "BroadcastType::ROW";
+    default:
+      assert(bcastType == ttkernel::BcastBinaryType::Scalar);
+      return "BroadcastType::SCALAR";
+    }
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -297,6 +325,16 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceType));
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::BcastBinaryInitOp> or
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BcastBinaryTilesOp>) {
+      SmallVector<Attribute, 2u> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastOp(op)));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), getBcastType(op)));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
                          std::is_same_v<SourceOp,
@@ -753,6 +791,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastBinaryInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,

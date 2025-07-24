@@ -293,6 +293,32 @@ namespace {
 
 template <typename ConcreteOp>
 class TTIRFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
+private:
+  ttkernel::BcastBinaryOp getKernelBcastOp() const {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::TileAddOp>) {
+      return ttkernel::BcastBinaryOp::Add;
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileSubOp>) {
+      return ttkernel::BcastBinaryOp::Sub;
+    } else {
+      static_assert(std::is_same_v<ConcreteOp, ttir::TileMulOp>);
+      return ttkernel::BcastBinaryOp::Mul;
+    }
+  }
+
+  ttkernel::BcastBinaryType
+  toKernelBcastType(const ttcore::TileBcastType bcastType) const {
+    if (bcastType == ttcore::TileBcastType::Row) {
+      return ttkernel::BcastBinaryType::Row;
+    }
+    if (bcastType == ttcore::TileBcastType::Column) {
+      return ttkernel::BcastBinaryType::Col;
+    }
+    if (bcastType == ttcore::TileBcastType::Scalar) {
+      return ttkernel::BcastBinaryType::Scalar;
+    }
+    return ttkernel::BcastBinaryType::None;
+  }
+
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
   using KernelOpPair = TTKernelOpPair<ConcreteOp, ComputeOpMap>;
@@ -341,6 +367,45 @@ public:
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC(), transpose);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileAddOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileSubOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileMulOp>) {
+      auto lhsBcastType = op.getLhsBcastTypeAttr()
+                              ? op.getLhsBcastTypeAttr().getValue()
+                              : ttcore::TileBcastType::None;
+      auto rhsBcastType = op.getRhsBcastTypeAttr()
+                              ? op.getRhsBcastTypeAttr().getValue()
+                              : ttcore::TileBcastType::None;
+
+      auto cbLhs = getCB(rewriter, op.getLhs());
+      auto cbRhs = getCB(rewriter, op.getRhs());
+      auto cbOut = getOutCB(rewriter, op);
+      auto lhsIdx = adaptor.getLhs();
+      auto rhsIdx = adaptor.getRhs();
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+
+      // Only RHS bcast is supported at the ttkernel level
+      if (lhsBcastType != ttcore::TileBcastType::None &&
+          rhsBcastType == ttcore::TileBcastType::None) {
+        std::swap(cbLhs, cbRhs);
+        std::swap(lhsIdx, rhsIdx);
+        std::swap(lhsBcastType, rhsBcastType);
+      }
+
+      auto kernelBcastOp = getKernelBcastOp();
+      auto kernelBcastType = toKernelBcastType(rhsBcastType);
+
+      if (kernelBcastType == ttkernel::BcastBinaryType::None) {
+        rewriter.create<InitOp>(op->getLoc(), cbLhs, cbRhs);
+        rewriter.create<FPUOp>(op->getLoc(), cbLhs, cbRhs, lhsIdx, rhsIdx,
+                               dstIdx);
+      } else {
+        rewriter.create<ttkernel::BcastBinaryInitOp>(
+            op->getLoc(), cbLhs, cbRhs, cbOut, kernelBcastOp, kernelBcastType);
+        rewriter.create<ttkernel::BcastBinaryTilesOp>(
+            op->getLoc(), cbLhs, cbRhs, lhsIdx, rhsIdx, dstIdx, kernelBcastOp,
+            kernelBcastType);
+      }
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
