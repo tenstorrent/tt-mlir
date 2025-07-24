@@ -66,7 +66,7 @@ def get_ttrt_metal_home_path():
     package_name = "ttrt"
     spec = importlib.util.find_spec(package_name)
     package_path = os.path.dirname(spec.origin)
-    tt_metal_home = f"{package_path}/runtime"
+    tt_metal_home = f"{package_path}/runtime/libexec/tt-metalium"
     return tt_metal_home
 
 

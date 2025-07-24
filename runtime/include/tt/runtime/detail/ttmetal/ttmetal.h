@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 #define TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
 #include "tt-metalium/hal.hpp"

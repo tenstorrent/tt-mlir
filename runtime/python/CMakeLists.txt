@@ -45,3 +45,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       -Wno-covered-switch-default
   )
 endif()
+
+install(TARGETS _ttmlir_runtime
+  LIBRARY
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    COMPONENT SharedLib
+)

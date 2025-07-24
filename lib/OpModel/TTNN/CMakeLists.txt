@@ -18,8 +18,7 @@ if (TTMLIR_ENABLE_OPMODEL)
     endif()
 
     # Link to tt-metal libs and include directories
-    target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-    set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY)
+    set(TTNN_LIBS TTNN::CPP TT::Metalium umd::device)
     if (TT_RUNTIME_ENABLE_PERF_TRACE)
         list(APPEND TTNN_LIBS TRACY_LIBRARY)
     endif()

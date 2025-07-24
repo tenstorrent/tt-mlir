@@ -15,7 +15,6 @@ target_include_directories(TTRuntimeTTNNDebug PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
-target_include_directories(TTRuntimeTTNNDebug SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeTTNNDebug TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNNDebug PUBLIC TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNNDebug PUBLIC coverage_config)
