@@ -717,7 +717,7 @@ class Binary(Flatbuffer):
             )
         return True
 
-    def check_system_desc(self, query):
+    def check_system_desc(self, query, ignore: bool = False):
         import ttrt.binary
 
         try:
@@ -752,9 +752,10 @@ class Binary(Flatbuffer):
                 error_msg = f"system desc for device did not match flatbuffer: {self.file_path}\nDiff details:\n{diff_text}"
 
                 # You might want to log this before raising the exception
-                # logger.error(error_msg)  # Uncomment and add proper logger if available
+                # self.logger.error(error_msg)  # Uncomment and add proper logger if available
 
-                raise Exception(error_msg)
+                if not ignore:
+                    raise Exception(error_msg)
                 return False
 
         except Exception as e:
@@ -814,6 +815,9 @@ class Binary(Flatbuffer):
         self.program_results[program_key][loop_key][
             "total_get_outputs_duration_ns"
         ] = total_get_outputs_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_submit_plus_get_outputs_duration_ns"
+        ] = (total_submit_duration_ns + total_get_outputs_duration_ns)
         self.program_results[program_key][loop_key][
             "total_ttnn_api_duration_ns"
         ] = total_ttnn_api_duration_ns
