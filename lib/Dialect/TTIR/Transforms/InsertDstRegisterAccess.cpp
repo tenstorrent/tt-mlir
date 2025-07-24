@@ -245,15 +245,12 @@ public:
     return loopNests;
   }
 
-  static BlockArgument lookThroughSubview(Value memref) {
-    while (auto subview = mlir::dyn_cast_or_null<memref::SubViewOp>(
+  static BlockArgument lookThroughSubView(Value memref) {
+    while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
                memref.getDefiningOp())) {
-      memref = subview.getSource();
+      memref = subView.getSource();
     }
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(memref)) {
-      return blockArg;
-    }
-    llvm_unreachable("Could not find block argument from subview");
+    return mlir::cast<BlockArgument>(memref);
   }
 
   // Collect a single load or store to dst organized by loop nest. Returns the
@@ -276,7 +273,7 @@ public:
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstIndex);
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
-        lookThroughSubview(loadOrStore.getMemRef()).getArgNumber());
+        lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
       copyInfo.guardIndices = guardIndices;
     }

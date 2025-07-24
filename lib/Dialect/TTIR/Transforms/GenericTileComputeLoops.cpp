@@ -28,7 +28,7 @@ calculateOutputSubblockFactors(ArrayRef<int64_t> outputBlockShape,
         // If the dimension is fully consumed by this factor, then we can
         // continue pulling factors from outer dimensions. Otherwise we must
         // snap it to 1 to enforce row major output.
-        bool consumed = dim == factor;
+        bool consumed = (dim == factor);
         remainingBlockFactor = consumed ? remainingBlockFactor / factor : 1;
         assert(remainingBlockFactor > 0);
         break;
