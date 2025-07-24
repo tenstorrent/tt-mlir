@@ -61,6 +61,8 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
+    shouldHoist &=
+        !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
     return shouldHoist;
   }
 
@@ -80,7 +82,7 @@ private:
   TraceSmallString getCaptureTraceFuncName(func::FuncOp funcOp,
                                            uint64_t traceFuncIndex) {
     TraceSmallString runAndCaptureTraceFuncName;
-    runAndCaptureTraceFuncName.append("run_and_capture_");
+    runAndCaptureTraceFuncName.append(g_TTNNCaptureTracePrefix);
     runAndCaptureTraceFuncName.append(getTraceFuncName(funcOp, traceFuncIndex));
     return runAndCaptureTraceFuncName;
   }
@@ -88,9 +90,23 @@ private:
   TraceSmallString getExecuteTraceFuncName(func::FuncOp funcOp,
                                            uint64_t traceFuncIndex) {
     TraceSmallString executeTraceFuncName;
-    executeTraceFuncName.append("execute_");
+    executeTraceFuncName.append(g_TTNNExecuteTracePrefix);
     executeTraceFuncName.append(getTraceFuncName(funcOp, traceFuncIndex));
     return executeTraceFuncName;
+  }
+
+  bool isConstantOrParameter(func::FuncOp op, size_t argIndex) {
+    auto argAttrDict = op.getArgAttrDict(argIndex);
+    if (argAttrDict && argAttrDict.contains(ttcore::ArgumentTypeAttr::name)) {
+      Attribute attr = argAttrDict.get(ttcore::ArgumentTypeAttr::name);
+      auto argTypeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(attr);
+      ttcore::ArgumentType argType = argTypeAttr.getValue();
+      if (argType == ttcore::ArgumentType::Constant ||
+          argType == ttcore::ArgumentType::Parameter) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Collect all inputs and outputs outside the operation set to hoist
@@ -157,6 +173,37 @@ private:
     }
   }
 
+  llvm::SmallVector<mlir::DictionaryAttr>
+  getInputAttrs(MLIRContext *context, llvm::ArrayRef<mlir::Value> inputs) {
+    llvm::SmallVector<mlir::DictionaryAttr> inputAttrs;
+    for (mlir::Value input : inputs) {
+      mlir::DictionaryAttr attrs = mlir::DictionaryAttr::get(context);
+      if (mlir::isa<mlir::BlockArgument>(input)) {
+        // Inherit the arg attributes from the function
+        auto arg = mlir::cast<mlir::BlockArgument>(input);
+        if (auto funcOp =
+                mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp())) {
+          attrs = funcOp.getArgAttrDict(arg.getArgNumber());
+        }
+      } else if (mlir::isa<mlir::OpResult>(input)) {
+        auto result = mlir::cast<mlir::OpResult>(input);
+        Operation *defOp = result.getDefiningOp();
+        // If the input is a result of a load cached op
+        // Then we can mark it as a constant since it's a consteval result
+        if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp)) {
+          llvm::SmallVector<mlir::NamedAttribute> namedAttrs;
+          namedAttrs.emplace_back(
+              mlir::StringAttr::get(context, ttcore::ArgumentTypeAttr::name),
+              ttcore::ArgumentTypeAttr::get(context,
+                                            ttcore::ArgumentType::Constant));
+          attrs = mlir::DictionaryAttr::get(context, namedAttrs);
+        }
+      }
+      inputAttrs.push_back(attrs);
+    }
+    return inputAttrs;
+  }
+
   // Creates the trace function
   ::mlir::LogicalResult
   createTraceFunction(func::FuncOp funcOp,
@@ -180,6 +227,9 @@ private:
       outputTypes.push_back(output.getType());
     }
 
+    llvm::SmallVector<mlir::DictionaryAttr> inputAttrs =
+        getInputAttrs(context, inputs);
+
     TraceSmallString traceFuncName = getTraceFuncName(funcOp, traceFuncIndex);
 
     auto traceFuncType = builder.getFunctionType(inputTypes, outputTypes);
@@ -189,6 +239,7 @@ private:
     auto traceFuncOp = builder.create<func::FuncOp>(
         funcOp.getLoc(), traceFuncName, traceFuncType);
     traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    traceFuncOp.setAllArgAttrs(inputAttrs);
 
     // Build the body of the new function
     auto *traceFuncEntryBlock = traceFuncOp.addEntryBlock();
@@ -298,6 +349,9 @@ private:
         funcOp.getLoc(), runAndCaptureTraceFuncName,
         runAndCaptureTraceFuncType);
     runAndCaptureTraceFunc->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    if (traceFunc.getAllArgAttrs()) {
+      runAndCaptureTraceFunc.setAllArgAttrs(traceFunc.getAllArgAttrs());
+    }
 
     // Build the body of the function
     auto *runAndCaptureTraceFuncEntryBlock =
@@ -310,10 +364,17 @@ private:
 
     // allocate input slots
     llvm::SmallVector<mlir::Value> inputSlots;
-    for (mlir::Type inputType : inputTypes) {
+    for (size_t i = 0; i < runAndCaptureTraceFunc.getNumArguments(); i++) {
+      mlir::Type inputType = inputTypes[i];
       if (!mlir::isa<RankedTensorType>(inputType)) {
         return runAndCaptureTraceFunc.emitError(
             "Input type must be a ranked tensor type");
+      }
+
+      // Don't create empty slots for constants/parameters
+      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
+        inputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
+        continue;
       }
 
       RankedTensorType inputTensorType =
@@ -338,6 +399,10 @@ private:
 
     // move inputs to host and copy into input slots
     for (size_t i = 0; i < inputSlots.size(); i++) {
+      // Skip inputs that are constants/parameters
+      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
+        continue;
+      }
       mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
       RankedTensorType currentInputType =
           mlir::cast<RankedTensorType>(input.getType());
