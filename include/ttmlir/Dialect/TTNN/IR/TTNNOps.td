@@ -287,7 +287,9 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil",
     }];
 }
 
-def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise sign operation.";
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`

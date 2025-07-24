@@ -293,6 +293,26 @@ CeilOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SignOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+SignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::SignOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+SignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::SignOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
