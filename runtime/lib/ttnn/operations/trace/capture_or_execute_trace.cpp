@@ -84,10 +84,8 @@ static void runTraceProgramAndCaptureTrace(
 
   // Handle trace function outputs
   for (size_t i = 0; i < op->outputs()->size(); i++) {
-    ::ttnn::Tensor &output =
-        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(
-            outputTensors[currOutputIndex++]);
-    tensorPool.insertTTNNTensorAndValidate(op->outputs()->Get(i), output);
+    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
+                                              outputTensors[currOutputIndex++]);
   }
 
   // Handle trace input slots
@@ -174,13 +172,8 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   for (size_t i = 0; i < op->outputs()->size(); i++) {
     const ::tt::target::ttnn::TensorRef *output = op->outputs()->Get(i);
-    const ::ttnn::Tensor &outputTensor =
-        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(
-            traceData.outputTensors[i]);
-    // These outputs must be retained as they share the same ttnn tensors as the
-    // output slots of the trace
-    context.getTensorPool().insertTTNNTensorAndValidate(output, outputTensor,
-                                                        /*retain=*/true);
+    context.getTensorPool().insertRuntimeTensorAndValidate(
+        output, traceData.outputTensors[i]);
   }
 }
 

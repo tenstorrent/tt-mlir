@@ -28,10 +28,8 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
   LOG_ASSERT(outputs.size() == op->outputs()->size(),
              "Number of outputs does not match");
   for (size_t i = 0; i < op->outputs()->size(); i++) {
-    ::ttnn::Tensor &ttnnOutput =
-        utils::getTTNNTensorFromRuntimeTensor(outputs[i]);
-    context.getTensorPool().insertTTNNTensorAndValidate(op->outputs()->Get(i),
-                                                        ttnnOutput);
+    context.getTensorPool().insertRuntimeTensorAndValidate(
+        op->outputs()->Get(i), outputs[i]);
   }
 }
 
