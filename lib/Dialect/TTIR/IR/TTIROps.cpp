@@ -3764,10 +3764,10 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
   ::mlir::RankedTensorType outputType = getResult().getType();
   auto inShape = inputType.getShape();
   int64_t splitDim = getSplitDim();
-  int64_t concatDim = getConcatDim();
   int64_t splitCount = getSplitCount();
   if (splitDim < 0 || splitDim >= inputType.getRank()) {
-    return emitOpError("splitDim must be in the range [0, rank(operands)]");
+    return emitOpError("splitDim must be in the range [0, ")
+           << inputType.getRank() - 1 << "], got " << splitDim;
   }
   if (splitCount <= 0) {
     return emitOpError("splitCount must be a positive integer");
@@ -3775,18 +3775,36 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
   if (inShape[splitDim] % splitCount != 0) {
     return emitOpError("splitDim size must be divisible by splitCount");
   }
+  int64_t concatDim = getConcatDim();
   if (concatDim < 0 || concatDim >= inputType.getRank()) {
-    return emitOpError("concatDim must be in the range [0, rank(operands)]");
+    return emitOpError("concatDim must be in the range [0, ")
+           << inputType.getRank() - 1 << "], got " << concatDim;
   }
   ::llvm::SmallVector<int64_t> expectedShape(inShape.begin(), inShape.end());
   expectedShape[splitDim] = expectedShape[splitDim] / splitCount;
   expectedShape[concatDim] = expectedShape[concatDim] * splitCount;
-  auto expectedType = mlir::RankedTensorType::get(
-      expectedShape, inputType.getElementType(), inputType.getEncoding());
-  if ((expectedType.getShape() != outputType.getShape()) ||
-      (expectedType.getElementType() != outputType.getElementType())) {
-    return emitOpError("output type mismatch: expected type=")
-           << expectedType << " output type=" << outputType;
+  if (expectedShape != outputType.getShape()) {
+    return emitOpError("Output shape mismatch: expected = <")
+           << expectedShape << "> output = <" << outputType.getShape() << ">";
+  }
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input and output element types must match");
+  }
+  ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
+  auto replicaGroupsShape = replicaGroups.getType().getShape();
+  llvm::SmallDenseSet<int64_t> seen;
+  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
+                    [&](int64_t id) { return seen.insert(id).second; })) {
+    return emitOpError("replica_groups must not contain duplicate IDs");
+  }
+  int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
+  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
+                    [&](int64_t id) { return 0 <= id && id < numIds; })) {
+    return emitOpError("replicaGroup ID must be in the range [0, "
+                       "size(replica_groups))");
+  }
+  if (replicaGroupsShape[1] != splitCount) {
+    return emitOpError("replicaGroup count must match splitCount");
   }
   return success();
 }

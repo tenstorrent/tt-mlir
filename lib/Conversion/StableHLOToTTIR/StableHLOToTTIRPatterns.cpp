@@ -2445,13 +2445,6 @@ public:
   matchAndRewrite(mlir::stablehlo::AllToAllOp srcOp,
                   mlir::stablehlo::AllToAllOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check legality of the conversion.
-    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
-    if (failed(err)) {
-      return err;
-    }
-
-    // Create the output tensor type based on inputs.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
@@ -2460,81 +2453,6 @@ public:
         adaptor.getSplitDimension(), adaptor.getConcatDimension(),
         adaptor.getSplitCount(), adaptor.getReplicaGroups());
 
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkConversionLegality(mlir::stablehlo::AllToAllOp &srcOp,
-                          mlir::stablehlo::AllToAllOp::Adaptor adaptor,
-                          ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "AllToAllOp must have one input/output for now.");
-    }
-    RankedTensorType inputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getOperands()[0].getType()));
-    RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-    auto inShape = inputType.getShape();
-    auto outShape = outputType.getShape();
-    int64_t splitDim = adaptor.getSplitDimension();
-    int64_t concatDim = adaptor.getConcatDimension();
-    int64_t splitCount = adaptor.getSplitCount();
-    ::mlir::DenseIntElementsAttr replicaGroups = adaptor.getReplicaGroups();
-    auto replicaGroupsShape = replicaGroups.getType().getShape();
-    if (splitDim < 0 || splitDim >= inputType.getRank()) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "splitDim must be in the range [0, rank(operands)] (C1)"); // C1
-    }
-    if (inShape[splitDim] % splitCount != 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "splitDim size must be divisible by splitCount (C2)"); // C2
-    }
-    if (concatDim < 0 || concatDim >= inputType.getRank()) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "concatDim must be in the range [0, rank(operands)] (C3)"); // C3
-    }
-    if (splitCount <= 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "splitCount must be a positive integer (C4)"); // C4
-    }
-    llvm::SmallDenseSet<int64_t> seen;
-    if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                      [&](int64_t id) { return seen.insert(id).second; })) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "replica_groups must not contain duplicate IDs (C5)"); // C5
-    }
-    int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
-    if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                      [&](int64_t id) { return 0 <= id && id < numIds; })) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "replicaGroup ID must be in the range [0, "
-                 "size(replica_groups)] (C7)"); // C7
-    }
-    if (replicaGroupsShape[1] != splitCount) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "replicaGroup cound must match splitCount (C8)"); // C8
-    }
-    if (splitDim == concatDim) {
-      if (outputType != inputType) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "when split_dim == concat_dim the full result type must "
-                   "equal the operand type (C9)"); // C9
-      }
-    } else {
-      int64_t expectedSplit = inShape[splitDim] / splitCount;
-      int64_t expectedConcat = inShape[concatDim] * splitCount;
-
-      if (outShape[splitDim] != expectedSplit ||
-          outShape[concatDim] != expectedConcat) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "result tensor has incorrect split/concat dims (C9)"); // C9
-      }
-    }
     return success();
   }
 };

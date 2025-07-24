@@ -10,7 +10,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op splitDim must be in the range [0, rank(operands)]
+// CHECK: error: 'ttir.all_to_all' op splitDim must be in the range [0, 3], got -1
 
 // -----
 
@@ -21,7 +21,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op splitDim must be in the range [0, rank(operands)]
+// CHECK: error: 'ttir.all_to_all' op splitDim must be in the range [0, 3], got 4
 
 // -----
 
@@ -43,7 +43,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op concatDim must be in the range [0, rank(operands)]
+// CHECK: error: 'ttir.all_to_all' op concatDim must be in the range [0, 3], got -1
 
 // -----
 
@@ -54,7 +54,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op concatDim must be in the range [0, rank(operands)]
+// CHECK: error: 'ttir.all_to_all' op concatDim must be in the range [0, 3], got 4
 
 // -----
 
@@ -77,7 +77,7 @@ module attributes {} {
     return %1 : tensor<1x1x16x64xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op output type mismatch: expected type='tensor<1x1x32x32xf32>' output type='tensor<1x1x16x64xf32>'
+// CHECK: error: 'ttir.all_to_all' op Output shape mismatch: expected = <1, 1, 32, 32> output = <1, 1, 16, 64>
 
 // -----
 
@@ -88,7 +88,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op output type mismatch: expected type='tensor<1x1x128x8xf32>' output type='tensor<1x1x32x32xf32>'
+// CHECK: error: 'ttir.all_to_all' op Output shape mismatch: expected = <1, 1, 128, 8> output = <1, 1, 32, 32>
 
 // -----
 
@@ -99,7 +99,7 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xf32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op output type mismatch: expected type='tensor<1x1x4x256xf32>' output type='tensor<1x1x32x32xf32>'
+// CHECK: error: 'ttir.all_to_all' op Output shape mismatch: expected = <1, 1, 4, 256> output = <1, 1, 32, 32>
 
 // -----
 
@@ -110,4 +110,4 @@ module attributes {} {
     return %1 : tensor<1x1x32x32xi32>
   }
 }
-// CHECK: error: 'ttir.all_to_all' op output type mismatch: expected type='tensor<1x1x32x32xf32>' output type='tensor<1x1x32x32xi32>'
+// CHECK: error: 'ttir.all_to_all' op Input and output element types must match
