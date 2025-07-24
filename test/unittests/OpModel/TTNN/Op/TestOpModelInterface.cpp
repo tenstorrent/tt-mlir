@@ -242,6 +242,10 @@ const auto createGelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<GeluOp>(loc, type, ops).getOperation();
 };
+const auto createIsFinite = [](OpBuilder &b, Location loc, Type type,
+                               ValueRange ops) {
+  return b.create<IsFiniteOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -260,7 +264,8 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erf", createErf, expected},
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
-    {"Gelu", createGelu, expected}};
+    {"Gelu", createGelu, expected},
+    {"IsFinite", createIsFinite, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(

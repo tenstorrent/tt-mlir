@@ -393,6 +393,26 @@ GeluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// IsFiniteOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+IsFiniteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::IsFiniteOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+IsFiniteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::IsFiniteOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

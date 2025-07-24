@@ -353,7 +353,9 @@ def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu",
   }];
 }
 
-def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
+def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise isfinite op.";
     let description = [{
       Eltwise isfinite operation.
