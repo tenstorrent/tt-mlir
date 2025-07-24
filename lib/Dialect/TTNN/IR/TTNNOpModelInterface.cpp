@@ -253,6 +253,26 @@ AbsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// CbrtOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+CbrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::CbrtOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+CbrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::CbrtOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

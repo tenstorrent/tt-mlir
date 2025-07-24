@@ -269,7 +269,9 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs",
     }];
 }
 
-def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
+def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise cubic root.";
     let description = [{
       Eltwise cubic root operation.

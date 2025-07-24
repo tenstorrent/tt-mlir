@@ -70,7 +70,8 @@ enum class UnaryEltwiseOpType {
   Sin,
   Cos,
   Reciprocal,
-  Abs
+  Abs,
+  Cbrt
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -92,6 +93,7 @@ protected:
           {UnaryEltwiseOpType::Cos, CosOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Reciprocal, ReciprocalOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Abs, AbsOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Cbrt, CbrtOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -107,6 +109,7 @@ protected:
           {UnaryEltwiseOpType::Reciprocal,
            ReciprocalOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Abs, AbsOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Cbrt, CbrtOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -198,6 +201,52 @@ const std::initializer_list<
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})};
 
+// Cbrt-specific test parameters with different expected values
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    cbrtParams = {
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 6144, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 6144, 2048}),
+        std::make_tuple(
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{true, 2048, 14 * 32 * 32 * 2 * 3,
+                                   14 * 32 * 32 * 2}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{false}),
+        std::make_tuple(
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{false})};
+
 ::testing::internal::ParamGenerator<
     std::tuple<UnaryEltwiseOpType, detail::TestTensor, detail::TestTensor,
                detail::ExpectedResult>>
@@ -237,6 +286,10 @@ INSTANTIATE_TEST_SUITE_P(CosTests, OpModelUnaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Abs,
                                                      unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Cbrt,
+                                                     cbrtParams));
 
 INSTANTIATE_TEST_SUITE_P(
     ReciprocalTests, OpModelUnaryEltwiseParam,
