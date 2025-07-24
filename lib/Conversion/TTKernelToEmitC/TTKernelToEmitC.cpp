@@ -534,17 +534,17 @@ public:
 } // namespace
 
 namespace {
-class TTKernelMakeTensorAccessorArgsOpRewriter
-    : public OpConversionPattern<ttkernel::MakeTensorAccessorArgsOp> {
-  using Op = ttkernel::MakeTensorAccessorArgsOp;
+class TTKernelTensorAccessorArgsOpRewriter
+    : public OpConversionPattern<ttkernel::TensorAccessorArgsOp> {
+  using Op = ttkernel::TensorAccessorArgsOp;
 
 public:
-  TTKernelMakeTensorAccessorArgsOpRewriter(const TypeConverter &typeConverter,
-                                           MLIRContext *context)
+  TTKernelTensorAccessorArgsOpRewriter(const TypeConverter &typeConverter,
+                                       MLIRContext *context)
       : OpConversionPattern(typeConverter, context) {}
 
   LogicalResult
-  matchAndRewrite(Op op, ttkernel::MakeTensorAccessorArgsOp::Adaptor adaptor,
+  matchAndRewrite(Op op, ttkernel::TensorAccessorArgsOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     if (op.getResult().getUses().empty()) {
       rewriter.eraseOp(op);
@@ -815,7 +815,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MakeTensorAccessorFromArgsOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
         typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
@@ -832,8 +832,8 @@ public:
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelMakeTensorAccessorArgsOpRewriter>(typeConverter,
-                                                           funcOp.getContext());
+    patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
+                                                       funcOp.getContext());
 
     patterns.add<
         TTKernelTensorAccessorOpsRewriter<ttkernel::TensorAccessorGetNocAddrOp>,

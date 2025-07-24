@@ -1789,7 +1789,7 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 // TTKernel TensorAccessor operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
+def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs";
   let description = [{
     TensorAccessorArgs struct constructor.
@@ -1799,7 +1799,7 @@ def TTKernel_MakeTensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
   let results = (outs TTKernel_TensorAccessorArgs:$result);
 }
 
-def TTKernel_MakeTensorAccessorFromArgsOp : TTKernel_Op<"TensorAccessor"> {
+def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
   let summary = "MakeTensorAccessorFromArgs";
   let description = [{
     TensorAccessor constructor.
