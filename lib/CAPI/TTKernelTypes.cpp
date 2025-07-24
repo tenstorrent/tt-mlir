@@ -57,6 +57,18 @@ MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx) {
   return wrap(DataFormatType::get(unwrap(ctx)));
 }
 
+MlirType ttmlirTTKernelTensorAccessorArgsTypeGet(MlirContext ctx) {
+  return wrap(TensorAccessorArgsType::get(unwrap(ctx)));
+}
+
+MlirType ttmlirTTKernelTensorAccessorTypeGet(MlirContext ctx) {
+  return wrap(TensorAccessorType::get(unwrap(ctx)));
+}
+
+MlirType ttmlirTTKernelTensorAccessorPageMappingTypeGet(MlirContext ctx) {
+  return wrap(TensorAccessorPageMappingType::get(unwrap(ctx)));
+}
+
 MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx, uint32_t argTypeValue,
                                        size_t operandIndex, bool isUniform) {
   return wrap(ArgAttr::get(unwrap(ctx), static_cast<ArgType>(argTypeValue),

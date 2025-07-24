@@ -196,6 +196,17 @@ public:
           // There is never a case in metal kernel code where template is false.
           return emitc::OpaqueType::get(ctx, "InterleavedAddrGenFast<true>");
         });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::TensorAccessorArgsType type) -> Type {
+          return emitc::OpaqueType::get(ctx, "TensorAccessorArgs");
+        });
+    addConversion([ctx](mlir::tt::ttkernel::TensorAccessorType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "TensorAccessor");
+    });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::TensorAccessorPageMappingType type) -> Type {
+          return emitc::OpaqueType::get(ctx, "PageMapping");
+        });
   }
 };
 } // namespace
@@ -523,6 +534,110 @@ public:
 } // namespace
 
 namespace {
+class TTKernelTensorAccessorArgsOpRewriter
+    : public OpConversionPattern<ttkernel::TensorAccessorArgsOp> {
+  using Op = ttkernel::TensorAccessorArgsOp;
+
+public:
+  TTKernelTensorAccessorArgsOpRewriter(const TypeConverter &typeConverter,
+                                       MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(Op op, ttkernel::TensorAccessorArgsOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      auto name = op.getOperation()->getName().getStringRef().drop_front(9);
+
+      // cta and crta are both passed through the template instead of operands
+      ValueRange operands;
+      SmallVector<Attribute, 2> template_args;
+      auto cta_base = op.getCtaBase();
+      auto crta_base = op.getCrtaBase();
+      auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
+      auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
+      if (!cta_base_attr || !crta_base_attr) {
+        llvm_unreachable(
+            "MakeTensorAccessorArgsOp should have constant operands");
+      }
+      template_args.push_back(cta_base_attr.getValue());
+      template_args.push_back(crta_base_attr.getValue());
+
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
+          name, nullptr, ArrayAttr::get(op.getContext(), template_args),
+          operands);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class TTKernelTensorAccessorOpsRewriter : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelTensorAccessorOpsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                    MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+  LogicalResult
+  matchAndRewrite(SourceOp op, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Drop "ttkernel.tensor_accessor_" prefix
+    auto name = op.getOperation()->getName().getStringRef().drop_front(25);
+
+    auto operands = adaptor.getOperands();
+    if (operands.empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "Expected TensorAccessor as first operand");
+    }
+
+    SmallVector<Type, 2> resultTypes;
+    for (Type resultType : op->getResultTypes()) {
+      Type convertedType = this->getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(op, "Failed to convert result type");
+      }
+      resultTypes.push_back(convertedType);
+    }
+
+    // Calling class/struct member function is difficult to do in EmitC..
+    // Create a unique variable name based on SSA number.
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    op->getResult(0).printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "temp_" + ssaName.substr(1);
+
+    // Call the member function using verbatim with placeholders {} for args.
+    std::string callStr = "uint32_t " + varName + " = {}." + name.str() + "(";
+    for (size_t i = 0; i < operands.size() - 1; i++) {
+      if (i > 0) {
+        callStr += ", ";
+      }
+      callStr += "{}";
+    }
+    callStr += ");";
+
+    rewriter.create<emitc::VerbatimOp>(
+        op->getLoc(), rewriter.getStringAttr(callStr), operands);
+
+    // create a literal referencing the temp variable to be used later.
+    auto literalOp =
+        rewriter.create<emitc::LiteralOp>(op->getLoc(), resultTypes, varName);
+
+    rewriter.replaceOp(op, literalOp.getResult());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -699,7 +814,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
         typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
@@ -715,6 +831,25 @@ public:
 
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());
+
+    patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
+                                                       funcOp.getContext());
+
+    patterns.add<
+        TTKernelTensorAccessorOpsRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorGetShardNocAddrOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorGetBankAndOffsetOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorIsLocalBankOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorIsLocalAddrOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorIsLocalPageOp>,
+        TTKernelTensorAccessorOpsRewriter<
+            ttkernel::TensorAccessorIsLocalShardOp>>(typeConverter,
+                                                     funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

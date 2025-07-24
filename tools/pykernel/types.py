@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from enum import Enum
 
 
 class CircularBuffer:
@@ -72,3 +73,34 @@ class Arguments:
 
     def get_all_args(self):
         return self.args
+
+
+class TensorAccessorConfig(Enum):
+    """
+    Python equivalent ArgConfig from tt_metal/hostdevcommon/api/hostdevcommon/tensor_accessor/arg_config.hpp.
+    Bit encoding of fundamental configuration of a tensor accessor that must be available at compile time.
+    #TODO: Remove once pybinds for TensorAccessorArgs implemented - Metal Issue #25655
+    """
+
+    NONE = 0
+    Sharded = 1 << 0  # 0x01 = 0b0000_0001 = 1
+    IsDram = 1 << 1  # 0x02 = 0b0000_0010 = 2
+    RuntimeRank = 1 << 2  # 0x04 = 0b0000_0100 = 4
+    RuntimeNumBanks = 1 << 3  # 0x08 = 0b0000_1000 = 8
+    RuntimeTensorShape = 1 << 4  # 0x10 = 0b0001_0000 = 16
+    RuntimeShardShape = 1 << 5  # 0x20 = 0b0010_0000 = 32
+    RuntimeBankCoords = 1 << 6  # 0x40 = 0b0100_0000 = 64
+
+    def __or__(self, other):
+        """Enable | operator"""
+        self_val = self.value if hasattr(self, "value") else self
+        other_val = other.value if hasattr(other, "value") else other
+        return self_val | other_val
+
+    def __ror__(self, other):
+        """Enable | operator"""
+        return other | self.value
+
+    def __ior__(self, other):
+        """Enable |= operator"""
+        return self.__or__(other)
