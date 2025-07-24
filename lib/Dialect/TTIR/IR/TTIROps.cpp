@@ -3755,6 +3755,43 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllOp
+//===----------------------------------------------------------------------===//
+
+// AllToAllOp verification
+::mlir::LogicalResult mlir::tt::ttir::AllToAllOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  auto inShape = inputType.getShape();
+  int64_t splitDim = getSplitDim();
+  int64_t concatDim = getConcatDim();
+  int64_t splitCount = getSplitCount();
+  if (splitDim < 0 || splitDim >= inputType.getRank()) {
+    return emitOpError("splitDim must be in the range [0, rank(operands)]");
+  }
+  if (splitCount <= 0) {
+    return emitOpError("splitCount must be a positive integer");
+  }
+  if (inShape[splitDim] % splitCount != 0) {
+    return emitOpError("splitDim size must be divisible by splitCount");
+  }
+  if (concatDim < 0 || concatDim >= inputType.getRank()) {
+    return emitOpError("concatDim must be in the range [0, rank(operands)]");
+  }
+  ::llvm::SmallVector<int64_t> expectedShape(inShape.begin(), inShape.end());
+  expectedShape[splitDim] = expectedShape[splitDim] / splitCount;
+  expectedShape[concatDim] = expectedShape[concatDim] * splitCount;
+  auto expectedType = mlir::RankedTensorType::get(
+      expectedShape, inputType.getElementType(), inputType.getEncoding());
+  if ((expectedType.getShape() != outputType.getShape()) ||
+      (expectedType.getElementType() != outputType.getElementType())) {
+    return emitOpError("output type mismatch: expected type=")
+           << expectedType << " output type=" << outputType;
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
