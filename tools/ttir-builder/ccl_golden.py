@@ -112,29 +112,6 @@ def mesh_shard_golden(
         return full
 
 
-def _ravel_nd(idx: Tuple[int, ...], shape: Tuple[int, ...]) -> int:
-    """Convert N-D index to row-major flat index."""
-    out, mult = 0, 1
-    for size, i in zip(reversed(shape), reversed(idx)):
-        out += i * mult
-        mult *= size
-    return out
-
-
-def _replica_groups(shape: Tuple[int, ...], cluster_axis: int) -> List[List[int]]:
-    """Groups that vary cluster_axis while fixing all other axes."""
-    other_axes = [ax for ax in range(len(shape)) if ax != cluster_axis]
-    groups: List[List[int]] = []
-    for fixed in itertools.product(*[range(shape[ax]) for ax in other_axes]):
-        group: List[int] = []
-        for v in range(shape[cluster_axis]):
-            full = list(fixed)
-            full.insert(cluster_axis, v)
-            group.append(_ravel_nd(tuple(full), shape))
-        groups.append(group)
-    return groups
-
-
 def all_gather_golden(
     input: ShardedTensor,
     mesh_shape: Tuple[int],
@@ -143,12 +120,11 @@ def all_gather_golden(
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
     output = [None] * len(input.shards)
-    replica_groups = _replica_groups(mesh_shape, cluster_axis)
-    for group in replica_groups:
-        group_tensors = [input.get_shard(i) for i in group]
-        group_tensor = torch.cat(group_tensors, dim=all_gather_dim)
-        for i in group:
-            output[i] = group_tensor.clone()
+    grouped_tensors = input.replica_groups(cluster_axis)
+    for group in grouped_tensors:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for id in group.keys():
+            output[id] = gathered_tensor.clone()
     assert None not in output, "Not all shards are gathered"
     return ShardedTensor(output, mesh_shape)
 
@@ -161,9 +137,9 @@ def all_reduce_golden(
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
     output = [None] * len(input.shards)
-    replica_groups = _replica_groups(mesh_shape, cluster_axis)
-    for group in replica_groups:
-        group_tensors = [input.get_shard(i) for i in group]
+    grouped_tensors = input.replica_groups(cluster_axis)
+    for group in grouped_tensors:
+        group_tensors = list(group.values())
         # reduce
         reduce_type_str = str(reduce_type).lower()
         if "sum" in reduce_type_str:
@@ -180,8 +156,8 @@ def all_reduce_golden(
             reduced_tensor = torch.var(group_tensors)
         else:
             raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
-        for i in group:
-            output[i] = reduced_tensor.clone()
+        for id in group.keys():
+            output[id] = reduced_tensor.clone()
     assert None not in output, "Not all shards are reduced"
     return ShardedTensor(output, mesh_shape)
 
@@ -195,9 +171,9 @@ def reduce_scatter_golden(
 ) -> torch.Tensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
     output = [None] * len(input.shards)
-    replica_groups = _replica_groups(mesh_shape, cluster_axis)
-    for group in replica_groups:
-        group_tensors = [input.get_shard(i) for i in group]
+    grouped_tensors = input.replica_groups(cluster_axis)
+    for group in grouped_tensors:
+        group_tensors = list(group.values())
         # reduce
         reduce_type_str = str(reduce_type).lower()
         if "sum" in reduce_type_str:
@@ -217,7 +193,7 @@ def reduce_scatter_golden(
         reduced_tensors = torch.chunk(
             reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
         )
-        for index, id in enumerate(group):
+        for index, id in enumerate(group.keys()):
             output[id] = reduced_tensors[index].clone()
     assert None not in output, "Not all shards are reduced"
     return ShardedTensor(output, mesh_shape)
