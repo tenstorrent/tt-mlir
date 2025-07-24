@@ -289,9 +289,6 @@ bool ShardSolver::resolveStep() {
 bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                                                         OpConfig outputConfig,
                                                         bool rowMajorInput) {
-  // TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
-  //     mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
-
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   TTNNLayoutAttr inputLayout =
@@ -304,8 +301,6 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
   if (rowMajorInput) {
     Type inputElementType = inputLayout.getScalarElementType();
     inputLayout = inputLayout.withElementType(inputElementType, tensorShape);
-    llvm::outs() << "Row major input detected for op: " << op->getName()
-                 << "\n";
   }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
@@ -822,7 +817,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   // Figure out this const based on exec data, but will be replaced
   // with API.
   //
-  constexpr float tensorL1UsageCap = 0.8;
+  constexpr float tensorL1UsageCap = 0.9;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {
