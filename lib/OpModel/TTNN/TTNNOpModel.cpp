@@ -998,6 +998,364 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 }
 
 //===----------------------------------------------------------------------===//
+// DivideOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> DivideOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "DivideOpInterface", ::ttnn::divide, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+DivideOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                llvm::ArrayRef<int64_t> inputShapeB,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                llvm::ArrayRef<int64_t> outputShape,
+                                mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("DivideOpInterface", ::ttnn::divide,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// EqualOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> EqualOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "EqualOpInterface", ::ttnn::eq, deviceGrid, inputShapeA, inputLayoutA,
+      inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+EqualOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                               llvm::ArrayRef<int64_t> inputShapeB,
+                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                               llvm::ArrayRef<int64_t> outputShape,
+                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("EqualOpInterface", ::ttnn::eq, inputShapeA,
+                                   inputLayoutA, inputShapeB, inputLayoutB,
+                                   outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// NotEqualOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> NotEqualOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "NotEqualOpInterface", ::ttnn::ne, deviceGrid, inputShapeA, inputLayoutA,
+      inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+NotEqualOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                  llvm::ArrayRef<int64_t> inputShapeB,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("NotEqualOpInterface", ::ttnn::ne,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterEqualOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> GreaterEqualOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "GreaterEqualOpInterface", ::ttnn::ge, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> GreaterEqualOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("GreaterEqualOpInterface", ::ttnn::ge,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterThanOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> GreaterThanOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "GreaterThanOpInterface", ::ttnn::gt, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> GreaterThanOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("GreaterThanOpInterface", ::ttnn::gt,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LessEqualOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> LessEqualOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "LessEqualOpInterface", ::ttnn::le, deviceGrid, inputShapeA, inputLayoutA,
+      inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> LessEqualOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("LessEqualOpInterface", ::ttnn::le,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LessThanOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> LessThanOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "LessThanOpInterface", ::ttnn::lt, deviceGrid, inputShapeA, inputLayoutA,
+      inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+LessThanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                  llvm::ArrayRef<int64_t> inputShapeB,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("LessThanOpInterface", ::ttnn::lt,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalAndOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> LogicalAndOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "LogicalAndOpInterface", ::ttnn::logical_and, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> LogicalAndOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("LogicalAndOpInterface", ::ttnn::logical_and,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalOrOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> LogicalOrOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "LogicalOrOpInterface", ::ttnn::logical_or, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> LogicalOrOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("LogicalOrOpInterface", ::ttnn::logical_or,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalXorOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> LogicalXorOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpConstraints(
+      "LogicalXorOpInterface", ::ttnn::logical_xor, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> LogicalXorOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseBinaryOpRuntime("LogicalXorOpInterface", ::ttnn::logical_xor,
+                                   inputShapeA, inputLayoutA, inputShapeB,
+                                   inputLayoutB, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> SoftmaxOpInterface::getOpConstraints(

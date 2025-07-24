@@ -1246,6 +1246,200 @@ MinimumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DivideOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+DivideOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::DivideOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+DivideOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::DivideOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// EqualOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+EqualOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::EqualOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+EqualOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::EqualOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// NotEqualOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+NotEqualOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::NotEqualOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+NotEqualOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::NotEqualOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterEqualOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+GreaterEqualOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterEqualOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+GreaterEqualOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return getBinaryOpRuntime(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterEqualOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterThanOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+GreaterThanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterThanOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+GreaterThanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return getBinaryOpRuntime(
+      *this, inputs, opConfig,
+      op_model::ttnn::GreaterThanOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LessEqualOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LessEqualOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LessEqualOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LessEqualOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::LessEqualOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LessThanOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LessThanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LessThanOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LessThanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::LessThanOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalAndOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LogicalAndOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogicalAndOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LogicalAndOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return getBinaryOpRuntime(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogicalAndOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalOrOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LogicalOrOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogicalOrOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LogicalOrOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getBinaryOpRuntime(*this, inputs, opConfig,
+                            op_model::ttnn::LogicalOrOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalXorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LogicalXorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return getBinaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogicalXorOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LogicalXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return getBinaryOpRuntime(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogicalXorOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // EmbeddingOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
