@@ -1239,8 +1239,10 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         .compose(affineMap);
   }
   case MemorySpace::DeviceDRAM: {
+    if (pageSize == 0) {
+      pageSize = getMemrefInterleavedPageSize(memrefType);
+    }
     assert(pageSize > 0 && "expected positive page size");
-    pageSize = 8192; // use fixed 8K page size for now
     SmallVector<int64_t> symbols(memrefType.getShape());
     symbols.push_back(static_cast<int64_t>(pageSize));
     symbols.push_back(static_cast<int64_t>(baseOffset));
@@ -1304,6 +1306,24 @@ size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
   TileType tileType = mlir::dyn_cast<TileType>(elementType);
   return tileType ? tileType.getSizeBytes()
                   : TileType::get(elementType).getSizeBytes();
+}
+
+size_t DeviceAttr::getMemrefInterleavedPageSize(MemRefType memrefType) const {
+  size_t pageSize = 0;
+  switch (getMemorySpace(memrefType)) {
+  case MemorySpace::DeviceL1: {
+    pageSize = getMemrefCBPageSizeBytes(memrefType);
+    break;
+  }
+  case MemorySpace::DeviceDRAM: {
+    pageSize = 8192; // hardcoded at 8K for now
+    break;
+  }
+  default: {
+    llvm_unreachable("Unsupported memory space");
+  }
+  }
+  return pageSize;
 }
 
 size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {

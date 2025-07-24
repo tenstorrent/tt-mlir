@@ -160,11 +160,11 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       ttcore::MemorySpace::DeviceDRAM);
 
   // for now, D2M assumes that all dram buffers are interleaved and use 8K pages
-  constexpr size_t kPageSize = 8192;
+  size_t pageSize = device.getMemrefInterleavedPageSize(memref);
   uint64_t memrefSize =
-      device.getMemrefSizeBytes(memref, kPageSize, false /*includeBuffers*/);
+      device.getMemrefSizeBytes(memref, pageSize, false /*includeBuffers*/);
   return target::metal::CreateInterleavedBufferConfig(*cache.fbb, memrefSize,
-                                                      kPageSize);
+                                                      pageSize);
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>

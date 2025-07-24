@@ -279,8 +279,8 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
-    size_t size = device.getMemrefSizeBytes(underlyingMemrefAndView.first);
-    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView, size);
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
+                                              0 /* use default page size*/);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
@@ -361,9 +361,8 @@ public:
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
           mlir::tt::ttir::applyViews(input.getDefiningOp());
-      size_t srcSize =
-          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first);
-      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcSize);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView,
+                                 0 /* use default page size*/);
     }
 
     MemRefType inputType = mlir::cast<MemRefType>(input.getType());
