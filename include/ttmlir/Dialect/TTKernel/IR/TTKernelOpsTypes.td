@@ -64,6 +64,14 @@ def TTKernel_ReduceDimAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "red
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTKernel_BcastBinaryOpAttr : EnumAttr<TTKernel_Dialect, TTKernel_BcastBinaryOp, "bcast_binary_op"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTKernel_BcastBinaryTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_BcastBinaryType, "bcast_binary_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
     let summary = "TTKernel l1 address";
     let description = "L1 address type in TTKernel dialect";

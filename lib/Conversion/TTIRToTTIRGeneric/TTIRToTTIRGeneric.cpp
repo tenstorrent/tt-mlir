@@ -205,6 +205,90 @@ public:
         TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
 private:
+  std::optional<std::pair<ttcore::TileBcastType, ttcore::TileBcastType>>
+  getImplicitBcastInfo(ConcreteOp op, ArrayRef<Value> inputs,
+                       ArrayRef<Value> outputs) const {
+    if (!(llvm::isa<ttir::AddOp>(op) || llvm::isa<ttir::SubtractOp>(op) ||
+          llvm::isa<ttir::MultiplyOp>(op))) {
+      return {};
+    }
+
+    if (inputs.size() != 2u || outputs.size() != 1u) {
+      return {};
+    }
+
+    const auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const int lhsRank = static_cast<int>(lhsType.getRank());
+    const int rhsRank = static_cast<int>(rhsType.getRank());
+    const int outRank = static_cast<int>(outType.getRank());
+
+    if (outRank != std::max(lhsRank, rhsRank)) {
+      return {};
+    }
+
+    if (outRank != 2) {
+      return {};
+    }
+
+    const auto lhsShape = lhsType.getShape();
+    const auto rhsShape = rhsType.getShape();
+
+    mlir::SmallVector<bool> lhsIsBcast(outRank);
+    mlir::SmallVector<bool> rhsIsBcast(outRank);
+    for (int i = -1; i >= -outRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outDim = outRank + i;
+
+      const int64_t lhsDimSize = lhsDim >= 0 ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = rhsDim >= 0 ? rhsShape[rhsDim] : -1;
+
+      if ((lhsDimSize != -1) && (rhsDimSize != -1) &&
+          (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+          (rhsDimSize != 1)) {
+        return {};
+      }
+
+      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((lhsDimSize == -1) || (lhsDimSize == 1));
+      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((rhsDimSize == -1) || (rhsDimSize == 1));
+      assert(!(lhsBcast && rhsBcast));
+
+      lhsIsBcast[outDim] = lhsBcast;
+      rhsIsBcast[outDim] = rhsBcast;
+    }
+
+    auto getTileBcastType =
+        [](ArrayRef<bool> isBcast) -> ttcore::TileBcastType {
+      const size_t rank = isBcast.size();
+      const bool rowBcast = isBcast[rank - 1];
+      const bool colBcast = isBcast[rank - 2];
+
+      if (rowBcast && colBcast) {
+        return ttcore::TileBcastType::Scalar;
+      }
+      if (rowBcast) {
+        return ttcore::TileBcastType::Row;
+      }
+      if (colBcast) {
+        return ttcore::TileBcastType::Column;
+      }
+      return ttcore::TileBcastType::None;
+    };
+
+    std::pair<ttcore::TileBcastType, ttcore::TileBcastType> tileBcastInfo{
+        getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
+
+    return tileBcastInfo;
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -222,6 +306,12 @@ private:
     const std::size_t numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
+
+    const auto implictBcastInfo =
+        getImplicitBcastInfo(op, origInputs, origOutputs);
+    if (implictBcastInfo.has_value()) {
+      fprintf(stderr, "++ Detected implicit broadcast\n");
+    }
 
     ttcore::GridAttr grid =
         ttcore::GridAttr::get(ctx, expectedInputGridShape());

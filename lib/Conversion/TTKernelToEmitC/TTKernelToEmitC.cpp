@@ -277,6 +277,20 @@ public:
     return {reduceType, reduceDim};
   }
 
+  template <typename BcastKindOp>
+  StringRef getBcastType(BcastKindOp op) const {
+    const auto bcastType = op.getBcastTypeAttr().getValue();
+    switch (bcastType) {
+    case ttkernel::BcastBinaryType::Col:
+      return "BroadcastType::COL";
+    case ttkernel::BcastBinaryType::Row:
+      return "BroadcastType::ROW";
+    default:
+      assert(bcastType == ttkernel::BcastBinaryType::Scalar);
+      return "BroadcastType::SCALAR";
+    }
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
