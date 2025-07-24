@@ -345,9 +345,9 @@ def custom_avg_pool2d(*args, **kwargs):
 
 def custom_matmul(x, y, transpose_a=False, transpose_b=False):
     if transpose_a:
-        x = x.T
+        x = torch.transpose(x.copy(), -1, -2)
     if transpose_b:
-        y = y.T
+        y = torch.transpose(y.copy(), -1, -2)
     return torch.matmul(x, y)
 
 

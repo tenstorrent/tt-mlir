@@ -1,83 +1,109 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-import pytest
 from pathlib import Path
-import torch
-from chisel.core.ops import IRModule
-from ttmlir.ir import Context
 
+import pytest
+import torch
+from chisel.core.compile_pipeline import chisel_pipeline
 from chisel.core.enums import ExecutionType
+from chisel.core.golden_executor import GoldenExecutor
+from chisel.core.ops import IRModule
 from chisel.core.registry import Registry
 from chisel.core.tensors import TensorPool, TensorValue
-from chisel.core.golden_executor import GoldenExecutor
 from chisel.utils.location import hash_location
-
 from chisel.utils.mapping import ttir_dtype_maps
+from ttmlir.ir import Context
 
-BASE = Path("/proj_sw/user_dev/ndrakulic/chisel")
-TEST_CONFIGS = {
-    # "dare": ["forward"],
-    # "ffe_llama_l1": ["forward", "backward"],
-    # "ffe_mnist1": ["forward", "backward", "optimizer"],
-    # "ffe_mnist3": ["forward"],
-    # "xla_bert": ["main"],
-    # "xla_bert_l1": ["main"],
-    # "xla_mnist": ["main"],
-    # "opt125m": ["main"],
-    # "mlpmixer_trimmed": ["main"],
-}
 
-# Build parameter list: (golden_path, device_path, main_fn)
-params = []
-for model, main_fns in TEST_CONFIGS.items():
-    for fn in main_fns:
-        golden = BASE / model / "ttir.mlir"
-        device = BASE / model / "ttnn.mlir"
-        params.append((golden, device, fn))
-
-@pytest.mark.parametrize("golden_path, device_path, main_fn", params)
-def test_ir_module(golden_path: Path, device_path: Path, main_fn: str):
-    print(f"Device path: {device_path}")
-    print(f"Golden path: {golden_path}")
-    print(f"Main function: {main_fn}")
-
-    device_ir_module: IRModule = IRModule(
-        mlir_text=device_path.read_text(),
-        context=Context(),
+@pytest.mark.parametrize(
+    "ttir_path, function_name",
+    [
+        ("runtime/tools/chisel/test/mlir/test_fusion.mlir", "transpose_matmul"),
+    ],
+)
+def test_golden_execution(ttir_path: str, function_name: str):
+    """
+    Test golden execution workflow with TTIR to TTNN compilation pipeline.
+    
+    This test validates the complete golden execution process including:
+    - MLIR module compilation from TTIR to TTNN
+    - Registry setup and operation loading
+    - Tensor pool initialization with test data
+    - Golden execution of operations
+    - Output tensor validation
+    """
+    ttir_path = Path(ttir_path)
+    
+    # Compile TTIR to TTNN using the standard pipeline
+    ttir_module, ttnn_module = chisel_pipeline(ttir_path)
+    
+    context = Context()
+    
+    # Create IR modules for both execution contexts
+    device_ir_module = IRModule(
+        mlir_module=ttnn_module,
+        context=context,
         execution_type=ExecutionType.DEVICE,
-        main_function_name=main_fn,
+        functions=[function_name],
     )
     golden_ir_module = IRModule(
-        mlir_text=golden_path.read_text(),
-        context=Context(),
+        mlir_module=ttir_module,
+        context=context,
         execution_type=ExecutionType.GOLDEN,
-        main_function_name=main_fn,
+        functions=[function_name],
     )
-
+    
+    print(f"Testing function: {function_name}")
+    print(f"TTIR path: {ttir_path}")
+    
+    # Initialize registry and load all operations
     registry = Registry(golden_module=golden_ir_module, device_module=device_ir_module)
-    tensor_pool = TensorPool(caching=True, output_dir=device_path.parent / "test" / "tensors")
-    executor = GoldenExecutor(registry, tensor_pool)
-
     registry.load_all_ops()
-    # populate tensor pool with ones tensors for all input
+    
+    # Setup tensor pool with caching enabled
+    output_dir = ttir_path.parent / "test" / "tensors"
+    tensor_pool = TensorPool(caching=True, output_dir=output_dir)
+    
+    # Initialize golden executor
+    executor = GoldenExecutor(registry, tensor_pool)
+    
+    # Populate tensor pool with test input tensors (ones tensors)
     for arg in golden_ir_module.get_function_inputs():
+        tensor_name = arg.get_name(golden_ir_module.get_asm_state())
         tensor_value = TensorValue(
-            arg.get_name(golden_ir_module.get_asm_state()),
+            tensor_name,
             torch.ones(arg.type.shape, dtype=ttir_dtype_maps[str(arg.type.element_type)]),
             ExecutionType.GOLDEN,
         )
         tensor_value.set_execution_data()
-        tensor_pool[arg.get_name(golden_ir_module.get_asm_state())] = tensor_value
-
-    for tensor_name, tensor_value in tensor_pool.items():
-        print(f"Tensor {tensor_name}: {tensor_value.execution_data}")
-
+        tensor_pool[tensor_name] = tensor_value
+        print(f"Initialized input tensor {tensor_name}: shape={arg.type.shape}")
+    
+    # Execute golden operations for each device operation that should be compared
+    operations_executed = 0
     for op in device_ir_module.get_function_ops():
         op_location = hash_location(op.location)
         debug_str = op.get_asm(enable_debug_info=True)
+        
         if registry.should_compare(op, op_location, ExecutionType.DEVICE):
+            print(f"Executing golden operation at location {op_location}")
             executor.execute_golden(op_location, debug_str)
-            
+            operations_executed += 1
+    
+    print(f"Total operations executed: {operations_executed}")
+    
+    # Validate output tensors
+    output_tensors = 0
     for tensor_name, tensor_value in tensor_pool.items():
-        print(f"Tensor {tensor_name}: {tensor_value.data}")
+        if tensor_value.data is not None:
+            print(f"Output tensor {tensor_name}: shape={tensor_value.data.shape}")
+            output_tensors += 1
+        else:
+            print(f"Warning: Tensor {tensor_name} has no output data")
+    
+    print(f"Total output tensors: {output_tensors}")
+    
+    # Basic validation: ensure we executed some operations and produced some outputs
+    assert operations_executed > 0, "No operations were executed"
+    assert output_tensors > 0, "No output tensors were produced"
