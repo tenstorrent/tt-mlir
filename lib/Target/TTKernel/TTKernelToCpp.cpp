@@ -112,6 +112,8 @@ public:
           loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/bcast.h",
+                                        /*isStandard=*/false);
       emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
