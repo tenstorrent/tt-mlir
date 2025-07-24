@@ -1238,6 +1238,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   }
   case MemorySpace::DeviceDRAM: {
     assert(pageSize > 0 && "expected positive page size");
+    pageSize = 8192; // use fixed 8K page size for now
     SmallVector<int64_t> symbols(memrefType.getShape());
     symbols.push_back(static_cast<int64_t>(pageSize));
     symbols.push_back(static_cast<int64_t>(baseOffset));

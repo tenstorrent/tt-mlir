@@ -181,11 +181,6 @@ public:
                                                 ArrayRef<int64_t> shardShape,
                                                 size_t coalescingFactor) {
 
-    assert(shardShape.size() == 2 &&
-           "coalesced DMA loops only supported for 2D shard shapes");
-
-    size_t inner_loop_bound_size = shardShape[1];
-
     auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
     auto nullDmaTx = builder.create<ttir::NullTxOp>(dma.getLoc());
@@ -199,32 +194,40 @@ public:
           Value cfExpr = builder.create<arith::ConstantOp>(
               dma.getLoc(), builder.getIndexType(),
               builder.getIndexAttr(coalescingFactor));
-          Value innerLoopDimExpr = builder.create<arith::ConstantOp>(
-              dma.getLoc(), builder.getIndexType(),
-              builder.getIndexAttr(inner_loop_bound_size));
-          auto zero = builder.create<arith::ConstantOp>(
+          Value zero = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(),
               builder.getIntegerAttr(builder.getIndexType(), 0));
 
-          //* construct guard function
-          //  if ((n_end * m) + n % cf == 0)
-          auto outerIterCount =
-              builder.create<arith::MulIOp>(loc, iters[0], innerLoopDimExpr)
-                  .getResult();
-          auto totalIterCount =
-              builder.create<arith::AddIOp>(loc, iters[1], outerIterCount)
-                  .getResult();
+          // construct guard function
+          // when flat_index(iters) == coalescing_fac, the next
+          // dma operation should be issued
+          auto totalIterCount = zero;
+          size_t currStride = 1;
+          for (int i = iters.size() - 1; i >= 0; i--) {
+
+            Value currStrideExpr = builder.create<arith::ConstantOp>(
+                dma.getLoc(), builder.getIndexType(),
+                builder.getIndexAttr(currStride));
+            auto scaledCount =
+                builder.create<arith::MulIOp>(loc, currStrideExpr, iters[i])
+                    .getResult();
+            totalIterCount =
+                builder.create<arith::AddIOp>(loc, scaledCount, totalIterCount)
+                    .getResult();
+
+            currStride *= shardShape[i];
+          }
           auto moduloIterCount =
               builder.create<arith::RemSIOp>(loc, totalIterCount, cfExpr)
                   .getResult();
           auto predicate = builder.create<arith::CmpIOp>(
               loc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
-          auto n = builder.create<ttir::NullTxOp>(dma.getLoc());
+          auto nulltx = builder.create<ttir::NullTxOp>(dma.getLoc());
 
           // build guarded expression
           auto ifExpr = builder.create<scf::IfOp>(
-              loc, TypeRange(SmallVector<Value>{nullDmaTx}), predicate,
+              loc, TypeRange(SmallVector<Value>{nulltx}), predicate,
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
@@ -234,30 +237,11 @@ public:
           thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(dma.getLoc(), n->getResult(0));
+          elseBuilder.create<scf::YieldOp>(dma.getLoc(), nulltx->getResult(0));
 
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
-    return loopNest;
-  }
 
-  static scf::LoopNest
-  fallbackSingleTileGatherLoop(OpBuilder &builder, Location loc, DMAOp dma,
-                               ArrayRef<Value> streamIndex,
-                               ArrayRef<int64_t> shardShape) {
-    auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
-
-    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc());
-    scf::LoopNest loopNest = scf::buildLoopNest(
-        builder, loc, lbs, ubs, steps, ValueRange(initTx),
-        [&](OpBuilder &builder, Location loc, ValueRange iters,
-            ValueRange /*args*/) {
-          SmallVector<Value> srcIndex =
-              llvm::to_vector(llvm::concat<Value>(streamIndex, iters));
-          return SmallVector<Value>{builder.create<ttir::DMAOp>(
-              dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
-              dma.getMcastStartIndex(), dma.getMcastShape())};
-        });
     return loopNest;
   }
 
@@ -311,22 +295,10 @@ public:
           dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
 
-      bool canBuildCoalescedLoop = memrefShardShape.size() == 2;
-      if (canBuildCoalescedLoop) {
-        scf::LoopNest loopNest =
-            buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndex,
-                                     memrefShardShape, coalescingFactor);
-        newDma = loopNest.loops.front();
-      } else {
-        // Fallback to single tile/element gather for generality
-        TTMLIR_TRACE(ttmlir::LogComponent::General,
-                     "GenericLowerDMAs:Falling back to single element/tile "
-                     "gather for irregular DMA; perf will be suboptimal");
-        scf::LoopNest loopNest = fallbackSingleTileGatherLoop(
-            rewriter, dma.getLoc(), dma, streamIndex, memrefShardShape);
-        assert(loopNest.loops.size() == memrefShardShape.size());
-        newDma = loopNest.loops.front();
-      }
+      scf::LoopNest loopNest =
+          buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndex,
+                                   memrefShardShape, coalescingFactor);
+      newDma = loopNest.loops.front();
     }
 
     rewriter.replaceOp(dma, newDma);
