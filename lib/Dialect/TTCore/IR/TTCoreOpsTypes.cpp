@@ -1116,8 +1116,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
-                                     GridAttr workerGrid, size_t numDramCores,
-                                     size_t dramPageSize) {
+                                     GridAttr workerGrid, size_t numDramCores) {
   mlir::AffineMap workerMap = workerGrid.getMapping();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
@@ -1144,7 +1143,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   mlir::AffineExpr numDramBanksExpr =
       getAffineConstantExpr(numDramCores, context);
   mlir::AffineExpr dramPageSizeExpr =
-      getAffineConstantExpr(dramPageSize, context);
+      getAffineSymbolExpr(workerMap.getNumDims() * 2, context);
   mlir::AffineExpr pageIndex = flatAddr.floorDiv(dramPageSizeExpr);
   mlir::AffineExpr channelPageIndex = pageIndex.floorDiv(numDramBanksExpr);
 
@@ -1162,8 +1161,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid,
                                      SystemDescAttr systemDesc,
-                                     ::llvm::ArrayRef<unsigned> chipIds,
-                                     unsigned dramPageSize) {
+                                     ::llvm::ArrayRef<unsigned> chipIds) {
   auto chipDesc = systemDesc.getChipDescs().front();
   auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
   auto firstDramCores = chipPhysicalHelperCores.getDram();
@@ -1176,8 +1174,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
     assert(dramCores.size() == firstDramCores.size());
   }
 
-  return createDramMap(context, workerGrid, firstDramCores.size(),
-                       dramPageSize);
+  return createDramMap(context, workerGrid, firstDramCores.size());
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
@@ -1203,9 +1200,8 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 
   auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
   auto l1Map = createL1Map(context, workerGrid);
-  constexpr unsigned dramPageSize = 8192;
-  auto dramMap =
-      createDramMap(context, workerGrid, systemDesc, chipIds, dramPageSize);
+
+  auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
   return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
 }
 
