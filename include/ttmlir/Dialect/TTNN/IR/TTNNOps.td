@@ -362,7 +362,9 @@ def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite",
     }];
 }
 
-def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
+def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.

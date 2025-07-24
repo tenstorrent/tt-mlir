@@ -78,7 +78,8 @@ enum class UnaryEltwiseOpType {
   Erfc,
   Floor,
   Gelu,
-  IsFinite
+  IsFinite,
+  LogicalNot
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -108,6 +109,7 @@ protected:
           {UnaryEltwiseOpType::Floor, FloorOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Gelu, GeluOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::IsFinite, IsFiniteOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::LogicalNot, LogicalNotOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -131,6 +133,8 @@ protected:
           {UnaryEltwiseOpType::Floor, FloorOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Gelu, GeluOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::IsFinite, IsFiniteOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::LogicalNot,
+           LogicalNotOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -339,6 +343,11 @@ INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelUnaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(IsFiniteTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(
                              UnaryEltwiseOpType::IsFinite, unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    LogicalNotTests, OpModelUnaryEltwiseParam,
+    generateBinaryEltwiseParams(UnaryEltwiseOpType::LogicalNot,
+                                unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
     ReciprocalTests, OpModelUnaryEltwiseParam,

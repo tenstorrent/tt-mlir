@@ -246,6 +246,10 @@ const auto createIsFinite = [](OpBuilder &b, Location loc, Type type,
                                ValueRange ops) {
   return b.create<IsFiniteOp>(loc, type, ops).getOperation();
 };
+const auto createLogicalNot = [](OpBuilder &b, Location loc, Type type,
+                                 ValueRange ops) {
+  return b.create<LogicalNotOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -265,7 +269,8 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
     {"Gelu", createGelu, expected},
-    {"IsFinite", createIsFinite, expected}};
+    {"IsFinite", createIsFinite, expected},
+    {"LogicalNot", createLogicalNot, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
