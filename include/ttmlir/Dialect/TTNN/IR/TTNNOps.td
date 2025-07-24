@@ -335,7 +335,9 @@ def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
       }];
 }
 
-def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
+def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise floor op.";
     let description = [{
       Eltwise floor operation.

@@ -1059,6 +1059,36 @@ ErfcOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// FloorOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> FloorOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints("FloorOpInterface", ::ttnn::floor,
+                                      deviceGrid, inputShape, inputLayout,
+                                      outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+FloorOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                               llvm::ArrayRef<int64_t> outputShape,
+                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("FloorOpInterface", ::ttnn::floor, inputShape,
+                                  inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // CosOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>

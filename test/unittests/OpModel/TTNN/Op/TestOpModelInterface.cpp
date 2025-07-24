@@ -234,6 +234,10 @@ const auto createErfc = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<ErfcOp>(loc, type, ops).getOperation();
 };
+const auto createFloor = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<FloorOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -241,11 +245,12 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
 //===---------------------------------------------------------===
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
-    {"Relu", createRelu, expected}, {"Sin", createSin, expected},
-    {"Abs", createAbs, expected},   {"Cbrt", createCbrt, cbrtExpected},
-    {"Ceil", createCeil, expected}, {"Sign", createSign, expected},
-    {"Cos", createCos, expected},   {"Reciprocal", createReciprocal, expected},
-    {"Erf", createErf, expected},   {"Erfc", createErfc, expected}};
+    {"Relu", createRelu, expected},  {"Sin", createSin, expected},
+    {"Abs", createAbs, expected},    {"Cbrt", createCbrt, cbrtExpected},
+    {"Ceil", createCeil, expected},  {"Sign", createSign, expected},
+    {"Cos", createCos, expected},    {"Reciprocal", createReciprocal, expected},
+    {"Erf", createErf, expected},    {"Erfc", createErfc, expected},
+    {"Floor", createFloor, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
