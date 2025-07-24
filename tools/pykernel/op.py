@@ -32,6 +32,7 @@ class PyKernelOp:
         """Initialize the PyKernelOp with an empty kernel selection dictionary. Intakes the `ttnn` module to operate."""
         self.kernel_selection = {}
         self.kernel_cache = {}
+        self.tensor_accessor_config = 0
 
         # Keep a mobile statewise reference to the ttnn module
         if isinstance(ttnn, Exception):
@@ -86,6 +87,25 @@ class PyKernelOp:
         # Returns a 0, 0 core range:
         core = self.ttnn.CoreCoord(0, 0)
         return self.ttnn.CoreRangeSet([self.ttnn.CoreRange(core, core)])
+
+    def set_tensor_accessor_config(self, tensors):
+        """
+        Set the tensor accessor config based on the passed tensors.
+        Right now, the only relevant flags are IsDram and Sharded.
+        """
+        config = TensorAccessorConfig.NONE
+        if not tensors:
+            raise ValueError("Must provide at least one tensor.")
+        if not isinstance(tensors, (list, tuple)):
+            tensors = [tensors]
+        memory_config = tensors[0].memory_config()
+
+        if memory_config.buffer_type == self.ttnn.BufferType.DRAM:
+            config |= TensorAccessorConfig.IsDram
+        if memory_config.is_sharded():
+            config |= TensorAccessorConfig.Sharded
+
+        self.tensor_accessor_config = config
 
     def _compute_input_hash(self, tensors, options):
         """Compute a hash of the input tensors and compile-time options."""
@@ -216,7 +236,7 @@ class PyKernelOp:
 
                 arg_idx += 1
 
-        ct_args = self.make_ct_args(**kwargs)
+        ct_const_args = self.make_ct_args(**kwargs)
 
         if rt_args is None:
             rt_args = [[[]]]
@@ -224,16 +244,17 @@ class PyKernelOp:
         # Get the PyKernel type for cb_args
         cb_args = [x.cb_type for x in args if isinstance(x, OpCircularBuffer)]
 
-        kernel_string = kernel(*cb_args, *all_rt_args, *ct_args)
+        kernel_string = kernel(*cb_args, *all_rt_args, *ct_const_args)
         kernel_t = Kernel(kernel.__name__, kernel_string)
         kernel_path = kernel_t.dump_to_file()
 
         config = self._config_from_thread_type(kernel._decorator_name)
+        compile_time_args = [cb.cb_id for cb in cb_args] + [self.tensor_accessor_config]
 
         kernel_desc_args = {
             "kernel_source": kernel_path,
             "core_ranges": self.get_core_ranges(core_ranges),
-            "compile_time_args": [cb.cb_id for cb in cb_args],
+            "compile_time_args": compile_time_args,
             "runtime_args": rt_args,
             "config": config(),
         }

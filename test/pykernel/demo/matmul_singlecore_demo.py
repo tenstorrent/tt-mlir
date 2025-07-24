@@ -53,14 +53,11 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         dst_addr,
         M,
         N,
-        dst_is_dram: CompileTimeValue,
     ):
         tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         for m in range(0, M, 1):
             for n in range(0, N, 1):
@@ -83,22 +80,14 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         M,
         N,
         K,
-        src0_is_dram: CompileTimeValue,
-        src1_is_dram: CompileTimeValue,
     ):
         tile_bytes0 = get_tile_size(cb_in0)
-        dataformat0 = get_dataformat(cb_in0)
-
-        s0 = get_interleaved_addr_gen_fast(
-            src0_is_dram, src_addr0, tile_bytes0, dataformat0
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        dataformat1 = get_dataformat(cb_in1)
-
-        s1 = get_interleaved_addr_gen_fast(
-            src1_is_dram, src_addr1, tile_bytes1, dataformat1
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         for m in range(0, M, 1):
             for n in range(0, N, 1):
@@ -131,9 +120,7 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         cb_in1 = self.create_cb(b_tensor, 1)
         cb_out = self.create_cb(out_tensor, 16)
 
-        is_a_dram = a_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_b_dram = b_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_out_dram = out_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
+        self.set_tensor_accessor_config([a_tensor, b_tensor, out_tensor])
 
         # Calculate M, N, K as tile numbers, tiles are 32x32
         # A[MxK], B[KxN], Output[MxN]
@@ -151,7 +138,6 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 M,
                 N,
-                dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 MatmulSinglecorePyKernelOp.reader_single_core_mm,
@@ -162,8 +148,6 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 M,
                 N,
                 K,
-                src0_is_dram=is_a_dram,
-                src1_is_dram=is_b_dram,
             ),
         ]
 

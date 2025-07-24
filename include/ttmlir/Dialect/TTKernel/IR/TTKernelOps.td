@@ -1346,7 +1346,9 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
       NocAsyncReadTile
     }];
 
-    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+    let arguments = (ins I32:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$dstLocalL1Addr);
 
     let assemblyFormat = [{
       `(` $id `,` $addrGenStruct `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
@@ -1409,7 +1411,9 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
       NocAsyncWriteTilie
     }];
 
-    let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+    let arguments = (ins IndexLike:$id,
+                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                    I32:$srcLocalL1Addr);
 
     let assemblyFormat = [{
       `(` $id `,` $addrGenStruct `,` $srcLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
@@ -1778,6 +1782,129 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 
   let assemblyFormat = [{
     `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel TensorAccessor operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
+  let summary = "TensorAccessorArgs";
+  let description = [{
+    TensorAccessorArgs struct constructor.
+  }];
+
+  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let results = (outs TTKernel_TensorAccessorArgs:$result);
+
+  let assemblyFormat = [{
+    `(` $cta_base `,` $crta_base `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
+  let summary = "MakeTensorAccessorFromArgs";
+  let description = [{
+    TensorAccessor constructor.
+  }];
+
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let results = (outs TTKernel_TensorAccessor:$result);
+
+  let assemblyFormat = [{
+    `(` $args `,` $bank_base_address_in `,` $page_size_in `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor_get_noc_addr"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs TTKernel_NocAddr:$nocAddr);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $id `,` $offset (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor_get_shard_noc_addr"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$shard_id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs I32:$shardNocAddr);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $shard_id `,` $offset (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor_get_bank_and_offset"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$page_id);
+  let results = (outs TTKernel_TensorAccessorPageMapping:$bank_id_and_offset);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $page_id `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor_is_local_bank"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$id, I32:$offset, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $id `,` $offset (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor_is_local_addr"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$virtual_x, I32:$virtual_y, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $virtual_x `,` $virtual_y (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor_is_local_page"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$page_id, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $page_id (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor_is_local_shard"> {
+  let summary = "";
+  let description = [{
+
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor, I32:$shard_id, Optional<I8>:$noc);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `,` $shard_id (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
