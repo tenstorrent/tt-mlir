@@ -205,6 +205,10 @@ const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<SinOp>(loc, type, ops).getOperation();
 };
+const auto createAbs = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<AbsOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
@@ -218,6 +222,7 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
     {"Sin", createSin, expected},
+    {"Abs", createAbs, expected},
     {"Cos", createCos, expected},
     {"Reciprocal", createReciprocal, expected}};
 

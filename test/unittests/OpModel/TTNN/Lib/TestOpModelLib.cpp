@@ -63,7 +63,15 @@ const TestTensor inerleaved2048X2048L1 = {
 } // namespace detail
 
 // ==== Unary Eltwise Ops Starts ====
-enum class UnaryEltwiseOpType { Relu, Sqrt, Sigmoid, Sin, Cos, Reciprocal };
+enum class UnaryEltwiseOpType {
+  Relu,
+  Sqrt,
+  Sigmoid,
+  Sin,
+  Cos,
+  Reciprocal,
+  Abs
+};
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
                                  public testing::WithParamInterface<
@@ -83,6 +91,7 @@ protected:
           {UnaryEltwiseOpType::Sin, SinOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Cos, CosOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Reciprocal, ReciprocalOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Abs, AbsOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -97,6 +106,7 @@ protected:
           {UnaryEltwiseOpType::Cos, CosOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Reciprocal,
            ReciprocalOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Abs, AbsOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -221,9 +231,11 @@ INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelUnaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(SinTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Sin,
                                                      unaryEltwiseParams));
-
 INSTANTIATE_TEST_SUITE_P(CosTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Cos,
+                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Abs,
                                                      unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
