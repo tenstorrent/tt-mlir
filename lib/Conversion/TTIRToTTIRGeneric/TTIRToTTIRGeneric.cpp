@@ -236,6 +236,92 @@ public:
                                 targetGridShape) {}
 
 private:
+  std::pair<ttcore::TileBcastType, ttcore::TileBcastType>
+  getImplicitBcastInfo(ConcreteOp op, ArrayRef<Value> inputs,
+                       ArrayRef<Value> outputs) const {
+    if (!(llvm::isa<ttir::AddOp>(op) || llvm::isa<ttir::SubtractOp>(op) ||
+          llvm::isa<ttir::MultiplyOp>(op))) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    if (inputs.size() != 2u || outputs.size() != 1u) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    const auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const int lhsRank = static_cast<int>(lhsType.getRank());
+    const int rhsRank = static_cast<int>(rhsType.getRank());
+    const int outRank = static_cast<int>(outType.getRank());
+
+    if (outRank != std::max(lhsRank, rhsRank)) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    if (outRank != 2) {
+      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+    }
+
+    const auto lhsShape = lhsType.getShape();
+    const auto rhsShape = rhsType.getShape();
+
+    mlir::SmallVector<bool> lhsIsBcast(outRank);
+    mlir::SmallVector<bool> rhsIsBcast(outRank);
+    for (int i = -1; i >= -outRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outDim = outRank + i;
+
+      const int64_t lhsDimSize = lhsDim >= 0 ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = rhsDim >= 0 ? rhsShape[rhsDim] : -1;
+
+      if ((lhsDimSize != -1) && (rhsDimSize != -1) &&
+          (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+          (rhsDimSize != 1)) {
+        return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      }
+
+      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((lhsDimSize == -1) || (lhsDimSize == 1));
+      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((rhsDimSize == -1) || (rhsDimSize == 1));
+      assert(!(lhsBcast && rhsBcast));
+
+      lhsIsBcast[outDim] = lhsBcast;
+      rhsIsBcast[outDim] = rhsBcast;
+    }
+
+    auto getTileBcastType =
+        [](ArrayRef<bool> isBcast) -> ttcore::TileBcastType {
+      const size_t rank = isBcast.size();
+      // Mismatching number of columns
+      const bool colBcast = isBcast[rank - 1];
+      // Mismatching number of rows
+      const bool rowBcast = isBcast[rank - 2];
+
+      if (rowBcast && colBcast) {
+        return ttcore::TileBcastType::Scalar;
+      }
+      if (rowBcast) {
+        return ttcore::TileBcastType::Row;
+      }
+      if (colBcast) {
+        return ttcore::TileBcastType::Column;
+      }
+      return ttcore::TileBcastType::None;
+    };
+
+    std::pair<ttcore::TileBcastType, ttcore::TileBcastType> tileBcastInfo{
+        getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
+
+    return tileBcastInfo;
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -253,6 +339,16 @@ private:
     const std::size_t numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
+
+    const auto [lhsBcastType, rhsBcastType] =
+        getImplicitBcastInfo(op, origInputs, origOutputs);
+    // TODO (wenbinlyuTT): support bcast in both tiles at the same time
+    if (lhsBcastType != ttcore::TileBcastType::None) {
+      assert(rhsBcastType == ttcore::TileBcastType::None);
+    }
+    if (rhsBcastType != ttcore::TileBcastType::None) {
+      assert(lhsBcastType == ttcore::TileBcastType::None);
+    }
 
     ttcore::GridAttr grid =
         ttcore::GridAttr::get(ctx, expectedInputGridShape());
@@ -288,6 +384,14 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
+        SmallVector<mlir::NamedAttribute, 2u> attributes;
+        attributes.emplace_back(
+            rewriter.getStringAttr("lhsBcastType"),
+            tt::ttcore::TileBcastTypeAttr::get(ctx, lhsBcastType));
+        attributes.emplace_back(
+            rewriter.getStringAttr("rhsBcastType"),
+            tt::ttcore::TileBcastTypeAttr::get(ctx, rhsBcastType));
+
         rewriter.create<mlir::linalg::GenericOp>(
             loc, /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
@@ -296,7 +400,7 @@ private:
                 mlir::ValueRange bbArgs) {
               mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ bbArgs.take_front(numInputs));
+                  /* operands */ bbArgs.take_front(numInputs), attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
       }
