@@ -269,7 +269,7 @@ public:
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
             legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
-        
+
         // Save only L1 Interleaved legal configs in a separate map for
         // L1InterleavedAnalysis later
         if (l1InterleavedAnalysisEnabled) {
