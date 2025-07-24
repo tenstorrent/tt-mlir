@@ -2,14 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <optional>
 #include <variant>
 
 #include "tracy/Tracy.hpp"
-#include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/dylib.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt-metalium/fabric.hpp"
+#include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
@@ -355,6 +359,11 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
+void setFabricConfig(FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+  RuntimeContext::instance().setCurrentFabricConfig(config);
+}
+
 void wait(Event event) {
   std::shared_ptr<tt_metal::Event> eventPtr =
       event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);
@@ -479,6 +488,38 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return createNullTensor();
+}
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_FATAL("Obtaining op output ref for metal runtime is not implemented");
+  return std::nullopt;
+}
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_FATAL(
+      "Obtaining op input references for metal runtime is not implemented");
+  return {};
+}
+
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
+  // Not implemented
+  LOG_FATAL(
+      "Obtaining tensor from device for metal runtime is not implemented");
+  return std::nullopt;
+}
+
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor) {
+  // Not implemented
+  LOG_FATAL("Updating tensor from device for metal runtime is not implemented");
 }
 
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {

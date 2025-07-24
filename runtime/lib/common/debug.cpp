@@ -23,6 +23,12 @@ const Hooks &
 Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
            std::optional<debug::Hooks::CallbackFn> postOperatorCallback) {
   static Hooks config(preOperatorCallback, postOperatorCallback);
+  if (preOperatorCallback.has_value()) {
+    config.preOperatorCallback = preOperatorCallback;
+  }
+  if (postOperatorCallback.has_value()) {
+    config.postOperatorCallback = postOperatorCallback;
+  }
   return config;
 }
 

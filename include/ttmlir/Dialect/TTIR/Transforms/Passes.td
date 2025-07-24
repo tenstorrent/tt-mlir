@@ -117,7 +117,6 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
 
   list<Option> options = [
         ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
-        Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
     ];
 }
 
@@ -599,6 +598,13 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTIR fusing pass.";
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+
+  let options = [
+      Option<"conv2dWithMultiplyEnabled",
+             "ttnn-enable-conv2d-with-multiply-pattern",
+             "bool", /*default=*/"false",
+             "Controls if we should enable the Conv2dWithMultiply pattern">,
+  ];
 }
 
 #endif

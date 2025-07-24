@@ -22,8 +22,12 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
-RUN cmake -B env/build env && \
-    cmake --build env/build
+RUN <<EOT
+# ANCHOR: environment_build
+cmake -B env/build env
+cmake --build env/build
+# ANCHOR_END: environment_build
+EOT
 
 # Final stage
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci

@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
 #define TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"

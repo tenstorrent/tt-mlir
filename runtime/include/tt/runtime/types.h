@@ -59,6 +59,16 @@ enum class DispatchCoreType {
   ETH,
 };
 
+enum class FabricConfig {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS,
+  FABRIC_2D_DYNAMIC,
+  CUSTOM,
+};
+
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
@@ -106,6 +116,36 @@ struct RuntimeCheckedObjectImpl {
   template <typename T>
   const T &as(DeviceRuntime expectedRuntime) const {
     assert(handle && "Handle should not be null");
+    assertMatchesRuntime(expectedRuntime);
+    return *static_cast<const T *>(handle.get());
+  }
+
+  template <typename T>
+  std::shared_ptr<T> asSharedPtr(DeviceRuntime expectedRuntime) const {
+    assertMatchesRuntime(expectedRuntime);
+    return std::static_pointer_cast<T>(handle);
+  }
+};
+
+struct RuntimeCheckedConstObjectImpl {
+  std::shared_ptr<const void> handle;
+  ::tt::runtime::DeviceRuntime associatedRuntime;
+
+  RuntimeCheckedConstObjectImpl(std::shared_ptr<const void> handle,
+                                ::tt::runtime::DeviceRuntime runtime)
+      : handle(handle), associatedRuntime(runtime) {}
+
+  bool matchesRuntime(DeviceRuntime runtime) const {
+    return associatedRuntime == runtime;
+  }
+
+  void assertMatchesRuntime(DeviceRuntime expectedRuntime) const {
+    assert(matchesRuntime(expectedRuntime) &&
+           "Associated runtime does not match expected runtime of cast");
+  }
+
+  template <typename T>
+  const T &as(DeviceRuntime expectedRuntime) const {
     assertMatchesRuntime(expectedRuntime);
     return *static_cast<const T *>(handle.get());
   }
@@ -280,6 +320,10 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
          std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle, runtime) {}
+};
+
+struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {
+  using detail::RuntimeCheckedConstObjectImpl::RuntimeCheckedConstObjectImpl;
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {

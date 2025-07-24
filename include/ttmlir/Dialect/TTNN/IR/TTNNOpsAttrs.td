@@ -468,6 +468,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   ];
 
   let extraClassDeclaration = [{
+    static Conv2dConfigAttr getEmpty(::mlir::MLIRContext *context);
+
     Conv2dConfigAttr withActivation(StringRef activation) const;
     Conv2dConfigAttr withDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
@@ -486,6 +488,24 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableSplitReader(bool value) const;
     Conv2dConfigAttr withEnableSubblockPadding(bool value) const;
     bool hasActivation() const;
+    bool hasDtype() const;
+    bool hasWeightsDtype() const;
+    bool hasDeallocateActivation() const;
+    bool hasReallocateHaloOutput() const;
+    bool hasActBlockHOverride() const;
+    bool hasActBlockWDiv() const;
+    bool hasReshardIfNotOptimal() const;
+    bool hasOverrideShardingConfig() const;
+    bool hasShardLayout() const;
+    bool hasCoreGrid() const;
+    bool hasTransposeShards() const;
+    bool hasOutputLayout() const;
+    bool hasPreprocessWeightsOnDevice() const;
+    bool hasAlwaysPreprocessWeights() const;
+    bool hasEnableActDoubleBuffer() const;
+    bool hasEnableWeightsDoubleBuffer() const;
+    bool hasEnableSplitReader() const;
+    bool hasEnableSubblockPadding() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";

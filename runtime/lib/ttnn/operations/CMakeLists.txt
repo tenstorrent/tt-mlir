@@ -28,7 +28,9 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/write_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
@@ -49,6 +51,7 @@ set(TTNN_OPS_SRCS
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
+  ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
@@ -57,8 +60,10 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/sort.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/trace/trace.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/trace/begin_trace_capture.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/trace/capture_or_execute_trace.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/trace/end_trace_capture.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/trace/execute_trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 
@@ -68,7 +73,9 @@ add_library(TTRuntimeTTNNOps
 )
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
-target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+endif()
 target_include_directories(TTRuntimeTTNNOps PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
 )

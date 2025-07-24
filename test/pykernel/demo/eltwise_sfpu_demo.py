@@ -17,8 +17,8 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
     def eltwise_sfpu(
         cb_in: CircularBuffer,
         cb_out: CircularBuffer,
-        per_core_block_cnt: CompiledValue,
-        per_core_block_dim: CompiledValue,
+        per_core_block_cnt: CompileTimeValue,
+        per_core_block_dim: CompileTimeValue,
     ):
         unary_op_init_common(cb_in, cb_out)
         for i in range(0, per_core_block_cnt, 1):
@@ -49,7 +49,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompiledValue,
+        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
@@ -77,7 +77,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         src_addr,
         num_tiles,
         start_id,
-        src_is_dram: CompiledValue,
+        src_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
@@ -140,48 +140,52 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         return self.create_program(kernels, [cb_in, cb_out])
 
 
-# Device Definitions
-device = ttnn.open_device(device_id=0)
+def main(device):
+    # I/O Tensor Definitions
+    num_tiles = 4
+    shape = [1, num_tiles, 32, 32]
+    data = torch.rand(shape).to(torch.bfloat16)
 
-# I/O Tensor Definitions
-num_tiles = 4
-shape = [1, num_tiles, 32, 32]
-data = torch.rand(shape).to(torch.bfloat16)
+    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    input_tensor = ttnn.from_torch(
+        data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-input_tensor = ttnn.from_torch(
-    data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    output_tensor = ttnn.allocate_tensor_on_device(
+        ttnn.Shape(shape),
+        ttnn.bfloat16,
+        ttnn.TILE_LAYOUT,
+        device,
+        dram_memory_config,
+    )
 
-output_tensor = ttnn.allocate_tensor_on_device(
-    ttnn.Shape(shape),
-    ttnn.bfloat16,
-    ttnn.TILE_LAYOUT,
-    device,
-    dram_memory_config,
-)
+    io_tensors = [input_tensor, output_tensor]
 
-io_tensors = [input_tensor, output_tensor]
+    # Define Custom Generic Op
+    eltwise_exp_op = EltwiseSFPUPyKernelOp()
 
-# Define Custom Generic Op
-eltwise_exp_op = EltwiseSFPUPyKernelOp()
+    # Run tests against the golden "exp" op.
+    output = eltwise_exp_op(input_tensor, output_tensor)
+    golden = ttnn.exp(input_tensor)
 
-# Run tests against the golden "exp" op.
-output = eltwise_exp_op(input_tensor, output_tensor)
-golden = ttnn.exp(input_tensor)
+    torch_golden = ttnn.to_torch(golden)
+    torch_output = ttnn.to_torch(output)
 
-torch_golden = ttnn.to_torch(golden)
-torch_output = ttnn.to_torch(output)
+    print(f"input_tensor: {input_tensor}")
+    print(f"torch_golden: {torch_golden}")
+    print(f"torch_output: {torch_output}")
 
-print(f"input_tensor: {input_tensor}")
-print(f"torch_golden: {torch_golden}")
-print(f"torch_output: {torch_output}")
+    matching = torch.allclose(torch_golden, torch_output)
+    print(f"Tensors are matching: {matching}")
+    assert matching
 
-matching = torch.allclose(torch_golden, torch_output)
-print(f"Tensors are matching: {matching}")
-assert matching
+
+if __name__ == "__main__":
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)

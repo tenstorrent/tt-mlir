@@ -51,4 +51,7 @@ class TTNN_Op<string mnemonic, list<Trait> traits = []> :
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
         Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface] # traits>;
 
+class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface] # traits>;
+
 #endif

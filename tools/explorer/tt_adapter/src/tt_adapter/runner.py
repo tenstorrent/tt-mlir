@@ -11,6 +11,7 @@ from ttrt import API as ttrt
 from ttmlir import passes
 from . import utils, mlir
 import pandas as pd
+from datetime import datetime, timezone
 import threading
 import queue
 import json
@@ -19,6 +20,22 @@ import glob
 
 class ExplorerRunException(Exception):
     pass
+
+
+class ModelRun:
+    """
+    The run information for this model, containing metadata about the run.
+    """
+
+    # The execution UTC timestamp, in ISO 8601 format
+    timestamp: str = None
+    # Overrides, changes that the user made to op configurations.
+    overrides = None
+    # EmitC Call to Generate C Code
+    generate_cpp_code = False
+
+    def __init__(self):
+        self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class ModelState:
@@ -30,10 +47,8 @@ class ModelState:
     optimized_model_path = None
     # Path to the output directory where ttrt dumps all model files (perf trace, memory state, etc)
     model_output_dir = None
-    # Overrides, changes that the user made to op configurations.
-    overrides = None
-    # EmitC Call to Generate C Code
-    generate_cpp_code = False
+    # List of previous runs for this model
+    runs: list[ModelRun] = []
 
 
 class ModelRunner:
@@ -56,7 +71,7 @@ class ModelRunner:
 
     # State for models that have been executed.
     # Contains a mapping from model path to ModelState.
-    model_state = dict()
+    model_state: dict[ModelState] = dict()
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -98,14 +113,27 @@ class ModelRunner:
     def get_output_dir(self, model_path):
         return self.model_state[model_path].model_output_dir
 
-    def get_overrides(self, model_path):
+    def get_last_run(self, model_path):
         if model_path in self.model_state:
-            return self.model_state[model_path].overrides
+            if hasattr(self.model_state[model_path], "runs"):
+                return self.model_state[model_path].runs[-1]
         return None
 
+    def get_attr_from_last_run(self, model_path: str, attr: str):
+        last_run = self.get_last_run(model_path)
+
+        if last_run:
+            return getattr(last_run, attr, None)
+        return None
+
+    def get_overrides(self, model_path):
+        return self.get_attr_from_last_run(model_path, "overrides")
+
     def get_generate_cpp_code(self, model_path):
-        if model_path in self.model_state:
-            return self.model_state[model_path].generate_cpp_code
+        last_run = self.get_last_run(model_path)
+
+        if last_run:
+            return getattr(last_run, "generate_cpp_code", False)
         return False
 
     def get_error(self):
@@ -126,15 +154,23 @@ class ModelRunner:
             logs.append(self.log_queue.get())
         return "\n".join(logs)
 
-    def reset_state(self, model_path):
+    def reset_state(self):
         assert not self.is_busy()
         self.runner_thread = None
         self.runner_error = None
         self.progress = 0
         self.log_queue.queue.clear()
 
-        if model_path in self.model_state:
-            del self.model_state[model_path]
+    def init_model_state(self, model_path: str):
+        if model_path not in self.model_state:
+            self.model_state[model_path] = ModelState()
+
+    def update_model_state(self, model_path: str):
+        self.init_model_state(model_path)
+
+        self.model_state[model_path].runs.append(ModelRun())
+
+        return self.model_state[model_path].runs[-1]
 
     def log(self, message, severity=logging.info):
         severity(message)
@@ -431,16 +467,16 @@ class ModelRunner:
             raise RuntimeError(
                 "A model is already being processed. Please wait for it to finish."
             )
-        self.reset_state(model_path)
-        self.model_state[model_path] = ModelState()
+        self.reset_state()
+        last_run = self.update_model_state(model_path)
 
         # Set the EmitC State
         generate_cpp_code = settings.get("generateCppCode", False)
-        self.model_state[model_path].generate_cpp_code = generate_cpp_code
+        last_run.generate_cpp_code = generate_cpp_code
 
         # Set overrides state from settings
         overrides = settings.get("overrides", None)
-        self.model_state[model_path].overrides = overrides
+        last_run.overrides = overrides
 
         # Start compile and run in a new thread
         self.runner_thread = threading.Thread(

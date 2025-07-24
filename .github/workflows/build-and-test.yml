@@ -178,33 +178,35 @@ jobs:
       matrix:
         build: [
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
-          {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
-          {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: n300,   sh-run: true, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
-          {runs-on: llmbox, sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: llmbox, sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/llmbox/perf"},
-          # {runs-on: tg,     sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
-          # {runs-on: tg,     sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
-          {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "pytest",   path: "runtime/tools/ttrt/test"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "silicon",            image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300,   sh-run: true, name: "run",  suite: "silicon",            image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300-llmbox, sh-run: true, name: "run",  suite: "silicon",       image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "unit",           image: "speedy", type: "unit"},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "unit",           image: "tracy",  type: "unit"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttnn_standalone", path: "tools/ttnn-standalone"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/perf"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "optimizer",      image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/optimizer"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "emitc",          image: "tracy",  type: "ttrt",            path: "EmitC",                       flags: "--emitc"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "op_model",       image: "speedy", type: "ttrt",            path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "runtime_debug",  image: "tracy",  type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: n300,         sh-run: true,  name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n300/perf"},
+          {runs-on: llmbox,       sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
+          # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
+          # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "runtime/tools/ttrt/test"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
+          {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
+          {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, ttrt-flags: "--disable-eth-dispatch"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/device_agnostic"},
-          {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op",          image: "tracy",  type: "pytest",  path: "test/python/op_by_op"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/multi_device"},
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
-          {runs-on: n300,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "unit"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
+          {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
+          {runs-on: n150,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
+          {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -289,7 +291,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        if [ "${{ matrix.build.runs-on }}" == "tg" ]; then
+        if [ "${{ matrix.build.runs-on }}" == "tg" ] || [ "${{ matrix.build.runs-on }}" == "p150" ]; then
           ttrt query --save-artifacts --disable-eth-dispatch
         else
           ttrt query --save-artifacts
@@ -348,8 +350,8 @@ jobs:
         source env/activate
         pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
         if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
-          ttrt run ttnn/
-          ttrt run ttmetal/
+          ttrt run ${{ matrix.build.ttrt-flags }} ttnn/
+          ttrt run ${{ matrix.build.ttrt-flags }} ttmetal/
         fi
 
 
@@ -383,6 +385,13 @@ jobs:
         pip uninstall -y ai-edge-model-explorer
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
+
+    - name: Prepare chisel Test
+      if: matrix.build.suite == 'chisel'
+      shell: bash
+      run: |
+        source env/activate
+        python -m pip install -e runtime/tools/chisel/
 
     # PyKernel Test Runner
     - name: Prepare and run PyKernel Test

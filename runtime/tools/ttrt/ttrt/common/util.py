@@ -198,6 +198,28 @@ def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
     return torch_tensor
 
 
+def parse_fabric_config(fabric_config_str: str):
+    import ttrt.runtime
+
+    key = fabric_config_str.strip().lower().replace("-", "_")
+    if key == "disabled":
+        return ttrt.runtime.FabricConfig.DISABLED
+    elif key == "fabric_1d":
+        return ttrt.runtime.FabricConfig.FABRIC_1D
+    elif key == "fabric_1d_ring":
+        return ttrt.runtime.FabricConfig.FABRIC_1D_RING
+    elif key == "fabric_2d":
+        return ttrt.runtime.FabricConfig.FABRIC_2D
+    elif key == "fabric_2d_torus":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS
+    elif key == "fabric_2d_dynamic":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_DYNAMIC
+    elif key == "custom":
+        return ttrt.runtime.FabricConfig.CUSTOM
+    else:
+        raise ValueError(f"unknown fabric config '{fabric_config_str}'.")
+
+
 class Logger:
     def __init__(self, file_name=""):
         import logging
@@ -695,7 +717,7 @@ class Binary(Flatbuffer):
             )
         return True
 
-    def check_system_desc(self, query):
+    def check_system_desc(self, query, ignore: bool = False):
         import ttrt.binary
 
         try:
@@ -730,9 +752,10 @@ class Binary(Flatbuffer):
                 error_msg = f"system desc for device did not match flatbuffer: {self.file_path}\nDiff details:\n{diff_text}"
 
                 # You might want to log this before raising the exception
-                # logger.error(error_msg)  # Uncomment and add proper logger if available
+                # self.logger.error(error_msg)  # Uncomment and add proper logger if available
 
-                raise Exception(error_msg)
+                if not ignore:
+                    raise Exception(error_msg)
                 return False
 
         except Exception as e:
@@ -792,6 +815,9 @@ class Binary(Flatbuffer):
         self.program_results[program_key][loop_key][
             "total_get_outputs_duration_ns"
         ] = total_get_outputs_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_submit_plus_get_outputs_duration_ns"
+        ] = (total_submit_duration_ns + total_get_outputs_duration_ns)
         self.program_results[program_key][loop_key][
             "total_ttnn_api_duration_ns"
         ] = total_ttnn_api_duration_ns

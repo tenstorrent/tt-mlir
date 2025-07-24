@@ -16,15 +16,15 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     // CHECK: int32_t [[A1:.*]] = 262144;
     %c262144_i32 = arith.constant 262144 : i32
     // CHECK: int64_t [[NOCADDR0:.*]] = get_noc_addr([[A0]], [[A0]], [[A1]])
-    %3 = "ttkernel.get_noc_addr"(%c0_idx, %c0_idx, %c262144_i32) : (index, index, i32) -> !ttkernel.noc_addr
+    %3 = ttkernel.get_noc_addr(%c0_idx, %c0_idx, %c262144_i32) : (index, index, i32) -> !ttkernel.noc_addr
     // CHECK: noc_async_read([[NOCADDR0]], [[C1]], [[C0]])
-    "ttkernel.noc_async_read"(%3, %c262400_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
+    ttkernel.noc_async_read(%3, %c262400_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
     // CHECK: int64_t [[NOCADDR1:.*]] = get_noc_addr([[A0]], [[A0]], [[B1]])
-    %4 = "ttkernel.get_noc_addr"(%c0_idx, %c0_idx, %c262208_i32) : (index, index, i32) -> !ttkernel.noc_addr
+    %4 = ttkernel.get_noc_addr(%c0_idx, %c0_idx, %c262208_i32) : (index, index, i32) -> !ttkernel.noc_addr
     // CHECK: noc_async_read([[NOCADDR1]], [[B0]], [[C0]])
-    "ttkernel.noc_async_read"(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
+    ttkernel.noc_async_read(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
     // CHECK: noc_async_read_barrier
-    "ttkernel.noc_async_read_barrier"() : () -> ()
+    ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: return
     func.return
 }

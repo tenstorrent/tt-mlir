@@ -20,6 +20,8 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
+#include <optional>
+
 namespace tt::runtime::ttmetal {
 
 using DeviceBuffer = std::shared_ptr<::tt::tt_metal::Buffer>;
@@ -104,6 +106,8 @@ void dumpDeviceProfileResults(Device device);
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
+void setFabricConfig(FabricConfig config);
+
 void wait(Event event);
 
 void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
@@ -130,6 +134,19 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize);
+
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor);
 
 } // namespace tt::runtime::ttmetal
 

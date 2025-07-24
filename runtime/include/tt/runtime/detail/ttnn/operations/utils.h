@@ -6,7 +6,7 @@
 #define TT_RUNTIME_DETAIL_TTNN_OPERATIONS_UTILS_H
 
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "types_generated.h"
@@ -24,9 +24,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
     const ::tt::target::ttnn::DistributionStrategy *strategy);
-
-bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
-                              const ::ttnn::Tensor &rhs);
 
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);

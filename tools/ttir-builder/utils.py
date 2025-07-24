@@ -4,6 +4,7 @@
 
 import os
 import inspect
+import subprocess
 import torch
 import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
@@ -17,6 +18,7 @@ from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
+    translate_to_cpp,
     MLIRModuleLogger,
 )
 
@@ -376,6 +378,12 @@ def run_pipeline(
     return module
 
 
+def emitc_to_executable(module, filepath: str, golden_map, module_cache):
+    cpp = translate_to_cpp(module)
+    with open(filepath, "w") as f:
+        f.write(cpp)
+
+
 def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -383,7 +391,7 @@ def compile_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
@@ -399,7 +407,7 @@ def compile_to_flatbuffer(
 
     1. `build_mlir_module`
     2. `run_pipeline`
-    3. `to_flatbuffer`
+    3. `to_target`
 
     The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
 
@@ -424,7 +432,7 @@ def compile_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal"]*
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
         Either "ttnn" or "ttmetal". This controls which backend to use.
 
     argument_types_string : *Optional[str]*
@@ -464,7 +472,7 @@ def compile_to_flatbuffer(
         pipeline_options = []
 
     pipeline_fn: Callable
-    to_flatbuffer: Callable
+    to_target: Callable
     mlir_suffix: str
     target_extension: str
 
@@ -472,16 +480,26 @@ def compile_to_flatbuffer(
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
         )
-        to_flatbuffer = ttnn_to_flatbuffer_file
+        to_target = ttnn_to_flatbuffer_file
         mlir_suffix = "_ttnn.mlir"
         target_extension = "ttnn"
     elif target == "ttmetal":
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
         )
-        to_flatbuffer = ttmetal_to_flatbuffer_file
+        to_target = ttmetal_to_flatbuffer_file
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
+    elif target == "ttnn-standalone":
+        ttir_to_ttnn_emitc_pipeline = create_custom_pipeline_fn(
+            "ttir-to-emitc-pipeline", print_ir=print_ir
+        )
+        pipeline_fn = (
+            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
+        )
+        to_target = emitc_to_executable
+        mlir_suffix = "_ttnn.mlir"
+        target_extension = "cpp"
     else:
         raise ValueError("Unsupported target: " + target)
 
@@ -515,7 +533,7 @@ def compile_to_flatbuffer(
     module_logger.attach_context(module.context)
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_flatbuffer(
+    to_target(
         module,
         output_file_fbb,
         builder.get_golden_map(),

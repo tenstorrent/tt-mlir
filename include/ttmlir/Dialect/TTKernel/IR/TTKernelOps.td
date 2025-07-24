@@ -31,6 +31,10 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
     let arguments = (ins TTKernel_CB:$icb0,
                          Optional<TTKernel_CB>:$icb1,
                          TTKernel_CB:$ocb);
+
+    let assemblyFormat = [{
+      `(` $icb0 (`,` $icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -44,12 +48,20 @@ def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
       This register is an array of 16 tiles of 32x32 elements each.
       This is a blocking function, i.e. this function will wait until the lock is acquired.
     }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TileRegsCommitOp : TTKernel_Op<"tile_regs_commit"> {
     let summary = "tile_regs_commit";
     let description = [{
       Release lock on DST register by MATH thread. The lock had to be previously acquired with tile_regs_acquire.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -60,12 +72,20 @@ def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait"> {
       It waits for the MATH thread to commit the DST register.
       This is a blocking function, i.e. this function will wait until the lock is acquired.
     }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TileRegsReleaseOp : TTKernel_Op<"tile_regs_release"> {
     let summary = "tile_regs_release";
     let description = [{
       Release lock on DST register by PACK thread. The lock had to be previously acquired with tile_regs_wait.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -95,6 +115,10 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 
     let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $out_cb `,` $out_index `,` $out_of_order`)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
@@ -104,6 +128,11 @@ def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cb0);
+
+    let assemblyFormat = [{
+      `(` $cb0 `)` attr-dict `:` functional-type(operands, results)
+    }];
+
 }
 
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
@@ -121,6 +150,10 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cb0, IndexLike:$tile_index_cb, IndexLike:$tile_index_dst);
+
+    let assemblyFormat = [{
+      `(` $cb0 `,` $tile_index_cb `,` $tile_index_dst `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
@@ -130,6 +163,10 @@ def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TypecastTileOp : TTKernel_SFPUOp<"typecast_tile", [TTKernel_UnaryOpTrait]> {
@@ -144,6 +181,10 @@ def TTKernel_TypecastTileOp : TTKernel_SFPUOp<"typecast_tile", [TTKernel_UnaryOp
     let arguments = (ins IndexLike:$dst0_index,
                          TTCore_DataTypeAttr:$in_dtype,
                          TTCore_DataTypeAttr:$out_dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $in_dtype `,` $out_dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -158,6 +199,10 @@ def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
     }];
 
     let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+
+    let assemblyFormat = [{
+      `(` $icb `,` $ocb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
@@ -167,6 +212,10 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $out_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
@@ -176,6 +225,10 @@ def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $out_cb `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
@@ -185,6 +238,10 @@ def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
@@ -202,6 +259,10 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpT
                          IndexLike:$in1_tile_idx,
                          IndexLike:$dst_tile_idx,
                          I32:$transpose);
+
+    let assemblyFormat = [{
+      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
@@ -211,6 +272,10 @@ def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+
+     let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> {
@@ -223,6 +288,10 @@ def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SubTilesInitOp : TTKernel_InitOp<"sub_tiles_init"> {
@@ -232,6 +301,10 @@ def TTKernel_SubTilesInitOp : TTKernel_InitOp<"sub_tiles_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SubTilesOp : TTKernel_FPUOp<"sub_tiles", [TTKernel_BinaryOpTrait]> {
@@ -244,6 +317,10 @@ def TTKernel_SubTilesOp : TTKernel_FPUOp<"sub_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
@@ -253,6 +330,10 @@ def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> {
@@ -265,6 +346,10 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
@@ -278,6 +363,10 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_CB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $scaling_cb `,` $out_cb `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrait]> {
@@ -302,6 +391,10 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrai
                          IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $scaling_cb `,` $in_tile_index `,` $scaling_tile_index `,` $dst_index `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -316,6 +409,10 @@ def TTKernel_InitSFPUOp : TTKernel_InitOp<"init_sfpu"> {
     }];
 
     let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+
+    let assemblyFormat = [{
+      `(` $icb `,` $ocb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CopyDestValuesInitOp : TTKernel_InitOp<"copy_dest_values_init"> {
@@ -325,6 +422,10 @@ def TTKernel_CopyDestValuesInitOp : TTKernel_InitOp<"copy_dest_values_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_BinaryOpTrait]> {
@@ -338,6 +439,10 @@ def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_Bi
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
@@ -347,6 +452,10 @@ def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> {
@@ -359,6 +468,10 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
@@ -368,6 +481,10 @@ def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AddBinaryTilesOp : TTKernel_SFPUOp<"add_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -380,6 +497,10 @@ def TTKernel_AddBinaryTilesOp : TTKernel_SFPUOp<"add_binary_tile", [TTKernel_Bin
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MulBinaryTilesInitOp : TTKernel_InitOp<"mul_binary_tile_init"> {
@@ -389,6 +510,10 @@ def TTKernel_MulBinaryTilesInitOp : TTKernel_InitOp<"mul_binary_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MulBinaryTilesOp : TTKernel_SFPUOp<"mul_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -401,6 +526,10 @@ def TTKernel_MulBinaryTilesOp : TTKernel_SFPUOp<"mul_binary_tile", [TTKernel_Bin
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SubBinaryTilesInitOp : TTKernel_InitOp<"sub_binary_tile_init"> {
@@ -410,6 +539,10 @@ def TTKernel_SubBinaryTilesInitOp : TTKernel_InitOp<"sub_binary_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SubBinaryTilesOp : TTKernel_SFPUOp<"sub_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -422,6 +555,10 @@ def TTKernel_SubBinaryTilesOp : TTKernel_SFPUOp<"sub_binary_tile", [TTKernel_Bin
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_DivBinaryTilesInitOp : TTKernel_InitOp<"div_binary_tile_init"> {
@@ -431,6 +568,10 @@ def TTKernel_DivBinaryTilesInitOp : TTKernel_InitOp<"div_binary_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
 }
 
 def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -443,6 +584,10 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
@@ -452,6 +597,10 @@ def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
@@ -465,6 +614,10 @@ def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_PowBinaryTilesInitOp : TTKernel_InitOp<"power_binary_tile_init"> {
@@ -474,6 +627,10 @@ def TTKernel_PowBinaryTilesInitOp : TTKernel_InitOp<"power_binary_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_BinaryOpTrait]> {
@@ -486,6 +643,10 @@ def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_B
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
@@ -495,6 +656,10 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
@@ -507,6 +672,10 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_LogTileInitOp : TTKernel_InitOp<"log_tile_init"> {
@@ -516,6 +685,10 @@ def TTKernel_LogTileInitOp : TTKernel_InitOp<"log_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_LogTileOp : TTKernel_SFPUOp<"log_tile", [TTKernel_UnaryOpTrait]> {
@@ -528,6 +701,10 @@ def TTKernel_LogTileOp : TTKernel_SFPUOp<"log_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NegativeTileInitOp : TTKernel_InitOp<"negative_tile_init"> {
@@ -537,6 +714,10 @@ def TTKernel_NegativeTileInitOp : TTKernel_InitOp<"negative_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NegativeTileOp : TTKernel_SFPUOp<"negative_tile", [TTKernel_UnaryOpTrait]> {
@@ -549,6 +730,10 @@ def TTKernel_NegativeTileOp : TTKernel_SFPUOp<"negative_tile", [TTKernel_UnaryOp
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CosTileInitOp : TTKernel_InitOp<"cos_tile_init"> {
@@ -558,6 +743,10 @@ def TTKernel_CosTileInitOp : TTKernel_InitOp<"cos_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CosTileOp : TTKernel_SFPUOp<"cos_tile", [TTKernel_UnaryOpTrait]> {
@@ -570,6 +759,10 @@ def TTKernel_CosTileOp : TTKernel_SFPUOp<"cos_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TanTileInitOp : TTKernel_InitOp<"tan_tile_init"> {
@@ -579,6 +772,10 @@ def TTKernel_TanTileInitOp : TTKernel_InitOp<"tan_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TanTileOp : TTKernel_SFPUOp<"tan_tile", [TTKernel_UnaryOpTrait]> {
@@ -591,6 +788,10 @@ def TTKernel_TanTileOp : TTKernel_SFPUOp<"tan_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SqrtTileInitOp : TTKernel_InitOp<"sqrt_tile_init"> {
@@ -600,6 +801,10 @@ def TTKernel_SqrtTileInitOp : TTKernel_InitOp<"sqrt_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SqrtTileOp : TTKernel_SFPUOp<"sqrt_tile", [TTKernel_UnaryOpTrait]> {
@@ -612,6 +817,10 @@ def TTKernel_SqrtTileOp : TTKernel_SFPUOp<"sqrt_tile", [TTKernel_UnaryOpTrait]> 
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_RsqrtTileInitOp : TTKernel_InitOp<"rsqrt_tile_init"> {
@@ -621,6 +830,10 @@ def TTKernel_RsqrtTileInitOp : TTKernel_InitOp<"rsqrt_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_RsqrtTileOp : TTKernel_SFPUOp<"rsqrt_tile", [TTKernel_UnaryOpTrait]> {
@@ -633,6 +846,10 @@ def TTKernel_RsqrtTileOp : TTKernel_SFPUOp<"rsqrt_tile", [TTKernel_UnaryOpTrait]
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
@@ -642,6 +859,10 @@ def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
@@ -654,6 +875,10 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
@@ -663,6 +888,10 @@ def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> {
@@ -675,6 +904,10 @@ def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> 
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_UnaryOpTrait]> {
@@ -687,6 +920,10 @@ def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_Unar
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]> {
@@ -699,6 +936,10 @@ def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_UnaryOpTrait]> {
@@ -711,6 +952,10 @@ def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_Un
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AbsTileInitOp : TTKernel_InitOp<"abs_tile_init"> {
@@ -720,6 +965,10 @@ def TTKernel_AbsTileInitOp : TTKernel_InitOp<"abs_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AbsTileOp : TTKernel_SFPUOp<"abs_tile", [TTKernel_UnaryOpTrait]> {
@@ -732,6 +981,10 @@ def TTKernel_AbsTileOp : TTKernel_SFPUOp<"abs_tile", [TTKernel_UnaryOpTrait]> {
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_AbsTileI32Op : TTKernel_SFPUOp<"abs_tile_int32", [TTKernel_UnaryOpTrait]> {
@@ -744,6 +997,10 @@ def TTKernel_AbsTileI32Op : TTKernel_SFPUOp<"abs_tile_int32", [TTKernel_UnaryOpT
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
@@ -753,6 +1010,10 @@ def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
@@ -765,6 +1026,10 @@ def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
@@ -777,6 +1042,10 @@ def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
@@ -786,6 +1055,10 @@ def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_FillTileOp : TTKernel_SFPUOp<"fill_tile", [TTKernel_UnaryOpTrait]> {
@@ -801,6 +1074,10 @@ def TTKernel_FillTileOp : TTKernel_SFPUOp<"fill_tile", [TTKernel_UnaryOpTrait]> 
     }];
 
     let arguments = (ins IndexLike: $dst_index, F32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
@@ -810,6 +1087,10 @@ def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     }];
 
     let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTrait]> {
@@ -822,6 +1103,10 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 
     let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -837,6 +1122,10 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
     let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cb `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
@@ -848,6 +1137,10 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
     let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cb `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
@@ -859,6 +1152,10 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
     let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cb `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
@@ -870,6 +1167,10 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
     let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cb `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -885,6 +1186,10 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $numTiles `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block"> {
@@ -896,6 +1201,10 @@ def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `,` $blockR `,` $blockC `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
@@ -908,6 +1217,10 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $numTiles `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
@@ -917,6 +1230,10 @@ def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cbI, TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbI `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
@@ -928,6 +1245,10 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $numTiles `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block"> {
@@ -939,6 +1260,10 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `,` $blockR `,` $blockC `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
@@ -948,9 +1273,13 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
       kernel.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CB:$cbIn);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
@@ -960,6 +1289,10 @@ def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn);
+
+    let assemblyFormat = [{
+      `(` $cbIn `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -974,6 +1307,10 @@ def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
 
     let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
+
+    let assemblyFormat = [{
+      `(` $x `,` $y `,` $l1Address `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
@@ -984,6 +1321,10 @@ def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
 
     let arguments = (ins I32:$bank_id, I32:$bankAddressOffset);
     let results = (outs TTKernel_NocAddr:$nocAddr);
+
+    let assemblyFormat = [{
+      `(` $bank_id `,` $bankAddressOffset `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
@@ -993,6 +1334,10 @@ def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
     }];
 
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
+
+    let assemblyFormat = [{
+      `(` $srcNocAddr `,` $dstLocalL1Addr `,` $size `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
@@ -1002,6 +1347,10 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
     }];
 
     let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+
+    let assemblyFormat = [{
+      `(` $id `,` $addrGenStruct `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
@@ -1011,6 +1360,10 @@ def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_p
     }];
 
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$size);
+
+    let assemblyFormat = [{
+      `(` $srcNocAddr `,` $size `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state"> {
@@ -1020,12 +1373,20 @@ def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_
     }];
 
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr);
+
+    let assemblyFormat = [{
+      `(` $srcNocAddr `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier"> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
       NocAsyncReadBarrier
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1036,6 +1397,10 @@ def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
     }];
 
     let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
+
+    let assemblyFormat = [{
+      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
@@ -1045,12 +1410,20 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 
     let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+
+    let assemblyFormat = [{
+      `(` $id `,` $addrGenStruct `,` $srcLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
       NocAsyncWriteBarrier
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1062,6 +1435,10 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
 
     let arguments = (ins IndexLike:$semaphore);
     let results = (outs TTKernel_Semaphore:$sem_addr);
+
+    let assemblyFormat = [{
+      `(` $semaphore `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
@@ -1074,6 +1451,10 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
     }];
 
     let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
+
+    let assemblyFormat = [{
+      `(` $addr `,` $incr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
@@ -1086,6 +1467,10 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
     }];
 
     let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
+
+    let assemblyFormat = [{
+      `(` $sem_addr `,` $val `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
@@ -1098,6 +1483,10 @@ def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
     }];
 
     let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
+
+    let assemblyFormat = [{
+      `(` $sem_addr `,` $val `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
@@ -1110,6 +1499,10 @@ def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
     }];
 
     let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+
+    let assemblyFormat = [{
+      `(` $sem_addr `,` $val `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multicast"> {
@@ -1135,6 +1528,10 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked,
                          OptionalAttr<BoolAttr>:$multicast_path_reserve);
+
+    let assemblyFormat = [{
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
@@ -1160,6 +1557,10 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
                          I32:$num_dests,
                          BoolAttr:$linked,
                          BoolAttr:$multicast_path_reserve);
+
+    let assemblyFormat = [{
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests `,` $linked `,` $multicast_path_reserve `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1177,6 +1578,25 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let arguments = (ins IndexLike:$arg_index);
 
     let results = (outs TTKernel_ArgResultType:$arg_val);
+
+    let assemblyFormat = [{
+      `(` $arg_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
+    let summary = "Get common runtime arg value.";
+    let description = [{
+      Get runtime argument value at specified index. (Indexes from different location compared to get_arg_val)
+    }];
+
+    let arguments = (ins IndexLike:$arg_index);
+
+    let results = (outs TTKernel_ArgResultType:$arg_val);
+
+    let assemblyFormat = [{
+      `(` $arg_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
@@ -1189,6 +1609,10 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
     let arguments = (ins I32Attr:$arg_index);
 
     let results = (outs TTKernel_ArgResultType:$arg_val);
+
+    let assemblyFormat = [{
+      `(` $arg_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1204,6 +1628,10 @@ def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr ui
     let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr);
 
     let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
+
+    let assemblyFormat = [{
+      `(` $addr `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
@@ -1213,6 +1641,10 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
     }];
 
     let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+
+    let assemblyFormat = [{
+      `(` $value `,` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
@@ -1223,6 +1655,10 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
 
     let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
+
+    let assemblyFormat = [{
+      `(` $DRAM `,` $bank_base_address `,` $page_size `,` $data_format `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
@@ -1233,6 +1669,10 @@ def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
 
     let arguments = (ins Optional<I8>:$noc);
     let results = (outs Index:$x);
+
+    let assemblyFormat = [{
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
@@ -1243,6 +1683,10 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
 
     let arguments = (ins Optional<I8>:$noc);
     let results = (outs Index:$y);
+
+    let assemblyFormat = [{
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1257,6 +1701,10 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
 
   let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
+
+    let assemblyFormat = [{
+      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_noc_multicast_addr"> {
@@ -1267,6 +1715,10 @@ def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_
 
   let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
+
+    let assemblyFormat = [{
+      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_multicast_one_packet"> {
@@ -1277,6 +1729,10 @@ def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_mu
   }];
 
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast"> {
@@ -1306,6 +1762,10 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
   }];
 
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+
+  let assemblyFormat = [{
+    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:`functional-type(operands, results)
+  }];
 }
 
 def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_multicast_loopback_src"> {
@@ -1315,6 +1775,10 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
   }];
 
   let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+
+  let assemblyFormat = [{
+    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1326,6 +1790,10 @@ def TTKernel_UnreachableOp : TTKernel_Op<"unreachable", [Pure, ReturnLike, Termi
     let description = [{
       Unreachable operation
     }];
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 def TTKernel_MemZerosBaseOp : TTKernel_Op<"mem_zeros_base"> {
@@ -1335,6 +1803,10 @@ def TTKernel_MemZerosBaseOp : TTKernel_Op<"mem_zeros_base"> {
     }];
 
     let results = (outs I32:$result);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_MemZerosSizeOp : TTKernel_Op<"mem_zeros_size"> {
@@ -1344,6 +1816,10 @@ def TTKernel_MemZerosSizeOp : TTKernel_Op<"mem_zeros_size"> {
     }];
 
     let results = (outs I32:$result);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
@@ -1354,6 +1830,10 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
 
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$writePtr);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
@@ -1364,6 +1844,10 @@ def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
 
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$readPtr);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
@@ -1373,6 +1857,10 @@ def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
     }];
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$tileSizeBytes);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
@@ -1382,6 +1870,10 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     }];
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs TTKernel_DataFormat:$dataFormat);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
@@ -1393,6 +1885,10 @@ def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
     let results = (outs TTKernel_CB:$output);
 
     let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $input `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]>]> {

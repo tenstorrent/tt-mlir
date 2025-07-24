@@ -213,14 +213,14 @@ public:
     if (failed(checkArgumentTypeMapPopulated())) {
       emitWarning(getOperation().getLoc())
           << "Empty argument type map provided. Skipping argument "
-             "type population. This may affect subsequent compile steps.\n";
+             "type population. This may affect subsequent compile steps";
       return;
     }
     TTArgumentTypeMap map = argumentTypeMap.getValue();
     if (failed(checkOnlyValidFunctionNamesProvided(map, getOperation()))) {
       emitError(getOperation().getLoc())
           << "At least one function name provided in the argument type map "
-             "does not exist in the module.\n";
+             "does not exist in the module";
       signalPassFailure();
       return;
     }
@@ -241,7 +241,7 @@ public:
             << "Did not provide the correct number of argument types for "
                "function: \""
             << func.getName() << "\". Expected: " << func.getNumArguments()
-            << " arguments, got: " << argTypes.size() << " arguments.\n";
+            << " arguments, got: " << argTypes.size() << " arguments";
         signalPassFailure();
         return;
       }
