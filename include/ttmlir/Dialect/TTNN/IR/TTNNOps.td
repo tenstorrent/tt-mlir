@@ -386,7 +386,9 @@ def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not",
     }];
 }
 
-def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise negate.";
     let description = [{
       Eltwise negate operation.

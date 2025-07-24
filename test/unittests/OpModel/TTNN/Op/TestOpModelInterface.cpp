@@ -250,6 +250,10 @@ const auto createLogicalNot = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<LogicalNotOp>(loc, type, ops).getOperation();
 };
+const auto createNeg = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<NegOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -270,7 +274,8 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Floor", createFloor, expected},
     {"Gelu", createGelu, expected},
     {"IsFinite", createIsFinite, expected},
-    {"LogicalNot", createLogicalNot, expected}};
+    {"LogicalNot", createLogicalNot, expected},
+    {"Neg", createNeg, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
