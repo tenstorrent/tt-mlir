@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -99,6 +100,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
   pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
+
+  OpPassManager &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(affine::createLoopCoalescingPass());
+
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
