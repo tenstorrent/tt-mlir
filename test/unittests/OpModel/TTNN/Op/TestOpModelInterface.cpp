@@ -214,6 +214,10 @@ const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<CbrtOp>(loc, type, ops).getOperation();
 };
+const auto createCeil = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CeilOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
@@ -225,9 +229,13 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
 //===---------------------------------------------------------===
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
-    {"Relu", createRelu, expected}, {"Sin", createSin, expected},
-    {"Abs", createAbs, expected},   {"Cbrt", createCbrt, cbrtExpected},
-    {"Cos", createCos, expected},   {"Reciprocal", createReciprocal, expected}};
+    {"Relu", createRelu, expected},
+    {"Sin", createSin, expected},
+    {"Abs", createAbs, expected},
+    {"Cbrt", createCbrt, cbrtExpected},
+    {"Ceil", createCeil, expected},
+    {"Cos", createCos, expected},
+    {"Reciprocal", createReciprocal, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
