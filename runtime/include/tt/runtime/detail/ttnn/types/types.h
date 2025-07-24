@@ -85,10 +85,7 @@ private:
   std::atomic<bool> retain;
   std::atomic<uint64_t> version;
 
-  static std::atomic<uint64_t> getLatestVersion() {
-    static std::atomic<uint64_t> latestVersion{0};
-    return latestVersion++;
-  }
+  static uint64_t getLatestVersion();
 };
 
 struct LayoutDesc {

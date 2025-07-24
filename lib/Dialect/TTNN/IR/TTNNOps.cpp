@@ -207,6 +207,50 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
+template <typename OpType>
+static bool isDefinedByOp(mlir::Value value) {
+  if (value.getDefiningOp<OpType>()) {
+    return true;
+  }
+
+  // Handle the case where we're inside a trace function
+  // We need to check the original defining operation
+  if (!mlir::isa<mlir::BlockArgument>(value)) {
+    return false;
+  }
+  auto arg = mlir::cast<mlir::BlockArgument>(value);
+
+  func::FuncOp funcOp =
+      mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
+  if (!funcOp || !utils::isTTNNTraceFunc(funcOp)) {
+    return false;
+  }
+
+  size_t argIndex = arg.getArgNumber();
+  auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp) {
+    return false;
+  }
+
+  bool foundDefinedByOp = false;
+  moduleOp->walk([&](ttnn::CaptureOrExecuteTraceOp op) {
+    llvm::StringRef captureCalleeName = op.getCaptureCallee();
+    if (!captureCalleeName.consume_front(g_TTNNCaptureTracePrefix)) {
+      return WalkResult::advance();
+    }
+    if (captureCalleeName != funcOp.getSymName()) {
+      return WalkResult::advance();
+    }
+    mlir::Value targetValue = op.getInputs()[argIndex];
+    if (targetValue.getDefiningOp<OpType>()) {
+      foundDefinedByOp = true;
+    }
+    return WalkResult::interrupt();
+  });
+
+  return foundDefinedByOp;
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   using namespace mlir::tt::ttnn::utils::verification_utils::
@@ -233,8 +277,8 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   }
   Conv2dParams params = *expectedParams;
 
-  if (!getWeight().getDefiningOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>() &&
-      !getWeight().getDefiningOp<mlir::tt::ttcore::LoadCachedOp>()) {
+  if (!isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) &&
+      !isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight())) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
