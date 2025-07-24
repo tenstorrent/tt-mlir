@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/Quant.h"
@@ -1547,11 +1548,6 @@ public:
 // which involves redistributing data slices across devices according to the
 // replica group configuration.
 //
-// In StableHLO, all_to_all redistributes a tensor by slicing it along the
-// output sharding dimension (also known as split_dimension) and
-// reassembling it along the input sharding dimension (also known as
-// concat_dimension).
-//
 // This lowering performs the following steps:
 // 1. Slice the input tensor along the split_dimension.
 // 2. Use point_to_point ops to exchange the slices between devices according to
@@ -1573,9 +1569,9 @@ public:
         mlir::cast<::mlir::RankedTensorType>(op.getInput().getType());
     auto inputShape = inputType.getShape();
     int32_t splitDim = op.getSplitDim();
-    ::mlir::DenseIntElementsAttr replicaGroups = op.getReplicaGroups();
-    int32_t splitCount =
-        static_cast<int32_t>(replicaGroups.getType().getShape().back());
+    auto replicaGroups =
+        ttmlir::utils::denseElementsAttrTo2D<int64_t>(op.getReplicaGroups());
+    int32_t splitCount = static_cast<int32_t>(replicaGroups[0].size());
 
     // Step 1: Slice the input tensor along the split dimension.
     // Each slice corresponds to a portion that will be sent to another device.
@@ -1584,7 +1580,7 @@ public:
                                            inputShape.end());
     slicedShape[splitDim] = splitSize;
     RankedTensorType sliceOutputType =
-        RankedTensorType::Builder(inputType).setShape(slicedShape);
+        ttnn::utils::RankedTensorTypeFactory::create(inputType, slicedShape);
     llvm::SmallVector<Value> sliceOpResults;
     llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
     llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
@@ -1600,47 +1596,35 @@ public:
       sliceOpResults.push_back(sliceOp.getResult());
     }
     // Step 2: Reorganize sliced data using PointToPoint communication.
-    // For each group of devices, simulate an all-to-all exchange of slices.
-    auto deviceIds = replicaGroups.getValues<int64_t>();
-    size_t devicesInGroup =
-        static_cast<size_t>(replicaGroups.getType().getShape().back());
-
-    // Buffers to hold the output for each device (initialized as empty).
-    llvm::SmallVector<Value> reorgBuffers(devicesInGroup);
-
-    auto deviceDesc = ttcore::lookupDevice(op);
-    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
-
-    // Utility to convert device ID into MeshCoordinate
-    auto deviceIdToMeshCoord = [&](size_t id) {
-      llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
-      for (size_t i = meshShape.size(); i-- > 0;) {
-        coord[i] = id % meshShape[i];
-        id /= meshShape[i];
-      }
-      return rewriter.getDenseI64ArrayAttr(coord);
-    };
-
     // For each group of devices, perform pairwise sends via PointToPoint ops.
     // Each sender sends its slices to all devices in the group (including
     // itself).
-    for (size_t gIdx = 0; gIdx < deviceIds.size(); gIdx += devicesInGroup) {
-      for (size_t idx = 0; idx < devicesInGroup; idx++) {
-        auto &senderId = deviceIds[gIdx + idx];
-        for (size_t sIdx = 0; sIdx < sliceOpResults.size(); sIdx++) {
-          auto &receiverId = deviceIds[gIdx + sIdx];
-          // Send slice sIdx from sender to receiver, append to receiver's
-          // buffer
-          reorgBuffers[idx] = rewriter.create<ttnn::PointToPointOp>(
-              loc, sliceOpResults[idx].getType(), sliceOpResults[sIdx],
-              deviceIdToMeshCoord(senderId), deviceIdToMeshCoord(receiverId),
-              reorgBuffers[idx]);
+
+    // Buffers to hold the output for each device (initialized as empty).
+    llvm::SmallVector<Value> reorgBuffers(splitCount);
+
+    auto meshShape = ttcore::lookupDevice(op).getMeshShape();
+    // for each group of devices,
+    for (const auto &group : replicaGroups) {
+      // for each device in the group, send its slices to all other devices in
+      // the group
+      for (size_t senderIdx = 0; senderIdx < group.size(); senderIdx++) {
+        auto senderCoord = rewriter.getDenseI64ArrayAttr(
+            ttmlir::utils::linearIdToCoord(group[senderIdx], meshShape));
+        for (size_t receiverIdx = 0; receiverIdx < group.size();
+             receiverIdx++) {
+          auto receiverCoord = rewriter.getDenseI64ArrayAttr(
+              ttmlir::utils::linearIdToCoord(group[receiverIdx], meshShape));
+          reorgBuffers[senderIdx] = rewriter.create<ttnn::PointToPointOp>(
+              loc, sliceOpResults[senderIdx].getType(),
+              sliceOpResults[receiverIdx], senderCoord, receiverCoord,
+              reorgBuffers[senderIdx]);
         }
       }
     }
 
-    // Step 3: Concatenate all received slices along the concat dimension. This
-    // forms the final output tensor after the all-to-all reorganization.
+    // Step 3: Concatenate all received slices along the concat dimension.
+    // This forms the final output tensor after the all-to-all reorganization.
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(op, op.getType(), reorgBuffers,
                                                 op.getConcatDim(),
                                                 /*memory_config=*/nullptr);
