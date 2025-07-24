@@ -243,9 +243,6 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
 
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
-  // Resolves any remaining type conversion issues by reconciling unrealized
-  // cast operations.
-  manager.addPass(createReconcileUnrealizedCastsPass());
 
   // Converts remaining GPU dialect operations to LLVM dialect,
   //  using bare pointers for both host and device code.
@@ -253,6 +250,10 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   gputollvmOptions.hostBarePtrCallConv = false;
   gputollvmOptions.kernelBarePtrCallConv = false;
   manager.addPass(createGpuToLLVMConversionPass(gputollvmOptions));
+
+  // Resolves any remaining type conversion issues by reconciling unrealized
+  // cast operations.
+  manager.addPass(createReconcileUnrealizedCastsPass());
 }
 
 #endif
