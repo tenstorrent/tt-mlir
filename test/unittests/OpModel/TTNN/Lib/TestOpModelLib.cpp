@@ -79,7 +79,8 @@ enum class UnaryEltwiseOpType {
   Floor,
   Gelu,
   IsFinite,
-  LogicalNot
+  LogicalNot,
+  BitwiseNot
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -110,6 +111,7 @@ protected:
           {UnaryEltwiseOpType::Gelu, GeluOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::IsFinite, IsFiniteOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::LogicalNot, LogicalNotOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::BitwiseNot, BitwiseNotOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -135,6 +137,8 @@ protected:
           {UnaryEltwiseOpType::IsFinite, IsFiniteOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::LogicalNot,
            LogicalNotOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::BitwiseNot,
+           BitwiseNotOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -146,10 +150,48 @@ protected:
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
                 expectedOutputSize] = std::get<3>(params);
 
-    const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
-        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
-    const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
-        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout;
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout;
+
+    if (opType == UnaryEltwiseOpType::BitwiseNot) {
+      // BitwiseNot requires Int32 data type - create layouts manually
+      auto int32DataType = mlir::tt::ttcore::DataType::Int32;
+      auto tileType =
+          mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
+      auto grid = CreateGrid(&context, inputBufferType, inputTensorLayout,
+                             inputVirtualGrid.value_or(GetVirtualGridShape(
+                                 inputShape, inputTensorLayout)),
+                             GetPhysicalGridSize());
+      auto memLayoutAttr =
+          inputBufferType == mlir::tt::ttnn::BufferType::SystemMemory
+              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
+              : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
+                                                            inputTensorLayout);
+
+      inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+          &context, inputShape, tileType, inputBufferType, grid, memLayoutAttr);
+
+      auto outputGrid =
+          CreateGrid(&context, outputBufferType, outputTensorLayout,
+                     outputVirtualGrid.value_or(
+                         GetVirtualGridShape(outputShape, outputTensorLayout)),
+                     GetPhysicalGridSize());
+      auto outputMemLayoutAttr =
+          outputBufferType == mlir::tt::ttnn::BufferType::SystemMemory
+              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
+              : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
+                                                            outputTensorLayout);
+
+      outputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+          &context, outputShape, tileType, outputBufferType, outputGrid,
+          outputMemLayoutAttr);
+    } else {
+      // For other operations, use default BFloat16
+      inputLayout = CreateTiledLayout(inputShape, inputBufferType,
+                                      inputTensorLayout, inputVirtualGrid);
+      outputLayout = CreateTiledLayout(outputShape, outputBufferType,
+                                       outputTensorLayout, outputVirtualGrid);
+    }
 
     auto constraintsExp = constraintsMap.at(opType)(
         CreateWorkerGrid(), inputShape, inputLayout, outputShape, outputLayout);
@@ -272,6 +314,26 @@ const std::initializer_list<
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})};
 
+// BitwiseNot-specific test parameters with Int32-appropriate expected values
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    bitwiseNotParams = {
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{
+                            true, 16384, 0, 0}), // Int32 requires more memory
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 16384, 4096,
+                                               4096}), // Int32 L1 buffer sizes
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 16384, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 16384, 4096, 4096}),
+};
+
 ::testing::internal::ParamGenerator<
     std::tuple<UnaryEltwiseOpType, detail::TestTensor, detail::TestTensor,
                detail::ExpectedResult>>
@@ -348,6 +410,10 @@ INSTANTIATE_TEST_SUITE_P(
     LogicalNotTests, OpModelUnaryEltwiseParam,
     generateBinaryEltwiseParams(UnaryEltwiseOpType::LogicalNot,
                                 unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(
+                             UnaryEltwiseOpType::BitwiseNot, bitwiseNotParams));
 
 INSTANTIATE_TEST_SUITE_P(
     ReciprocalTests, OpModelUnaryEltwiseParam,

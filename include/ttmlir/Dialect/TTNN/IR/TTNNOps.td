@@ -371,7 +371,9 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not",
     }];
 }
 
-def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
+def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise bitwise NOT.";
     let description = [{
         Performs element-wise NOT of tensor `operand` and produces a `result` tensor.

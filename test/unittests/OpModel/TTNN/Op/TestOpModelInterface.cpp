@@ -279,6 +279,58 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.testName;
     });
 
+// Separate test for BitwiseNot with integer data types
+TEST_F(OpModelBase, BitwiseNotOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create TTNNLayoutAttr with Int32 data type manually
+  // (CreateTiledLayout only supports FloatType, not IntegerType)
+  auto int32DataType = mlir::tt::ttcore::DataType::Int32;
+  auto tileType =
+      mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
+  auto bufferType = mlir::tt::ttnn::BufferType::L1;
+  auto grid = mlir::tt::ttcore::GridAttr::get(&context, {8, 8});
+  auto memLayout = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+      &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  auto int32Layout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, tensorShape, tileType, bufferType, grid, memLayout);
+
+  // Create tensors with the proper Int32 layout
+  auto intType = builder.getIntegerType(32);
+  auto inputType = createRankedTensorType(tensorShape, intType, int32Layout);
+  auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
+
+  // Create input tensor using OnesOp with Int32 layout
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      ShapeAttr::get(&context, tensorShape),
+                                      nullptr, nullptr, nullptr, nullptr);
+
+  auto bitwiseNot = builder.create<BitwiseNotOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
+
+  // Test BitwiseNot interface
+  auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384); // Expected values for BitwiseNot with Int32
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints for BitwiseNot; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(bitwiseNot.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for BitwiseNot; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
