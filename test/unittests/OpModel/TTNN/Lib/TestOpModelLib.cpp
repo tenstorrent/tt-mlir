@@ -81,7 +81,8 @@ enum class UnaryEltwiseOpType {
   IsFinite,
   LogicalNot,
   BitwiseNot,
-  Neg
+  Neg,
+  Tan
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -114,6 +115,7 @@ protected:
           {UnaryEltwiseOpType::LogicalNot, LogicalNotOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::BitwiseNot, BitwiseNotOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Neg, NegOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Tan, TanOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -142,6 +144,7 @@ protected:
           {UnaryEltwiseOpType::BitwiseNot,
            BitwiseNotOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Neg, NegOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Tan, TanOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -420,6 +423,10 @@ INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelUnaryEltwiseParam,
 
 INSTANTIATE_TEST_SUITE_P(NegTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Neg,
+                                                     unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(TanTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Tan,
                                                      unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(

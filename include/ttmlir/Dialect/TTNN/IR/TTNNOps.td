@@ -395,7 +395,9 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg",
     }];
 }
 
-def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
