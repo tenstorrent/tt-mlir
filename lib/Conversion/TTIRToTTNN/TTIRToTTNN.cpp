@@ -1485,6 +1485,73 @@ public:
 };
 } // namespace
 
+// Lowering of TTIR `collective_broadcast` op to a sequence of TTNN
+// `point_to_point` ops.
+//
+// Currently, TTNN does not have a native CollectiveBroadcast op. Instead,
+// we lower the collective broadcast operation into multiple point-to-point
+// transfers based on the replica group configuration.
+//
+// For each replica group, the first device ID is treated as the source,
+// and a PointToPointOp is created for each remaining target in that group.
+// The output of each PointToPointOp overwrites the previous one until the
+// last one is used to replace the original op's result.
+namespace {
+class CollectiveBroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::CollectiveBroadcastOp> {
+public:
+  using OpConversionPattern<ttir::CollectiveBroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CollectiveBroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    auto meshDevice = ttcore::lookupDevice(op);
+    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
+
+    ::mlir::DenseIntElementsAttr replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsElems = replicaGroups.getValues<int64_t>();
+    auto replicaGroupsShape = replicaGroups.getType().getShape();
+
+    int64_t numReplicaGroups = replicaGroupsShape[0];
+    int64_t replicasPerGroup = replicaGroupsShape[1];
+
+    // Helper: convert a flat device ID into N-dimensional mesh coordinate
+    auto deviceIdToMeshCoord = [&](size_t id) {
+      llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
+      for (size_t i = meshShape.size(); i-- > 0;) {
+        coord[i] = id % meshShape[i];
+        id /= meshShape[i];
+      }
+      return rewriter.getDenseI64ArrayAttr(coord);
+    };
+    Value outputValue;
+    llvm::SmallVector<Value> results;
+    auto elemIt = replicaGroupsElems.begin();
+
+    // Loop over each replica group
+    for (int64_t groupIdx = 0; groupIdx < numReplicaGroups; ++groupIdx) {
+      int64_t sourceId = *elemIt++; // First ID in group is the source
+
+      // Create point-to-point ops from source to each target in the group
+      for (int64_t replicaIdx = 1; replicaIdx < replicasPerGroup;
+           ++replicaIdx) {
+        int64_t targetId = *elemIt++;
+        outputValue = rewriter.create<ttnn::PointToPointOp>(
+            op.getLoc(), inputType, adaptor.getInput(),
+            deviceIdToMeshCoord(sourceId), deviceIdToMeshCoord(targetId),
+            outputValue);
+      }
+    }
+    // Replace the original collective_broadcast op with the final output value
+    rewriter.replaceOp(op, outputValue);
+
+    return success();
+  }
+};
+} // namespace
+
 // Utility function to get data type for quantized types.
 static ttcore::DataTypeAttr getDataType(mlir::Value val,
                                         ConversionPatternRewriter &rewriter,
@@ -1645,7 +1712,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            PermuteOpConversionPattern,
-           UpsampleOpConversionPattern
+           UpsampleOpConversionPattern,
+           CollectiveBroadcastOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

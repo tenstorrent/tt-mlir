@@ -4460,6 +4460,56 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// ColllectiveBroadcastOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
+  // Check input/output/result types are RankedTensorType
+  auto inputType = mlir::dyn_cast<RankedTensorType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<RankedTensorType>(getOutput().getType());
+  auto resultType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
+
+  // Check input == output type
+  if (inputType != outputType) {
+    return emitOpError("input and output must have the same type");
+  }
+
+  // Check output == result type
+  if (outputType != resultType) {
+    return emitOpError("output and result must have the same type");
+  }
+
+  auto groupsType = getReplicaGroups().getType();
+  if (groupsType.getRank() != 2) {
+    return emitOpError("replica_groups must be a 2D array");
+  }
+
+  // Check attribute has at least one group
+  if (groupsType.getShape()[0] < 1) {
+    return emitOpError("replica_groups must have at least one group");
+  }
+  // Check each group has at least one device ID
+  if (groupsType.getShape()[1] < 1) {
+    return emitOpError("each replica group must have at least one device ID");
+  }
+
+  // check all values are positive
+  auto replicaIds = getReplicaGroups().getValues<int64_t>();
+  if (llvm::any_of(replicaIds, [](int64_t id) { return id < 0; })) {
+    return emitOpError() << "replica_groups values must be positive";
+  }
+
+  // check all values are unique
+  llvm::DenseSet<int64_t> replicaIdsSeen;
+  if (!llvm::all_of(replicaIds, [&](int64_t id) {
+        return replicaIdsSeen.insert(id).second;
+      })) {
+    return emitOpError() << "replica_groups contains duplicated values";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
