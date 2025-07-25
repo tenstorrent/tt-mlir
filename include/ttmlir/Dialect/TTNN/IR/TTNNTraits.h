@@ -138,6 +138,15 @@ public:
 };
 
 template <typename ConcreteType>
+class ElementwiseUnaryTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, ElementwiseUnaryTrait> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return mlir::success();
+  }
+};
+
+template <typename ConcreteType>
 struct BroadcastableTrait
     : public OpTrait::TraitBase<ConcreteType, BroadcastableTrait> {
 public:

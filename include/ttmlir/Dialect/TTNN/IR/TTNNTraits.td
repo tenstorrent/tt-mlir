@@ -23,12 +23,16 @@ def HasOutputDTypeTrait: NativeOpTrait<"HasOutputDTypeTrait">
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def ElementwiseUnaryTrait : NativeOpTrait<"ElementwiseUnaryTrait">
+{
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 // Trait for ops that support broadcasting.
 def BroadcastableTrait : NativeOpTrait<"BroadcastableTrait">
 {
   let cppNamespace = "::mlir::tt::ttnn";
 }
-
 
 // Trait for ops that don't support implicit broadcast on operands.
 def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsTrait">
