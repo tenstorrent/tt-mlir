@@ -596,15 +596,15 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         AttrParameter<"ttcore::GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
                         AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
                         OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
-                        OptionalParameter<"ttcore::TensorMeshShardingAttr", "TT mesh sharding attr">:$tensor_mesh_sharding,
+                        OptionalParameter<"ttcore::TensorMeshAttr", "TT tensor mesh attr">:$tensor_mesh,
                         OptionalParameter<"bool", "A status flag, asking the users to ignore the physical layout. This is used to model a sharded layout with unspecified shard shape.">:$ignorePhysicalLayout);
-  let assemblyFormat = "`<` $linear`,` $grid`,` (`mesh` `=` $tensor_mesh_sharding^ `,`)? $memref (`,` $mem_layout^)? (`,` $ignorePhysicalLayout^)? `>`";
+  let assemblyFormat = "`<` $linear`,` $grid`,` (`mesh` `=` $tensor_mesh^ `,`)? $memref (`,` $mem_layout^)? (`,` $ignorePhysicalLayout^)? `>`";
   let extraClassDeclaration = [{
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         AffineMap linear,
                         ttcore::GridAttr grid, MemRefType memref,
                         TensorMemoryLayoutAttr mem_layout,
-                        ttcore::TensorMeshShardingAttr tensor_mesh_sharding);
+                        ttcore::TensorMeshAttr tensor_mesh);
 
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         ArrayRef<int64_t> tensorShape,
@@ -612,7 +612,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         BufferType bufferType,
                         ttcore::GridAttr grid,
                         TensorMemoryLayoutAttr memoryLayoutAttr = nullptr,
-                        ttcore::TensorMeshShardingAttr tensorMeshShardingAttr = nullptr,
+                        ttcore::TensorMeshAttr tensorMeshAttr = nullptr,
                         ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                         bool ignorePhysicalLayout = false);
 
@@ -630,7 +630,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
-    bool isMeshDeviceTensor() const { return ::mlir::tt::ttnn::isMeshDeviceTensor(getTensorMeshSharding()); }
     bool isTiled() const;
     bool hasShardedTensorMemoryLayout() const;
     bool hasShardedL1TensorMemoryLayout() const;

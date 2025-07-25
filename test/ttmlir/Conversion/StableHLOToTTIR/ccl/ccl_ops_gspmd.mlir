@@ -1,7 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
-
-// -----
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline --stablehlo-to-ttir-pipeline %s | FileCheck %s
 
 // jax/pjrt sharding target 1x2 for n300 all_reduce cluster_axis=1 rank=2
 module @all_reduce_1x2_rank_2_cluster_1 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
@@ -1817,35 +1815,6 @@ module @jit_neg_basic7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
 
 // -----
 
-// jax/pjrt automatic input/output sharding tests
-module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
-  func.func public @main(%arg0: tensor<256x256xf32> {mhlo.sharding = "{devices=[1,2]<=[2]}"}) -> (tensor<256x128xf32> {jax.result_info = "", mhlo.sharding = "{replicated}"}) {
-    %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[1,2]<=[2]}"} : (tensor<256x256xf32>) -> tensor<256x256xf32>
-    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<256x256xf32>) -> tensor<256x128xf32>
-    // CHECK: "ttir.mesh_shard"
-    // CHECK-SAME: shard_dims = array<i64: -1, 1>
-    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-    // CHECK-SAME: shard_shape = array<i64: 1, 2>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-    %2 = call @shmap_body(%1) : (tensor<256x128xf32>) -> tensor<256x128xf32>
-    %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
-    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{replicated}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
-    // CHECK-NOT: "ttir.mesh_shard"
-    return %4 : tensor<256x128xf32>
-  }
-  func.func private @shmap_body(%arg0: tensor<256x128xf32>) -> (tensor<256x128xf32> {jax.result_info = "[None, None]"}) {
-    %0 = stablehlo.negate %arg0 : tensor<256x128xf32>
-    %1 = "stablehlo.all_reduce"(%0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>, use_global_device_ids}> ({
-    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
-      %2 = stablehlo.add %arg1, %arg2 : tensor<f32>
-      stablehlo.return %2 : tensor<f32>
-    }) : (tensor<256x128xf32>) -> tensor<256x128xf32>
-    return %1 : tensor<256x128xf32>
-  }
-}
-
-// -----
-
 module @jit_collective_permute_1x2_rank_4_cluster_1 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
     %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,1,1,2]<=[2]}"} : (tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
@@ -2380,27 +2349,6 @@ module @jit_jax_wrapper attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 
 // -----
 
-module @SyncTensorsGraph.8 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-  // CHECK: ttcore.meshes = #ttcore.meshes<[<"mesh_gspmd" = 1x8>]>
-  func.func @main(%arg0: tensor<8x1024xf32>) -> tensor<8x128xf32> {
-    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[8,1]0,1,2,3,4,5,6,7}"} : (tensor<8x1024xf32>) -> tensor<8x1024xf32>
-    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<8x1024xf32>) -> tensor<8x128xf32>
-    // CHECK: "ttir.mesh_shard"
-    // CHECK-SAME: shard_dims = array<i64: -1, 0>
-    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-    // CHECK-SAME: shard_shape = array<i64: 8, 1>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
-    %2 = "stablehlo.all_reduce"(%1) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi64>, use_global_device_ids}> ({
-    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
-      %3 = stablehlo.add %arg1, %arg2 : tensor<f32>
-      stablehlo.return %3 : tensor<f32>
-    }) : (tensor<8x128xf32>) -> tensor<8x128xf32>
-    return %2 : tensor<8x128xf32>
-  }
-}
-
-// -----
-
 module @SyncTensorsGraph.13 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   func.func @main(%arg0: tensor<f32> {mhlo.sharding = "{replicated}"}, %arg1: tensor<8192x4096xf32>, %arg2: tensor<1024x8192xf32>) -> tensor<1024x4096xf32> {
     %0 = stablehlo.custom_call @Sharding(%arg2) {backend_config = "", mhlo.sharding = "{devices=[2,4]0,1,2,3,4,5,6,7}"} : (tensor<1024x8192xf32>) -> tensor<1024x8192xf32>
@@ -2433,5 +2381,57 @@ module @SyncTensorsGraph.13 attributes {mhlo.cross_program_prefetches = [], mhlo
     // CHECK-SAME: shard_shape = array<i64: 2, 1>
     // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
     return %10 : tensor<1024x4096xf32>
+  }
+}
+
+// -----
+
+module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<256x256xf32> {mhlo.sharding = "{devices=[1,2]<=[2]}"}) -> (tensor<256x128xf32> {jax.result_info = "", mhlo.sharding = "{replicated}"}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[1,2]<=[2]}"} : (tensor<256x256xf32>) -> tensor<256x256xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<256x256xf32>) -> tensor<256x128xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 1, 2>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+    %2 = call @shmap_body(%1) : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{replicated}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 1>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+    return %4 : tensor<256x128xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<256x128xf32>) -> (tensor<256x128xf32> {jax.result_info = "[None, None]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<256x128xf32>
+    %1 = "stablehlo.all_reduce"(%0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>, use_global_device_ids}> ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %2 = stablehlo.add %arg1, %arg2 : tensor<f32>
+      stablehlo.return %2 : tensor<f32>
+    }) : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    return %1 : tensor<256x128xf32>
+  }
+}
+
+// -----
+
+module @SyncTensorsGraph.8 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<8x1024xf32>) -> tensor<8x128xf32> {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[8,1]0,1,2,3,4,5,6,7}"} : (tensor<8x1024xf32>) -> tensor<8x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<8x1024xf32>) -> tensor<8x128xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 0>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 8, 1>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    %2 = "stablehlo.all_reduce"(%1) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi64>, use_global_device_ids}> ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %3 = stablehlo.add %arg1, %arg2 : tensor<f32>
+      stablehlo.return %3 : tensor<f32>
+    }) : (tensor<8x128xf32>) -> tensor<8x128xf32>
+    return %2 : tensor<8x128xf32>
   }
 }
