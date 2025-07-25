@@ -476,8 +476,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
-                         OptionalAttr<BoolAttr>:$isLoweredState);
+                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
     let builders =
@@ -495,12 +494,12 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       // %tx = ttir.dma %src<#map>, %dst core[%c0, %c1] mcast[%c2, %c3]
       OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape, nullptr);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
       }]>,
       // %tx = ttir.dma %src, %dst<#map>
       OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, ValueRange(), ValueRange(), nullptr);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, ValueRange(), ValueRange());
       }]>,
       // %tx = ttir.dma %src[%c0, %c1], %dst
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
@@ -510,7 +509,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       // %tx = ttir.dma %src[%c0, %c1], %dst core[%c2, %c3] mcast[%c4, %c5]
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape, nullptr);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
       }]>,
       // %tx = ttir.dma %src, %dst[%c0, %c1]
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
@@ -525,7 +524,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7]
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, nullptr, mcastStartIndex, mcastShape, nullptr);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, nullptr, mcastStartIndex, mcastShape);
       }]>,
       // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3], <4>
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
@@ -535,7 +534,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7], <4>
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, nullptr);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
       }]>,
     ];
 
@@ -564,9 +563,6 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
-      bool isLowered() {
-        return bool(getIsLoweredState());
-      }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }

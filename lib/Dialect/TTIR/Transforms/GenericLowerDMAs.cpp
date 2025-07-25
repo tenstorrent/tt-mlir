@@ -315,7 +315,7 @@ public:
 
   LogicalResult matchAndRewrite(DMAOp dma,
                                 PatternRewriter &rewriter) const final {
-    if (dma.isAffine() || dma.isLowered()) {
+    if (dma.isAffine()) {
       // Lower to affine first.
       // Or if it's already fully lowered, nothing to do.
       return failure();
@@ -346,12 +346,23 @@ public:
     dstIndices = applyMap(rewriter, dma.getLoc(), dstMemoryMap, dstIndices,
                           dma.isDstRemote());
 
-    BoolAttr dmaOpIsLowered = rewriter.getBoolAttr(true);
-    rewriter.replaceOpWithNewOp<ttir::DMAOp>(
-        dma, dma.getResult().getType(), dma.getSrc(), nullptr, srcIndices,
-        dma.getDst(), nullptr, dstIndices,
-        rewriter.getI64IntegerAttr(dma.getNumElems()), dma.getMcastStartIndex(),
-        dma.getMcastShape(), dmaOpIsLowered);
+    bool isLoweredToWrite =
+        dma.isDstRemote() || (dma.isSrcLocal() && dma.isDstLocal());
+
+    if (isLoweredToWrite) {
+      rewriter.replaceOpWithNewOp<ttir::LoweredDMAWriteOp>(
+          dma, dma.getResult().getType(), dma.getSrc(), srcIndices,
+          dma.getDst(), dstIndices,
+          rewriter.getI64IntegerAttr(dma.getNumElems()),
+          dma.getMcastStartIndex(), dma.getMcastShape());
+    } else {
+      // should never have multicast fields defined for reads
+      assert(dma.getMcastStartIndex().empty() && dma.getMcastShape().empty());
+      rewriter.replaceOpWithNewOp<ttir::LoweredDMAReadOp>(
+          dma, dma.getResult().getType(), dma.getSrc(), srcIndices,
+          dma.getDst(), dstIndices,
+          rewriter.getI64IntegerAttr(dma.getNumElems()));
+    }
 
     return success();
   }

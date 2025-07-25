@@ -136,7 +136,7 @@ void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
   //
   // Skip below verification steps for tensor style or lowered DMA.
   //
-  if (isLowered() || skipChecksForTensorType) {
+  if (skipChecksForTensorType) {
     return success();
   }
 
@@ -251,8 +251,7 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::ttir::DMAOp>(
       rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
       getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
-      getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape(),
-      getIsLoweredStateAttr());
+      getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
 }
