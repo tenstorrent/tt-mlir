@@ -593,8 +593,8 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
       This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
 
       ```mlir
-      %tx = ttir.lowered_dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
-        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.lowered_dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
       ```
 
       Constraints:
@@ -645,6 +645,70 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
       bool isMcast() { return !getMcastShape().empty(); }
       ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
+      }
+    }];
+}
+
+def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
+
+    let summary = "Fully indexed and lowered TTIR DMA Op for read";
+    let description = [{
+      This op is the fully lowered explicit read form of the higher level `ttir.dma` operation. It corresponds 1:1
+      to a single concrete DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). The dst memref _must_ be local!
+
+      This operation only supports unicast (mulicast are write-only).
+
+      ```mlir
+      %tx = ttir.lowered_dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+      ```
+
+      Constraints:
+      - dst MUST be a LOCAL memref!
+      - src and dst must have the same element type.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
+                         I64Attr:$numElems);
+    let results = (outs TTIR_MemTx:$result);
+
+    let builders =
+    [
+      // Unicast Read
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems));
+      }]>,
+    ];
+
+    // let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+
+    let hasVerifier = 0; // TODO: ADD A VERIFIER!!!!!
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      size_t getSizeBytes() {
+        auto elementSizeBytes =
+          ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
+        return getNumElems() * elementSizeBytes;
+      }
+      bool isSrcLocal() {
+        Block *block = getSrc().getParentBlock();
+        Block::BlockArgListType blockArgs = block->getArguments();
+        return std::find(blockArgs.begin(), blockArgs.end(), getSrc()) !=
+               blockArgs.end();
+      }
+      bool isSrcRemote() { return !isSrcLocal(); }
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
     }];
 }
