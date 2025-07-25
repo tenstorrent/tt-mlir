@@ -152,6 +152,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   llvm::DenseSet<mlir::Operation *> l1ChainedOps;
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
   llvm::DenseSet<Edge> overrideReshardEdges;
+  llvm::DenseSet<mlir::Operation *> rowMajorOutputOps;
 
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
@@ -269,7 +270,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   // checks.
   ShardSolver shardSolver(/*tensorTypePossibleLayouts=*/nullptr, legalConfigs,
                           opL1MemSpecs, l1ChainedOps, usableL1CacheSize,
-                          overrideReshardEdges, checkShardCompatible);
+                          overrideReshardEdges, rowMajorOutputOps,
+                          checkShardCompatible);
 
   ASSERT_TRUE(shardSolver.resolve());
 
