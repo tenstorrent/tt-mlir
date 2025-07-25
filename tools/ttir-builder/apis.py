@@ -428,9 +428,9 @@ class TTIRBuilder(TTIRBuilderOps):
 
         Parameters
         ----------
-        attributes : Dict[str, str]
+        attributes : *Dict[str, str]*
             Dictionary of override attributes. Valid keys include:
-            - data_type: Data type override
+            - data_type: Data type override for the output tensor
             - memory_layout: Memory layout override
             - buffer_type: Buffer type override
             - tensor_memory_layout: Tensor memory layout override
@@ -466,7 +466,7 @@ class TTIRBuilder(TTIRBuilderOps):
 
         Parameters
         ----------
-        configs : Dict[str, str]
+        configs : *Dict[str, str]*
             Dictionary of configuration overrides. Valid keys include:
             - dtype: Data type override
             - weights_dtype: Weights data type override
