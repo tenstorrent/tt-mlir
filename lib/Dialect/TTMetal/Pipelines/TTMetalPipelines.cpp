@@ -92,7 +92,7 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toD2MOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toD2MOptions.overrideDeviceShape =
-        llvm::to_vector(options.overrideDeviceShape);
+       llvm::to_vector(options.overrideDeviceShape);
     toD2MOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));

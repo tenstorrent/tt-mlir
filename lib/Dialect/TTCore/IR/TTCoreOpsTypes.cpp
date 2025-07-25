@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -804,8 +805,16 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
+  llvm::errs() << "physical shape: ";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "\n";
+
+  llvm::errs() << "grid shape: ";
+  llvm::interleaveComma(gridShape, llvm::errs());
+  llvm::errs() << "\n";
+
   assert(physicalShape.size() == gridShape.size() &&
-         "Grid rank must equalcollapsed tensor rank");
+         "Grid rank must equal collapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];
