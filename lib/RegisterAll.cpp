@@ -44,6 +44,20 @@
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
 
+#if TTMLIR_ENABLE_TTIRTONVVM
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
+#include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#endif
+
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
       mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
@@ -80,6 +94,19 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+#if TTMLIR_ENABLE_TTIRTONVVM
+  vector::registerConvertVectorToLLVMInterface(registry);
+  registerConvertComplexToLLVMInterface(registry);
+  registerConvertNVVMToLLVMInterface(registry);
+  registerConvertMathToLLVMInterface(registry);
+  registerConvertOpenMPToLLVMInterface(registry);
+  registerConvertMemRefToLLVMInterface(registry);
+  arith::registerConvertArithToLLVMInterface(registry);
+  index::registerConvertIndexToLLVMInterface(registry);
+  ub::registerConvertUBToLLVMInterface(registry);
+  cf::registerConvertControlFlowToLLVMInterface(registry);
+  registerConvertFuncToLLVMInterface(registry);
+#endif
 }
 
 void mlir::tt::registerAllPasses() {
