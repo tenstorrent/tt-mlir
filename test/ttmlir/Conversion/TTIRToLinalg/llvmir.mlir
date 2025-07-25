@@ -1,7 +1,7 @@
 ; ModuleID = 'LLVMDialectModule'
 source_filename = "LLVMDialectModule"
 
-define ptx_kernel void @forward_kernel(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
+define ptx_kernel void @forward_kernel_forward_kernel(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
   %13 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %14 = sext i32 %13 to i64
   %15 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -29,7 +29,7 @@ define ptx_kernel void @forward_kernel(i64 %0, i64 %1, float %2, ptr %3, ptr %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_1(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
+define ptx_kernel void @forward_kernel_0_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
   %30 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %31 = sext i32 %30 to i64
   %32 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -89,7 +89,7 @@ define ptx_kernel void @forward_kernel_1(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_2(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
+define ptx_kernel void @forward_kernel_1_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
   %24 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %25 = sext i32 %24 to i64
   %26 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -112,7 +112,7 @@ define ptx_kernel void @forward_kernel_2(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_3(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, float %9, ptr %10, ptr %11, i64 %12, i64 %13, i64 %14, i64 %15, i64 %16) {
+define ptx_kernel void @forward_kernel_2_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, float %9, ptr %10, ptr %11, i64 %12, i64 %13, i64 %14, i64 %15, i64 %16) {
   %18 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %19 = sext i32 %18 to i64
   %20 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -131,7 +131,7 @@ define ptx_kernel void @forward_kernel_3(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_4(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
+define ptx_kernel void @forward_kernel_3_forward_kernel(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
   %13 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %14 = sext i32 %13 to i64
   %15 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -159,7 +159,7 @@ define ptx_kernel void @forward_kernel_4(i64 %0, i64 %1, float %2, ptr %3, ptr %
   ret void
 }
 
-define ptx_kernel void @forward_kernel_5(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
+define ptx_kernel void @forward_kernel_4_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
   %30 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %31 = sext i32 %30 to i64
   %32 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -219,7 +219,7 @@ define ptx_kernel void @forward_kernel_5(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_6(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
+define ptx_kernel void @forward_kernel_5_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
   %24 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %25 = sext i32 %24 to i64
   %26 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -242,7 +242,7 @@ define ptx_kernel void @forward_kernel_6(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_7(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, float %9, ptr %10, ptr %11, i64 %12, i64 %13, i64 %14, i64 %15, i64 %16) {
+define ptx_kernel void @forward_kernel_6_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, float %9, ptr %10, ptr %11, i64 %12, i64 %13, i64 %14, i64 %15, i64 %16) {
   %18 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %19 = sext i32 %18 to i64
   %20 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -261,7 +261,7 @@ define ptx_kernel void @forward_kernel_7(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_8(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
+define ptx_kernel void @forward_kernel_7_forward_kernel(i64 %0, i64 %1, float %2, ptr %3, ptr %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, i64 %11) {
   %13 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %14 = sext i32 %13 to i64
   %15 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -289,7 +289,7 @@ define ptx_kernel void @forward_kernel_8(i64 %0, i64 %1, float %2, ptr %3, ptr %
   ret void
 }
 
-define ptx_kernel void @forward_kernel_9(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
+define ptx_kernel void @forward_kernel_8_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, i64 %9, i64 %10, ptr %11, ptr %12, i64 %13, i64 %14, i64 %15, i64 %16, i64 %17, i64 %18, i64 %19, ptr %20, ptr %21, i64 %22, i64 %23, i64 %24, i64 %25, i64 %26, i64 %27, i64 %28) {
   %30 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %31 = sext i32 %30 to i64
   %32 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -349,7 +349,7 @@ define ptx_kernel void @forward_kernel_9(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4,
   ret void
 }
 
-define ptx_kernel void @forward_kernel_10(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
+define ptx_kernel void @forward_kernel_9_forward_kernel(i64 %0, i64 %1, ptr %2, ptr %3, i64 %4, i64 %5, i64 %6, i64 %7, i64 %8, ptr %9, ptr %10, i64 %11, i64 %12, i64 %13, i64 %14, i64 %15, ptr %16, ptr %17, i64 %18, i64 %19, i64 %20, i64 %21, i64 %22) {
   %24 = call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %25 = sext i32 %24 to i64
   %26 = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()

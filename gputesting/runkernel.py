@@ -4,7 +4,6 @@
 import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
-from ttmlirtest import compile_mlir_to_ptx
 import numpy as np
 import subprocess
 

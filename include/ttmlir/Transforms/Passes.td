@@ -122,4 +122,41 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
+def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
+{
+  let summary = "Extract GPU kernel functions from LLVM IR into a single module";
+  let description = [{
+    This pass removes host code from llvm and extracts all functions of gpu modules into a single module.
+
+    Example:
+    ```
+    module @Example attributes {gpu.container_module} {
+      llvm.func @host_function
+      ...
+      gpu.module @kernel_1
+      {
+        llvm.func @kernel_func
+        ...
+      }
+      ...
+      gpu.module @kernel_n
+      {
+        llvm.func @kernel_func
+        ...
+      }
+    }
+    ```
+    becomes:
+
+    ```
+    module {
+      llvm.func @kernel_func_1
+      ...
+      llvm.func @kernel_func_n
+    }
+    ```
+
+  }];
+  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+}
 #endif
