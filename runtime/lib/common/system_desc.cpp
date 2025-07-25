@@ -98,13 +98,6 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   return allConnections;
 }
 
-static void sort(std::vector<::tt::target::Dim2d> &vec) {
-  std::sort(vec.begin(), vec.end(),
-            [](const ::tt::target::Dim2d &a, const ::tt::target::Dim2d &b) {
-              return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
-            });
-}
-
 ::tt::target::Dim2d
 getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
   const CoreCoord workerNWCorner =
