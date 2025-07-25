@@ -1,8 +1,8 @@
 // Test for L1InterleavedAnalysis
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-analysis-enabled=true max-legal-layouts=32" -o l1_interleaved_simple_conv2d_ttnn.mlir %s --mlir-print-debuginfo
-// RUN: FileCheck %s --input-file=l1_interleaved_simple_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer l1_interleaved_simple_ttnn.mlir > %t.ttnn
+// RUN: FileCheck %s --input-file=l1_interleaved_simple_conv2d_ttnn.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer l1_interleaved_simple_conv2d_ttnn.mlir > %t.ttnn
 
 module @L1InterleavedTestConv2D attributes {} {
   func.func @forward(
