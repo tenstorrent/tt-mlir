@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_UNEVENPOOLPADDINGREWRITEPATTERN_H
-#define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_UNEVENPOOLPADDINGREWRITEPATTERN_H
+#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_LEGALIZEPOOLPADDINGREWRITEPATTERN_H
+#define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_LEGALIZEPOOLPADDINGREWRITEPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -13,7 +13,7 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 // `Channel` axis of the input has to be a multiple of the tile width.
 template <typename Pool2dOp>
-class UnevenPoolPaddingRewritePattern : public OpRewritePattern<Pool2dOp> {
+class LegalizePoolPaddingRewritePattern : public OpRewritePattern<Pool2dOp> {
 public:
   using OpRewritePattern<Pool2dOp>::OpRewritePattern;
 
@@ -22,4 +22,4 @@ public:
 };
 } // namespace mlir::tt::ttnn::workarounds::decomposition
 
-#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_UPSAMPLEOPREWRITEPATTERN_H
+#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_LEGALIZEPOOLPADDINGREWRITEPATTERN_H

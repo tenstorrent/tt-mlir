@@ -1197,16 +1197,6 @@ public:
                   ". Please "
                   "run the FlattenSlidingWindow pass before lowering to TTNN.");
     }
-    // if (adaptor.getPaddingBottom() != adaptor.getPaddingTop()) {
-    //   return rewriter.notifyMatchFailure(
-    //       op, op.getOperationName() +
-    //               "does not support asymmetric padding for top/bottom.");
-    // }
-    // if (adaptor.getPaddingLeft() != adaptor.getPaddingRight()) {
-    //   return rewriter.notifyMatchFailure(
-    //       op, op.getOperationName() +
-    //               "does not support asymmetric padding for left/right.");
-    // }
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
@@ -1218,8 +1208,6 @@ public:
     DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
 
-    // assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
-    // assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
     DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getPaddingTop(), adaptor.getPaddingBottom(),
          adaptor.getPaddingLeft(), adaptor.getPaddingRight()});

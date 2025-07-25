@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UnevenPoolPaddingRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LegalizePoolPaddingRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -19,7 +19,7 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 template <typename Pool2dOp>
-LogicalResult UnevenPoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
+LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
     Pool2dOp srcOp, PatternRewriter &rewriter) const {
 
   RankedTensorType inputType = srcOp.getInput().getType();
@@ -126,7 +126,7 @@ LogicalResult UnevenPoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
   return success();
 }
 
-template class UnevenPoolPaddingRewritePattern<ttnn::MaxPool2dOp>;
-template class UnevenPoolPaddingRewritePattern<ttnn::AvgPool2dOp>;
+template class LegalizePoolPaddingRewritePattern<ttnn::MaxPool2dOp>;
+template class LegalizePoolPaddingRewritePattern<ttnn::AvgPool2dOp>;
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition
