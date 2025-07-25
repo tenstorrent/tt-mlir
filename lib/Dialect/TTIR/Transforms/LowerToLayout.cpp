@@ -168,6 +168,18 @@ public:
         ->getResult(0);
   }
 
+  static llvm::SmallVector<int64_t>
+  getOnesPaddedGridShape(llvm::ArrayRef<int64_t> workerGridShape, size_t rank) {
+    assert(rank >= workerGridShape.size());
+    llvm::SmallVector<int64_t> grid(rank, 1);
+    llvm::errs() << "grid size: " << grid.size() << "\n";
+    const size_t diff = rank - workerGridShape.size();
+    for (size_t i = 0; i < workerGridShape.size(); ++i) {
+      grid[i + diff] = workerGridShape[i];
+    }
+    return grid;
+  }
+
   // Helper to create a new tensor type with modified layout
   RankedTensorType
   createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
@@ -215,6 +227,8 @@ public:
       tileShapeForPhysical = {};
     }
 
+    llvm::errs() << baseLayout << "\n";
+    llvm::errs() << newLayout << "\n";
     // Create new device tensor shape.
     llvm::SmallVector<int64_t> deviceShape =
         newLayout.getDeviceShape(gridShape, tileShapeForPhysical);
@@ -236,6 +250,29 @@ public:
     const bool hasOutputLayout = outputType.getEncoding() != nullptr;
     auto inputLayout = op.getOrCreateInputLayout();
     auto outputLayout = op.getOrCreateOutputLayout();
+
+    assert(hasInputLayout || hasOutputLayout);
+    if (!hasInputLayout) {
+      // Input layout was auto-generated, need to copy collapse intervals from
+      // output Since attributes are immutable, we need to create a new layout
+      inputLayout = ttcore::MetalLayoutAttr::get(
+          inputLayout.getContext(), inputLayout.getLogicalShape(),
+          outputLayout.getGridShape(outputType), inputLayout.getOobVal(),
+          inputLayout.getMemorySpace(),
+          outputLayout
+              .getCollapsedIntervals(), // Copy from existing output layout
+          inputLayout.getDimAlignments());
+    } else if (!hasOutputLayout) {
+      // Output layout was auto-generated, need to copy collapse intervals from
+      // input
+      outputLayout = ttcore::MetalLayoutAttr::get(
+          outputLayout.getContext(), outputLayout.getLogicalShape(),
+          inputLayout.getGridShape(inputType), outputLayout.getOobVal(),
+          outputLayout.getMemorySpace(),
+          inputLayout
+              .getCollapsedIntervals(), // Copy from existing input layout
+          outputLayout.getDimAlignments());
+    }
 
     bool inputL1 =
         inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;

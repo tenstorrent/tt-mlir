@@ -45,14 +45,26 @@ protected:
   llvm::SmallVector<int64_t>
   computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
     llvm::SmallVector<int64_t> grid;
+    grid.reserve(physicalShape.size());
 
-    assert(physicalShape.size() == targetGridShape.size());
+    llvm::errs() << "Physical shape: ";
+    llvm::interleaveComma(physicalShape, llvm::errs());
+    llvm::errs() << "\n";
 
-    for (size_t i = 0; i < physicalShape.size(); ++i) {
+    llvm::errs() << "grid shape: ";
+    llvm::interleaveComma(targetGridShape, llvm::errs());
+    llvm::errs() << "\n";
+
+    assert(physicalShape.size() >= targetGridShape.size());
+
+    const size_t gridRankDiff = physicalShape.size() - targetGridShape.size();
+    grid.assign(gridRankDiff, 1);
+
+    for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
       // Find largest grid dimension that divides evenly
-      for (int64_t g = targetGridShape[i]; g > 0; g--) {
+      for (int64_t g = targetGridShape[i - gridRankDiff]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
           break;
@@ -234,8 +246,15 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
-  static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
-    return s_expectedInputGridShape;
+  llvm::SmallVector<int64_t> expectedInputGridShape(size_t rank) const {
+    assert(rank >= targetGridShape.size());
+    llvm::SmallVector<int64_t> grid(rank, 1);
+    llvm::errs() << "grid size: " << grid.size() << "\n";
+    const size_t diff = rank - targetGridShape.size();
+    for (size_t i = 0; i < targetGridShape.size(); ++i) {
+      grid[i + diff] = targetGridShape[i];
+    }
+    return grid;
   }
 
   // Default memory spaces for {inputs, outputs}.
@@ -243,8 +262,6 @@ protected:
   mlir::ArrayRef<int64_t> targetGridShape;
 
   bool collapseTensors;
-
-  static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 };
 } // namespace
 // ............................................................................
@@ -285,8 +302,11 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -402,8 +422,11 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -626,8 +649,11 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
