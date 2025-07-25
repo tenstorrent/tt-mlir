@@ -24,8 +24,8 @@
 
 namespace tt::runtime::ttmetal {
 
-using DeviceBuffer = std::shared_ptr<::tt::tt_metal::Buffer>;
-using MetalTensor = std::variant<TensorDesc, DeviceBuffer>;
+using MeshBuffer = std::shared_ptr<::tt::tt_metal::distributed::MeshBuffer>;
+using MetalTensor = std::variant<TensorDesc, MeshBuffer>;
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);

@@ -68,10 +68,10 @@ Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
   return std::visit(
       utils::overloaded{
           [&](const TensorDesc &desc) { return alignUpTensor(tensor, desc); },
-          [&](const DeviceBuffer &buffer) {
+          [&](const MeshBuffer &buffer) {
             // TODO(#3126): Implement device copy toLayout for
             // metal runtime
-            LOG_FATAL("getTensorDesc from DeviceBuffer not supported.");
+            LOG_FATAL("getTensorDesc from MeshBuffer not supported.");
             return tensor;
           },
       },
@@ -112,8 +112,8 @@ target::DataType getTensorDataType(Tensor tensor) {
   return std::visit(
       utils::overloaded{
           [&](const TensorDesc &desc) { return desc.dataType; },
-          [&](const DeviceBuffer &buffer) {
-            LOG_FATAL("Datatype mapping from buffer not supported yet.");
+          [&](const MeshBuffer &buffer) {
+            LOG_FATAL("Datatype mapping from mesh buffer not supported yet.");
             return target::DataType::Float32;
           },
       },
@@ -386,8 +386,8 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   ::tt::runtime::ttmetal::wait(tensor);
   std::visit(utils::overloaded{
                  [&](const TensorDesc &) { /* no-op */ },
-                 [&](const DeviceBuffer &) {
-                   LOG_FATAL("toHost not yet implemented for device buffer");
+                 [&](const MeshBuffer &) {
+                   LOG_FATAL("toHost not yet implemented for mesh buffer");
                  },
              },
              tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -427,48 +427,14 @@ void memcpy(Tensor dst, Tensor src) {
 }
 
 void deallocateTensor(Tensor &tensor, bool) {
-  std::visit(
-      utils::overloaded{
-          [&](const TensorDesc &) { /* no-op */ },
-          [&](const DeviceBuffer &) {
-            LOG_FATAL("deallocateTensor not yet implemented for device buffer");
-          },
-      },
-      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
-}
-
-std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
-                           std::uint32_t programIndex,
-                           std::vector<Tensor> &inputs) {
-  const target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
-  const target::metal::Program *program = fbb.programs()->Get(programIndex);
-  tt_metal::distributed::MeshDevice &meshDevice =
-      deviceHandle.as<tt_metal::distributed::MeshDevice>(
-          DeviceRuntime::TTMetal);
-  std::vector<tt_metal::IDevice *> allDevices = meshDevice.get_devices();
-  LOG_ASSERT(allDevices.size() > 0, "Unexpected empty device mesh");
-  std::vector<tt_metal::IDevice *> deviceList = {allDevices[0]};
-  LOG_ASSERT(deviceList.size() == 1, "Only one device is supported for now");
-  LOG_ASSERT(program->device_programs()->size() == deviceList.size(),
-             "Device programs size mismatch");
-
-  std::vector<Tensor> outputs;
-  for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
-    tt_metal::IDevice *device = deviceList[i];
-
-    ZoneScoped;
-    std::string zoneName = "submit_" + std::string(program->name()->c_str()) +
-                           "_device_" + std::to_string(device->id());
-    ZoneName(zoneName.c_str(), zoneName.size());
-
-    LOG_ASSERT(outputs.empty(), "Multi-device outputs not supported");
-    outputs = executeDeviceProgram(device, program->device_programs()->Get(i),
-                                   inputs, common::DylibManager(fbb.dylibs()));
-    LOG_ASSERT(outputs.size() == program->outputs()->size(),
-               "Outputs size mismatch");
-  }
-
-  return outputs;
+  std::visit(utils::overloaded{
+                 [&](const TensorDesc &) { /* no-op */ },
+                 [&](const MeshBuffer &) {
+                   LOG_FATAL(
+                       "deallocateTensor not yet implemented for mesh buffer");
+                 },
+             },
+             tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 std::string getOpDebugString(OpContext opContextHandle) {
@@ -531,8 +497,8 @@ std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
             assert(data);
             return std::vector<std::byte>(data, data + desc.sizeBytes());
           },
-          [&](const DeviceBuffer &buffer) {
-            LOG_FATAL("getTensorDataBuffer from DeviceBuffer not supported.");
+          [&](const MeshBuffer &buffer) {
+            LOG_FATAL("getTensorDataBuffer from MeshBuffer not supported.");
             return std::vector<std::byte>{};
           },
       },
@@ -558,13 +524,43 @@ std::uint32_t getTensorVolume(Tensor tensor) {
 TensorDesc getTensorDesc(Tensor tensor) {
   return std::visit(utils::overloaded{
                         [&](const TensorDesc &desc) { return desc; },
-                        [&](const DeviceBuffer &buffer) {
+                        [&](const MeshBuffer &buffer) {
                           LOG_FATAL(
-                              "getTensorDesc from DeviceBuffer not supported.");
+                              "getTensorDesc from MeshBuffer not supported.");
                           return TensorDesc{};
                         },
                     },
                     tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> &inputs) {
+  const target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
+  const target::metal::Program *program = fbb.programs()->Get(programIndex);
+  tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  std::vector<tt_metal::IDevice *> allDevices = meshDevice.get_devices();
+  LOG_ASSERT(meshDevice.num_rows() == 1 && meshDevice.num_cols() == 1,
+             "Currently we only support 1x1 mesh.");
+
+  std::vector<Tensor> outputs;
+  for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
+    ZoneScoped;
+    std::string zoneName = "submit_" + std::string(program->name()->c_str()) +
+                           "_device_" + std::to_string(meshDevice.id());
+    ZoneName(zoneName.c_str(), zoneName.size());
+
+    outputs = executeMeshDeviceProgram(
+        &meshDevice, program->device_programs()->Get(i), inputs,
+        common::DylibManager(fbb.dylibs()));
+
+    LOG_ASSERT(outputs.size() == program->outputs()->size(),
+               "Outputs size mismatch");
+  }
+
+  return outputs;
 }
 
 } // namespace tt::runtime::ttmetal
