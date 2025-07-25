@@ -1665,6 +1665,46 @@ TEST_F(OpModelBase, maxPool2DOp) {
   }
 }
 
+TEST_F(OpModelBase, LeakyReluOp) {
+  // Create LeakyReluOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input param
+  float slope = 0.01f;
+
+  // Convert float value to APFloat object
+  llvm::APFloat slopeAPF(slope);
+
+  LeakyReluOp leakyReluOp = builder.create<LeakyReluOp>(
+      builder.getUnknownLoc(), outputType, input, slopeAPF);
+  leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, clampScalarOp) {
   // Create ClampScalarOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};

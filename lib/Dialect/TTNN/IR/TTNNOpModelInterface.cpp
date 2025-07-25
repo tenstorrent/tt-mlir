@@ -213,6 +213,46 @@ ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// LeakyReluOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LeakyReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::LeakyReluOpInterface::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getParameter(), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+LeakyReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::LeakyReluOpInterface::getOpRuntime, *this, inputShape,
+      inputs[0], getParameter(), outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // SinOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

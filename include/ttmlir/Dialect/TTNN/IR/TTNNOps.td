@@ -552,7 +552,9 @@ class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
     ];
 }
 
-def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise leaky relu operation.";
     let description = [{
       The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
