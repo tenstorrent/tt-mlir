@@ -135,6 +135,10 @@ public:
   getTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   std::pair<TensorPtrMapIterator, bool>
+  insertRuntimeTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
+                                 const ::tt::runtime::Tensor &runtimeTensor);
+
+  std::pair<TensorPtrMapIterator, bool>
   insertTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                               const ::ttnn::Tensor &ttnnTensor,
                               bool retain = false);

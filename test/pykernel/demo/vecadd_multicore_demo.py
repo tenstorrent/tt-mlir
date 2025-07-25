@@ -56,15 +56,12 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
-        tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tile_bytes = get_tile_size(cb_out)
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, onetile):
@@ -83,23 +80,16 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         src_addr1,
         num_tiles,
         start_id,
-        src0_is_dram: CompileTimeValue,
-        src1_is_dram: CompileTimeValue,
     ):
         onetile = 1
-        tile_bytes0 = get_tile_size(cb_in0)
-        dataformat0 = get_dataformat(cb_in0)
 
-        s0 = get_interleaved_addr_gen_fast(
-            src0_is_dram, src_addr0, tile_bytes0, dataformat0
-        )
+        tile_bytes0 = get_tile_size(cb_in0)
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        dataformat1 = get_dataformat(cb_in1)
-
-        s1 = get_interleaved_addr_gen_fast(
-            src1_is_dram, src_addr1, tile_bytes1, dataformat1
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         end_id = start_id + num_tiles
         for i in range(start_id, end_id, onetile):
@@ -136,9 +126,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         cb_out = self.create_cb(out_tensor, 2)
         start_id = 0
 
-        is_a_dram = a_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_b_dram = b_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_out_dram = out_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
+        self.set_tensor_accessor_config(a_tensor)
 
         num_tiles = ceil(
             max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024
@@ -180,7 +168,6 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
-                dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.reader_binary_interleaved,
@@ -190,65 +177,67 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 b_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
-                src0_is_dram=is_a_dram,
-                src1_is_dram=is_b_dram,
             ),
         ]
 
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-# Device Definitions
-device = ttnn.open_device(device_id=0)
+def main(device):
+    # I/O Tensor Definitions
+    num_tiles = 4
+    shape = [1, num_tiles, 32, 32]
+    data = torch.rand(shape).to(torch.bfloat16)
+    data2 = torch.rand(shape).to(torch.bfloat16)
 
-# I/O Tensor Definitions
-num_tiles = 4
-shape = [1, num_tiles, 32, 32]
-data = torch.rand(shape).to(torch.bfloat16)
-data2 = torch.rand(shape).to(torch.bfloat16)
+    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    a_tensor = ttnn.from_torch(
+        data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-a_tensor = ttnn.from_torch(
-    data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    b_tensor = ttnn.from_torch(
+        data2,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-b_tensor = ttnn.from_torch(
-    data2,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    output_tensor = ttnn.allocate_tensor_on_device(
+        ttnn.Shape(shape),
+        ttnn.bfloat16,
+        ttnn.TILE_LAYOUT,
+        device,
+        dram_memory_config,
+    )
 
-output_tensor = ttnn.allocate_tensor_on_device(
-    ttnn.Shape(shape),
-    ttnn.bfloat16,
-    ttnn.TILE_LAYOUT,
-    device,
-    dram_memory_config,
-)
+    # Define Custom Generic Op
+    core_ranges = None  # Define core ranges here
+    vecadd_op = VecAddMulticorePyKernelOp()
 
-# Define Custom Generic Op
-core_ranges = None  # Define core ranges here
-vecadd_op = VecAddMulticorePyKernelOp()
+    # Run tests against the golden "add" op.
+    output = vecadd_op(a_tensor, b_tensor, output_tensor)
+    golden = ttnn.add(a_tensor, b_tensor)
 
-# Run tests against the golden "add" op.
-output = vecadd_op(a_tensor, b_tensor, output_tensor)
-golden = ttnn.add(a_tensor, b_tensor)
+    torch_golden = ttnn.to_torch(golden)
+    torch_output = ttnn.to_torch(output)
 
-torch_golden = ttnn.to_torch(golden)
-torch_output = ttnn.to_torch(output)
+    print(f"a_tensor: {a_tensor}")
+    print(f"b_tensor: {b_tensor}")
+    print(f"torch_golden: {torch_golden}")
+    print(f"torch_output: {torch_output}")
 
-print(f"a_tensor: {a_tensor}")
-print(f"b_tensor: {b_tensor}")
-print(f"torch_golden: {torch_golden}")
-print(f"torch_output: {torch_output}")
+    matching = torch.allclose(torch_golden, torch_output)
+    print(f"Tensors are matching: {matching}")
+    assert matching
 
-matching = torch.allclose(torch_golden, torch_output)
-print(f"Tensors are matching: {matching}")
-assert matching
+
+if __name__ == "__main__":
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)

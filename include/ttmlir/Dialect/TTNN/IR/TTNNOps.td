@@ -303,7 +303,9 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
     }];
 }
 
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
@@ -398,7 +400,9 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
     }];
 }
 
-def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise tanh op.";
 
     let extraClassDeclaration = [{
@@ -465,7 +469,9 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
     }];
 }
 
-def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
+def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
@@ -593,7 +599,9 @@ def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
-def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
+def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise greater than.";
     let description = [{
       Eltwise greater than operation.

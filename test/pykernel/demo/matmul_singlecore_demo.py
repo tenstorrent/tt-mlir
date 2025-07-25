@@ -53,14 +53,11 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         dst_addr,
         M,
         N,
-        dst_is_dram: CompileTimeValue,
     ):
         tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         for m in range(0, M, 1):
             for n in range(0, N, 1):
@@ -83,22 +80,14 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         M,
         N,
         K,
-        src0_is_dram: CompileTimeValue,
-        src1_is_dram: CompileTimeValue,
     ):
         tile_bytes0 = get_tile_size(cb_in0)
-        dataformat0 = get_dataformat(cb_in0)
-
-        s0 = get_interleaved_addr_gen_fast(
-            src0_is_dram, src_addr0, tile_bytes0, dataformat0
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        dataformat1 = get_dataformat(cb_in1)
-
-        s1 = get_interleaved_addr_gen_fast(
-            src1_is_dram, src_addr1, tile_bytes1, dataformat1
-        )
+        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         for m in range(0, M, 1):
             for n in range(0, N, 1):
@@ -131,9 +120,7 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         cb_in1 = self.create_cb(b_tensor, 1)
         cb_out = self.create_cb(out_tensor, 16)
 
-        is_a_dram = a_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_b_dram = b_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        is_out_dram = out_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
+        self.set_tensor_accessor_config([a_tensor, b_tensor, out_tensor])
 
         # Calculate M, N, K as tile numbers, tiles are 32x32
         # A[MxK], B[KxN], Output[MxN]
@@ -151,7 +138,6 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 M,
                 N,
-                dst_is_dram=is_out_dram,
             ),
             self.create_kernel(
                 MatmulSinglecorePyKernelOp.reader_single_core_mm,
@@ -162,73 +148,75 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 M,
                 N,
                 K,
-                src0_is_dram=is_a_dram,
-                src1_is_dram=is_b_dram,
             ),
         ]
 
         return self.create_program(kernels, [cb_in0, cb_in1, cb_out])
 
 
-# Device Definitions
-device = ttnn.open_device(device_id=0)
+def main(device):
+    # I/O Tensor Definitions
 
-# I/O Tensor Definitions
+    # Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
+    M = 4
+    K = 4
+    N = 4
 
-# Given two matrices being inputted, MxK and KxN, the resultant matrix will be of MxN dimensions.
-M = 4
-K = 4
-N = 4
+    a_shape = [M * 32, K * 32]
+    a_data = torch.rand(a_shape).to(torch.bfloat16)
 
-a_shape = [M * 32, K * 32]
-a_data = torch.rand(a_shape).to(torch.bfloat16)
+    b_shape = [K * 32, N * 32]
+    b_data = torch.rand(b_shape).to(torch.bfloat16)
 
-b_shape = [K * 32, N * 32]
-b_data = torch.rand(b_shape).to(torch.bfloat16)
+    out_shape = [M * 32, N * 32]
 
-out_shape = [M * 32, N * 32]
+    dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
-dram_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    a_tensor = ttnn.from_torch(
+        a_data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-a_tensor = ttnn.from_torch(
-    a_data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    b_tensor = ttnn.from_torch(
+        b_data,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=dram_memory_config,
+    )
 
-b_tensor = ttnn.from_torch(
-    b_data,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=dram_memory_config,
-)
+    output_tensor = ttnn.allocate_tensor_on_device(
+        ttnn.Shape(out_shape),
+        ttnn.bfloat16,
+        ttnn.TILE_LAYOUT,
+        device,
+        dram_memory_config,
+    )
 
-output_tensor = ttnn.allocate_tensor_on_device(
-    ttnn.Shape(out_shape),
-    ttnn.bfloat16,
-    ttnn.TILE_LAYOUT,
-    device,
-    dram_memory_config,
-)
+    matmul_op = MatmulSinglecorePyKernelOp()
 
-matmul_op = MatmulSinglecorePyKernelOp()
+    # Run tests against the golden "add" op.
+    output = matmul_op(a_tensor, b_tensor, output_tensor)
+    golden = ttnn.matmul(a_tensor, b_tensor)
 
-# Run tests against the golden "add" op.
-output = matmul_op(a_tensor, b_tensor, output_tensor)
-golden = ttnn.matmul(a_tensor, b_tensor)
+    torch_golden = ttnn.to_torch(golden)
+    torch_output = ttnn.to_torch(output)
 
-torch_golden = ttnn.to_torch(golden)
-torch_output = ttnn.to_torch(output)
+    print(f"a_tensor: {a_tensor}")
+    print(f"b_tensor: {b_tensor}")
+    print(f"torch_golden: {torch_golden}")
+    print(f"torch_output: {torch_output}")
 
-print(f"a_tensor: {a_tensor}")
-print(f"b_tensor: {b_tensor}")
-print(f"torch_golden: {torch_golden}")
-print(f"torch_output: {torch_output}")
+    # Accuracy errors due to device flags that we may not be setting and using (which ttnn could be using)
+    matching = torch.allclose(torch_golden, torch_output, atol=1)
+    print(f"Tensors are matching: {matching}")
+    assert matching
 
-# Accuracy errors due to device flags that we may not be setting and using (which ttnn could be using)
-matching = torch.allclose(torch_golden, torch_output, atol=1)
-print(f"Tensors are matching: {matching}")
-assert matching
+
+if __name__ == "__main__":
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)
