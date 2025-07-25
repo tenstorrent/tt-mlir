@@ -585,78 +585,78 @@ public:
 } // namespace
 
 namespace {
-class TTIRDMARewriter : public OpConversionPattern<ttir::DMAOp> {
+
+Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
+  // This is required because we blanket convert Memrefs into CBs with a type
+  // converter, however there are actually two paths a memref can take:
+  // 1. It can be a CBType, which is the case for local memrefs
+  // 2. It can represent remote data, which we need to lower to a compile time
+  // address (I32 type)
+  // More information on ticket #3172
+  return rewriter
+      .create<UnrealizedConversionCastOp>(loc, rewriter.getI32Type(), cb)
+      ->getResult(0);
+}
+
+Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
+                      ValueRange index, ttcore::ChipDescAttr chipDesc,
+                      ttcore::MemorySpace memspace) {
+  assert(memspace == ttcore::MemorySpace::DeviceL1 ||
+         memspace == ttcore::MemorySpace::DeviceDRAM);
+  auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
+  assert(index.size() == 3);
+  Value noc_addr_op;
+  if (memspace == ttcore::MemorySpace::DeviceL1) {
+    auto gridY = index[0];
+    auto gridX = index[1];
+    auto offset = index[2];
+    auto offsetInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
+    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+    // Translate the src coordinates to virtual coordinates.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+    noc_addr_op =
+        rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+  } else {
+    auto bankID = index[1];
+    auto bankIDInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
+    auto offset = index[2];
+    auto offsetInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
+    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+
+    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
+                                                             addr);
+  }
+  return noc_addr_op;
+}
+
+template <typename ReadWritePtrOp>
+Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
+                     ValueRange index) {
+  // Use the cb addr as the write address since it is local.
+  Value baseAddr = rewriter.create<ReadWritePtrOp>(loc, cb);
+  auto offset =
+      rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), index[0]);
+  return rewriter.create<arith::AddIOp>(loc, baseAddr, offset);
+}
+
+class TTIRLoweredDMAReadRewriter
+    : public OpConversionPattern<ttir::LoweredDMAReadOp> {
 public:
-  TTIRDMARewriter(TypeConverter &typeConverter, MLIRContext *context,
-                  const ttir::AssociatedDMAWaits *associatedDMAWaits)
-      : OpConversionPattern<ttir::DMAOp>(typeConverter, context),
+  TTIRLoweredDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                             const ttir::AssociatedDMAWaits *associatedDMAWaits)
+      : OpConversionPattern<ttir::LoweredDMAReadOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
 
-  static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc,
-                                   Value cb) {
-    // This is required because we blanket convert Memrefs into CBs with a type
-    // converter, however there are actually two paths a memref can take:
-    // 1. It can be a CBType, which is the case for local memrefs
-    // 2. It can represent remote data, which we need to lower to a compile time
-    // address (I32 type)
-    // More information on ticket #3172
-    return rewriter
-        .create<UnrealizedConversionCastOp>(loc, rewriter.getI32Type(), cb)
-        ->getResult(0);
-  }
-
-  static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                               ValueRange index, ttcore::ChipDescAttr chipDesc,
-                               ttcore::MemorySpace memspace) {
-    assert(memspace == ttcore::MemorySpace::DeviceL1 ||
-           memspace == ttcore::MemorySpace::DeviceDRAM);
-    auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
-    assert(index.size() == 3);
-    Value noc_addr_op;
-    if (memspace == ttcore::MemorySpace::DeviceL1) {
-      auto gridY = index[0];
-      auto gridX = index[1];
-      auto offset = index[2];
-      auto offsetInt = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI32Type(), offset);
-      auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-      // Translate the src coordinates to virtual coordinates.
-      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-      noc_addr_op =
-          rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
-    } else {
-      auto bankID = index[1];
-      auto bankIDInt = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI32Type(), bankID);
-      auto offset = index[2];
-      auto offsetInt = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI32Type(), offset);
-      auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-
-      return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
-                                                               addr);
-    }
-    return noc_addr_op;
-  }
-
-  template <typename ReadWritePtrOp>
-  static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
-                              ValueRange index) {
-    // Use the cb addr as the write address since it is local.
-    Value baseAddr = rewriter.create<ReadWritePtrOp>(loc, cb);
-    auto offset = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI32Type(), index[0]);
-    return rewriter.create<arith::AddIOp>(loc, baseAddr, offset);
-  }
-
   LogicalResult
-  matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
+  matchAndRewrite(ttir::LoweredDMAReadOp op,
+                  ttir::LoweredDMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op.isLowered()) {
-      return rewriter.notifyMatchFailure(
-          op, "Unsupported DMA form that is not lowered.");
-    }
+
+    llvm::dbgs() << "Calling TTIRLoweredDMAReadRewriter matchAndRewrite ... \n";
 
     auto device = ttcore::lookupDevice(op);
     auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
@@ -664,8 +664,59 @@ public:
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
-    bool isRead = false;
-    if (op.isSrcLocal() && op.isDstLocal()) {
+    // NOTE: All reads must be from remote locations in LoweredDMAReadOp
+    // local->local transfers are lowered as nocAsyncWrites, which require
+    // write barriers.
+    auto srcNocAddr =
+        buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
+                        op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
+    auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+        rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+    auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+    rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
+                                              dstL1Addr, size);
+
+    // Add attribute marking whether the DMA wait is for a read or write
+    // operation This will be used when loweing the wait ops because the current
+    // DMA op will be replaced with a NullTx.
+    auto dmaWaitOps = associatedDMAWaits->get(op);
+    for (auto dmaWaitOp : dmaWaitOps) {
+      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
+        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_read",
+                                      rewriter.getUnitAttr());
+      });
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::NullTxOp>(op);
+
+    return success();
+  }
+
+private:
+  const ttir::AssociatedDMAWaits *associatedDMAWaits;
+};
+
+class TTIRLoweredDMAWriteRewriter
+    : public OpConversionPattern<ttir::LoweredDMAWriteOp> {
+public:
+  TTIRLoweredDMAWriteRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      const ttir::AssociatedDMAWaits *associatedDMAWaits)
+      : OpConversionPattern<ttir::LoweredDMAWriteOp>(typeConverter, context),
+        associatedDMAWaits(associatedDMAWaits) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::LoweredDMAWriteOp op,
+                  ttir::LoweredDMAWriteOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    auto device = ttcore::lookupDevice(op);
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
+    auto chipIds = device.getChipIds();
+    assert(chipIds.size() == 1);
+    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
 
       // Both src and dst are local, use the metal cb pointers to determine
@@ -722,7 +773,7 @@ public:
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                    nocAddr, transferSize);
       }
-    } else if (op.isSrcLocal() && op.isDstRemote()) {
+    } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
       auto dstNocAddr =
@@ -731,20 +782,6 @@ public:
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  dstNocAddr, size);
-      isRead = false;
-    } else if (op.isSrcRemote() && op.isDstLocal()) {
-      auto srcNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
-                          op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
-      auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
-          rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
-                                                dstL1Addr, size);
-      isRead = true;
-    } else {
-      emitError(op.getLoc(), "Unsupported DMA Configuration");
-      return failure();
     }
 
     // Add attribute marking whether the DMA wait is for a read or write
@@ -753,13 +790,8 @@ public:
     auto dmaWaitOps = associatedDMAWaits->get(op);
     for (auto dmaWaitOp : dmaWaitOps) {
       rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        if (isRead) {
-          dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_read",
-                                        rewriter.getUnitAttr());
-        } else {
-          dmaWaitOp->setDiscardableAttr(
-              "ttkernel.lowering.associated_noc_write", rewriter.getUnitAttr());
-        }
+        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_write",
+                                      rewriter.getUnitAttr());
       });
     }
 
@@ -1140,7 +1172,8 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRLoweredDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRLoweredDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
   // clang-format on
 }
 

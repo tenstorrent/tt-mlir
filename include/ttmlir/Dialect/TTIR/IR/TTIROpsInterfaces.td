@@ -141,6 +141,7 @@ def TTIR_LoweredDMAOpInterface : OpInterface<"LoweredDMAOpInterface"> {
     InterfaceMethod<[{}], "::mlir::OpOperand&", "getSrcMutable">,
     InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
     InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
   ];
 }
 
