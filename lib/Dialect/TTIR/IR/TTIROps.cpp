@@ -104,8 +104,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   // one operand is dequantized, one is quantized — try to quantize the
   // dequantized one.
   if ((lhsElemQ && !rhsElemQ) || (!lhsElemQ && rhsElemQ)) {
-    Value dequantVal = lhsElemQ ? rhs : lhs;
     Value quantVal = lhsElemQ ? lhs : rhs;
+    Value dequantVal = lhsElemQ ? rhs : lhs;
     auto quantElemQ = lhsElemQ ? lhsElemQ : rhsElemQ;
     auto quantType = mlir::cast<mlir::RankedTensorType>(quantVal.getType());
     auto expressedType =
@@ -136,9 +136,13 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
         rewriter, getLoc(), newType, dequantVal);
 
     // Update operands.
-    lhsElemQ ? rhs = quantizedInput : lhs = quantizedInput;
+    if (lhsElemQ) {
+      rhs = quantizedInput;
+    } else {
+      lhs = quantizedInput;
+      lhsElemQ = quantElemQ;
+    }
   }
-
   // now both values are quantized (and are equivalent).
   Value output = outputOperands.front();
   RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
