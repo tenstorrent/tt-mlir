@@ -3,6 +3,7 @@ add_mlir_extension_library(TTMLIRTransforms
         ReenableLostDPS.cpp
         RemoveReturnValues.cpp
         WrapAffineFor.cpp
+        ExtractGPUModules.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
