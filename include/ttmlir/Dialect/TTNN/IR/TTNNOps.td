@@ -476,7 +476,9 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt",
     }];
 }
 
-def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise rsqrt.";
     let description = [{
       Eltwise rsqrt operation.

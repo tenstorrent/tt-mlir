@@ -262,6 +262,10 @@ const auto createAtan = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<AtanOp>(loc, type, ops).getOperation();
 };
+const auto createRsqrt = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<RsqrtOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -285,7 +289,8 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"LogicalNot", createLogicalNot, expected},
     {"Neg", createNeg, expected},
     {"Tan", createTan, expected},
-    {"Atan", createAtan, expected}};
+    {"Atan", createAtan, expected},
+    {"Rsqrt", createRsqrt, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
