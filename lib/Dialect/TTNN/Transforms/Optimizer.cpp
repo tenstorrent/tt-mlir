@@ -271,6 +271,9 @@ public:
     llvm::DenseSet<Edge> overrideReshardEdges;
     extractReshardEdges(moduleOp, overrideReshardEdges);
 
+    llvm::DenseSet<Operation *> rowMajorOutputOps;
+    extractRowMajorOutputOps(moduleOp, rowMajorOutputOps);
+
     if (memoryLayoutAnalysisEnabled) {
       // Perform memory layout analysis.
       //
@@ -278,7 +281,7 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          overrideReshardEdges, memoryLayoutAnalysisPolicy));
+          overrideReshardEdges, rowMajorOutputOps, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =
@@ -547,6 +550,36 @@ private:
     // Check for non-existing ops in override
     //
     assert(insertMemReconfig.size() == overrideReshardEdges.size());
+  }
+
+  void
+  extractRowMajorOutputOps(ModuleOp &moduleOp,
+                           llvm::DenseSet<Operation *> &rowMajorOutputOps) {
+    moduleOp->walk([&](Operation *op) {
+      if (isa<ToLayoutOp>(op)) {
+        return;
+      }
+
+      // Skip ops without location
+      //
+      if (!isa<NameLoc>(op->getLoc())) {
+        return;
+      }
+
+      StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+      auto opOutputOverride = overrideOutputLayout.find(opLocName);
+      if (opOutputOverride == overrideOutputLayout.end()) {
+        return;
+      }
+
+      if (opOutputOverride->getValue().memoryLayout.has_value() &&
+          opOutputOverride->getValue().memoryLayout.value() ==
+              Layout::RowMajor) {
+        rowMajorOutputOps.insert(op);
+      }
+    });
+    llvm::outs() << "Number of found output memory layouts: "
+                 << rowMajorOutputOps.size() << "\n";
   }
 
   static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(

@@ -55,6 +55,7 @@ ShardSolver::ShardSolver(
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
+    const llvm::DenseSet<Operation *> &rowMajorOutputOps,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                  Operation *, OpConfig)>
         customCheckShardCompatible)
@@ -62,6 +63,7 @@ ShardSolver::ShardSolver(
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
       memReconfigEdges(overrideReshardEdges),
+      rowMajorOutputOps(rowMajorOutputOps),
       customCheckShardCompatible(customCheckShardCompatible) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
@@ -285,16 +287,21 @@ bool ShardSolver::resolveStep() {
 }
 
 bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
-                                                        OpConfig outputConfig) {
-  TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
-      mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
-
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-               "Checking if interleaved to sharded is possible for op : {}",
-               op->getName());
+                                                        OpConfig outputConfig,
+                                                        bool rowMajorInput) {
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  TTNNLayoutAttr inputLayout =
+      mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
+
+  if (rowMajorInput) {
+    Type inputElementType = inputLayout.getScalarElementType();
+    inputLayout = inputLayout.withElementType(inputElementType, tensorShape);
+  }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
       checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);
@@ -321,6 +328,9 @@ bool ShardSolver::preprocessFirstOp() {
     return true;
   }
 
+  Operation *preFirstOp = firstOp->getOperand(0).getDefiningOp();
+  bool rowMajorInput = preFirstOp && rowMajorOutputOps.count(preFirstOp) > 0;
+
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
   const std::vector<OpConfig> &firstOpConfigs = getLegalConfigs(firstOp);
 
@@ -333,10 +343,11 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
-    // could be overriden.
+    // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while
+    // it could be overriden.
     // https://github.com/tenstorrent/tt-mlir/issues/3749
-    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
+    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
+                                               rowMajorInput)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Interleaved to sharded not possible for config idx {} "
                    "\n\tlayout: {}",
@@ -361,10 +372,10 @@ bool ShardSolver::preprocessFirstOp() {
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "Interleaved to sharded is not possible, trying reshard for first op {}",
-      firstOp->getName());
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Interleaved to sharded is not possible, trying reshard for "
+               "first op {}",
+               firstOp->getName());
 
   return insertReshard(shardChainInputEdge);
 }
@@ -806,7 +817,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   // Figure out this const based on exec data, but will be replaced
   // with API.
   //
-  constexpr float tensorL1UsageCap = 0.8;
+  constexpr float tensorL1UsageCap = 0.9;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {

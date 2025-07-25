@@ -327,13 +327,15 @@ public:
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Operation *> &rowMajorOutputOps = {},
       std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                    Operation *, OpConfig)>
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
   bool supportsInterleavedInputShardedOutput(Operation *op,
-                                             OpConfig outputConfig);
+                                             OpConfig outputConfig,
+                                             bool rowMajorInput = false);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
   bool resolve();
@@ -364,6 +366,8 @@ private:
 
   // Edges indicated for resharding.
   llvm::DenseSet<Edge> memReconfigEdges;
+  // Row major output ops.
+  llvm::DenseSet<Operation *> rowMajorOutputOps;
 
   std::function<llvm::Expected<TTNNLayoutAttr>(mlir::Value, TTNNLayoutAttr,
                                                mlir::Operation *, OpConfig)>
