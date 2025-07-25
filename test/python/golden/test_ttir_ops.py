@@ -2350,9 +2350,9 @@ def test_gather(
     ids=["simple_1d", "complex_indices"],
 )
 # note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
-@pytest.mark.skip(
-    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
-)
+# @pytest.mark.skip(
+#    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
+# )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
