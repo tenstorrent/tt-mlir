@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/OpDefinition.h"
 
 namespace mlir::tt::ttnn {
@@ -133,6 +134,45 @@ public:
     }
 
     return mlir::success();
+  }
+};
+
+template <typename ConcreteType>
+struct BroadcastableTrait
+    : public OpTrait::TraitBase<ConcreteType, BroadcastableTrait> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    assert(op->getNumResults() == 1 &&
+           "Expected a single result for broadcastable operation");
+
+    auto getShape = [](const Value val) {
+      return mlir::cast<mlir::RankedTensorType>(val.getType()).getShape();
+    };
+    auto operandShapes = llvm::map_range(op->getOperands(), getShape);
+
+    llvm::SmallVector<int64_t> broadcastedShape;
+    for (llvm::ArrayRef<int64_t> operandShape : operandShapes) {
+      llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
+      if (!mlir::OpTrait::util::getBroadcastedShape(
+              prevBroadcastedShape, operandShape, broadcastedShape)) {
+        return op->emitOpError()
+               << "operand shape (" << operandShape
+               << ") is not broadcast compatible with inferred operand shapes ("
+               << prevBroadcastedShape << ")";
+      }
+    }
+
+    // Check that the result shape matches the broadcasted shape of the
+    // operands.
+    llvm::SmallVector<int64_t> resultShape(getShape(op->getResult(0)));
+    if (broadcastedShape != resultShape) {
+      return op->emitOpError()
+             << "result shape (" << resultShape
+             << ") doesn't match expected shape after broadcasting ("
+             << broadcastedShape << ")";
+    }
+
+    return success();
   }
 };
 

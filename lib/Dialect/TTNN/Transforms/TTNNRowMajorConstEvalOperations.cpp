@@ -10,6 +10,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttnn {
 
@@ -17,6 +18,52 @@ namespace mlir::tt::ttnn {
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
+
+class ExplicateBroadcastsRewriter : public RewritePattern {
+public:
+  ExplicateBroadcastsRewriter(MLIRContext *context)
+      : RewritePattern(MatchAnyOpTypeTag{}, /*benefit=*/1, context) {}
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    if (!op->hasTrait<ttnn::BroadcastableTrait>()) {
+      return failure();
+    }
+
+    func::FuncOp funcOp = op->getParentOfType<func::FuncOp>();
+    if (!funcOp || !ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return failure();
+    }
+
+    auto resultShape =
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getShape();
+    bool hasChanged = false;
+
+    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+      mlir::Value operand = op->getOperand(i);
+      auto operandShape =
+          mlir::cast<mlir::RankedTensorType>(operand.getType()).getShape();
+      if (operandShape == resultShape) {
+        continue;
+      }
+
+      RankedTensorType newOutputType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(operand.getType()), resultShape);
+      auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+          operandShape, resultShape);
+      auto shapeAttr =
+          ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
+      auto repeatOp = rewriter.create<ttnn::RepeatOp>(
+          op->getLoc(), newOutputType, operand, shapeAttr);
+
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(i, repeatOp); });
+      hasChanged = true;
+    }
+
+    return success(hasChanged);
+  }
+};
 
 struct ElementTypeConverter : public mlir::TypeConverter {
   ElementTypeConverter() {
@@ -131,6 +178,17 @@ public:
   }
 
   void runOnOperation() final {
+    // First apply broadcast explication patterns
+    RewritePatternSet broadcastPatterns(&getContext());
+    broadcastPatterns.add<ExplicateBroadcastsRewriter>(&getContext());
+    FrozenRewritePatternSet frozenBroadcastPatterns(
+        std::move(broadcastPatterns));
+    if (failed(
+            applyPatternsGreedily(getOperation(), frozenBroadcastPatterns))) {
+      signalPassFailure();
+      return;
+    }
+
     mlir::ConversionTarget target(getContext());
     target.markUnknownOpDynamicallyLegal(
         [&](Operation *op) { return checkDynamicallyLegal(op); });
