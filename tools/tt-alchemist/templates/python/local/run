@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Confirm python3 exists
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 could not be found"
+    exit 1
+fi
+
+# Source the setup script to configure the environment for local ttnn
+if [[ -f "setup.sh" ]]; then
+    echo "Setting up environment for local ttnn..."
+    source setup.sh
+else
+    echo "Warning: setup.sh not found, trying to run without environment setup"
+    # Fallback: try to import ttnn directly
+    if ! python3 -c "import ttnn" &> /dev/null; then
+        echo "Error: ttnn could not be imported"
+        echo "Run ./setup.sh first to configure the environment"
+        exit 1
+    fi
+fi
+
+# Run main.py
+echo "Running main.py..."
+python3 main.py

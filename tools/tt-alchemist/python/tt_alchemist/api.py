@@ -51,6 +51,7 @@ class TTAlchemistAPI:
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
+            ctypes.c_bool,    # is_local
         ]
         self.lib.tt_alchemist_TTAlchemist_generateCpp.restype = ctypes.c_bool
 
@@ -58,6 +59,7 @@ class TTAlchemistAPI:
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
+            ctypes.c_bool,    # is_local
         ]
         self.lib.tt_alchemist_TTAlchemist_generatePython.restype = ctypes.c_bool
 
@@ -111,7 +113,7 @@ class TTAlchemistAPI:
             self.instance_ptr, input_file.encode("utf-8")
         )
 
-    def generate_cpp(self, input_file, output_dir):
+    def generate_cpp(self, input_file, output_dir, local=True):
         """Generate a standalone solution with the generated C++ code.
 
         This generates a directory with all necessary files to build and run the generated code,
@@ -120,6 +122,7 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
+            local: Whether to generate for local execution (True) or standalone (False). Default is True.
 
         Returns:
             bool: True if successful, False otherwise.
@@ -128,9 +131,10 @@ class TTAlchemistAPI:
             self.instance_ptr,
             input_file.encode("utf-8"),
             output_dir.encode("utf-8"),
+            local,
         )
 
-    def generate_python(self, input_file, output_dir):
+    def generate_python(self, input_file, output_dir, local=True):
         """Generate a standalone solution with the generated Python code.
 
         This generates a directory with all necessary files to build and run the generated code,
@@ -139,6 +143,7 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
+            local: Whether to generate for local execution (True) or standalone (False). Default is True.
 
         Returns:
             bool: True if successful, False otherwise.
@@ -147,6 +152,7 @@ class TTAlchemistAPI:
             self.instance_ptr,
             input_file.encode("utf-8"),
             output_dir.encode("utf-8"),
+            local,
         )
 
 
@@ -177,7 +183,7 @@ def model_to_python(input_file):
     return api.model_to_python(input_file)
 
 
-def generate_cpp(input_file, output_dir):
+def generate_cpp(input_file, output_dir, local=True):
     """Generate a standalone solution with the generated C++ code.
 
     This generates a directory with all necessary files to build and run the generated code,
@@ -186,15 +192,16 @@ def generate_cpp(input_file, output_dir):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
+        local: Whether to generate for local execution (True) or standalone (False). Default is True.
 
     Returns:
         bool: True if successful, False otherwise.
     """
     api = TTAlchemistAPI.get_instance()
-    return api.generate_cpp(input_file, output_dir)
+    return api.generate_cpp(input_file, output_dir, local)
 
 
-def generate_python(input_file, output_dir):
+def generate_python(input_file, output_dir, local=True):
     """Generate a standalone solution with the generated Python code.
 
     This generates a directory with all necessary files to build and run the generated code,
@@ -203,9 +210,10 @@ def generate_python(input_file, output_dir):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
+        local: Whether to generate for local execution (True) or standalone (False). Default is True.
 
     Returns:
         bool: True if successful, False otherwise.
     """
     api = TTAlchemistAPI.get_instance()
-    return api.generate_python(input_file, output_dir)
+    return api.generate_python(input_file, output_dir, local)
