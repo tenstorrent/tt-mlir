@@ -1208,9 +1208,18 @@ public:
     DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
 
-    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getPaddingTop(), adaptor.getPaddingBottom(),
-         adaptor.getPaddingLeft(), adaptor.getPaddingRight()});
+    // If the padding is even, we can set the vertical and horizontal padding
+    // here. Otherwise we must set the padding for top/bottom and left/right
+    DenseI32ArrayAttr paddingAttr;
+    if (adaptor.getPaddingTop() == adaptor.getPaddingBottom() &&
+        adaptor.getPaddingLeft() == adaptor.getPaddingRight()) {
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+    } else {
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {adaptor.getPaddingTop(), adaptor.getPaddingBottom(),
+           adaptor.getPaddingLeft(), adaptor.getPaddingRight()});
+    }
 
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});

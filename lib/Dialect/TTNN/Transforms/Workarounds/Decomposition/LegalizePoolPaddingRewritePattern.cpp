@@ -26,24 +26,11 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
   ArrayRef<int32_t> padding = srcOp.getPadding();
 
   // If the padding size is 2, then this op is already legal in ttnn.
-  if (padding.size() == 2) {
+  if (padding.size() != 4) {
     return failure();
   }
 
-  // The padding size for a Pool2dop must be 2 (even padding) or 4 (possibly
-  // uneven padding). If we've reached this point and the padding size is
-  // neither than something has gone wrong earlier in the compile flow.
-  assert(padding.size() == 4 &&
-         "Padding size must be 4 if this point is reached.");
   assert(inputType.getRank() == 4 && "Input type must be 4D.");
-
-  // If the padding is size 4, it may be even. We will check for that and
-  // replace the padding attribute with one of size 2 if it is even.
-  bool isEvenPadding = padding[0] == padding[1] && padding[2] == padding[3];
-  if (isEvenPadding) {
-    rewriter.modifyOpInPlace(srcOp, [&]() { srcOp.setPadding({0, 0}); });
-    return success();
-  }
 
   // At this point we know that the padding is uneven. And so we must explicitly
   // put a PadOp in between the Pool2dOp and the original input.
