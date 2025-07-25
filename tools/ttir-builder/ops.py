@@ -13,7 +13,8 @@ from ttmlir.passes import GoldenTensor, DataType
 import torch
 from enum import Enum, auto
 import re
-from .ccl_golden import *
+from . import ttir_golden
+
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -58,12 +59,12 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         golden_data = [self._get_golden_tensor(in0).size(dimension)]
+        kwargs = {"data": golden_data, "dtype": torch.int32, "dimension": dimension}
         return self.op_proxy(
-            torch.tensor,
+            ttir_golden.get_golden_function(ttir.GetDimensionSizeOp),
             ttir.GetDimensionSizeOp,
             [in0],
-            golden_kwargs={"data": golden_data, "dtype": torch.int32},
-            ttir_kwargs={"dimension": dimension},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: 0,
             output_type=self.get_type_from_torch_dtype(torch.int32),
@@ -121,10 +122,9 @@ class TTIRBuilderOps:
             "contract_dims_rhs": contract_dims_rhs,
         }
         return self.op_proxy(
-            self.dot_general_golden_function,
+            ttir_golden.get_golden_function(ttir.DotGeneralOp),
             ttir.DotGeneralOp,
             [in0, in1, out0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             output_type=self.get_type_from_torch_dtype(
@@ -227,7 +227,7 @@ class TTIRBuilderOps:
         condition = torch.full(in0_tensor.shape, False)
         condition[in0_tensor > 0] = True
         return self.op_proxy(
-            torch.where,
+            ttir_golden.get_golden_function(ttir.WhereOp),
             ttir.WhereOp,
             [in0, in1, in2],
             organize_golden_args=lambda i: (
@@ -275,7 +275,10 @@ class TTIRBuilderOps:
         -------
         (*OpView*)
         """
-        return self.eltwise_proxy(torch.abs, ttir.AbsOp, [in0], unit_attrs)
+
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.AbsOp), ttir.AbsOp, [in0], unit_attrs
+        )
 
     def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -308,16 +311,8 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the cubic root of each element in the input tensor
         """
-        golden = self._get_golden_tensor(in0)
-        golden_sign = torch.sign(golden)
-        golden_cbrt = torch.pow(torch.abs(golden), 1 / 3)
-        return self.op_proxy(
-            torch.mul,
-            ttir.CbrtOp,
-            [in0],
-            golden_kwargs={"input": golden_sign, "other": golden_cbrt},
-            organize_golden_args=lambda i: 0,
-            unit_attrs=unit_attrs,
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.CbrtOp), ttir.CbrtOp, [in0], unit_attrs
         )
 
     def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
@@ -341,7 +336,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with ceiling values
         """
-        return self.eltwise_proxy(torch.ceil, ttir.CeilOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.CeilOp), ttir.CeilOp, [in0], unit_attrs
+        )
 
     def cos(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -373,7 +370,9 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the cosine of each element in the input tensor
         """
-        return self.eltwise_proxy(torch.cos, ttir.CosOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.CosOp), ttir.CosOp, [in0], unit_attrs
+        )
 
     def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -396,7 +395,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with floor values
         """
-        return self.eltwise_proxy(torch.floor, ttir.FloorOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.FloorOp),
+            ttir.FloorOp,
+            [in0],
+            unit_attrs,
+        )
 
     def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -432,7 +436,7 @@ class TTIRBuilderOps:
             A tensor containing the GELU values of each element in the input tensor
         """
         return self.eltwise_proxy(
-            torch.nn.functional.gelu, ttir.GeluOp, [in0], unit_attrs
+            ttir_golden.get_golden_function(ttir.GeluOp), ttir.GeluOp, [in0], unit_attrs
         )
 
     def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
@@ -466,7 +470,12 @@ class TTIRBuilderOps:
         -------
         (*OpView*)
         """
-        return self.eltwise_proxy(torch.isfinite, ttir.IsFiniteOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.IsFiniteOp),
+            ttir.IsFiniteOp,
+            [in0],
+            unit_attrs,
+        )
 
     def logical_not(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
@@ -502,11 +511,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.logical_not,
+            ttir_golden.get_golden_function(ttir.LogicalNotOp),
             ttir.LogicalNotOp,
             [in0],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -553,7 +563,10 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         return self.eltwise_proxy(
-            torch.bitwise_not, ttir.BitwiseNotOp, [in0], unit_attrs
+            ttir_golden.get_golden_function(ttir.BitwiseNotOp),
+            ttir.BitwiseNotOp,
+            [in0],
+            unit_attrs,
         )
 
     def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
@@ -588,7 +601,9 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the negation of each input element
         """
-        return self.eltwise_proxy(torch.neg, ttir.NegOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.NegOp), ttir.NegOp, [in0], unit_attrs
+        )
 
     def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -610,7 +625,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with tangent values
         """
-        return self.eltwise_proxy(torch.tan, ttir.TanOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.TanOp), ttir.TanOp, [in0], unit_attrs
+        )
 
     def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -632,7 +649,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with arctangent values
         """
-        return self.eltwise_proxy(torch.atan, ttir.AtanOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.AtanOp), ttir.AtanOp, [in0], unit_attrs
+        )
 
     def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -654,7 +673,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with hyperbolic tangent values
         """
-        return self.eltwise_proxy(torch.tanh, ttir.TanhOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.TanhOp), ttir.TanhOp, [in0], unit_attrs
+        )
 
     def reciprocal(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
@@ -680,7 +701,10 @@ class TTIRBuilderOps:
             Tensor with reciprocal values
         """
         return self.eltwise_proxy(
-            torch.reciprocal, ttir.ReciprocalOp, [in0], unit_attrs
+            ttir_golden.get_golden_function(ttir.ReciprocalOp),
+            ttir.ReciprocalOp,
+            [in0],
+            unit_attrs,
         )
 
     def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
@@ -704,7 +728,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with ReLU activation values
         """
-        return self.eltwise_proxy(torch.relu, ttir.ReluOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.ReluOp), ttir.ReluOp, [in0], unit_attrs
+        )
 
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -726,7 +752,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with reciprocal square root values
         """
-        return self.eltwise_proxy(torch.rsqrt, ttir.RsqrtOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.RsqrtOp),
+            ttir.RsqrtOp,
+            [in0],
+            unit_attrs,
+        )
 
     def sigmoid(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -748,7 +779,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with sigmoid activation values
         """
-        return self.eltwise_proxy(torch.sigmoid, ttir.SigmoidOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.SigmoidOp),
+            ttir.SigmoidOp,
+            [in0],
+            unit_attrs,
+        )
 
     def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -771,7 +807,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with sign values
         """
-        return self.eltwise_proxy(torch.sign, ttir.SignOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.SignOp), ttir.SignOp, [in0], unit_attrs
+        )
 
     def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -793,7 +831,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with sine values
         """
-        return self.eltwise_proxy(torch.sin, ttir.SinOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.SinOp), ttir.SinOp, [in0], unit_attrs
+        )
 
     def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -815,7 +855,9 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with square root values
         """
-        return self.eltwise_proxy(torch.sqrt, ttir.SqrtOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.SqrtOp), ttir.SqrtOp, [in0], unit_attrs
+        )
 
     def typecast(
         self, in0: Operand, out: Operand, unit_attrs: Optional[List[str]] = None
@@ -854,11 +896,12 @@ class TTIRBuilderOps:
             A tensor containing the input values cast to the output type
         """
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(out).dtype)
+        kwargs = {"dtype": self._get_golden_tensor(out).type()}
         return self.op_proxy(
-            torch.Tensor.type,
+            ttir_golden.get_golden_function(ttir.TypecastOp),
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
+            ttir_kwargs=kwargs,
             output_type=output_type,
             unit_attrs=unit_attrs,
         )
@@ -893,7 +936,9 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the natural logarithm of each element in the input tensor
         """
-        return self.eltwise_proxy(torch.log, ttir.LogOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.LogOp), ttir.LogOp, [in0], unit_attrs
+        )
 
     def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """Elementwise natural logarithm of one plus input operation.
@@ -925,7 +970,12 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the log1p values of the input tensor
         """
-        return self.eltwise_proxy(torch.log1p, ttir.Log1pOp, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.Log1pOp),
+            ttir.Log1pOp,
+            [in0],
+            unit_attrs,
+        )
 
     def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -958,7 +1008,12 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing exp(x) - 1 for each element x in the input tensor
         """
-        return self.eltwise_proxy(torch.expm1, ttir.Expm1Op, [in0], unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.Expm1Op),
+            ttir.Expm1Op,
+            [in0],
+            unit_attrs,
+        )
 
     # class TTIR_ElementwiseUnaryWithFloatParameterOp
 
@@ -1004,15 +1059,12 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the leaky ReLU activation values
         """
-        # TODO: reconcile this naming mismatch
-        ttir_kwargs = {"parameter": parameter}
-        golden_kwargs = {"negative_slope": parameter}
+        kwargs = {"parameter": parameter}
         return self.op_proxy(
-            torch.nn.functional.leaky_relu,
+            ttir_golden.get_golden_function(ttir.LeakyReluOp),
             ttir.LeakyReluOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1061,11 +1113,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.eq,
+            ttir_golden.get_golden_function(ttir.EqualOp),
             ttir.EqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1112,11 +1165,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.ne,
+            ttir_golden.get_golden_function(ttir.NotEqualOp),
             ttir.NotEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1160,11 +1214,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.ge,
+            ttir_golden.get_golden_function(ttir.GreaterEqualOp),
             ttir.GreaterEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1208,11 +1263,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.gt,
+            ttir_golden.get_golden_function(ttir.GreaterThanOp),
             ttir.GreaterThanOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1256,11 +1312,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.le,
+            ttir_golden.get_golden_function(ttir.LessEqualOp),
             ttir.LessEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1304,11 +1361,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.lt,
+            ttir_golden.get_golden_function(ttir.LessThanOp),
             ttir.LessThanOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1352,11 +1410,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.logical_and,
+            ttir_golden.get_golden_function(ttir.LogicalAndOp),
             ttir.LogicalAndOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1402,11 +1461,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.logical_or,
+            ttir_golden.get_golden_function(ttir.LogicalOrOp),
             ttir.LogicalOrOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1450,11 +1510,12 @@ class TTIRBuilderOps:
         """
         golden = self._get_golden_tensor(in0)
         golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        kwargs = {"out": golden_output}
         return self.op_proxy(
-            torch.logical_xor,
+            ttir_golden.get_golden_function(ttir.LogicalXorOp),
             ttir.LogicalXorOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1499,7 +1560,10 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         return self.eltwise_proxy(
-            torch.bitwise_and, ttir.BitwiseAndOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.BitwiseAndOp),
+            ttir.BitwiseAndOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def bitwise_or(
@@ -1543,7 +1607,10 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         return self.eltwise_proxy(
-            torch.bitwise_or, ttir.BitwiseOrOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.BitwiseOrOp),
+            ttir.BitwiseOrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def bitwise_xor(
@@ -1586,7 +1653,10 @@ class TTIRBuilderOps:
             A tensor containing the bitwise XOR of corresponding elements
         """
         return self.eltwise_proxy(
-            torch.bitwise_xor, ttir.BitwiseXorOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.BitwiseXorOp),
+            ttir.BitwiseXorOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def minimum(
@@ -1615,7 +1685,10 @@ class TTIRBuilderOps:
             Tensor with minimum values
         """
         return self.eltwise_proxy(
-            torch.minimum, ttir.MinimumOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.MinimumOp),
+            ttir.MinimumOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def subtract(
@@ -1657,7 +1730,10 @@ class TTIRBuilderOps:
             A tensor containing the elementwise difference of the inputs
         """
         return self.eltwise_proxy(
-            torch.subtract, ttir.SubtractOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.SubtractOp),
+            ttir.SubtractOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def remainder(
@@ -1685,7 +1761,10 @@ class TTIRBuilderOps:
             Tensor with remainder values
         """
         return self.eltwise_proxy(
-            torch.remainder, ttir.RemainderOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.RemainderOp),
+            ttir.RemainderOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def pow(
@@ -1713,7 +1792,10 @@ class TTIRBuilderOps:
             Tensor with power values
         """
         return self.eltwise_proxy(
-            torch.pow, ttir.PowOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.PowOp),
+            ttir.PowOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     # class TTIR_ReductionOp
@@ -1750,10 +1832,9 @@ class TTIRBuilderOps:
         """
         kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
-            self.argmax_golden_function,
+            ttir_golden.get_golden_function(ttir.ArgMaxOp),
             ttir.ArgMaxOp,
             [in0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
@@ -1808,12 +1889,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with summed values
         """
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
-            torch.sum,
+            ttir_golden.get_golden_function(ttir.SumOp),
             ttir.SumOp,
             [in0],
-            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
-            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1848,12 +1929,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with mean values
         """
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
-            torch.mean,
+            ttir_golden.get_golden_function(ttir.MeanOp),
             ttir.MeanOp,
             [in0],
-            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
-            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1888,29 +1969,21 @@ class TTIRBuilderOps:
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        golden_kwargs = {}
-        ttir_kwargs = {"keep_dim": True}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
         if dim_arg is not None:
-            golden_kwargs = {"dim": dim_arg, "keepdim": True}
-            ttir_kwargs["dim_arg"] = [dim_arg]
-
+            kwargs = {"dim_arg": [dim_arg], "keep_dim": True}
             output_shape = input_shape.copy()
             output_shape[dim_arg] = 1
-            golden_fn = lambda x, *args, **kwargs: torch.max(
-                x, dim=kwargs["dim"], keepdim=kwargs["keepdim"]
-            )
         else:
+            kwargs = {"dim_arg": None, "keep_dim": True}
             output_shape = [1] * ndim
-            golden_fn = lambda x, *args, **kwargs: torch.max(x).reshape(*output_shape)
 
         return self.op_proxy(
-            golden_fn,
+            ttir_golden.get_golden_function(ttir.MaxOp),
             ttir.MaxOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
+            ttir_kwargs=kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
@@ -1946,21 +2019,19 @@ class TTIRBuilderOps:
             Tensor with minimum values
         """
         # Handle ttir and golden function arguments for edge cases
-        golden_kwargs = {}
-        ttir_kwargs = {"keep_dim": keep_dim}
         output_shape = [1] * len(self.get_shape(in0))
         if dim_arg:
-            golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
-            ttir_kwargs["dim_arg"] = [dim_arg]
+            kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+        else:
+            kwargs = {"keep_dim": keep_dim}
         if not keep_dim:
             output_shape = torch.Size([1])
 
         return self.op_proxy(
-            torch.min,
+            ttir_golden.get_golden_function(ttir.MinOp),
             ttir.MinOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
+            ttir_kwargs=kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
@@ -1997,12 +2068,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with logical AND values
         """
+        kwargs = {"dim_arg": dim_args, "keep_dim": keep_dim}
         return self.op_proxy(
-            torch.all,
+            ttir_golden.get_golden_function(ttir.ReduceAndOp),
             ttir.ReduceAndOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2038,12 +2109,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with logical OR values
         """
+        kwargs = {"dim_arg": dim_args, "keep_dim": keep_dim}
         return self.op_proxy(
-            torch.any,
+            ttir_golden.get_golden_function(ttir.ReduceOrOp),
             ttir.ReduceOrOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args)},
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2077,19 +2148,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with product values
         """
-        golden_kwargs = {}
-        if len(dim_arg) == 1:
-            golden_kwargs["dim"] = dim_arg[0]
-            golden_kwargs["keepdim"] = keep_dim
-            golden_function = torch.prod
-        else:
-            golden_function = lambda i: torch.tensor([torch.prod(i[0]).item()])
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
-            golden_function,
+            ttir_golden.get_golden_function(ttir.ProdOp),
             ttir.ProdOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2133,16 +2197,10 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the embeddings for the input indices
         """
-        embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(in1))
-        golden_typecast = self._get_golden_tensor(in0).to(torch.int32)
-        golden_input = torch.clamp(
-            golden_typecast, 0, (self._get_golden_tensor(in1).size()[0] - 1)
-        )
         return self.op_proxy(
-            embedding,
+            ttir_golden.get_golden_function(ttir.EmbeddingOp),
             ttir.EmbeddingOp,
             [in0, in1],
-            organize_golden_args=lambda i: (golden_input,),
             unit_attrs=unit_attrs,
         )
 
@@ -2189,14 +2247,16 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the cumulative sums along the specified dimension
         """
+        kwargs = {"dim": dim, "output": in1}
         return self.op_proxy(
-            torch.cumsum,
+            ttir_golden.get_golden_function(ttir.CumSumOp),
             ttir.CumSumOp,
             [in0, in1],
-            golden_kwargs={"dim": dim},
-            ttir_kwargs={"dim": dim, "output": in1},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0])
+            ],  # Only pass the input tensor
             unit_attrs=unit_attrs,
         )
 
@@ -2225,16 +2285,16 @@ class TTIRBuilderOps:
         (*OpView*)
             Output tensor after softmax
         """
+        kwargs = {"dimension": dimension}
         return self.op_proxy(
-            torch.nn.functional.softmax,
+            ttir_golden.get_golden_function(ttir.SoftmaxOp),
             ttir.SoftmaxOp,
             [in0],
-            golden_kwargs={"dim": dimension},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
                 o,
-                dimension,
             ),
             unit_attrs=unit_attrs,
         )
@@ -2271,10 +2331,9 @@ class TTIRBuilderOps:
         """
         kwargs = {"dim0": dim0, "dim1": dim1}
         return self.op_proxy(
-            torch.transpose,
+            ttir_golden.get_golden_function(ttir.TransposeOp),
             ttir.TransposeOp,
             [in0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
@@ -2306,10 +2365,9 @@ class TTIRBuilderOps:
         """
         kwargs = {"dim": dim}
         return self.op_proxy(
-            torch.concat,
+            ttir_golden.get_golden_function(ttir.ConcatOp),
             ttir.ConcatOp,
             ins,
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             # special handling is needed here to get around arg expansion; `torch.concat` takes a tuple of tensors on input
             organize_golden_args=lambda i: (
@@ -2343,12 +2401,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with repeated elements
         """
+        kwargs = {"repeat_dimensions": dims}
         return self.op_proxy(
-            torch.Tensor.repeat,
+            ttir_golden.get_golden_function(ttir.RepeatOp),
             ttir.RepeatOp,
             [in0],
-            golden_kwargs={"repeats": dims},
-            ttir_kwargs={"repeat_dimensions": dims},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2383,14 +2441,23 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with interleaved repeated elements
         """
+        kwargs = {"repeats": repeats, "dim": dim}
         return self.op_proxy(
-            torch.repeat_interleave,
+            ttir_golden.get_golden_function(ttir.RepeatInterleaveOp),
             ttir.RepeatInterleaveOp,
             [in0, in1],
-            golden_kwargs={"repeats": repeats, "dim": dim},
-            ttir_kwargs={"repeats": repeats, "dim": dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            ttir_kwargs={"repeats": repeats},  # Only repeats, dim passed positionally
+            golden_kwargs=kwargs,  # Full kwargs for golden function
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                i[1],
+                repeats,
+                dim,
+            ),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0])
+            ],  # Only pass the input tensor
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in1).dtype
             ),
@@ -2447,17 +2514,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The updated cache tensor
         """
-        cache_tensor = self._get_golden_tensor(in0)
-        input_tensor = self._get_golden_tensor(in1)
-        cache_tensor[:, :, : input_tensor.shape[2], :] = input_tensor
         return self.op_proxy(
-            torch.clone,
+            ttir_golden.get_golden_function(ttir.FillCacheOp),
             ttir.FillCacheOp,
             [in0, in1],
-            golden_kwargs={"input": cache_tensor},
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            organize_golden_args=lambda i: 0,
             unit_attrs=unit_attrs,
         )
 
@@ -2517,19 +2579,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The updated cache tensor
         """
-        cache = self._get_golden_tensor(in0)
-        input_tensor = self._get_golden_tensor(in1)
-        index = torch.clamp(self._get_golden_tensor(in2), 0, cache.size()[2])
-        a = cache[:, :, : index[0], :]
-        b = cache[:, :, : (cache.size()[2] - index[0] - 1), :]
         return self.op_proxy(
-            torch.cat,
+            ttir_golden.get_golden_function(ttir.UpdateCacheOp),
             ttir.UpdateCacheOp,
             [in0, in1, in2],
-            golden_kwargs={"tensors": (a, input_tensor, b), "dim": 2},
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
-            organize_golden_args=lambda i: 0,
             unit_attrs=unit_attrs,
         )
 
@@ -2575,12 +2630,15 @@ class TTIRBuilderOps:
         (*OpView*)
             The broadcasted tensor
         """
+        kwargs = {
+            "size": self.get_shape(in1),
+            "broadcast_dimensions": broadcast_dimensions,
+        }
         return self.op_proxy(
-            torch.broadcast_to,
+            ttir_golden.get_golden_function(ttir.BroadcastOp),
             ttir.BroadcastOp,
             [in0],
-            golden_kwargs={"size": self.get_shape(in1)},
-            ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2647,34 +2705,29 @@ class TTIRBuilderOps:
         """
         if not bias:
             bias = None
+        kwargs = {
+            "stride": (
+                IntegerAttr.get(IntegerType.get_signed(32), stride)
+                if isinstance(stride, int)
+                else DenseI32ArrayAttr.get(stride)
+            ),
+            "padding": (
+                IntegerAttr.get(IntegerType.get_signed(32), padding)
+                if isinstance(padding, int)
+                else DenseI32ArrayAttr.get(padding)
+            ),
+            "dilation": (
+                IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                if isinstance(dilation, int)
+                else DenseI32ArrayAttr.get(dilation)
+            ),
+            "groups": groups,
+        }
         return self.op_proxy(
-            self.conv2d_golden_function,
+            ttir_golden.get_golden_function(ttir.Conv2dOp),
             ttir.Conv2dOp,
             [in0, weight, bias],
-            golden_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "dilation": dilation,
-                "groups": groups,
-            },
-            ttir_kwargs={
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "groups": groups,
-            },
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
         )
@@ -2776,45 +2829,39 @@ class TTIRBuilderOps:
         """
         if not bias:
             bias = None
+        kwargs = {
+            "stride": (
+                IntegerAttr.get(IntegerType.get_signless(32), stride)
+                if isinstance(stride, int)
+                else DenseI32ArrayAttr.get(stride)
+            ),
+            "padding": (
+                IntegerAttr.get(IntegerType.get_signless(32), padding)
+                if isinstance(padding, int)
+                else DenseI32ArrayAttr.get(padding)
+            ),
+            "output_padding": (
+                IntegerAttr.get(IntegerType.get_signless(32), output_padding)
+                if isinstance(output_padding, int)
+                else DenseI32ArrayAttr.get(output_padding)
+            ),
+            "dilation": (
+                IntegerAttr.get(IntegerType.get_signless(32), dilation)
+                if isinstance(dilation, int)
+                else DenseI32ArrayAttr.get(dilation)
+            ),
+            "groups": (
+                IntegerAttr.get(IntegerType.get_signless(32), groups)
+                if isinstance(groups, int)
+                else DenseI32ArrayAttr.get(groups)
+            ),
+            "bias": bias,
+        }
         return self.op_proxy(
             self.conv_transpose2d_golden_function,
             ttir.ConvTranspose2dOp,
             [in0, weight],
-            golden_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "output_padding": output_padding,
-                "dilation": dilation,
-                "groups": groups,
-            },
-            ttir_kwargs={
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signless(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signless(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "output_padding": (
-                    IntegerAttr.get(IntegerType.get_signless(32), output_padding)
-                    if isinstance(output_padding, int)
-                    else DenseI32ArrayAttr.get(output_padding)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signless(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "groups": (
-                    IntegerAttr.get(IntegerType.get_signless(32), groups)
-                    if isinstance(groups, int)
-                    else DenseI32ArrayAttr.get(groups)
-                ),
-                "bias": bias,
-            },
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2828,16 +2875,31 @@ class TTIRBuilderOps:
         output_padding: Union[int, List[int]],
         dilation: Union[int, List[int]],
         groups: int,
+        bias=None,  # Accept bias parameter but ignore it (we create our own bias)
+        **kwargs,  # Accept any other kwargs
     ) -> Operand:
-        # Reorganize ttir_kwargs into golden_kwargs
-        stride = list(stride) if not isinstance(stride, int) else int(stride)
-        padding = list(padding) if not isinstance(padding, int) else int(padding)
-        output_padding = (
-            list(output_padding)
-            if not isinstance(output_padding, int)
-            else int(output_padding)
-        )
-        dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
+        # Reorganize ttir_kwargs into golden_kwargs and handle MLIR attributes
+        def convert_mlir_param(value):
+            """Convert MLIR attributes to Python values"""
+            # Handle IntegerAttr
+            if hasattr(value, "value"):
+                return value.value
+            # Handle DenseI32ArrayAttr/DenseI64ArrayAttr
+            elif hasattr(value, "__iter__") and hasattr(value, "_CAPIPtr"):
+                return list(value)
+            # Handle regular int/list
+            elif isinstance(value, int):
+                return value
+            elif isinstance(value, (list, tuple)):
+                return list(value)
+            else:
+                return value
+
+        stride = convert_mlir_param(stride)
+        padding = convert_mlir_param(padding)
+        output_padding = convert_mlir_param(output_padding)
+        dilation = convert_mlir_param(dilation)
+        groups = convert_mlir_param(groups)
         golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -2901,30 +2963,24 @@ class TTIRBuilderOps:
         (*OpView*)
             Output tensor after max pooling
         """
+        kwargs = {
+            "kernel_height": kernel_height,
+            "kernel_width": kernel_width,
+            "stride_height": stride_height,
+            "stride_width": stride_width,
+            "dilation_height": dilation_height,
+            "dilation_width": dilation_width,
+            "ceil_mode": ceil_mode,
+            "padding_left": padding_left,
+            "padding_right": padding_right,
+            "padding_top": padding_top,
+            "padding_bottom": padding_bottom,
+        }
         return self.op_proxy(
-            self.max_pool2d_golden_function,
+            ttir_golden.get_golden_function(ttir.MaxPool2dOp),
             ttir.MaxPool2dOp,
             [in0],
-            golden_kwargs={
-                "kernel_size": (kernel_height, kernel_width),
-                "stride": (stride_height, stride_width),
-                "padding": (padding_top, padding_left),
-                "dilation": (dilation_height, dilation_width),
-                "ceil_mode": ceil_mode,
-            },
-            ttir_kwargs={
-                "kernel_height": kernel_height,
-                "kernel_width": kernel_width,
-                "stride_height": stride_height,
-                "stride_width": stride_width,
-                "dilation_height": dilation_height,
-                "dilation_width": dilation_width,
-                "ceil_mode": ceil_mode,
-                "padding_left": padding_left,
-                "padding_right": padding_right,
-                "padding_top": padding_top,
-                "padding_bottom": padding_bottom,
-            },
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3048,11 +3104,10 @@ class TTIRBuilderOps:
         """
         kwargs = {"shape": shape}
         return self.op_proxy(
-            torch.reshape,
+            ttir_golden.get_golden_function(ttir.ReshapeOp),
             ttir.ReshapeOp,
             [in0],
             ttir_kwargs=kwargs,
-            golden_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3090,19 +3145,15 @@ class TTIRBuilderOps:
         (*OpView*)
             The padded tensor
         """
-        # Reformatting padding dimensions for golden tensor:
-        golden_padding = []
-        for i in range(len(padding) // 2):
-            golden_padding.append(padding[-((2 * i) + 2)])
-            golden_padding.append(padding[-((2 * i) + 1)])
         return self.op_proxy(
-            torch.nn.functional.pad,
+            ttir_golden.get_golden_function(ttir.PadOp),
             ttir.PadOp,
             [in0, in1],
-            golden_kwargs={"pad": golden_padding, "mode": "constant", "value": value},
             ttir_kwargs={"padding": padding, "value": value},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0])
+            ],  # Only pass the input tensor
             unit_attrs=unit_attrs,
         )
 
@@ -3142,19 +3193,17 @@ class TTIRBuilderOps:
         (*OpView*)
             The selected slice of the tensor
         """
-        end = begin + length - 1
-        index = torch.tensor([begin, end])
+        kwargs = {
+            "dim": dim,
+            "begin": begin,
+            "length": length,
+            "stride": stride,
+        }
         return self.op_proxy(
-            torch.index_select,
+            ttir_golden.get_golden_function(ttir.IndexSelectOp),
             ttir.IndexSelectOp,
             [in0],
-            golden_kwargs={"dim": dim, "index": index},
-            ttir_kwargs={
-                "dim": dim,
-                "begin": begin,
-                "length": length,
-                "stride": stride,
-            },
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3194,19 +3243,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The indexed tensor
         """
-        import math
-
-        num_indices = math.ceil((end - begin) / step)
-        indices = []
-        for i in range(num_indices):
-            indices.append((begin + i) * step)
-        index = torch.tensor(indices)
+        kwargs = {"dim": dim, "begin": begin, "end": end, "step": step}
         return self.op_proxy(
-            torch.index_select,
+            ttir_golden.get_golden_function(ttir.IndexOp),
             ttir.IndexOp,
             [in0],
-            golden_kwargs={"dim": dim, "index": index},
-            ttir_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3240,10 +3282,9 @@ class TTIRBuilderOps:
         """
         kwargs = {"dim": dim}
         return self.op_proxy(
-            torch.squeeze,
+            ttir_golden.get_golden_function(ttir.SqueezeOp),
             ttir.SqueezeOp,
             [in0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
@@ -3277,10 +3318,9 @@ class TTIRBuilderOps:
         """
         kwargs = {"dim": dim}
         return self.op_proxy(
-            torch.unsqueeze,
+            ttir_golden.get_golden_function(ttir.UnsqueezeOp),
             ttir.UnsqueezeOp,
             [in0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
@@ -3294,11 +3334,10 @@ class TTIRBuilderOps:
     ) -> OpView:
         kwargs = {"min": min_arg, "max": max_arg}
         return self.op_proxy(
-            torch.clamp,
+            ttir_golden.get_golden_function(ttir.ClampScalarOp),
             ttir.ClampScalarOp,
             [in0],
             ttir_kwargs=kwargs,
-            golden_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3311,15 +3350,9 @@ class TTIRBuilderOps:
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         return self.op_proxy(
-            torch.clamp,
+            ttir_golden.get_golden_function(ttir.ClampTensorOp),
             ttir.ClampTensorOp,
             [in0, in1, in2, in3],
-            golden_kwargs={
-                "input": self._get_golden_tensor(in0),
-                "min": self._get_golden_tensor(in1),
-                "max": self._get_golden_tensor(in2),
-                "out": self._get_golden_tensor(in3),
-            },
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
@@ -3327,7 +3360,12 @@ class TTIRBuilderOps:
                 i[2],
                 i[3],
             ),
-            organize_golden_args=lambda i: 0,
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0]),  # input tensor
+                self._get_golden_tensor(i[1]),  # min tensor
+                self._get_golden_tensor(i[2]),  # max tensor
+                # Skip i[3] which is the output tensor - torch.clamp doesn't need it
+            ],
             unit_attrs=unit_attrs,
         )
 
@@ -3358,12 +3396,12 @@ class TTIRBuilderOps:
         """
         output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
+        kwargs = {"result": output, "shape": shape}
         return self.op_proxy(
-            torch.zeros,
+            ttir_golden.get_golden_function(ttir.ZerosOp),
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shape},
-            ttir_kwargs={"result": output, "shape": shape},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
             unit_attrs=unit_attrs,
@@ -3390,12 +3428,12 @@ class TTIRBuilderOps:
             Tensor of ones with specified shape
         """
         output = self.ranked_tensor_type(shape)
+        kwargs = {"result": output, "shape": shape}
         return self.op_proxy(
-            torch.ones,
+            ttir_golden.get_golden_function(ttir.OnesOp),
             ttir.OnesOp,
             [],
-            golden_kwargs={"size": shape},
-            ttir_kwargs={"result": output, "shape": shape},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, shape: 0,
             unit_attrs=unit_attrs,
         )
@@ -3426,10 +3464,9 @@ class TTIRBuilderOps:
             Tensor with reversed elements
         """
         return self.op_proxy(
-            torch.flip,
+            ttir_golden.get_golden_function(ttir.ReverseOp),
             ttir.ReverseOp,
             [in0],
-            golden_kwargs={"dims": dims},
             ttir_kwargs={"dimensions": dims},
             unit_attrs=unit_attrs,
         )
@@ -3466,13 +3503,19 @@ class TTIRBuilderOps:
         (*OpView*)
             Output tensor after linear transformation
         """
-        kwargs = {"transpose_a": transpose_a, "transpose_b": transpose_b, "bias": bias}
+        inputs = [in0, in1]
+        if bias is not None:
+            inputs.append(bias)
+
         return self.op_proxy(
-            self.linear_golden_function,
+            ttir_golden.get_golden_function(ttir.LinearOp),
             ttir.LinearOp,
             [in0, in1],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
+            ttir_kwargs={
+                "transpose_a": transpose_a,
+                "transpose_b": transpose_b,
+                "bias": bias,
+            },
             unit_attrs=unit_attrs,
         )
 
@@ -3511,7 +3554,7 @@ class TTIRBuilderOps:
         if bias:
             inputs.append(bias)
         return self.op_proxy(
-            torch.matmul,
+            ttir_golden.get_golden_function(ttir.MatmulOp),
             ttir.MatmulOp,
             inputs,
             unit_attrs=unit_attrs,
@@ -3545,14 +3588,16 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with permuted dimensions
         """
+        kwargs = {"permutation": DenseI64ArrayAttr.get(permutation)}
         return self.op_proxy(
-            torch.permute,
+            ttir_golden.get_golden_function(ttir.PermuteOp),
             ttir.PermuteOp,
             [in0, in1],
-            golden_kwargs={"dims": tuple(permutation)},
-            ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0])
+            ],  # Only pass the input tensor
             unit_attrs=unit_attrs,
         )
 
@@ -3574,10 +3619,9 @@ class TTIRBuilderOps:
             "mode": mode,
         }
         return self.op_proxy(
-            self.upsample2d_golden_function,
+            ttir_golden.get_golden_function(ttir.Upsample2dOp),
             ttir.Upsample2dOp,
             [in0, in1],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], o),
             output_shape=output_shape,
@@ -3642,17 +3686,18 @@ class TTIRBuilderOps:
             else:
                 repeat_dims.append(shape[i])
 
+        kwargs = {
+            "start": start,
+            "end": end,
+            "step": step,
+            "arange_dimension": arange_dimension,
+            "repeats": tuple(repeat_dims),
+        }
         return self.op_proxy(
-            torch.Tensor.repeat,
+            ttir_golden.get_golden_function(ttir.ArangeOp),
             ttir.ArangeOp,
             [result, single_dim_tensor],
-            golden_kwargs={"repeats": tuple(repeat_dims)},
-            ttir_kwargs={
-                "start": start,
-                "end": end,
-                "step": step,
-                "arange_dimension": arange_dimension,
-            },
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
             organize_golden_args=lambda i: [i[1]],
             output_shape=shape,
@@ -3695,7 +3740,12 @@ class TTIRBuilderOps:
         (*OpView*)
             A tensor containing the exponential of each element in the input tensor
         """
-        return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0], unit_attrs=unit_attrs)
+        return self.eltwise_proxy(
+            ttir_golden.get_golden_function(ttir.ExpOp),
+            ttir.ExpOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
 
     # class TTIR_GenericElementwiseBinaryOp
 
@@ -3738,7 +3788,7 @@ class TTIRBuilderOps:
             A tensor containing the elementwise sum of the inputs
         """
         return self.eltwise_proxy(
-            torch.add,
+            ttir_golden.get_golden_function(ttir.AddOp),
             ttir.AddOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -3783,7 +3833,7 @@ class TTIRBuilderOps:
             A tensor containing the elementwise product of the inputs
         """
         return self.eltwise_proxy(
-            torch.multiply,
+            ttir_golden.get_golden_function(ttir.MultiplyOp),
             ttir.MultiplyOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -3828,7 +3878,7 @@ class TTIRBuilderOps:
             A tensor containing the elementwise difference of the inputs
         """
         return self.eltwise_proxy(
-            torch.sub,
+            ttir_golden.get_golden_function(ttir.SubtractOp),
             ttir.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -3875,7 +3925,10 @@ class TTIRBuilderOps:
             A tensor containing the elementwise quotient of the inputs
         """
         return self.eltwise_proxy(
-            torch.div, ttir.DivOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.DivOp),
+            ttir.DivOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def maximum(
@@ -3903,7 +3956,10 @@ class TTIRBuilderOps:
             Tensor with maximum values
         """
         return self.eltwise_proxy(
-            torch.maximum, ttir.MaximumOp, [in0, in1], unit_attrs=unit_attrs
+            ttir_golden.get_golden_function(ttir.MaximumOp),
+            ttir.MaximumOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
         )
 
     def quantize(
@@ -3952,14 +4008,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The quantized integer tensor
         """
-        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+        kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
         return self.op_proxy(
-            lambda *args, **kwargs: torch.quantize_per_tensor(
-                *args, **kwargs
-            ).int_repr(),
+            ttir_golden.get_golden_function(ttir.QuantizeOp),
             ttir.QuantizeOp,
             [in0],
-            golden_kwargs=golden_kwargs,
+            ttir_kwargs=kwargs,
             output_type=self.get_type_from_torch_dtype(
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
@@ -4013,7 +4067,7 @@ class TTIRBuilderOps:
             The dequantized floating-point tensor
         """
         return self.op_proxy(
-            torch.dequantize,
+            ttir_golden.get_golden_function(ttir.DequantizeOp),
             ttir.DequantizeOp,
             [in0],
             output_type=self.get_type_from_torch_dtype(dtype=dtype),
@@ -4066,14 +4120,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The requantized integer tensor with new scale and zero-point
         """
-        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+        kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
         return self.op_proxy(
-            lambda *args, **kwargs: torch.quantize_per_tensor(
-                torch.dequantize(args[0]), **kwargs
-            ),
+            ttir_golden.get_golden_function(ttir.RequantizeOp),
             ttir.RequantizeOp,
             [in0],
-            golden_kwargs=golden_kwargs,
+            ttir_kwargs=kwargs,
             output_type=self.get_type_from_torch_dtype(
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
@@ -4122,7 +4174,7 @@ class TTIRBuilderOps:
             The tensor with transformed layout
         """
         return self.op_proxy(
-            lambda *args, **kwargs: args[0],
+            ttir_golden.get_golden_function(ttir.ToLayoutOp),
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
@@ -4178,7 +4230,7 @@ class TTIRBuilderOps:
             A new view of the tensor with the specified layout
         """
         return self.op_proxy(
-            lambda *args, **kwargs: args[0],
+            ttir_golden.get_golden_function(ttir.ViewLayoutOp),
             ttir.ViewLayoutOp,
             [in0],
             ttir_kwargs={"reinterpretLayout": reinterpret_layout},
@@ -4228,7 +4280,7 @@ class TTIRBuilderOps:
             The tensor with tiled layout
         """
         return self.op_proxy(
-            self.tilize_golden,
+            ttir_golden.get_golden_function(ttir.ToLayoutOp, tilize=True),
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
@@ -4280,7 +4332,7 @@ class TTIRBuilderOps:
             The tensor with standard layout
         """
         return self.op_proxy(
-            self.untilize_golden,
+            ttir_golden.get_golden_function(ttir.ToLayoutOp, tilize=False),
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
@@ -4354,10 +4406,10 @@ class TTIRBuilderOps:
             "shard_dims": shard_dims,
         }
         return self.ccl_proxy(
-            mesh_shard_golden,
+            ttir_golden.get_golden_function(ttir.MeshShardOp),
             ttir.MeshShardOp,
             [input],
-            kwargs=kwargs,
+            kwargs,
         )
 
     def all_gather(
@@ -4410,10 +4462,10 @@ class TTIRBuilderOps:
         """
         kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
         return self.ccl_proxy(
-            all_gather_golden,
+            ttir_golden.get_golden_function(ttir.AllGatherOp),
             ttir.AllGatherOp,
             [input],
-            kwargs=kwargs,
+            kwargs,
         )
 
     def all_reduce(
@@ -4447,10 +4499,10 @@ class TTIRBuilderOps:
             "cluster_axis": cluster_axis,
         }
         return self.ccl_proxy(
-            all_reduce_golden,
+            ttir_golden.get_golden_function(ttir.AllReduceOp),
             ttir.AllReduceOp,
             [input],
-            kwargs=kwargs,
+            kwargs,
         )
 
     def reduce_scatter(
@@ -4488,10 +4540,10 @@ class TTIRBuilderOps:
             "cluster_axis": cluster_axis,
         }
         return self.ccl_proxy(
-            reduce_scatter_golden,
+            ttir_golden.get_golden_function(ttir.ReduceScatterOp),
             ttir.ReduceScatterOp,
             [input],
-            kwargs=kwargs,
+            kwargs,
         )
 
     def collective_permute(
@@ -4528,10 +4580,10 @@ class TTIRBuilderOps:
             "source_target_pairs": source_target_pairs,
         }
         return self.ccl_proxy(
-            collective_permute_golden,
+            ttir_golden.get_golden_function(ttir.CollectivePermuteOp),
             ttir.CollectivePermuteOp,
             [input],
-            kwargs=kwargs,
+            kwargs,
         )
 
     def gather(
@@ -4725,8 +4777,8 @@ class TTIRBuilderOps:
                 # General gather case (not used in your tests)
                 raise NotImplementedError("General gather not implemented")
 
-        # Define kwargs for the TTIR operation
-        ttir_kwargs = {
+        # Use unified kwargs with MLIR attributes (smart wrapper will convert for golden)
+        kwargs = {
             "offset_dims": offset_dims_attr,
             "collapsed_slice_dims": collapsed_slice_dims_attr,
             "operand_batching_dims": operand_batching_dims_attr,
@@ -4739,14 +4791,13 @@ class TTIRBuilderOps:
 
         # Use op_proxy to create the operation
         return self.op_proxy(
-            gather_golden_fn,
+            ttir_golden.get_golden_function(ttir.GatherOp),
             ttir.GatherOp,
             [input, start_indices],
-            golden_kwargs={},
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
-            ttir_kwargs=ttir_kwargs,
         )
 
     def slice(
@@ -4855,15 +4906,15 @@ class TTIRBuilderOps:
             return x[tuple(slices)]
 
         # Use op_proxy
+        kwargs = {"begins": begins_attr, "ends": ends_attr, "step": step_attr}
         return self.op_proxy(
-            slice_golden_fn,
+            ttir_golden.get_golden_function(ttir.SliceOp),
             ttir.SliceOp,
             [in0],
-            golden_kwargs={},  # No kwargs needed - closure captures begins/ends/step
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
-            ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
         )
 
 
