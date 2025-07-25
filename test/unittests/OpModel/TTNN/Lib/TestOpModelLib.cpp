@@ -433,11 +433,13 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+  SingletonDeviceContext::resetInstance();
 
   constraintsExp = ReshapeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
@@ -447,11 +449,13 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+  SingletonDeviceContext::resetInstance();
 
   runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+  SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelTest, Slice) {
@@ -1488,8 +1492,6 @@ class OpModelConv2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1623,9 +1625,6 @@ class OpModelConvTranspose2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3970
-  GTEST_SKIP();
-
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
