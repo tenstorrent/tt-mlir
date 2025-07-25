@@ -67,6 +67,7 @@ void createTTIRToTTMetalFrontendPipeline(
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
     toTTIRGenericOptions.useTileMatmul = options.useTileMatmul;
+    toTTIRGenericOptions.collapseTensorsTo2D = options.collapseTensors;
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toTTIRGenericOptions.overrideDeviceShape =
