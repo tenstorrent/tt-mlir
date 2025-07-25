@@ -2435,3 +2435,99 @@ module @SyncTensorsGraph.13 attributes {mhlo.cross_program_prefetches = [], mhlo
     return %10 : tensor<1024x4096xf32>
   }
 }
+
+// -----
+
+module @all_to_all_1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<2x128xf32>) -> (tensor<16x16xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,8]<=[8]}"} : (tensor<2x128xf32>) -> tensor<2x128xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<2x128xf32>) -> tensor<2x16xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 1, 8>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    %2 = call @shmap_body(%1) : (tensor<2x16xf32>) -> tensor<16x2xf32>
+    // CHECK: "ttir.all_to_all"
+    // CHECK-SAME: concat_dim = 0 : si32
+    // CHECK-SAME: replica_groups = dense
+    // CHECK-SAME: split_count = 8 : si32
+    // CHECK-SAME: split_dim = 1 : si32
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<16x2xf32>) -> tensor<16x2xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,8]<=[8]}"} : (tensor<16x2xf32>) -> tensor<16x16xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 1, 8>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    return %4 : tensor<16x16xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<2x16xf32>) -> (tensor<16x2xf32> {jax.result_info = "[None, ('x',)]"}) {
+    %0 = "stablehlo.all_to_all"(%arg0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, concat_dimension = 0 : i64, replica_groups = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi64>, split_count = 8 : i64, split_dimension = 1 : i64}> : (tensor<2x16xf32>) -> tensor<16x2xf32>
+    return %0 : tensor<16x2xf32>
+  }
+}
+
+// -----
+
+module @all_to_all_2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<4x128xf32>) -> (tensor<16x32xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,4,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<4x128xf32>) -> tensor<4x128xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<4x128xf32>) -> tensor<4x32xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 1, 4>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    %2 = call @shmap_body(%1) : (tensor<4x32xf32>) -> tensor<16x8xf32>
+    // CHECK: "ttir.all_to_all"
+    // CHECK-SAME: concat_dim = 0 : si32
+    // CHECK-SAME: replica_groups = dense
+    // CHECK-SAME: split_count = 4 : si32
+    // CHECK-SAME: split_dim = 1 : si32
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<16x8xf32>) -> tensor<16x8xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,4,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<16x8xf32>) -> tensor<16x32xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 1, 4>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    return %4 : tensor<16x32xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<4x32xf32>) -> (tensor<16x8xf32> {jax.result_info = "[None, ('y',)]"}) {
+    %0 = "stablehlo.all_to_all"(%arg0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, concat_dimension = 0 : i64, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, split_count = 4 : i64, split_dimension = 1 : i64}> : (tensor<4x32xf32>) -> tensor<16x8xf32>
+    return %0 : tensor<16x8xf32>
+  }
+}
+
+// -----
+
+module @all_to_all_3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<4x128xf32>) -> (tensor<16x32xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[2,4]<=[8]}"} : (tensor<4x128xf32>) -> tensor<4x128xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<4x128xf32>) -> tensor<2x32xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: 0, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 2, 4>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    %2 = call @shmap_body(%1) : (tensor<2x32xf32>) -> tensor<8x8xf32>
+    // CHECK: "ttir.all_to_all"
+    // CHECK-SAME: concat_dim = 0 : si32
+    // CHECK-SAME: replica_groups = dense
+    // CHECK-SAME: split_count = 4 : si32
+    // CHECK-SAME: split_dim = 1 : si32
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<8x8xf32>) -> tensor<8x8xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[2,4]<=[8]}"} : (tensor<8x8xf32>) -> tensor<16x32xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: 0, 1>
+    // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 2, 4>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+    return %4 : tensor<16x32xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<2x32xf32>) -> (tensor<8x8xf32> {jax.result_info = "[('x',), ('y',)]"}) {
+    %0 = "stablehlo.all_to_all"(%arg0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, concat_dimension = 0 : i64, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, split_count = 4 : i64, split_dimension = 1 : i64}> : (tensor<2x32xf32>) -> tensor<8x8xf32>
+    return %0 : tensor<8x8xf32>
+  }
+}

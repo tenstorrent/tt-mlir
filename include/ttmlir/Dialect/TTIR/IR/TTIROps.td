@@ -5250,4 +5250,32 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
+def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
+    let summary = "All to All operation.";
+    let description = [{
+      The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
+      the resulting slices to other devices along cluster_axis, and then concatenates the received slices along concat_dimension.
+
+      Example:
+        For a 1x2 mesh and a local input of shape [8, 4]:
+          - split_dimension = 1
+          - concat_dimension = 0
+          - split_count = 2
+          - cluster_axis = 1
+
+        Each device splits its [8, 4] tensor into two [8, 2] slices. After the exchange, each device concatenates the two received [8, 2] slices
+        into a [16, 2] output tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$split_dim,
+                         SI32Attr:$concat_dim,
+                         SI32Attr:$split_count,
+                         I64ElementsAttr:$replica_groups);
+
+    let results = (outs AnyRankedTensor:$result);
+    let hasVerifier = 1;
+}
+
 #endif
