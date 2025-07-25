@@ -136,7 +136,7 @@ void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
   //
   // Skip below verification steps for tensor style or lowered DMA.
   //
-  if (isLowered() || skipChecksForTensorType) {
+  if (skipChecksForTensorType) {
     return success();
   }
 
@@ -292,6 +292,37 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
+//===----------------------------------------------------------------------===//
+// LoweredDMAWriteOp and LoweredDMAReadOp
+//===----------------------------------------------------------------------===//
+
+void mlir::tt::ttir::LoweredDMAWriteOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tx");
+}
+
+void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+void mlir::tt::ttir::LoweredDMAReadOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tx");
+}
+
+void mlir::tt::ttir::LoweredDMAReadOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSrcMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+}
 //===----------------------------------------------------------------------===//
 // CoreIndexOp
 //===----------------------------------------------------------------------===//

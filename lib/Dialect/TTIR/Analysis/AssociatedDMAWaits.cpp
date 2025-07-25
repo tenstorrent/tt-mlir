@@ -5,7 +5,8 @@
 #include "ttmlir/Dialect/TTIR/Analysis/AssociatedDMAWaits.h"
 namespace mlir::tt::ttir {
 
-static SmallVector<ttir::DMAWaitOp> findAssociatedDMAWaits(ttir::DMAOp op) {
+static SmallVector<ttir::DMAWaitOp>
+findAssociatedDMAWaits(LoweredDMAOpInterface op) {
   SmallVector<OpOperand *> uses(llvm::map_range(
       op.getResult().getUses(), [](OpOperand &use) { return &use; }));
   SmallVector<ttir::DMAWaitOp> dmaWaits;
@@ -32,7 +33,7 @@ static SmallVector<ttir::DMAWaitOp> findAssociatedDMAWaits(ttir::DMAOp op) {
 }
 
 AssociatedDMAWaits::AssociatedDMAWaits(Operation *op) {
-  op->walk([&](ttir::DMAOp dmaOp) {
+  op->walk([&](LoweredDMAOpInterface dmaOp) {
     dmaWaitsMap[dmaOp] = findAssociatedDMAWaits(dmaOp);
   });
 }

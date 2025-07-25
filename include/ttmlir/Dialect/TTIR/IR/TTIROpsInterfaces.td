@@ -128,4 +128,21 @@ def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInte
   ];
 }
 
+def TTIR_LoweredDMAOpInterface : OpInterface<"LoweredDMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface allows querying the common aspects of
+    LoweredDMA(Read|Write)Ops ; mostly that they have two memref-like
+    operands.
+  }];
+  let methods = [
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getSrc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getDst">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getSrcMutable">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
+    InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
+  ];
+}
+
 #endif
