@@ -9,6 +9,8 @@ ttir\_builder.utils
 
 .. autofunction:: ttir_builder.utils.create_custom_pipeline_fn
 
+.. autofunction:: ttir_builder.utils.optimizations_to_str
+
 .. autofunction:: ttir_builder.utils.build_mlir_module
 
 .. autofunction:: ttir_builder.utils.run_pipeline
