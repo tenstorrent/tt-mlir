@@ -294,6 +294,24 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 }
 
 //===----------------------------------------------------------------------===//
+// LoweredDMAWriteOp
+//===----------------------------------------------------------------------===//
+
+void mlir::tt::ttir::LoweredDMAWriteOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tx");
+}
+
+void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // CoreIndexOp
 //===----------------------------------------------------------------------===//
 
