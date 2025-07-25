@@ -15,7 +15,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <gtest/gtest.h>
 #include <iostream>
 #include <optional>
 #include <tuple>
