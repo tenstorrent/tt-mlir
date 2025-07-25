@@ -769,5 +769,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace ReciprocalOpInterface
 
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+namespace EmptyOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttcore::DataTypeAttr dtype,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 mlir::tt::ttnn::MemoryConfigAttr mamoryConfig);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttcore::DataTypeAttr dtype,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             mlir::tt::ttnn::MemoryConfigAttr mamoryConfig);
+}; // namespace EmptyOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

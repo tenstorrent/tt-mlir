@@ -1365,4 +1365,46 @@ EmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], weightShape, inputs[1], outputShape, opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// EmptyOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// (mlir::tt::ttcore::GridAttr deviceGrid,
+//   llvm::ArrayRef<int64_t> inputShape,
+//   mlir::tt::ttcore::DataTypeAttr dtype,
+//   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+//   mlir::tt::ttnn::MemoryConfigAttr mamoryConfig);
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto device = getDevice();
+  assert(device);
+
+  const llvm::ArrayRef<int64_t> shape = getShape().getShape();
+  const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();
+  // const mlir::tt::ttnn::TTNNLayoutAttr layout = getLayoutAttr();
+  const mlir::tt::ttnn::MemoryConfigAttr mamoryConfig = getMemoryConfigAttr();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::EmptyOpInterface::getOpConstraints, *this, deviceGrid,
+      shape, dtype, inputs[0], mamoryConfig);
+}
+
+llvm::Expected<size_t>
+EmptyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  return llvm::make_error<llvm::StringError>("Not Implemented",
+                                             llvm::inconvertibleErrorCode());
+}
+
 } // namespace mlir::tt::ttnn

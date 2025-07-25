@@ -2052,4 +2052,30 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   EXPECT_EQ(stats2.misses, 2);
 }
 
+// TEST_F(OpModelBase, EmptyOpInterface) {
+//   // create EmptyOp
+//   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+//   auto outputType = createRankedTensorType(tensorShape);
+//   auto empty = builder.create<EmptyOp>(builder.getUnknownLoc(), outputType);
+//   // test EmptyOp interface
+//   auto constraintsExp = getOpConstraints(empty.getOperation());
+//   if (constraintsExp) {
+//     auto l1 = constraintsExp.get();
+//     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+//     EXPECT_EQ(cbSize, 16384);
+//     EXPECT_EQ(peakSize, 525312);
+//     EXPECT_EQ(outputSize, 262144);
+//   } else {
+//     FAIL() << "Missing L1 constraints; Error="
+//            << llvm::toString(constraintsExp.takeError()) << std::endl;
+//   }
+
+//   // Test EmptyOp runtime
+//   auto runtimeExp = getOpRuntime(empty.getOperation());
+//   if (runtimeExp) {
+//     EXPECT_GT(runtimeExp.get(), 0);
+//   } else {
+//     FAIL() << llvm::toString(runtimeExp.takeError());
+//   }
+// }
 } // namespace mlir::tt::ttnn

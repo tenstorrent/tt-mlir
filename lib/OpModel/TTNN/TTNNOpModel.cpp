@@ -2925,4 +2925,24 @@ llvm::Expected<size_t> EmbeddingOpInterface::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> EmptyOpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttcore::DataTypeAttr dtype,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr mamoryConfig) {
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t>
+EmptyOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                               mlir::tt::ttcore::DataTypeAttr dtype,
+                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                               mlir::tt::ttnn::MemoryConfigAttr mamoryConfig) {
+  return 0;
+}
+
 } // namespace mlir::tt::op_model::ttnn
