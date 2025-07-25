@@ -582,6 +582,7 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_LoweredDMAOpInterface
   ]> {
 
     let summary = "Fully indexed and lowered TTIR DMA Op for writes";
@@ -653,6 +654,7 @@ def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_LoweredDMAOpInterface
   ]> {
 
     let summary = "Fully indexed and lowered TTIR DMA Op for read";
@@ -669,6 +671,7 @@ def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
       ```
 
       Constraints:
+      - src MUST be a REMOTE memref! if both operands are local, use LoweredDMAWriteOp
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
     }];
@@ -700,13 +703,6 @@ def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
       }
-      bool isSrcLocal() {
-        Block *block = getSrc().getParentBlock();
-        Block::BlockArgListType blockArgs = block->getArguments();
-        return std::find(blockArgs.begin(), blockArgs.end(), getSrc()) !=
-               blockArgs.end();
-      }
-      bool isSrcRemote() { return !isSrcLocal(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
