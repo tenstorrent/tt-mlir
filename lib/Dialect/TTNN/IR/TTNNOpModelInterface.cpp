@@ -533,6 +533,26 @@ Log1pOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// Expm1Op - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+Expm1Op::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::Expm1OpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+Expm1Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::Expm1OpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // AtanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

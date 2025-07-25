@@ -1473,6 +1473,36 @@ Log1pOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// Expm1Op
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> Expm1OpInterface::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints("Expm1OpInterface", ::ttnn::expm1,
+                                      deviceGrid, inputShape, inputLayout,
+                                      outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+Expm1OpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                               llvm::ArrayRef<int64_t> outputShape,
+                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("Expm1OpInterface", ::ttnn::expm1, inputShape,
+                                  inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ReciprocalOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> ReciprocalOpInterface::getOpConstraints(

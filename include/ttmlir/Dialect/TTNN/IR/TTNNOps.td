@@ -515,7 +515,9 @@ def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p",
       }];
 }
 
-def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
+def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let description = [{
     Performs element-wise exponential minus one operation on `operand` tensor
     and stores the result in the output tensor.
