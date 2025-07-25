@@ -135,8 +135,17 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, [BroadcastableTrait] # traits> {
+
+    let description = [{
+      Base class for elementwise operations. Elementwise operations can take inputs with different shape,
+      as long as the input tensors are broadcastable to the same shape.
+    }];
+}
+
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -160,7 +169,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
@@ -197,7 +206,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -225,7 +234,7 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -1864,11 +1873,31 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp: TTNN_Op<"scatter"> {
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
       }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                      AnyRankedTensor:$rhs,
+                      OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+      }]>
+    ];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
