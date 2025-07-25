@@ -513,6 +513,26 @@ RsqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// Log1pOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+Log1pOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::Log1pOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+Log1pOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::Log1pOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // AtanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

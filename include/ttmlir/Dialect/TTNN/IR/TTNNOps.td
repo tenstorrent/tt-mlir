@@ -501,7 +501,9 @@ def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     }];
 }
 
-def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p"> {
+def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise log1p operation.";
     let description = [{
         Performs element-wise logarithm plus one operation on `operand` tensor and

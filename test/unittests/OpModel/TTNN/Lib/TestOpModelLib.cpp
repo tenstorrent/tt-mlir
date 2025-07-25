@@ -84,7 +84,8 @@ enum class UnaryEltwiseOpType {
   Neg,
   Tan,
   Atan,
-  Rsqrt
+  Rsqrt,
+  Log1p
 };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -120,6 +121,7 @@ protected:
           {UnaryEltwiseOpType::Tan, TanOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Atan, AtanOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Rsqrt, RsqrtOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Log1p, Log1pOpInterface::getOpRuntime},
       };
   std::map<UnaryEltwiseOpType,
            std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
@@ -151,6 +153,7 @@ protected:
           {UnaryEltwiseOpType::Tan, TanOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Atan, AtanOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Rsqrt, RsqrtOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Log1p, Log1pOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -441,6 +444,10 @@ INSTANTIATE_TEST_SUITE_P(AtanTests, OpModelUnaryEltwiseParam,
 
 INSTANTIATE_TEST_SUITE_P(RsqrtTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(UnaryEltwiseOpType::Rsqrt,
+                                                     unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(Log1pTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Log1p,
                                                      unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
