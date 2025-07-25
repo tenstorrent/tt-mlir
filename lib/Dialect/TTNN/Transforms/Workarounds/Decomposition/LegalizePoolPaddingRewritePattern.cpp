@@ -35,24 +35,15 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
   // At this point we know that the padding is uneven. And so we must explicitly
   // put a PadOp in between the Pool2dOp and the original input.
 
-  // The ttnn Pool2dOp may be in the format which takes the flattened input:
+  // The ttnn Pool2dOp will be in the format which takes the flattened input:
   // shape (1, 1, N*H*W, C) If this is the case we must insert a reshape op to
   // change the shape to (N, H, W, C) to apply the padding.
-
-  bool isFlattenedInput = false;
-  TypedValue<RankedTensorType> input = srcOp.getInput();
-  if (inputType.getDimSize(0) == 1 && inputType.getDimSize(1) == 1 &&
-      inputType.getDimSize(2) == srcOp.getBatchSize() * srcOp.getInputHeight() *
-                                     srcOp.getInputWidth() &&
-      inputType.getDimSize(3) == srcOp.getChannels()) {
-    isFlattenedInput = true;
-    SmallVector<int64_t> reshapeOutputShape = {
-        srcOp.getBatchSize(), srcOp.getInputHeight(), srcOp.getInputWidth(),
-        srcOp.getChannels()};
-    input = ttir_to_ttnn::utils::generateReshape(input, reshapeOutputShape,
-                                                 rewriter);
-    inputType = input.getType();
-  }
+  SmallVector<int64_t> reshapeOutputShape = {
+      srcOp.getBatchSize(), srcOp.getInputHeight(), srcOp.getInputWidth(),
+      srcOp.getChannels()};
+  TypedValue<RankedTensorType> input = ttir_to_ttnn::utils::generateReshape(
+      srcOp.getInput(), reshapeOutputShape, rewriter);
+  inputType = input.getType();
 
   SmallVector<int64_t> paddedShape(inputType.getShape());
   assert(paddedShape.size() == static_cast<size_t>(inputType.getRank()) &&
@@ -85,16 +76,14 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
       /*use_multicore=*/false,
       /*memory_config=*/nullptr);
 
-  TypedValue<RankedTensorType> newPool2dInput = padOp.getResult();
-  if (isFlattenedInput) {
-    SmallVector<int64_t> flattenReshapeShape = {
-        1, 1,
-        padOp.getType().getDimSize(0) * padOp.getType().getDimSize(1) *
-            padOp.getType().getDimSize(2),
-        padOp.getType().getDimSize(3)};
-    newPool2dInput = ttir_to_ttnn::utils::generateReshape(
-        newPool2dInput, flattenReshapeShape, rewriter);
-  }
+  SmallVector<int64_t> flattenReshapeShape = {
+      1, 1,
+      padOp.getType().getDimSize(0) * padOp.getType().getDimSize(1) *
+          padOp.getType().getDimSize(2),
+      padOp.getType().getDimSize(3)};
+  TypedValue<RankedTensorType> newPool2dInput =
+      ttir_to_ttnn::utils::generateReshape(padOp, flattenReshapeShape,
+                                           rewriter);
 
   // Padding is applied explicitly by the PadOp, so we need to set the padding
   // to 0.
