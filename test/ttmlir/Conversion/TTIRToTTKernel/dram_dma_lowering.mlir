@@ -16,8 +16,8 @@ func.func @test_dram_read_onebank(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128
   // Should be lowered to a single noc_async_read() call; NO loops or guards should be generated here
   //   CHECK-NOT: scf.for
   //   CHECK-NOT: scf.if
-  //   CHECK: ttkernel.get_write_ptr
   //   CHECK: ttkernel.get_noc_addr_from_bank_id
+  //   CHECK: ttkernel.get_write_ptr
   //   CHECK: ttkernel.noc_async_read
 
   %alloc_1 = memref.alloc() : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
@@ -40,8 +40,8 @@ func.func @test_dram_read_multibank(%arg0: memref<1x1x128x128xf32, #ttcore.shard
   //   CHECK: scf.for
   //   CHECK: scf.for
   //   CHECK: scf.if
-  //   CHECK: ttkernel.get_write_ptr
   //   CHECK: ttkernel.get_noc_addr_from_bank_id
+  //   CHECK: ttkernel.get_write_ptr
   //   CHECK: ttkernel.noc_async_read
 
   %alloc_1 = memref.alloc() : memref<1x1x128x128xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>

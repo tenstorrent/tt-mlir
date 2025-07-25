@@ -13,7 +13,7 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
                outs(%alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>) {
   ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
     %c0 = arith.constant 0 : index
-    %tx = ttir.dma %arg0[%c0, %c0], %cb0 : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+    %tx = ttir.lowered_dma_read %arg0[%c0, %c0], %cb0[%c0], <1> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     "ttir.yield"() : () -> ()
   }, {
   ^compute0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
