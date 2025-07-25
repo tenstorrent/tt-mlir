@@ -20,6 +20,7 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "mlir/Target/LLVMIR/Export.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -254,6 +255,8 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Resolves any remaining type conversion issues by reconciling unrealized
   // cast operations.
   manager.addPass(createReconcileUnrealizedCastsPass());
+
+  manager.addPass(transforms::createExtractGPUModules());
 }
 
 #endif
