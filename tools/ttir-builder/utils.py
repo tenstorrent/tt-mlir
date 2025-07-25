@@ -517,6 +517,7 @@ def compile_to_flatbuffer(
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
+    print(f"Running {target} pipeline with options: {pipeline_options}")
     module = run_pipeline(
         module,
         pipeline_fn,
@@ -539,4 +540,5 @@ def compile_to_flatbuffer(
         builder.get_golden_map(),
         module_logger.module_log if module_logger.module_log else [],
     )
-    print(f"{target} flatbuffer created successfully.")
+    print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
+    return output_file_mlir
