@@ -24,8 +24,8 @@ add_custom_command(TARGET pykernel-demo
 
 # Run the test
 add_custom_command(TARGET pykernel-demo
-    COMMENT "Running Eltwise SFPU (Exp) Test with Pykernel"
-    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/eltwise_sfpu_demo.py
+    COMMENT "Running Pykernel Tests"
+    COMMAND pytest ${CMAKE_CURRENT_SOURCE_DIR}/test.py
 )
 
 # Add info message

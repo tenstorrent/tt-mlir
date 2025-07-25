@@ -296,6 +296,13 @@ class Run:
             help="enable performance tracing",
         )
         Run.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -308,6 +315,13 @@ class Run:
             default=1,
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
+        )
+        Run.register_arg(
+            name="--fabric-config",
+            type=str,
+            default=None,
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -347,6 +361,13 @@ class Run:
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)
         self.torch_initializer = Run.TorchInitializer(self)
+
+        # If benchmark mode is enabled, set certain defaults
+        if self["--benchmark"]:
+            self["--loops"] = 2
+            self["--enable-program-cache"] = True
+            self["--disable-golden"] = True
+            self["--program-index"] = 0
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing run API")
@@ -391,7 +412,7 @@ class Run:
                 continue
 
             try:
-                bin.check_system_desc(self.query)
+                bin.check_system_desc(self.query, ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -447,7 +468,7 @@ class Run:
                 continue
 
             try:
-                bin.check_system_desc(self.query)
+                bin.check_system_desc(self.query, ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -572,6 +593,10 @@ class Run:
                             f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
                         )
 
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            parse_fabric_config(self["--fabric-config"])
+                        )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
 
@@ -955,6 +980,15 @@ class Run:
                                         f"Failed: program-level output golden comparison failed the allclose check"
                                     )
 
+                            self.logging.info(
+                                f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit}"
+                            )
+                            self.logging.info(
+                                f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
+                            )
+                            self.logging.info(
+                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
+                            )
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
@@ -1092,6 +1126,11 @@ class Run:
                     if device is not None:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
+
+                    if self["--fabric-config"] is not None:
+                        ttrt.runtime.set_fabric_config(
+                            ttrt.runtime.FabricConfig.DISABLED
+                        )
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

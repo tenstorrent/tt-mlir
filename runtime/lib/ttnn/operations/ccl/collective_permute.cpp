@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/ccl/collective_permute.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"

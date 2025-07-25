@@ -63,6 +63,37 @@ struct Conv2dConfigOverrideParams {
            !enableWeightsDoubleBuffer.has_value() &&
            !enableSplitReader.has_value() && !enableSubblockPadding.has_value();
   }
+
+  bool fullConfigOverride() const {
+    return dtype.has_value() && weightsDtype.has_value() &&
+           activation.has_value() && deallocateActivation.has_value() &&
+           reallocateHaloOutput.has_value() && actBlockHOverride.has_value() &&
+           actBlockWDiv.has_value() && reshardIfNotOptimal.has_value() &&
+           overrideShardingConfig.has_value() && shardLayout.has_value() &&
+           coreGrid.has_value() && transposeShards.has_value() &&
+           outputLayout.has_value() && enableActDoubleBuffer.has_value() &&
+           enableWeightsDoubleBuffer.has_value() &&
+           enableSplitReader.has_value() && enableSubblockPadding.has_value();
+  }
+
+  friend llvm::raw_ostream &
+  operator<<(llvm::raw_ostream &os, const Conv2dConfigOverrideParams &params) {
+    os << "dtype#" << params.dtype << ":weights_dtype#" << params.weightsDtype
+       << ":activation#" << params.activation << ":deallocate_activation#"
+       << params.deallocateActivation << ":reallocate_halo_output#"
+       << params.reallocateHaloOutput << ":act_block_h_override#"
+       << params.actBlockHOverride << ":act_block_w_div#" << params.actBlockWDiv
+       << ":reshard_if_not_optimal#" << params.reshardIfNotOptimal
+       << ":override_sharding_config#" << params.overrideShardingConfig
+       << ":shard_layout#" << params.shardLayout << ":core_grid#"
+       << params.coreGrid << ":transpose_shards#" << params.transposeShards
+       << ":output_layout#" << params.outputLayout
+       << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
+       << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
+       << ":enable_split_reader#" << params.enableSplitReader
+       << ":enable_subblock_padding#" << params.enableSubblockPadding;
+    return os;
+  }
 };
 
 struct OutputLayoutOverrideParams {

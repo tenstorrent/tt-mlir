@@ -28,7 +28,9 @@
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
+#include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
+#include "operations/data_movement/write_tensor.h"
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
@@ -47,6 +49,7 @@
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
+#include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/softmax.h"
@@ -55,10 +58,12 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
-#include "operations/reduction/sort.h"
-#include "operations/trace/trace.h"
+#include "operations/trace/begin_trace_capture.h"
+#include "operations/trace/capture_or_execute_trace.h"
+#include "operations/trace/end_trace_capture.h"
+#include "operations/trace/execute_trace.h"
 #include "tt/runtime/debug.h"
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
@@ -204,6 +209,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), getContext());
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::FuncCallOp: {
+    return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     return operations::moreh::run(op->type_as_MorehCumSumOp(), getContext());
   }
@@ -239,6 +247,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::WriteTensorOp: {
+    return operations::data_movement::run(op->type_as_WriteTensorOp(),
+                                          getContext());
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
@@ -251,7 +263,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_SliceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::SortOp: {
-    return operations::sort::run(op->type_as_SortOp(), getContext());
+    return operations::data_movement::run(op->type_as_SortOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
@@ -317,8 +329,20 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::TraceOp: {
-    return operations::trace::run(op->type_as_TraceOp(), getContext());
+  case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
+    return operations::trace::run(op->type_as_BeginTraceCaptureOp(),
+                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::EndTraceCaptureOp: {
+    return operations::trace::run(op->type_as_EndTraceCaptureOp(),
+                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::ExecuteTraceOp: {
+    return operations::trace::run(op->type_as_ExecuteTraceOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+    return operations::trace::run(op->type_as_CaptureOrExecuteTraceOp(),
+                                  getContext());
   }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     return operations::ccl::run(op->type_as_PointToPointOp(), getContext());

@@ -4,7 +4,7 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
@@ -518,14 +518,15 @@ def div(
     in0: Operand,
     in1: Operand,
     builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    dividend_tensor = torch.randn(shape, dtype=dtype)
-    divisor_tensor = torch.randn(shape, dtype=dtype)
-    dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
-    divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
+    dividend_tensor = builder._get_golden_tensor(in0)
+    divisor_tensor = builder._get_golden_tensor(in1)
+    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(
+        divisor_tensor
+    ):
+        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
+        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
     output_golden = torch.div(dividend_tensor, divisor_tensor)
     builder.set_graph_input_output(
         [dividend_tensor, divisor_tensor], [output_golden], override=True
@@ -539,16 +540,8 @@ def div(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
-    def div_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return div(in0, in1, builder, shape, dtype, unit_attrs)
-
     compile_to_flatbuffer(
-        div_wrapper,
+        div,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -568,7 +561,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return div(in0, in1, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+        return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
 
     compile_to_flatbuffer(
         hoisted_div_wrapper,
@@ -608,25 +601,6 @@ def minimum(
     return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_base_tensor = torch.randn(shape, dtype=dtype)
-    randn_exponent_tensor = torch.randn(shape, dtype=dtype)
-    if torch.is_floating_point(randn_exponent_tensor):
-        randn_base_tensor = torch.abs(randn_base_tensor)
-    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    builder.set_graph_input_output(
-        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
-    )
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
 def test_linear(shapes: List[Shape], request):
     def linear(
@@ -647,21 +621,30 @@ def test_linear(shapes: List[Shape], request):
     )
 
 
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    randn_base_tensor = builder._get_golden_tensor(in0)
+    randn_exponent_tensor = builder._get_golden_tensor(in1)
+    if torch.is_floating_point(randn_exponent_tensor):
+        randn_base_tensor = torch.abs(randn_base_tensor)
+    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+    builder.set_graph_input_output(
+        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    )
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
-    def pow_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return pow(in0, in1, builder, shape, dtype, unit_attrs)
-
     compile_to_flatbuffer(
-        pow_wrapper,
+        pow,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -1779,13 +1762,8 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(sigmoid, "sigmoid"),
     create_hoisted_unary_op(sin, "sin"),
     create_hoisted_unary_op(cos, "cos"),
-    pytest.param(
-        create_hoisted_unary_op(max, "max"),
-        marks=pytest.mark.skip(
-            reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
-        ),
-    ),
     create_hoisted_unary_op(sum, "sum"),
+    create_hoisted_unary_op(relu, "relu"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
         marks=pytest.mark.xfail(
@@ -1892,6 +1870,30 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
     compile_to_flatbuffer(
         permute_wrapper,
         shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Test hoisted max separately because it requires more complex parameters combination.
+@pytest.mark.parametrize("dim_arg", [None, 0, 1])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize(
+    "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)]
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.max(
+            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
+        )
+
+    max.__name__ = "hoisted_max"
+    compile_to_flatbuffer(
+        max,
+        [shape],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -2037,13 +2039,17 @@ unary_ops = [
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
-    get_dimension_size | Marks(pytest.mark.skip_config(["ttmetal"])),
+    get_dimension_size
+    | Marks(
+        pytest.mark.skip_config(["ttmetal"]),
+        pytest.mark.skip_config(["ttnn-standalone"]),
+    ),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
@@ -2118,6 +2124,109 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Subtract and remainder ops do not support broadcasting on both operands.
+# This is tracked in the following Metal issue: https://github.com/tenstorrent/tt-metal/issues/24635.
+# There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        pytest.param([(1, 1, 1), (8, 16, 32)], id="broadcast_lhs_1"),
+        pytest.param([(1, 1, 32), (8, 16, 32)], id="broadcast_lhs_2"),
+        pytest.param([(1, 16, 32), (8, 16, 32)], id="broadcast_lhs_3"),
+        pytest.param([(8, 16, 32), (1, 1, 1)], id="broadcast_rhs_1"),
+        pytest.param([(8, 16, 32), (1, 1, 32)], id="broadcast_rhs_2"),
+        pytest.param([(8, 16, 32), (1, 16, 32)], id="broadcast_rhs_3"),
+        pytest.param([(8, 16, 1), (1, 1, 32)], id="broadcast_both_1"),
+        pytest.param([(1, 1, 32), (8, 16, 1)], id="broadcast_both_2"),
+        pytest.param([(8, 1, 32), (8, 16, 1)], id="broadcast_both_3"),
+        pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        add | Marks(pytest.mark.run_error),
+        multiply | Marks(pytest.mark.run_error),
+        subtract | Marks(pytest.mark.run_error),
+        eq | Marks(pytest.mark.run_error),
+        ne,
+        le,
+        lt,
+        ge,
+        gt,
+        div | Marks(pytest.mark.run_error),
+        remainder | Marks(pytest.mark.run_error),
+        maximum,
+        minimum,
+        pow | Marks(pytest.mark.run_error),
+        logical_and,
+        logical_or,
+        logical_xor,
+    ],
+)
+def test_binary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 16, 32), (8, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (1, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (8, 16, 32), (1, 16, 32)],
+        [(8, 16, 32), (1, 1, 32), (1, 1, 32)],
+        [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
+        [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
+        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
+        [(1, 1, 1, 4), (1, 1, 1, 1), (1, 1, 1, 1)],
+    ],
+)
+@pytest.mark.parametrize(
+    "input_dtypes",
+    [
+        pytest.param((torch.float32, torch.float32, torch.float32), id="f32-f32-f32"),
+        pytest.param((torch.float32, torch.int32, torch.int32), id="f32-i32-i32"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", [where])
+def test_ternary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
+    target: str,
+    request,
+):
+    dtype1, dtype2, dtype3 = input_dtypes
+
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype1, dtype2, dtype3],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 

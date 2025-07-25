@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/binary/binary.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -23,10 +23,6 @@ static void runEltwiseBinaryOp(
 
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
-
-  if (operations::utils::shouldSwapBinaryOperands(*lhs, *rhs)) {
-    std::swap(lhs, rhs);
-  }
 
   std::optional<::ttnn::DataType> outputDataType = std::nullopt;
   if (op->output_dtype()) {

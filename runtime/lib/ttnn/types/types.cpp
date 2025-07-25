@@ -2,13 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include <atomic>
 
 namespace tt::runtime::ttnn {
 
 using tt::runtime::DeviceRuntime;
+
+// TTNNTensorWrapper APIs
+uint64_t TTNNTensorWrapper::getLatestVersion() {
+  static std::atomic<uint64_t> latestVersion{0};
+  return latestVersion.fetch_add(1, std::memory_order_relaxed);
+}
 
 //
 // LayoutDesc APIs
@@ -114,22 +121,31 @@ const ::ttnn::Tensor &ProgramTensorPool::getTTNNTensorAndValidate(
       static_cast<const ProgramTensorPool &>(*this).getTTNNTensorAndValidate(
           tensorRef));
 }
+std::pair<TensorPtrMapIterator, bool>
+ProgramTensorPool::insertRuntimeTensorAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef,
+    const ::tt::runtime::Tensor &runtimeTensor) {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  std::uint32_t globalId = tensorRef->global_id();
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(runtimeTensor);
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, runtimeTensor);
+
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
+}
 
 std::pair<TensorPtrMapIterator, bool>
 ProgramTensorPool::insertTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor, bool retain) {
-  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
-  std::uint32_t globalId = tensorRef->global_id();
-  DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
-
   ::tt::runtime::Tensor runtimeTensor = utils::createRuntimeTensorFromTTNN(
       ttnnTensor, /*meshEvent=*/std::nullopt, retain);
-  auto [iter, inserted] =
-      intermedTensors.insert_or_assign(globalId, runtimeTensor);
 
-  return liveTensors.insert_or_assign(globalId, &(iter->second));
+  return insertRuntimeTensorAndValidate(tensorRef, runtimeTensor);
 }
 
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
 
@@ -50,12 +50,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
     LOG_FATAL("Unsupported distributed tensor config");
   }
   }
-}
-
-bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
-                              const ::ttnn::Tensor &rhs) {
-  return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.physical_volume() < rhs.physical_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType

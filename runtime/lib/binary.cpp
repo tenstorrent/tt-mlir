@@ -7,7 +7,7 @@
 
 #include "flatbuffers/idl.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -54,7 +54,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
 
 std::uint64_t Binary::nextBinaryId() {
   static std::atomic<uint64_t> id{0};
-  return id++;
+  return id.fetch_add(1, std::memory_order_relaxed);
 }
 
 std::uint64_t Binary::id() const { return binaryId; }
@@ -603,7 +603,7 @@ Binary::getProgramMeshShape(std::uint32_t programIndex) const {
     const tt::target::Dim2d *const mesh_shape =
         ttnn::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
     assert(mesh_shape != nullptr);
-    return std::make_pair(mesh_shape->x(), mesh_shape->y());
+    return std::make_pair(mesh_shape->y(), mesh_shape->x());
   }
 
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
@@ -611,7 +611,7 @@ Binary::getProgramMeshShape(std::uint32_t programIndex) const {
     const tt::target::Dim2d *const mesh_shape =
         metal::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
     assert(mesh_shape != nullptr);
-    return std::make_pair(mesh_shape->x(), mesh_shape->y());
+    return std::make_pair(mesh_shape->y(), mesh_shape->x());
   }
 
   LOG_FATAL("Unsupported binary format");

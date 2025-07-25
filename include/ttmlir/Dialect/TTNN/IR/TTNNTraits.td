@@ -23,4 +23,10 @@ def HasOutputDTypeTrait: NativeOpTrait<"HasOutputDTypeTrait">
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+// Trait for ops that don't support implicit broadcast on operands.
+def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsTrait">
+{
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNTRAITS_TD

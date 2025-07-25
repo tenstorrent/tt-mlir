@@ -4,7 +4,7 @@
 
 #include "operations/pool/upsample.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -30,9 +30,14 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   }
 
   std::string mode = op->mode()->str();
+
   std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+      op->memory_config()
+          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                op->memory_config())
+          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(
+                    op->out()));
 
   ::ttnn::Tensor output =
       ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);

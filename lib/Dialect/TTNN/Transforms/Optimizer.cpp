@@ -4,9 +4,10 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -212,15 +213,15 @@ public:
                  "ScalarDataTypeAnalysis found {0} unique scalar types",
                  scalarTypes.size());
 
-    // Step 2: Run AllPossibleLayoutsAnalysis to generate layouts for all tensor
+    // Step 2: Run LegalTensorLayoutAnalysis to generate layouts for all tensor
     // types
-    mlir::tt::ttnn::AllPossibleLayoutsAnalysis allPossibleLayoutsAnalysis =
-        getAnalysis<mlir::tt::ttnn::AllPossibleLayoutsAnalysis>();
-    allPossibleLayoutsAnalysis.init(
-        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(
-            deviceGrid, &scalarTypes, rowMajorEnabled));
+    mlir::tt::ttnn::LegalTensorLayoutAnalysis legalTensorLayoutAnalysis =
+        getAnalysis<mlir::tt::ttnn::LegalTensorLayoutAnalysis>();
+    legalTensorLayoutAnalysis.init(
+        mlir::tt::ttnn::LegalTensorLayoutAnalysisInput(deviceGrid, &scalarTypes,
+                                                       rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
-        allPossibleLayoutsAnalysis.getResult();
+        legalTensorLayoutAnalysis.getResult();
 
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
@@ -231,7 +232,7 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
           return;
         }
 
@@ -247,12 +248,17 @@ public:
         assert(hasLayoutsForTensorType && "No layouts found for tensor type");
 
         // Run legal layout analysis to select the best layouts
-        LegalLayoutAnalysis legalLayoutAnalysis =
-            getChildAnalysis<LegalLayoutAnalysis>(op);
-        legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
+        LegalOpLayoutAnalysis legalOpLayoutAnalysis =
+            getChildAnalysis<LegalOpLayoutAnalysis>(op);
+        legalOpLayoutAnalysis.init(LegalOpLayoutAnalysisInput(
             &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
-            &overrideConv2dConfig, rowMajorEnabled));
-        legalConfigs[op] = legalLayoutAnalysis.getResult();
+            rowMajorEnabled));
+
+        LegalOpConfigAnalysis legalOpConfigAnalysis =
+            getChildAnalysis<LegalOpConfigAnalysis>(op);
+        legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
+            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
+        legalConfigs[op] = legalOpConfigAnalysis.getResult();
       });
     });
 
@@ -978,8 +984,10 @@ private:
           op->getResult(0).setType(
               resultType.cloneWithEncoding(actualOutputLayout));
         }
-        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                     "Successfully passed constraints, no conversion needed");
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::Optimizer,
+            "Op {} successfully passed constraints, no conversion needed",
+            op->getName());
         return;
       }
 
@@ -995,7 +1003,8 @@ private:
 
       // Row major input passed constraints, let's add necessary conversions.
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Successfully passed constraints after inserting RM");
+                   "Op {} successfully passed constraints after inserting RM",
+                   op->getName());
       convertOpToRowMajorAndBack(op);
     });
   }

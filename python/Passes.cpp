@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/InitAllTranslations.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
@@ -249,6 +250,22 @@ void populatePassesModule(nb::module_ &m) {
         }
       },
       nb::arg("module"), nb::arg("options") = "");
+
+  m.def(
+      "translate_to_cpp",
+      [](MlirModule module) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        // Translate to C++
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::emitc::translateToCpp(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
+          throw std::runtime_error("Failed to generate cpp");
+        }
+        output_stream.flush();
+        return output;
+      },
+      nb::arg("module"));
 
   nb::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)

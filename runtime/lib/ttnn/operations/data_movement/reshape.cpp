@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/data_movement/reshape.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
 #include "tt/runtime/detail/ttnn/utils.h"

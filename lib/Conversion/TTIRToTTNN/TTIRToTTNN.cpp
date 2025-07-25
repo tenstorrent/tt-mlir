@@ -1264,42 +1264,6 @@ public:
 } // namespace
 
 namespace {
-class SubtractOpConversionPattern
-    : public OpConversionPattern<ttir::SubtractOp> {
-  using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(ttir::SubtractOp srcOp, ttir::SubtractOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType lhsType =
-        mlir::cast<mlir::RankedTensorType>(adaptor.getLhs().getType());
-    RankedTensorType rhsType =
-        mlir::cast<mlir::RankedTensorType>(adaptor.getRhs().getType());
-    Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
-    if (lhsType.getShape() == rhsType.getShape()) {
-      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
-
-      // Broadcast for rhs operand require the operation to be commutative to
-      // allow switching the order of operands. To allow this conversion, the
-      // following conversion is applied to SubtractOp: subtractOp(lhs,rhs) ->
-      // addOp(lhs, negOp(rhs))
-    } else {
-      ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_neg"),
-          adaptor.getRhs().getType(), adaptor.getRhs());
-
-      rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, outputType,
-                                               adaptor.getLhs(), negOp);
-    }
-
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class AllReduceOpConversionPattern
     : public OpConversionPattern<ttir::AllReduceOp> {
 public:
@@ -1592,6 +1556,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            QuantizationOpConversionPattern<ttir::DequantizeUnrolledOp, ttnn::DequantizeOp>,
            RequantizeOpConversionPattern,
            ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
            ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
            ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
            ElementwiseBinaryOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
@@ -1670,7 +1635,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
-           SubtractOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,

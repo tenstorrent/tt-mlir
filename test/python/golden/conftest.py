@@ -6,7 +6,7 @@ import ttrt
 from functools import reduce
 import operator
 
-ALL_BACKENDS = set(["ttnn", "ttmetal"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 
@@ -24,9 +24,9 @@ def pytest_addoption(parser):
         help="Path to system descriptor",
     )
     parser.addoption(
-        "--allow-subset-mesh",
+        "--require-exact-mesh",
         action="store_true",
-        help="Enable running tests whose mesh shapes are a subset of the current device",
+        help="Require exact mesh shape match with the current device (default allows subset)",
     )
 
 
@@ -47,12 +47,13 @@ def get_board_id(system_desc) -> str:
             raise ValueError(f"Unknown architecture: {arch}")
 
 
-def filter_valid_mesh_shape(system_desc, params, allow_subset_mesh=False):
+def filter_valid_mesh_shape(system_desc, params, require_exact_mesh=False):
     num_chips = reduce(operator.mul, params.get("mesh_shape", [1]), 1)
-    if allow_subset_mesh:
-        return num_chips <= len(system_desc["chip_desc_indices"])
+    num_physical_chips = len(system_desc["chip_desc_indices"])
+    if require_exact_mesh:
+        return num_chips == num_physical_chips
     else:
-        return num_chips == len(system_desc["chip_desc_indices"])
+        return num_chips <= num_physical_chips
 
 
 def pytest_collection_modifyitems(config, items):
@@ -67,7 +68,7 @@ def pytest_collection_modifyitems(config, items):
         if hasattr(item, "callspec"):
             params = item.callspec.params
             if not filter_valid_mesh_shape(
-                system_desc, params, allow_subset_mesh=config.option.allow_subset_mesh
+                system_desc, params, require_exact_mesh=config.option.require_exact_mesh
             ):
                 # Deselect the test case
                 deselected.append(item)

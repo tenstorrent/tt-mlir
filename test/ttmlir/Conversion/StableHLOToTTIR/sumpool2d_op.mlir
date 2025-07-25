@@ -22,6 +22,26 @@ func.func public @test_sumpool2d(%arg0: tensor<1x1x4x8xf32>) -> (tensor<1x1x2x4x
   return %1 : tensor<1x1x2x4xf32>
 }
 
+func.func @test_complex_sum2d(%arg0: tensor<4x2xf32>, %arg1: tensor<4x2xi32>) ->
+                      (tensor<2x2xf32>, tensor<2x2xi32>) {
+  // CHECK-LABEL: @test_complex_sum2d
+  %init0 = stablehlo.constant dense<0.0> : tensor<f32>
+  %init1 = stablehlo.constant dense<0> : tensor<i32>
+  %0:2 = "stablehlo.reduce_window"(%arg0, %arg1, %init0, %init1) ({
+         ^bb0(%a0: tensor<f32>, %a1: tensor<i32>,
+                %b0: tensor<f32>, %b1: tensor<i32>):
+              %2 = stablehlo.add %a0, %b0 : tensor<f32>
+              %3 = stablehlo.add %a1, %b1 : tensor<i32>
+              "stablehlo.return"(%2, %3) : (tensor<f32>, tensor<i32>) -> ()
+            })
+         { padding = dense<[[2, 2], [0, 0]]> : tensor<2x2xi64>,
+           window_dimensions = array<i64: 5, 1>,
+           window_strides = array<i64: 3, 1>}
+         : (tensor<4x2xf32>, tensor<4x2xi32>, tensor<f32>, tensor<i32>) ->
+              (tensor<2x2xf32>, tensor<2x2xi32>)
+  func.return %0#0, %0#1 : tensor<2x2xf32>, tensor<2x2xi32>
+}
+
 func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> tensor<8x256x6x6xf32> {
   // CHECK-LABEL: @test_avgpool2d_workaround
   %c = stablehlo.constant dense<1> : tensor<i32>

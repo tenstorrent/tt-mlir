@@ -12,6 +12,8 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
+from .types import *
+
 
 def get_supported_nodes():
     return [
@@ -62,6 +64,7 @@ def get_supported_nodes():
         ast.GtE,
         # Subscripting
         ast.Subscript,
+        ast.Attribute,
         ast.List,
         # Statements
         ast.Pass,
@@ -112,6 +115,17 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
         "exp_tile_init": ttkernel.exp_tile_init,
         "exp_tile": ttkernel.exp_tile,
+        "mm_init": ttkernel.mm_init,
+        "matmul_tiles": ttkernel.matmul_tiles,
+        "TensorAccessorArgs": ttkernel.TensorAccessorArgs,
+        "TensorAccessor": ttkernel.TensorAccessor,
+        "tensor_accessor_get_noc_addr": ttkernel.tensor_accessor_get_noc_addr,
+        "tensor_accessor_get_shard_noc_addr": ttkernel.tensor_accessor_get_shard_noc_addr,
+        "tensor_accessor_get_bank_and_offset": ttkernel.tensor_accessor_get_bank_and_offset,
+        "tensor_accessor_is_local_bank": ttkernel.tensor_accessor_is_local_bank,
+        "tensor_accessor_is_local_addr": ttkernel.tensor_accessor_is_local_addr,
+        "tensor_accessor_is_local_page": ttkernel.tensor_accessor_is_local_page,
+        "tensor_accessor_is_local_shard": ttkernel.tensor_accessor_is_local_shard,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):
@@ -132,7 +146,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         for arg in args:
             if hasattr(arg, "value") and hasattr(arg, "key"):
-                # This is a CompiledValue
+                # This is a CompileTimeValue
                 self.ct_args[arg.key] = arg.value
 
         # Get rid of appended metadata sent into compiler
@@ -212,6 +226,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         arg_types = []
         rt_args = []
+        common_rt_args = []
         ct_args = []
         cb_args = []
         cb_idx = []
@@ -225,9 +240,23 @@ class TTKernelCompiler(ast.NodeVisitor):
             if not arg.annotation:
                 # This is a runtime arg now, wire it up into the function statement
                 # Add the name and the index
-                rt_args.append((arg.arg, len(rt_args)))
+
+                # This must be inputted as a RuntimeArgument, initialize as such, if it's an int it's always not common rt_args
+                if isinstance(self.args[i], int):
+                    # This is not a common_rt_arg for sure
+                    rt_args.append((arg.arg, len(rt_args)))
+                elif isinstance(self.args[i], Arguments):
+                    _arg = self.args[i]
+                    if _arg.is_common:
+                        common_rt_args.append((arg.arg, len(common_rt_args)))
+                    else:
+                        rt_args.append((arg.arg, len(rt_args)))
+                else:
+                    raise TypeError(
+                        "Got Positional Argument in IR, unexpected argument type provided."
+                    )
                 continue
-            elif arg.annotation.id == "CompiledValue":
+            elif arg.annotation.id == "CompileTimeValue":
                 # This is a CT Arg, we can package the metadata needed for passing this value in
                 if arg.arg not in self.ct_args:
                     raise ValueError(
@@ -290,6 +319,11 @@ class TTKernelCompiler(ast.NodeVisitor):
             for name, idx in rt_args:
                 _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
                 res = ttkernel.get_arg_val(int_type, _idx)
+                self.symbol_tables[-1][name] = res
+
+            for name, idx in common_rt_args:
+                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
+                res = ttkernel.get_common_arg_val(int_type, _idx)
                 self.symbol_tables[-1][name] = res
 
             for name, value in ct_args:
@@ -583,31 +617,35 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
-        assert (
-            node.func.id in self.ttkernel_fn_map
-        ), f"Function {node.func.id} not supported"
-        func = self.ttkernel_fn_map[node.func.id]
-        args_as_attr = [False] * len(node.args)
-        if type(func) is tuple:
-            func, args_as_attr = func
-        func_args = []
-        assert len(node.args) == len(args_as_attr)
-        for arg, as_attr in zip(node.args, args_as_attr):
-            arg._ttkernel_as_attr = as_attr
-            func_arg = self.visit(arg)
-            if not func_arg:
-                raise ValueError(f"Function argument not found for {node.func.id}")
+        if not isinstance(node.func, ast.Attribute):
+            # if not an Attribute, it's just a kernel api call.
+            assert (
+                node.func.id in self.ttkernel_fn_map
+            ), f"Function {node.func.id} not supported"
+            func = self.ttkernel_fn_map[node.func.id]
+            args_as_attr = [False] * len(node.args)
+            if type(func) is tuple:
+                func, args_as_attr = func
+            func_args = []
+            assert len(node.args) == len(args_as_attr)
+            for arg, as_attr in zip(node.args, args_as_attr):
+                arg._ttkernel_as_attr = as_attr
+                func_arg = self.visit(arg)
+                if not func_arg:
+                    raise ValueError(f"Function argument not found for {node.func.id}")
 
-            if hasattr(func_arg, "type") and isinstance(
-                func_arg.type, memref.MemRefType
-            ):
-                func_arg = memref.LoadOp(
-                    func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
-                )
+                if hasattr(func_arg, "type") and isinstance(
+                    func_arg.type, memref.MemRefType
+                ):
+                    func_arg = memref.LoadOp(
+                        func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                    )
 
-            func_args.append(func_arg)
+                func_args.append(func_arg)
 
-        return func(*func_args)  # how do i make sure the types are correct?
+            return func(*func_args)  # how do i make sure the types are correct?
+        else:
+            self.visit(node.func)
 
     # Expressions
     def visit_Expr(self, node):
@@ -698,7 +736,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             case ast.Mult():
                 return arith.muli(lhs, rhs)
             case ast.FloorDiv():
-                return arith.floordivsi(lhs, rhs)
+                # arith.floordivsi has no conversion to emitc..
+                # return arith.floordivsi(lhs, rhs)
+                return arith.divui(lhs, rhs)
             case ast.Mod():
                 return arith.remsi(lhs, rhs)
             case ast.LShift():
@@ -868,6 +908,13 @@ class TTKernelCompiler(ast.NodeVisitor):
             idx = arith.IndexCastOp(IndexType.get(self.ctx), idx)
             return memref.LoadOp(arr, idx)
 
+    def visit_Attribute(self, node):
+        # TODO(vtang): Unsure how to get the lvalue type of operand w emitc pybinds rn
+        # emitc::LValueType::get(adaptor.getDataFormat().getType())
+        # operand_lvalue = emitc.LValueType.get()
+        # emitc.member(IntegerType.get_signless(32, self.ctx), node.attr, operand)
+        raise NotImplementedError("Attributes not supported yet")
+
     def visit_List(self, node):
         # Snoop List for nested loops and get size
         def snoop_list(node):
@@ -1015,6 +1062,7 @@ def ttkernel_compile(
                 print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
+                print("---- Kernel String ----", b.module, sep="\n\n")
                 kernel_string = ttkernel_to_cpp(b.module)
                 return kernel_string
 
