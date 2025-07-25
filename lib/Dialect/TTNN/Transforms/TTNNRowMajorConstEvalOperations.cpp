@@ -164,6 +164,10 @@ public:
       return true;
     }
 
+    if (op->hasTrait<ElementwiseUnaryTrait>()) {
+      return true;
+    }
+
     assert(op->getNumResults() == 1 &&
            "RowMajorConstEvalOperations only supports operations with a single "
            "result");

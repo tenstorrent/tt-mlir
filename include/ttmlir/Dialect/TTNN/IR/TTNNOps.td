@@ -145,7 +145,7 @@ class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_ElementwiseOp<mnemonic, [HasMemoryConfigTrait, ElementwiseUnaryTrait] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
