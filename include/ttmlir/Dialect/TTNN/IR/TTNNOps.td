@@ -159,7 +159,8 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -541,9 +542,7 @@ def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
     }];
 }
 
-def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
 
     let summary = "Eltwise add.";
     let description = [{
@@ -551,90 +550,85 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
     }];
 }
 
-def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
     }];
 }
 
-def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
+    }];
+}
+
+def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
       Eltwise equal to operation.
     }];
 }
 
-def TTNN_NotEqualOp : TTNN_ElementwiseBinaryOp<"ne",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_NotEqualOp : TTNN_ElementwiseBinaryOp<"ne"> {
     let summary = "Eltwise not equal to.";
     let description = [{
       Eltwise not equal to operation.
     }];
 }
 
-def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
       Eltwise greater than or equal to operation.
     }];
 }
 
-def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
     let summary = "Eltwise greater than.";
     let description = [{
       Eltwise greater than operation.
     }];
 }
 
-def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
     let summary = "Eltwise less than or equal to.";
     let description = [{
       Eltwise less than or equal to operation.
     }];
 }
 
-def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
       Eltwise less than operation.
     }];
 }
 
-def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and"> {
     let summary = "Eltwise logical and.";
     let description = [{
       Eltwise logical and operation.
     }];
 }
 
-def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
     }];
 }
 
-def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor",
-    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-    > {
+def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     let summary = "Eltwise logical xor.";
     let description = [{
       Eltwise logical xor operation.
@@ -712,24 +706,6 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
     }];
 }
 
-def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
-
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
-    let summary = "Eltwise subtract.";
-    let description = [{
-      Eltwise subtract operation.
-    }];
-}
 
 def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise remainder.";
