@@ -36,6 +36,10 @@ apt-get install -y \
     gh \
     lcov \
     unzip
+
+# Setup / install metal dependencies
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/{install_dependencies.sh,tt_metal/sfpi-version.sh}
+bash install_dependencies.sh --docker
 # ANCHOR_END: developer_dependencies
 EOT
 
@@ -63,15 +67,3 @@ RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && \
     make install && \
     cd ../.. && \
     rm -rf googletest
-
-# Install mpi-ulfm from the tenstorrent repository
-RUN set -eux; \
-    apt-get update && \
-    apt-get install -y -f \
-        wget ca-certificates && \
-    TMP_DIR="$(mktemp -d)" && \
-    DEB_URL="https://github.com/dmakoviichuk-tt/mpi-ulfm/releases/download/v5.0.7-ulfm/openmpi-ulfm_5.0.7-1_amd64.deb" && \
-    wget -qO "$TMP_DIR/ompi.deb" "$DEB_URL" && \
-    apt-get install -f -y "$TMP_DIR/ompi.deb" && \
-    rm -rf "$TMP_DIR" && \
-    rm -rf /var/lib/apt/lists/*
