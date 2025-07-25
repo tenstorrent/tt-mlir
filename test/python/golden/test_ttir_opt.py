@@ -39,7 +39,7 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([1, 1], [1,1], [1,1], 1)]
 )
