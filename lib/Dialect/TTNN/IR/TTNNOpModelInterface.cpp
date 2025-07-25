@@ -253,6 +253,66 @@ CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ExpOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ExpOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::ExpOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::ExpOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// TanhOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+TanhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::TanhOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+TanhOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::TanhOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// LogOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LogOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::LogOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+LogOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::LogOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
 // ReciprocalOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
