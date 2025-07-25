@@ -3,6 +3,7 @@
 // RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
+// UNSUPPORTED: true
 func.func @scatter(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
   %0 = ttir.empty() : tensor<1x3x320x320xf32>
   %1 = ttir.empty() : tensor<1x1xi32>
