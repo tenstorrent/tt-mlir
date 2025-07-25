@@ -1423,12 +1423,86 @@ public:
           op, "ttnn and tt-metal have limited scatter support. Inserted window "
               "dimenstion must be 1 in the input tensor shape.");
     }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
 
+    // Decompose scatter into ones_like, pad, and where operations
+    // Following the runtime implementation pattern:
+    // onesLikeLhs = ones_like(lhs)
+    // indexPad = pad(onesLikeLhs, rhs.shape)
+    // tempA = pad(lhs, rhs.shape)
+    // result = where(indexPad, tempA, rhs)
+    //
+    // To avoid const-eval hoisting issues, we ensure these operations
+    // depend on non-const inputs, making them ineligible for const-eval
+    // hoisting
+
+    Location loc = op.getLoc();
+    Type outputType = this->getTypeConverter()->convertType(op.getType());
+    Value lhs = adaptor.getInput();
+    Value rhs = adaptor.getUpdate();
+
+    // Get layout attributes from the input
+    auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+    auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+    auto outputTensorType = mlir::cast<RankedTensorType>(outputType);
+
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(outputTensorType.getEncoding());
+
+    // Get device and memory config
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+
+    // Create ones_like(lhs) - this will not be hoisted because it depends on
+    // lhs which is not a const-eval parameter
+    ttnn::ShapeAttr lhsShapeAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), lhsType.getShape());
+    ttcore::DataTypeAttr lhsDtypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::LayoutAttr tensorLayoutAttr = ttnn::LayoutAttr::get(
+        op.getContext(),
+        layoutAttr.isTiled() ? ttnn::Layout::Tile : ttnn::Layout::RowMajor);
+
+    Value onesLikeLhs = rewriter.create<ttnn::OnesOp>(
+        loc, lhs.getType(), lhsShapeAttr, lhsDtypeAttr, tensorLayoutAttr,
+        device, memoryConfigAttr);
+
+    // Create padding for both onesLikeLhs and lhs to match rhs shape
+    ArrayRef<int64_t> lhsShape = lhsType.getShape();
+    ArrayRef<int64_t> rhsShape = rhsType.getShape();
+
+    // Calculate padding needed (assuming start index is {0, 0, 0, 0})
+    SmallVector<int32_t> padding;
+    for (size_t i = 0; i < lhsShape.size(); ++i) {
+      padding.push_back(0); // low padding
+      padding.push_back(
+          static_cast<int32_t>(rhsShape[i] - lhsShape[i])); // high padding
+    }
+
+    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(padding);
+    FloatAttr zeroPadValue = rewriter.getF32FloatAttr(0.0f);
+    BoolAttr useMulticore = rewriter.getBoolAttr(false);
+
+    // Pad onesLikeLhs to rhs shape - this will not be hoisted because it
+    // depends on onesLikeLhs
+    Value indexPad = rewriter.create<ttnn::PadOp>(
+        loc, rhs.getType(), onesLikeLhs, paddingAttr, zeroPadValue,
+        useMulticore, memoryConfigAttr);
+
+    // Pad lhs to rhs shape - this will not be hoisted because it depends on lhs
+    Value tempA = rewriter.create<ttnn::PadOp>(loc, rhs.getType(), lhs,
+                                               paddingAttr, zeroPadValue,
+                                               useMulticore, memoryConfigAttr);
+
+    // Create where(indexPad, tempA, rhs) - this will not be hoisted because it
+    // depends on non-const inputs
+    Value result = rewriter.create<ttnn::WhereOp>(loc, outputType, indexPad,
+                                                  tempA, rhs, memoryConfigAttr);
+
+    rewriter.replaceOp(op, result);
     return success();
   }
 
