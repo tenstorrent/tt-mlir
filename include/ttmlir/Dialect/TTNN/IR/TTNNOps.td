@@ -404,7 +404,9 @@ def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan",
     }];
 }
 
-def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
+def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise arctangent op.";
     let description = [{
       Performs an elementwise arctangent (`atan`) operation on the input tensor.
