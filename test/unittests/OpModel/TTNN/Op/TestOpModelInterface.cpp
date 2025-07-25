@@ -209,6 +209,18 @@ const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
 };
+const auto createExp = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<ExpOp>(loc, type, ops).getOperation();
+};
+const auto createTanh = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<TanhOp>(loc, type, ops).getOperation();
+};
+const auto createLog = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<LogOp>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -219,6 +231,9 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
+    {"Exp", createExp, expected},
+    {"Tanh", createTanh, expected},
+    {"Log", createLog, expected},
     {"Reciprocal", createReciprocal, expected}};
 
 // Instantiate the test suite
