@@ -26,7 +26,7 @@
   enable_weights_double_buffer = false,
   enable_split_reader = false,
   enable_subblock_padding = false,
-  in_place = false,
+  in_place = false
 >
 
 module attributes {} {
