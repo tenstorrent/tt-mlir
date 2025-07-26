@@ -823,9 +823,6 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
   llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
   // Handle the last two intervals (which will map to tiles) with
   // grid-aware alignments.
-  llvm::errs() << "device grid shape: ";
-  llvm::interleaveComma(deviceGridShape, llvm::errs());
-  llvm::errs() << "\n";
   assert(deviceGridShape.size() >= 2);
   for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
        idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
