@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LegalizePoolPaddingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
@@ -748,8 +749,11 @@ public:
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
-          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern>(
-          &getContext());
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
+          workarounds::decomposition::LegalizePoolPaddingRewritePattern<
+              ttnn::MaxPool2dOp>,
+          workarounds::decomposition::LegalizePoolPaddingRewritePattern<
+              ttnn::AvgPool2dOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

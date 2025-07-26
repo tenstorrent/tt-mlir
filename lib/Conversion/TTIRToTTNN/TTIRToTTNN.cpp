@@ -1197,16 +1197,6 @@ public:
                   ". Please "
                   "run the FlattenSlidingWindow pass before lowering to TTNN.");
     }
-    if (adaptor.getPaddingBottom() != adaptor.getPaddingTop()) {
-      return rewriter.notifyMatchFailure(
-          op, op.getOperationName() +
-                  "does not support asymmetric padding for top/bottom.");
-    }
-    if (adaptor.getPaddingLeft() != adaptor.getPaddingRight()) {
-      return rewriter.notifyMatchFailure(
-          op, op.getOperationName() +
-                  "does not support asymmetric padding for left/right.");
-    }
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
@@ -1218,10 +1208,18 @@ public:
     DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
 
-    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
-    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+    // If the padding is even, we can set the vertical and horizontal padding
+    // here. Otherwise we must set the padding for top/bottom and left/right
+    DenseI32ArrayAttr paddingAttr;
+    if (adaptor.getPaddingTop() == adaptor.getPaddingBottom() &&
+        adaptor.getPaddingLeft() == adaptor.getPaddingRight()) {
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+    } else {
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {adaptor.getPaddingTop(), adaptor.getPaddingBottom(),
+           adaptor.getPaddingLeft(), adaptor.getPaddingRight()});
+    }
 
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
