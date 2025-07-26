@@ -17,6 +17,7 @@ option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+option(TTMLIR_ENABLE_TTIRTONVVM "Enable lowering TTIR to NVVM" ON)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
@@ -25,6 +26,10 @@ option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
+endif()
+
+if (TTMLIR_ENABLE_TTIRTONVVM)
+  add_compile_definitions(TTMLIR_ENABLE_TTIRTONVVM)
 endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
