@@ -345,12 +345,26 @@ def TTCore_MetalLayoutAttr
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace);
+
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals = {},
-                                     ArrayRef<int64_t> dimAlignments = {});
+                                     DenseIntElementsAttr collapseIntervals);
+
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
+
+    static llvm::SmallVector<int64_t> computeAlignments(ArrayRef<int64_t> logicalShape,
+                                   ArrayRef<int64_t> deviceGridShape,
+                                   ArrayRef<int64_t> normIntervals);
 
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
@@ -471,11 +485,13 @@ def TTCore_MeshShardDirectionAttr
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_ShardStatusAttr : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
+def TTCore_ShardStatusAttr
+    : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
+def TTCore_MeshShardTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
   let summary = "MeshShard shard_type attribute in TT dialect";
   let description = [{
     Define sharded tensor data of mesh_shard op.

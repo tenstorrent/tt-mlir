@@ -2719,9 +2719,9 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
 
     // Create new encoding with the output grid shape.
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
-        builder.getContext(), inputEncoding.getLogicalShape(),
-        outputGridShape.size(), inputEncoding.getOobVal(),
-        inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
+        builder.getContext(), inputEncoding.getLogicalShape(), outputGridShape,
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
+        inputEncoding.getCollapsedIntervals(),
         inputEncoding.getDimAlignments());
 
     result =
