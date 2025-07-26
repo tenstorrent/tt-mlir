@@ -239,39 +239,6 @@ def parse_tt_system_desc(attr):
         )
         result.append(
             graph_builder.KeyValue(
-                key=f"chip#{i}-dram-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.dram
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-eth-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.eth
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-eth-inactive-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.eth_inactive
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
                 key=f"chip#{i}-worker-core-coords",
                 value=", ".join(
                     [
