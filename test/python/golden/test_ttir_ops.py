@@ -2150,10 +2150,10 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add | Marks(pytest.mark.run_error),
-        multiply | Marks(pytest.mark.run_error),
-        subtract | Marks(pytest.mark.run_error),
-        eq | Marks(pytest.mark.run_error),
+        add,
+        multiply,
+        subtract,
+        eq,
         ne,
         le,
         lt,
