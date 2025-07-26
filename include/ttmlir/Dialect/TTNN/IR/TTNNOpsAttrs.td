@@ -442,11 +442,53 @@ def TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr : TTNN_Attr<"
 def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let summary = "TTNN Conv2dConfig attribute";
   let description = [{
-    TTNN conv2d config attribute
+    Configuration parameters for TTNN conv2d operations that control memory usage,
+    performance optimizations, and execution behavior.
+
+    Parameters:
+    - `weights_dtype`: Data type for weights and bias tensor after preprocessing (default: bfloat16)
+    - `activation`: Optional activation function to fuse ("relu" or "")
+    - `deallocate_activation`: Whether to deallocate input activation tensor memory (default: false)
+    - `reallocate_halo_output`: Whether to reallocate intermediate halo tensor to reduce memory fragmentation (default: false)
+    - `act_block_h_override`: Override for act_block_h parameter (must be multiple of 32). Smaller values reduce memory usage but decrease performance. Ignored when shard_layout = WIDTH_SHARDED (default: 0)
+    - `act_block_w_div`: Divisor for maximum possible act_block_w parameter. Only useful when in_channels > 2048. Ignored when shard_layout = HEIGHT_SHARDED or BLOCK_SHARDED (default: 1)
+    - `reshard_if_not_optimal`: Whether operation can re-shard input tensor for optimal performance. Mutually exclusive with override_sharding_config (default: false)
+    - `override_sharding_config`: Whether to override input sharding config with provided shard_layout. Mutually exclusive with reshard_if_not_optimal (default: false)
+    - `shard_layout`: Optional tensor memory layout for sharding type specification
+    - `core_grid`: Optional core grid specification. Only applicable when override_sharding_config = true
+    - `transpose_shards`: Whether shards should be distributed in ROW_MAJOR order. Only applicable when not using height sharding (default: true)
+    - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
+    - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
+    - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
+    - `enable_split_reader`: Enable dual concurrent reader kernels instead of one. Only for height sharding, requires act_block_h >= 64 (default: false)
+    - `enable_subblock_padding`: Enable subblock padding optimization (default: false)
+    - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
+
+    Example:
+
+    ```mlir
+    #conv2d_config = #ttnn.conv2d_config<
+      weights_dtype = bfloat16,
+      activation = "relu",
+      deallocate_activation = false,
+      reallocate_halo_output = false,
+      act_block_h_override = 64,
+      act_block_w_div = 1,
+      reshard_if_not_optimal = false,
+      override_sharding_config = false,
+      shard_layout = block_sharded,
+      transpose_shards = true,
+      output_layout = tile,
+      enable_act_double_buffer = false,
+      enable_weights_double_buffer = false,
+      enable_split_reader = false,
+      enable_subblock_padding = false,
+      in_place = false
+    >
+    ```
   }];
 
-  let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$dtype,
-                        OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
+  let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
                         OptionalParameter<"StringAttr">:$activation,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
@@ -461,7 +503,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_split_reader,
-                        OptionalParameter<"BoolAttr">:$enable_subblock_padding);
+                        OptionalParameter<"BoolAttr">:$enable_subblock_padding,
+                        OptionalParameter<"BoolAttr">:$in_place);
 
   let builders = [
     AttrBuilder<(ins )>
@@ -471,7 +514,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     static Conv2dConfigAttr getEmpty(::mlir::MLIRContext *context);
 
     Conv2dConfigAttr withActivation(StringRef activation) const;
-    Conv2dConfigAttr withDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
@@ -487,8 +529,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableSplitReader(bool value) const;
     Conv2dConfigAttr withEnableSubblockPadding(bool value) const;
+    Conv2dConfigAttr withInPlace(bool value) const;
     bool hasActivation() const;
-    bool hasDtype() const;
     bool hasWeightsDtype() const;
     bool hasDeallocateActivation() const;
     bool hasReallocateHaloOutput() const;
@@ -506,6 +548,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasEnableWeightsDoubleBuffer() const;
     bool hasEnableSplitReader() const;
     bool hasEnableSubblockPadding() const;
+    bool hasInPlace() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";

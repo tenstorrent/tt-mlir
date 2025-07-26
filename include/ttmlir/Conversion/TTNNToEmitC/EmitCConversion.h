@@ -1200,6 +1200,27 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
     }
+    if (attr.getEnableActDoubleBuffer()) {
+      rso << (firstElement ? "" : ", ") << ".enable_act_double_buffer = "
+          << EmitCTypeConverter<bool>::convert(attr.getEnableActDoubleBuffer());
+    }
+    if (attr.getEnableWeightsDoubleBuffer()) {
+      rso << (firstElement ? "" : ", ") << ".enable_weights_double_buffer = "
+          << EmitCTypeConverter<bool>::convert(
+                 attr.getEnableWeightsDoubleBuffer());
+    }
+    if (attr.getEnableSplitReader()) {
+      rso << (firstElement ? "" : ", ") << ".enable_split_reader = "
+          << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
+    }
+    if (attr.getEnableSubblockPadding()) {
+      rso << (firstElement ? "" : ", ") << ".enable_subblock_padding = "
+          << EmitCTypeConverter<bool>::convert(attr.getEnableSubblockPadding());
+    }
+    if (attr.getInPlace()) {
+      rso << (firstElement ? "" : ", ") << ".in_place = "
+          << EmitCTypeConverter<bool>::convert(attr.getInPlace());
+    }
     rso << "}";
     return buf;
   }

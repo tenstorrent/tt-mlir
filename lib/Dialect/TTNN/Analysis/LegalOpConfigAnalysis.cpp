@@ -40,10 +40,6 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
                "Conv2d config before overrides: {}", conv2dConfigAttr);
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Overrides: {}", overrides);
 
-  if (overrides.dtype.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withDtype(*overrides.dtype);
-  }
-
   if (overrides.weightsDtype.has_value()) {
     conv2dConfigAttr =
         conv2dConfigAttr.withWeightsDtype(*overrides.weightsDtype);
