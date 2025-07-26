@@ -339,31 +339,6 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
-inline flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
-toFlatbuffer(FlatbufferObjectCache &cache,
-             ttcore::ChipPhysicalHelperCoresAttr chipPhysicalHelperCores) {
-
-  // Create a Flatbuffer Dim2d struct for each type of core.
-  std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
-
-  for (const auto &coreCoord : chipPhysicalHelperCores.getDram()) {
-    dramCores.emplace_back(coreCoord.getY(), coreCoord.getX());
-  }
-  for (const auto &coreCoord : chipPhysicalHelperCores.getEth()) {
-    ethCores.emplace_back(coreCoord.getY(), coreCoord.getX());
-  }
-  for (const auto &coreCoord : chipPhysicalHelperCores.getEthInactive()) {
-    ethInactiveCores.emplace_back(coreCoord.getY(), coreCoord.getX());
-  }
-
-  // Create and return the ChipPhysicalHelperCores flatbuffer object
-  return ::tt::target::CreateChipPhysicalHelperCores(
-      *cache.fbb,
-      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(dramCores),
-      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethCores),
-      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethInactiveCores));
-}
-
 template <typename T, std::enable_if_t<std::is_arithmetic<T>::value, int> = 0>
 T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
@@ -433,7 +408,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       chipDesc.getNocDRAMAddressAlignBytes(), chipDesc.getL1UnreservedBase(),
       chipDesc.getEriscL1UnreservedBase(), chipDesc.getDramUnreservedBase(),
       chipDesc.getDramUnreservedEnd(),
-      toFlatbuffer(cache, chipDesc.getChipPhysicalHelperCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getDstRegisterSizeTiles(), chipDesc.getNumCBs(),

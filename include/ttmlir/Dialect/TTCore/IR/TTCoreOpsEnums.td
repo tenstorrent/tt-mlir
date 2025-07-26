@@ -108,11 +108,14 @@ def TTCore_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
 
 def TTCore_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
 def TTCore_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 1, "host_mmio">;
+def TTCore_ChipCapabilityAll : I32BitEnumAttrCaseGroup<"All",
+    [TTCore_ChipCapabilityPCIE, TTCore_ChipCapabilityHostMMIO], "all">;
 
 def TTCore_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
                            [
                             TTCore_ChipCapabilityPCIE,
                             TTCore_ChipCapabilityHostMMIO,
+                            TTCore_ChipCapabilityAll,
                            ]> {
   let genSpecializedAttr = 1;
   let cppNamespace = "::mlir::tt::ttcore";
