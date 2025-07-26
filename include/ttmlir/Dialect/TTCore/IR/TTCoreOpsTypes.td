@@ -602,11 +602,13 @@ def TTCore_MeshShardDirectionAttr
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_ShardStatusAttr : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
+def TTCore_ShardStatusAttr
+    : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
+def TTCore_MeshShardTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
   let summary = "MeshShard shard_type attribute in TT dialect";
   let description = [{
     Define sharded tensor data of mesh_shard op.

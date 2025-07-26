@@ -637,28 +637,30 @@ bool HostLayoutAttr::isPadded() const {
 //
 // Note there are many ways we could collapse the above dims, by default we
 // just collapse the interval [0, -1), which collapses dim0 up to but not
-// including the last dim.  By using collapseIntervals we can achieve flexible
+// including the last dim.  By using collapsedIntervals we can achieve flexible
 // collapsing of any set of consecutive dimension ranges.
 //
-//   - 4D tensor onto a 3D grid collapseIntervals=[(1, -1)]:
+//   - 4D tensor onto a 3D grid collapsedIntervals=[(1, -1)]:
 //       (d0, d1, d2, d3) -> (d0, d1 <> d2, d3)
 //
-//   - 4D tensor onto a 3D grid collapseIntervals=[(0, 2)]:
+//   - 4D tensor onto a 3D grid collapsedIntervals=[(0, 2)]:
 //       (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
 //
-//   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
+//   - 7D tensor onto a 4D grid collapsedIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
-mlir::AffineMap collapsedLinearAffineMap(
-    ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
-    ::llvm::ArrayRef<int64_t> gridShape,
-    ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+mlir::AffineMap
+collapsedLinearAffineMap(::mlir::MLIRContext *context,
+                         ::llvm::ArrayRef<int64_t> shape,
+                         ::llvm::ArrayRef<int64_t> gridShape,
+                         ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>>
+                             collapsedIntervals) {
   int64_t numResultsClamped = std::min(shape.size(), gridShape.size());
   auto map = mlir::AffineMap::getMinorIdentityMap(shape.size(),
                                                   numResultsClamped, context);
 
   std::int64_t minimumDim = static_cast<std::int64_t>(shape.size());
-  for (auto [begin, end] : collapseIntervals) {
+  for (auto [begin, end] : collapsedIntervals) {
     if (begin < 0) {
       begin += shape.size();
     }
