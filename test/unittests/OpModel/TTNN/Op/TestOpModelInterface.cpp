@@ -1309,7 +1309,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   // supports Height, Block or Width Sharded Layouts but got
   // TensorMemoryLayout::INTERLEAVED"
   auto badConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1324,7 +1324,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -1348,7 +1349,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1363,7 +1364,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
@@ -1505,7 +1507,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1520,7 +1522,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
