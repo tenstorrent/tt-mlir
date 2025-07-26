@@ -2052,4 +2052,35 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   EXPECT_EQ(stats2.misses, 2);
 }
 
+TEST_F(OpModelBase, WhereOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto input3 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  auto where =
+      builder.create<WhereOp>(builder.getUnknownLoc(), outputType,
+                              ::mlir::ValueRange{input1, input2, input3});
+
+  // test WhereOp interface
+  auto constraintsExp = getOpConstraints(where.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 10240);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(where.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn
