@@ -377,31 +377,6 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   mlir::tt::ttcore::DataType dType =
       mlir::tt::ttcore::elementTypeToDataType(elementType);
 
-  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
-    if (dType == mlir::tt::ttcore::DataType::Float32 ||
-        dType == mlir::tt::ttcore::DataType::BFloat16 ||
-        dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
-        dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
-      return {};
-    }
-    if (dType == mlir::tt::ttcore::DataType::Int32) {
-      // Although TTNN claims to support int32 for Add and Subtract ops,
-      // broadcasting with int32 inputs does not currently work as expected.
-      // As a temporary workaround, we fall back to BFloat16 when input shapes
-      // differ. This should be removed once int32 broadcasting is properly
-      // supported.
-      auto lhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto rhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
-
-      if (lhsType.getShape() != rhsType.getShape()) {
-        return mlir::tt::ttcore::DataType::BFloat16;
-      }
-      return {};
-    }
-    return mlir::tt::ttcore::DataType::BFloat16;
-  }
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
   if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
@@ -410,14 +385,22 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     }
     return mlir::tt::ttcore::DataType::Int32;
   }
+
   // All remaining binary ops.
-  if (dType == mlir::tt::ttcore::DataType::Float32 ||
-      dType == mlir::tt::ttcore::DataType::BFloat16 ||
-      dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
-      dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
-    return {};
+  // Tracked in :
+  // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
+  if (isa<ttnn::DivideOp, ttnn::PowOp, ttnn::RemainderOp, ttnn::GreaterEqualOp,
+          ttnn::GreaterThanOp, ttnn::LessEqualOp, ttnn::LessThanOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::Float32 ||
+        dType == mlir::tt::ttcore::DataType::BFloat16 ||
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::Float32;
   }
-  return mlir::tt::ttcore::DataType::BFloat16;
+
+  return {};
 }
 
 // Factory method to create a set of workarounds for binary operation operands.
