@@ -5,7 +5,9 @@
 #ifndef RUNTIME_LIB_TTMETAL_EXECUTOR_H
 #define RUNTIME_LIB_TTMETAL_EXECUTOR_H
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "tt-metalium/mesh_device.hpp"
 
 #include "tt/runtime/detail/common/dylib.h"

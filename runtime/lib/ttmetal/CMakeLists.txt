@@ -21,7 +21,9 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
-target_include_directories(TTRuntimeTTMetal SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY DEVICE_LIBRARY)
-target_link_libraries(TTRuntimeTTMetal PUBLIC coverage_config)
-add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION)
+# The following 2 lines are to get profiler header tools/profiler/op_profiler.hpp
+# We don't want to link against all of TTNN for the metal runtime.
+get_target_property(TTNN_TOOLS_INCLUDES TTNN::CPP INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(TTRuntimeTTMetal SYSTEM PRIVATE ${TTNN_TOOLS_INCLUDES})
+target_link_libraries(TTRuntimeTTMetal PUBLIC TT::Metalium umd::device coverage_config)
+add_dependencies(TTRuntimeTTMetal FBS_GENERATION)
