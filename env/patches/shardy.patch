@@ -3,7 +3,7 @@ new file mode 100755
 index 0000000..a2d940d
 --- /dev/null
 +++ b/CMakeLists.txt
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,58 @@
 +# Custom embedded build for Shardy, targgeting minimal build as a part of
 +# tt-mlir MLIR project. This CMakeLists.txt file is mainly from StableHLO.
 +
@@ -34,6 +34,7 @@ index 0000000..a2d940d
 +include(TableGen)
 +include(AddLLVM)
 +include(AddMLIR)
++include(AddMLIRPython)
 +
 +include(CheckCXXCompilerFlag)
 +include(CheckLinkerFlag)
@@ -58,6 +59,8 @@ index 0000000..a2d940d
 +add_subdirectory(shardy/common)
 +add_subdirectory(shardy/dialect/sdy/ir)
 +add_subdirectory(shardy/dialect/sdy/transforms)
++add_subdirectory(shardy/integrations/python/ir)
++add_subdirectory(shardy/integrations/c)
 +add_subdirectory(shardy/round_trip_import)
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
@@ -628,6 +631,75 @@ index 0000000..dc33501
 +  MLIRSupport
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
++)
+diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
+new file mode 100644
+index 000000000..fdd50c4ba
+--- /dev/null
++++ b/shardy/integrations/c/CMakeLists.txt
+@@ -0,0 +1,20 @@
++add_mlir_public_c_api_library(SdyCAPI
++  PARTIAL_SOURCES_INTENDED
++  attributes.cc
++  dialect.cc
++  passes.cc
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRBytecodeOpInterface
++  MLIRFuncDialect
++  MLIRIR
++  MLIRInferTypeOpInterface
++  MLIRTransformUtils
++  MLIRShapeDialect
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  StablehloAssemblyFormat
++  StablehloOps
++  StablehloTypeInference
++)
+diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
+new file mode 100644
+index 000000000..86ca2aeb7
+--- /dev/null
++++ b/shardy/integrations/python/ir/CMakeLists.txt
+@@ -0,0 +1,37 @@
++# Shardy MLIR Module
++
++set(SHARDY_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
++
++# Rename _sdy_enums_gen in sdy.py
++file(READ "${SHARDY_ROOT_DIR}/sdy.py" FILE_CONTENTS)
++string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
++file(WRITE "${SHARDY_ROOT_DIR}/sdy.py" "${FILE_CONTENTS}")
++
++declare_mlir_python_sources(SdyPythonSources)
++declare_mlir_python_sources(SdyPythonSources.Dialects
++  ADD_TO_PARENT SdyPythonSources
++)
++
++declare_mlir_dialect_python_bindings(
++  ADD_TO_PARENT SdyPythonSources.Dialects
++  ROOT_DIR "${SHARDY_ROOT_DIR}"
++  TD_FILE sdy_ops.td
++  GEN_ENUM_BINDINGS ON
++  GEN_ENUM_BINDINGS_TD_FILE sdy_enums.td
++  SOURCES sdy.py
++  DIALECT_NAME sdy
++)
++
++declare_mlir_python_sources(SdyPythonExtensions)
++declare_mlir_python_extension(SdyPythonExtensions.Main
++  MODULE_NAME _sdy
++  ADD_TO_PARENT SdyPythonExtensions
++  PYTHON_BINDINGS_LIBRARY nanobind
++  SOURCES
++    sdy_module.cc
++  EMBED_CAPI_LINK_LIBS
++    SdyCAPI
++  PRIVATE_LINK_LIBS
++    SdyCAPI
++    LLVMSupport
 +)
 diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
 new file mode 100644

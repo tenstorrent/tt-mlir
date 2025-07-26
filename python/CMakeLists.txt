@@ -179,6 +179,15 @@ if(TTMLIR_ENABLE_STABLEHLO)
   list(APPEND TTMLIR_PYTHON_SOURCES
     StablehloPythonSources
     StablehloPythonExtensions
+    SdyPythonSources
+    SdyPythonExtensions
+  )
+
+  # Special handling for sdy to adjust for different file formatting
+  add_mlir_python_modules(SdyPythonModules
+    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir/dialects"
+    INSTALL_PREFIX "python_packages/ttmlir/dialects"
+    DECLARED_SOURCES SdyPythonSources SdyPythonExtensions
   )
 endif()
 
