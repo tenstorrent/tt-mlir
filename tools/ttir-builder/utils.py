@@ -243,6 +243,10 @@ def build_mlir_module(
 
     ctx = Context()
 
+    base = fn.__name__ if base is None else base
+    filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
+    print(f"output name={filename}, module_dump={module_dump}")
+
     # Grab the location of the test function in python for later debugging
     try:
         fname = inspect.getfile(fn)
@@ -299,6 +303,7 @@ def build_mlir_module(
         base = fn.__name__ if base is None else base
 
         filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
+        print(f"output name={filename}, module_dump={module_dump}")
 
         if module_dump:
             with open(filename, "w") as f:

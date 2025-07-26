@@ -122,17 +122,6 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
   }];
 }
 
-def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Analyze the graph and select optimal layouts, insert to_layout where needed.
-  }];
-
-  list<Option> options = [
-        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
-    ];
-}
-
 def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
