@@ -255,8 +255,10 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
 
-  conv2dConfig.weights_dtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+  if (config->weights_dtype()) {
+    conv2dConfig.weights_dtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+  }
 
   if (config->activation()) {
     conv2dConfig.activation = config->activation()->str();
@@ -321,6 +323,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->enable_subblock_padding()) {
     conv2dConfig.enable_subblock_padding = *config->enable_subblock_padding();
+  }
+
+  if (config->in_place()) {
+    conv2dConfig.in_place = *config->in_place();
   }
 
   return conv2dConfig;

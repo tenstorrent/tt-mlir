@@ -20,7 +20,6 @@ namespace tt {
 namespace ttnn {
 
 struct Conv2dConfigSearchSpace {
-  llvm::SmallVector<ttcore::DataType> dtype;
   llvm::SmallVector<ttcore::DataType> weightsDtype;
   llvm::SmallVector<std::string> activation;
   llvm::SmallVector<bool> deallocateActivation;
@@ -42,7 +41,6 @@ struct Conv2dConfigSearchSpace {
   Conv2dConfigSearchSpace() = default;
 
   // Methods to check if field is set.
-  bool isDtypeSetForSearch() const { return !dtype.empty(); }
   bool isWeightsDtypeSetForSearch() const { return !weightsDtype.empty(); }
   bool isActivationSetForSearch() const { return !activation.empty(); }
   bool isDeallocateActivationSetForSearch() const {
@@ -82,8 +80,8 @@ struct Conv2dConfigSearchSpace {
 
   // Helper to check if any field has been set with search values
   bool isAnyFieldSetForSearch() const {
-    return isDtypeSetForSearch() || isWeightsDtypeSetForSearch() ||
-           isActivationSetForSearch() || isDeallocateActivationSetForSearch() ||
+    return isWeightsDtypeSetForSearch() || isActivationSetForSearch() ||
+           isDeallocateActivationSetForSearch() ||
            isReallocateHaloOutputSetForSearch() ||
            isActBlockHOverrideSetForSearch() || isActBlockWDivSetForSearch() ||
            isReshardIfNotOptimalSetForSearch() ||

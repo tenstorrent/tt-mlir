@@ -81,18 +81,7 @@ bool Conv2dConfigOverrideParser::parse(
     for (StringRef param : conv2dConfigParams) {
       auto [paramName, paramValue] = param.split(paramNameValueSeparator);
 
-      if (paramName == "dtype") {
-        auto dtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
-        if (!dtype) {
-          opt.error("Invalid dtype: " + paramValue);
-          return true;
-        }
-        if (params.dtype.has_value()) {
-          opt.error("Duplicate dtype: " + paramValue);
-          return true;
-        }
-        params.dtype = dtype;
-      } else if (paramName == "weights_dtype") {
+      if (paramName == "weights_dtype") {
         auto weightsDtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!weightsDtype) {
           opt.error("Invalid weights_dtype: " + paramValue);
@@ -283,9 +272,6 @@ std::string Conv2dConfigOverrideParser::toString(
     std::string opConv2dConfigString;
     llvm::raw_string_ostream rso(opConv2dConfigString);
 
-    if (params.dtype.has_value()) {
-      rso << "dtype#" << DataTypeEnumToString(params.dtype.value()) << ":";
-    }
     if (params.weightsDtype.has_value()) {
       rso << "weights_dtype#"
           << DataTypeEnumToString(params.weightsDtype.value()) << ":";

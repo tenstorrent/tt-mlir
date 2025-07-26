@@ -717,7 +717,6 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 // Conv2dConfigAttr. Instead iwe will use this struct to store the params and
 // build a new Conv2dConfigAttr.
 struct Conv2dConfigAttrParams {
-  std::optional<mlir::tt::ttcore::DataType> dtype;
   std::optional<mlir::tt::ttcore::DataType> weightsDtype;
   mlir::StringAttr activation;
   mlir::BoolAttr deallocateActivation;
@@ -734,6 +733,7 @@ struct Conv2dConfigAttrParams {
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
   mlir::BoolAttr enableSubblockPadding;
+  mlir::BoolAttr inPlace;
 
   Conv2dConfigAttrParams() = delete;
 
@@ -761,8 +761,6 @@ public:
   Conv2dConfigAttrParams(Conv2dConfigAttr attr, bool partial = true) {
     mlir::MLIRContext *ctx = attr.getContext();
 
-    dtype = getOrDefaultOpt(attr.getDtype(),
-                            mlir::tt::ttcore::DataType::BFloat16, partial);
     weightsDtype = getOrDefaultOpt(
         attr.getWeightsDtype(), mlir::tt::ttcore::DataType::BFloat16, partial);
     activation = attr.getActivation()
@@ -794,21 +792,23 @@ public:
         getOrDefaultBool(attr.getEnableSplitReader(), ctx, partial);
     enableSubblockPadding =
         getOrDefaultBool(attr.getEnableSubblockPadding(), ctx, partial);
+    inPlace = getOrDefaultBool(attr.getInPlace(), ctx, partial);
   }
 
   Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
     return Conv2dConfigAttr::get(
-        ctx, dtype, weightsDtype, activation, deallocateActivation,
+        ctx, weightsDtype, activation, deallocateActivation,
         reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
         reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
         transposeShards, outputLayout, enableActDoubleBuffer,
-        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
+        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding,
+        inPlace);
   }
 };
 
 // Returns empty configuration.
 Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
-  return Conv2dConfigAttr::get(context, /*dtype=*/std::nullopt,
+  return Conv2dConfigAttr::get(context,
                                /*weightsDtype=*/std::nullopt,
                                /*activation=*/nullptr,
                                /*deallocateActivation=*/nullptr,
@@ -824,7 +824,8 @@ Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
                                /*enableSplitReader=*/nullptr,
-                               /*enableSubblockPadding=*/nullptr);
+                               /*enableSubblockPadding=*/nullptr,
+                               /*inPlace=*/nullptr);
 }
 
 // Returns default configuration.
@@ -837,13 +838,6 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
 Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   Conv2dConfigAttrParams params(*this);
   params.activation = StringAttr::get(getContext(), activation);
-  return params.buildConv2dConfig(getContext());
-}
-
-Conv2dConfigAttr
-Conv2dConfigAttr::withDtype(mlir::tt::ttcore::DataType dtype) const {
-  Conv2dConfigAttrParams params(*this);
-  params.dtype = dtype;
   return params.buildConv2dConfig(getContext());
 }
 
@@ -941,11 +935,15 @@ Conv2dConfigAttr Conv2dConfigAttr::withEnableSubblockPadding(bool value) const {
   return params.buildConv2dConfig(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.inPlace = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr && getActivation().getValue() != "";
 }
-
-bool Conv2dConfigAttr::hasDtype() const { return getDtype().has_value(); }
 
 bool Conv2dConfigAttr::hasWeightsDtype() const {
   return getWeightsDtype().has_value();
@@ -1004,6 +1002,8 @@ bool Conv2dConfigAttr::hasEnableSplitReader() const {
 bool Conv2dConfigAttr::hasEnableSubblockPadding() const {
   return getEnableSubblockPadding() != nullptr;
 }
+
+bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
 
 CoreRangeSetAttr
 ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,

@@ -774,8 +774,7 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getDtype()),
-      toFlatbuffer(cache, config.getWeightsDtype()),
+      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
       toFlatbuffer(cache, config.getActivation()),
       toFlatbuffer(cache, config.getDeallocateActivation()),
       toFlatbuffer(cache, config.getReallocateHaloOutput()),
@@ -790,7 +789,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
-      toFlatbuffer(cache, config.getEnableSubblockPadding()));
+      toFlatbuffer(cache, config.getEnableSubblockPadding()),
+      toFlatbuffer(cache, config.getInPlace()));
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>

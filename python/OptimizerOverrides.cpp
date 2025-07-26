@@ -208,7 +208,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
   nb::class_<mlir::tt::ttnn::Conv2dConfigOverrideParams>(
       m, "Conv2dConfigOverrideParams")
       .def(nb::init<>())
-      .def_rw("dtype", &mlir::tt::ttnn::Conv2dConfigOverrideParams::dtype)
       .def_rw("weights_dtype",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::weightsDtype)
       .def_rw("activation",
@@ -245,15 +244,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def_rw(
           "enable_subblock_padding",
           &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSubblockPadding)
-      .def("set_dtype_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             if (auto dtype_ = mlir::tt::ttcore::DataTypeStringToEnum(value)) {
-               obj.dtype = dtype_;
-             } else {
-               throw std::invalid_argument("Invalid dtype: " + value);
-             }
-           })
       .def("set_weights_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
