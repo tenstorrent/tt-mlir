@@ -22,11 +22,6 @@ target_include_directories(TTMLIRRuntime
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
-set(TTNN_LIBS TTNN::CPP TT::Metalium umd::device)
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  list(APPEND TTNN_LIBS TRACY_LIBRARY)
-endif()
-
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
@@ -46,7 +41,8 @@ target_link_libraries(TTMLIRRuntime
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
     # imports libB.
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTNNTestLib>"
-    ${TTNN_LIBS}
+    TTNN::CPP
+    TT::Metalium
     flatbuffers
 )
 

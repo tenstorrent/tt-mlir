@@ -90,9 +90,4 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN::CPP TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config)
 
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  target_link_libraries(TTRuntimeTTNNOps PUBLIC TRACY_LIBRARY)
-endif()
-
-
 add_dependencies(TTRuntimeTTNNOps FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug)

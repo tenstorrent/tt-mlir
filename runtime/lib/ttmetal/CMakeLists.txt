@@ -25,5 +25,5 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
 # We don't want to link against all of TTNN for the metal runtime.
 get_target_property(TTNN_TOOLS_INCLUDES TTNN::CPP INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(TTRuntimeTTMetal SYSTEM PRIVATE ${TTNN_TOOLS_INCLUDES})
-target_link_libraries(TTRuntimeTTMetal PUBLIC TT::Metalium umd::device coverage_config)
+target_link_libraries(TTRuntimeTTMetal PUBLIC TT::Metalium coverage_config)
 add_dependencies(TTRuntimeTTMetal FBS_GENERATION)
