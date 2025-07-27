@@ -1199,27 +1199,33 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".output_layout = "
           << EmitCTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
+      firstElement = false;
     }
     if (attr.getEnableActDoubleBuffer()) {
       rso << (firstElement ? "" : ", ") << ".enable_act_double_buffer = "
           << EmitCTypeConverter<bool>::convert(attr.getEnableActDoubleBuffer());
+      firstElement = false;
     }
     if (attr.getEnableWeightsDoubleBuffer()) {
       rso << (firstElement ? "" : ", ") << ".enable_weights_double_buffer = "
           << EmitCTypeConverter<bool>::convert(
                  attr.getEnableWeightsDoubleBuffer());
+      firstElement = false;
     }
     if (attr.getEnableSplitReader()) {
       rso << (firstElement ? "" : ", ") << ".enable_split_reader = "
           << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
+      firstElement = false;
     }
     if (attr.getEnableSubblockPadding()) {
       rso << (firstElement ? "" : ", ") << ".enable_subblock_padding = "
           << EmitCTypeConverter<bool>::convert(attr.getEnableSubblockPadding());
+      firstElement = false;
     }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
+      firstElement = false;
     }
     rso << "}";
     return buf;

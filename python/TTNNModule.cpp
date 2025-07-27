@@ -310,6 +310,14 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableSubblockPadding().getValue();
+                   })
+      .def_prop_ro("in_place",
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getInPlace()) {
+                       return nb::none();
+                     }
+                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
