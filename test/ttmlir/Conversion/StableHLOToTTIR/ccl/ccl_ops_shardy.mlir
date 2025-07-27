@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // jax/pjrt sharding target 1x2 for t3k - Shardy all_reduce
 module @jit_matmul_shardy0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {

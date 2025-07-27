@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=true" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   // CHECK-LABEL: func.func @forward_const_eval_0

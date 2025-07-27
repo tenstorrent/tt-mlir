@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround -o %t %s
+// RUN: FileCheck %s --input-file=%t
 #dram = #ttnn.buffer_type<dram>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x1>, memref<64x4x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 128 + d1, d2), <1x1>, memref<256x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>

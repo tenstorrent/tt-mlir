@@ -1,6 +1,6 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: module {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @forward(%arg0: tensor<1x16x32x64xbf16>) -> tensor<1x32x64x16xbf16> {
     %0 = ttir.empty() : tensor<1x64x32x16xbf16>

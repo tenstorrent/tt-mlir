@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 module {
   func.func @test_llama_attention(%arg0: tensor<1x12x3200xf32>, %arg1: tensor<1x1x12x12xf32>, %arg2: tensor<1x12xf32>, %arg3: tensor<1x50x1xf32>, %arg4: tensor<1x32x50x100xf32>, %arg5: tensor<1x1xf32>, %arg6: tensor<1x32x50x100xf32>, %arg7: tensor<1x32x50x100xf32>, %arg8: tensor<1x1xf32>, %arg9: tensor<1x32x50x100xf32>, %arg10: tensor<1x1xf32>, %arg11: tensor<3200x3200xf32>, %arg12: tensor<3200x3200xf32>, %arg13: tensor<3200x3200xf32>, %arg14: tensor<3200x3200xf32>) -> tensor<1x12x3200xf32> {
     %0 = ttir.empty() : tensor<12x3200xf32>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s --ttir-fusing | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // Test basic reduction + reshape fusion (sum operation).
 module {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
     func.func @test_commute_permute(%arg0: tensor<16x7x7x2048xbf16>) -> tensor<16x1x49x2048xbf16> {
