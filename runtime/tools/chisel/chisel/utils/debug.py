@@ -1,6 +1,4 @@
 import functools
-import pdb
-import traceback
 
 def debug_wrap(*, debug: bool = False):
     """
@@ -14,6 +12,9 @@ def debug_wrap(*, debug: bool = False):
                 return fn(*args, **kwargs)
             except Exception:              # noqa: BLE001
                 if debug:                  # flag decided at *definition* time
+                    import pdb
+                    import traceback
+
                     traceback.print_exc()
                     pdb.set_trace()
                 raise

@@ -12,7 +12,8 @@ import sys
 import logging
 from typing import Tuple, Literal, Callable
 
-from ttmlir.ir import Context, Operation
+from chisel.utils.mapping import ttir_dtype_maps
+from ttmlir.ir import Context, Module, Operation
 
 from chisel.core.ops import IRModule, get_op_inputs, get_op_outputs
 from chisel.core.registry import OpGroup, Registry
@@ -60,10 +61,10 @@ class ChiselContext:
     - Integration with the TTRT (Tenstorrent Runtime) backend
     
     Args:
-        ttir_text (str): MLIR text for the golden implementation
-        ttnn_text (str): MLIR text for the device implementation
+        ttir_module (Module): MLIR module for the golden implementation
+        ttnn_module (Module): MLIR module for the device implementation
         output_dir (pathlib.Path): Directory to store output artifacts and reports
-        op_config (pathlib.Path): Path to operator configuration
+        report_path (pathlib.Path): Path to store the execution report
         main_fn (str): Name of the main function to execute
         program_index (int, optional): Index of the program to run. Defaults to 0.
         flatbuffer_path (pathlib.Path | None, optional): Path to flatbuffer file. Defaults to None.
@@ -75,8 +76,8 @@ class ChiselContext:
     """
     def __init__(
         self,
-        ttir_text: str,
-        ttnn_text: str,
+        ttir_module: Module,
+        ttnn_module: Module,
         output_dir: pathlib.Path,
         report_path: pathlib.Path,
         main_fn: str,
@@ -90,7 +91,7 @@ class ChiselContext:
         Initialize the Chisel context with MLIR modules and runtime configuration.
         
         This sets up the execution environment including:
-        - MLIR context and module loading
+        - MLIR context and module wrapping
         - Tensor management pools
         - Execution tracking and reporting
         - Runtime integration
@@ -107,16 +108,18 @@ class ChiselContext:
         # Load and parse both golden and device MLIR modules
         logger.debug("Loading IRs...")
         self.device_ir_module = IRModule(
-            mlir_text=ttnn_text,
+            mlir_module=ttnn_module,
             context=self.context,
             execution_type=ExecutionType.DEVICE,
-            main_function_name=self.main_fn,
+            functions=[self.main_fn],
+            current_function_name=self.main_fn,
         )
         self.golden_ir_module = IRModule(
-            mlir_text=ttir_text,
+            mlir_module=ttir_module,
             context=self.context,
             execution_type=ExecutionType.GOLDEN,
-            main_function_name=self.main_fn,
+            functions=[self.main_fn],
+            current_function_name=self.main_fn,
         )
 
         # Initialize registry and tensor pools for both execution types
@@ -150,7 +153,7 @@ class ChiselContext:
 
         # Initialize operation tracking and function arguments
         self.current_device_op = None  # Tracks the currently executing device operation
-        self.arg_names = [arg.get_name() for arg in self.device_ir_module.get_function_inputs(self.main_fn)]
+        self.arg_names = [arg.get_name() for arg in self.device_ir_module.get_function_inputs()]
 
         # Set up TTRT runtime if flatbuffer path is provided
         self.rt_api = None
@@ -496,3 +499,16 @@ class ChiselContext:
             device_tensor.set_execution_data()
             self.device_tensor_pool[arg_name] = device_tensor
         print(self.device_tensor_pool.keys())
+    
+    def generate_random_inputs(self):
+        """
+        Generate random inputs for the program.
+        """
+        for arg in self.device_ir_module.get_function_inputs():
+            arg_name = arg.get_name()
+            shape = arg.type.shape
+            dtype = arg.type.element_type
+            torch_dtype = ttir_dtype_maps[str(dtype)]
+            tensor = torch.randn(shape, dtype=torch_dtype)
+            self.device_tensor_pool[arg_name] = TensorValue(arg_name, tensor, ExecutionType.DEVICE)
+            self.device_tensor_pool[arg_name].set_execution_data()

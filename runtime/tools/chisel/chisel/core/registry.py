@@ -249,6 +249,7 @@ class Registry:
         with_output: bool = True,
     ) -> Operation | None:
         if group_id not in self.op_groups:
+            # TODO: check in what cases this happens
             return None
         return self.op_groups[group_id].get_last_op(execution_type, with_output)
 
