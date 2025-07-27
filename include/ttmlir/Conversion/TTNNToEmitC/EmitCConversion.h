@@ -1225,7 +1225,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
-      firstElement = false;
     }
     rso << "}";
     return buf;
