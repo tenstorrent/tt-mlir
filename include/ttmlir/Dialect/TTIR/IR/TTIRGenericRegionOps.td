@@ -622,7 +622,7 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
 
     let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
-    let hasVerifier = 0; // TODO: ADD A VERIFIER!!!!!
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
@@ -689,7 +689,7 @@ def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
     // let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
     let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
-    let hasVerifier = 0; // TODO: ADD A VERIFIER!!!!!
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }

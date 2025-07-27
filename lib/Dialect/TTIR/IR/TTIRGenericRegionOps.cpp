@@ -310,6 +310,62 @@ void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
                        mlir::SideEffects::DefaultResource::get());
 }
 
+::mlir::LogicalResult mlir::tt::ttir::LoweredDMAWriteOp::verify() {
+  ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
+  ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
+
+  auto isLocal = [&](auto operand) {
+    Block *block = operand.getParentBlock();
+    Block::BlockArgListType blockArgs = block->getArguments();
+    return std::find(blockArgs.begin(), blockArgs.end(), operand) !=
+           blockArgs.end();
+  };
+  auto isRemote = [&](auto operand) { return !isLocal(operand); };
+
+  if (isRemote(getSrc())) {
+    return emitOpError("For DMAWrite, src must be local");
+  }
+
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError(
+        "Operands to LoweredDMAWrite must have the same element type");
+  }
+
+  if (isDstRemote() && isMcast()) {
+    return emitOpError("cannot mcast to remote dst");
+  }
+
+  if (!getMcastStartIndex().empty() && getMcastShape().empty()) {
+    return emitOpError("mcast shape defined but mcast start index is not");
+  }
+
+  if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
+    return emitOpError("mcast start index defined but mcast shape is not");
+  }
+
+  constexpr int64_t kExpectedIndicesRemote = 3;
+  constexpr int64_t kExpectedIndicesLocal = 1;
+
+  int64_t numDstIndices = getDstIndices().size();
+  int64_t numSrcIndices = getSrcIndices().size();
+
+  if (isDstRemote()) {
+    if (numDstIndices != kExpectedIndicesRemote) {
+      return emitOpError("Must have 3 dst indices for remote dst operand");
+    }
+  } else {
+    if (numDstIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 dst index for local dst operand");
+    }
+  }
+
+  if (numSrcIndices != kExpectedIndicesLocal) {
+    return emitOpError("Must have 1 src index for local src operand");
+  }
+
+  return success();
+}
+
 void mlir::tt::ttir::LoweredDMAReadOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
@@ -323,6 +379,44 @@ void mlir::tt::ttir::LoweredDMAReadOp::getEffects(
                        0 /*stage*/, true /*effectOnFullRegion*/,
                        mlir::SideEffects::DefaultResource::get());
 }
+::mlir::LogicalResult mlir::tt::ttir::LoweredDMAReadOp::verify() {
+  ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
+  ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
+
+  auto isLocal = [&](auto operand) {
+    Block *block = operand.getParentBlock();
+    Block::BlockArgListType blockArgs = block->getArguments();
+    return std::find(blockArgs.begin(), blockArgs.end(), operand) !=
+           blockArgs.end();
+  };
+  auto isRemote = [&](auto operand) { return !isLocal(operand); };
+
+  if (!(isRemote(getSrc()) && isLocal(getDst()))) {
+    return emitOpError("For DMARead, src must be remote and dst must be local");
+  }
+
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError(
+        "Operands to LoweredDMAWrite must have the same element type");
+  }
+
+  constexpr int64_t kExpectedIndicesRemote = 3;
+  constexpr int64_t kExpectedIndicesLocal = 1;
+
+  int64_t numDstIndices = getDstIndices().size();
+  int64_t numSrcIndices = getSrcIndices().size();
+
+  if (numSrcIndices != kExpectedIndicesRemote) {
+    return emitOpError("Must have 3 src indices for remote src operand");
+  }
+
+  if (numDstIndices != kExpectedIndicesLocal) {
+    return emitOpError("Must have 1 dst index for local dst operand");
+  }
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // CoreIndexOp
 //===----------------------------------------------------------------------===//
