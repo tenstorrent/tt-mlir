@@ -74,7 +74,7 @@ target_include_directories(TTRuntimePerf
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
-target_link_libraries(TTRuntimePerf PUBLIC coverage_config)
+target_link_libraries(TTRuntimePerf PUBLIC Tracy::TracyClient coverage_config)
 
 add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)
 set_property(TARGET TTRuntimeWorkarounds PROPERTY CXX_STANDARD 20)

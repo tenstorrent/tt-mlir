@@ -39,15 +39,10 @@ target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTMLIRRuntime
     TTNN::CPP
     TT::Metalium
-    umd::device
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main
 )
-
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
-endif()
 
 function(add_runtime_gtest test_name)
   if(ARGC EQUAL 1)
