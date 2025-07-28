@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --linalg-to-llvm-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --linalg-to-llvm-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @add(
     %arg0: tensor<32x32xf32>,  // First input tensor

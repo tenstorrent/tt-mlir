@@ -1,11 +1,11 @@
-// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=32" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=32" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir --check-prefix=CHECK-INT32
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %t.mlir > %t2.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t2.mlir %t.mlir
 
 // This checks that the whole backend pipeline works with int16 quantization as well.
-// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=16" %s > %t-int16.mlir
+// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=16" -o %t-int16.mlir %s
 // RUN: FileCheck %s --input-file=%t-int16.mlir --check-prefix=CHECK-INT16
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %t-int16.mlir > %t2-int16.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o  %t2-int16.mlir %t-int16.mlir
 
 func.func @quantize_datatype_transform_test(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>> {
     // CHECK-INT32-LABEL: func.func @quantize_datatype_transform_test

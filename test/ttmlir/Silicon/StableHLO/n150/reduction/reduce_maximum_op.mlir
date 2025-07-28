@@ -1,9 +1,9 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck --input-file=%t.mlir %s
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module @jit_reduce_maximum attributes {} {
   func.func public @test_reduce_maximum_4to0dim(%arg0: tensor<128x64x32x96xf32>, %cst_0: tensor<f32>) -> tensor<f32> {

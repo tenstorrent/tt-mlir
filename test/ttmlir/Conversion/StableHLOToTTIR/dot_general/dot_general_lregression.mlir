@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_loss attributes {} {
   func.func public @main(%arg0: tensor<2x1xf32>, %arg1: tensor<f32>, %arg2: tensor<127x2xf32>, %arg3: tensor<127x1xf32>) -> (tensor<2x1xf32>, tensor<f32>) {
     %0 = stablehlo.dot_general %arg2, %arg0, contracting_dims = [1] x [0], precision = [DEFAULT, DEFAULT] : (tensor<127x2xf32>, tensor<2x1xf32>) -> tensor<127x1xf32>

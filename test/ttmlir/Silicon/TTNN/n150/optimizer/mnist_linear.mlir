@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o mnist_linear_out.mlir %s
 // RUN: FileCheck %s --input-file=mnist_linear_out.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer mnist_linear_out.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_linear_out.mlir
 #loc = loc("MNISTLinear":0:0)
 module @MNISTLinear attributes {} {
   func.func @forward(%arg0: tensor<1x784xf32> {ttir.name = "input_1"} loc("MNISTLinear":0:0), %arg1: tensor<784x256xf32> {ttir.name = "l1.weight"} loc("MNISTLinear":0:0), %arg2: tensor<256xf32> {ttir.name = "l1.bias"} loc("MNISTLinear":0:0), %arg3: tensor<256x10xf32> {ttir.name = "l2.weight"} loc("MNISTLinear":0:0), %arg4: tensor<10xf32> {ttir.name = "l2.bias"} loc("MNISTLinear":0:0)) -> (tensor<1x10xf32> {ttir.name = "MNISTLinear.output_softmax_9"}) {

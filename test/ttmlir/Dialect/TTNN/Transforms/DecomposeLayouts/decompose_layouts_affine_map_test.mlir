@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts -o %t %s
+// RUN: FileCheck %s --input-file=%t
 //
 // We expect AffineMaps to be uniqued in MLIR, so identical types (e.g., return operand and function result)
 // should compare equal if their affine expressions are mathematically equivalent (among other properties).

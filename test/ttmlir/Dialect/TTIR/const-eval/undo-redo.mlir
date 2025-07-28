@@ -2,8 +2,8 @@
 // RUN: ttmlir-opt --undo-const-eval %t1.mlir -o %t2.mlir
 // RUN: ttmlir-opt --const-eval-hoist-transform %t2.mlir -o %t3.mlir
 // RUN: ttmlir-opt --const-eval-hoist-transform %t1.mlir -o %t4.mlir
-// RUN: FileCheck %s < %t1.mlir
-// RUN: FileCheck %s --check-prefix=UNDONE < %t2.mlir
+// RUN: FileCheck --input-file=%t1.mlir %s
+// RUN: FileCheck %s --input-file=%t2.mlir --check-prefix=UNDONE
 // RUN: diff %t1.mlir %t3.mlir
 // RUN: diff %t1.mlir %t4.mlir
 

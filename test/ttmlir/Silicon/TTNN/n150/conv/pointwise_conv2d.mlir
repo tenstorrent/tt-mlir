@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module {
   func.func @pointwise_conv2d_bf16(%arg0: tensor<16x32x32x64xbf16>, %arg1: tensor<32x64x1x1xbf16>, %arg2: tensor<1x1x1x32xbf16>) -> tensor<16x32x32x32xbf16> {

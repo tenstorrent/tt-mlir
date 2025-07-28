@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate %s 2>&1 | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate 2>&1 -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 !memreftype_l1   = memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024>, #ttcore.memory_space<l1>>
 !memreftype_dram = memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024>, #ttcore.memory_space<dram>>

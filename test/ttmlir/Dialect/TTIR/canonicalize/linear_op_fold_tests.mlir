@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @linear_1d_1d(%arg0: tensor<3x64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<3x64x64xbf16> {
     %0 = ttir.empty() : tensor<3x64x64xbf16>

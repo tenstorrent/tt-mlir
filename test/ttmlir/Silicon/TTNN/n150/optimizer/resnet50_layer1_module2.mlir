@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false override-conv2d-config=conv1=shard_layout#height_sharded,conv2=shard_layout#height_sharded" -o resnet50_layer1_module2_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=resnet50_layer1_module2_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer resnet50_layer1_module2_ttnn.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn resnet50_layer1_module2_ttnn.mlir
 #loc = loc("ResNetForImageClassification")
 module @ResNetBlock attributes {} {
   func.func @forward(%arg0: tensor<8x56x56x256xbf16> {ttir.name = "input"},

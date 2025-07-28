@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-lower-dmas --convert-ttir-to-ttkernel %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-generic-lower-dmas --convert-ttir-to-ttkernel -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>

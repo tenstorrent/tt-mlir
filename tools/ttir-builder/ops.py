@@ -4866,6 +4866,60 @@ class TTIRBuilderOps:
             ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
         )
 
+    def all_to_all(
+        self,
+        input: Operand,
+        split_dim: int,
+        concat_dim: int,
+        split_count: int,
+        replica_groups: List[List[int]],
+    ) -> OpView:
+        """
+        Creates ``ttir.all_to_all``.
+
+        *all to all operation.*
+
+        The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends the resulting slices to other devices along cluster_axis, and then concatenates the received slices along concat_dimension.
+
+        Example:
+            For a 1x2 mesh and a local input of shape [8, 4]:
+            - split_dimension = 1
+            - concat_dimension = 0
+            - split_count = 2
+            - cluster_axis = 1
+
+            Each device splits its [8, 4] tensor into two [8, 2] slices. After the exchange, each device concatenates the two received [8, 2] slices into a [16, 2] output tensor.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to be redistributed
+        split_dim : int
+            Dimension along which to split the input tensor
+        concat_dim : int
+            Dimension along which to concatenate the reorganized tensors
+        split_count : int
+            Number of splits to perform
+        replica_groups : List[List[int]]
+            List of replica group indices
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        kwargs = {
+            "split_dim": split_dim,
+            "concat_dim": concat_dim,
+            "split_count": split_count,
+            "replica_groups": replica_groups,
+        }
+        return self.ccl_proxy(
+            all_to_all_golden,
+            ttir.AllToAllOp,
+            [input],
+            kwargs=kwargs,
+        )
+
 
 # Remove autodoc_skip from Sphinx documentation
 del autodoc_skip
