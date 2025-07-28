@@ -58,8 +58,19 @@ def model_to_python_cmd(input_file, verbose):
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
 @click.argument("output_dir", type=click.Path())
-@click.option("--local", "mode", flag_value="local", default=True, help="Generate for local execution (default)")
-@click.option("--standalone", "mode", flag_value="standalone", help="Generate for standalone execution")
+@click.option(
+    "--local",
+    "mode",
+    flag_value="local",
+    default=True,
+    help="Generate for local execution (default)",
+)
+@click.option(
+    "--standalone",
+    "mode",
+    flag_value="standalone",
+    help="Generate for standalone execution",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 def generate_cpp_cmd(input_file, output_dir, mode, verbose):
     """Generate standalone solution with the generated C++ code.
@@ -90,8 +101,19 @@ def generate_cpp_cmd(input_file, output_dir, mode, verbose):
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
 @click.argument("output_dir", type=click.Path())
-@click.option("--local", "mode", flag_value="local", default=True, help="Generate for local execution (default)")
-@click.option("--standalone", "mode", flag_value="standalone", help="Generate for standalone execution")
+@click.option(
+    "--local",
+    "mode",
+    flag_value="local",
+    default=True,
+    help="Generate for local execution (default)",
+)
+@click.option(
+    "--standalone",
+    "mode",
+    flag_value="standalone",
+    help="Generate for standalone execution",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 def generate_python_cmd(input_file, output_dir, mode, verbose):
     """Generate standalone solution with the generated Python code.

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
@@ -31,5 +35,3 @@ int32_t main() {
   int32_t v3 = 0;
   return v3;
 }
-
-

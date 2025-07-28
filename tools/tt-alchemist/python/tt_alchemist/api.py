@@ -51,7 +51,7 @@ class TTAlchemistAPI:
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
-            ctypes.c_bool,    # is_local
+            ctypes.c_bool,  # is_local
         ]
         self.lib.tt_alchemist_TTAlchemist_generateCpp.restype = ctypes.c_bool
 
@@ -59,7 +59,7 @@ class TTAlchemistAPI:
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
-            ctypes.c_bool,    # is_local
+            ctypes.c_bool,  # is_local
         ]
         self.lib.tt_alchemist_TTAlchemist_generatePython.restype = ctypes.c_bool
 
