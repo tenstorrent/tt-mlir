@@ -47,11 +47,11 @@ protected:
     llvm::SmallVector<int64_t> grid;
     grid.reserve(physicalShape.size());
 
-    llvm::errs() << "Physical shape: ";
+    llvm::errs() << "TTG Physical shape: ";
     llvm::interleaveComma(physicalShape, llvm::errs());
     llvm::errs() << "\n";
 
-    llvm::errs() << "grid shape: ";
+    llvm::errs() << "TTG Grid shape: ";
     llvm::interleaveComma(targetGridShape, llvm::errs());
     llvm::errs() << "\n";
 
