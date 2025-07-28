@@ -7,6 +7,7 @@ declare_mlir_python_sources(TTIRBuilderSources
   ADD_TO_PARENT TTIRBuilder
   SOURCES
     __init__.py
+    sharded_tensor.py
     test_optimizer_overrides.py
     utils.py
     apis.py
