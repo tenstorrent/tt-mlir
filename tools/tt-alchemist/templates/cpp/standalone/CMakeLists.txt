@@ -28,6 +28,7 @@ if(EXISTS ${TTNN_INSTALL_DIR})
 endif()
 
 # Find TT-NN package (required for standalone mode)
+find_package(xtensor REQUIRED)  # TODO: remove once fixed in metal
 find_package(TT-NN REQUIRED)
 
 # All dependencies are handled by the TT-NN package
@@ -42,7 +43,7 @@ add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-# Link with TT-NN which provides all necessary dependencies
-target_link_libraries(ttnn-standalone PRIVATE TT-NN::ttnn)
+# Link with TTNN which provides all necessary dependencies
+target_link_libraries(ttnn-standalone PRIVATE TTNN::TTNN)
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)

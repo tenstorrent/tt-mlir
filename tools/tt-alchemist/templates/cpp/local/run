@@ -13,7 +13,7 @@ fi
 # Build
 echo "==================== BUILDING TTNN LOCAL ===================="
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
-$_ && cmake --build build -- ttnn-local
+cmake --build build -- ttnn-local
 echo "================ FINISH BUILDING TTNN LOCAL ================="
 
 # Run
