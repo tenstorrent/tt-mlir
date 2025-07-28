@@ -2,18 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Utils.h"
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
@@ -82,6 +83,15 @@ public:
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
+          assert(linalgGenericOp.getInputs().size() == 2 &&
+                 "Expected exactly 2 inputs");
+          assert(linalgGenericOp.getOutputs().size() == 1 &&
+                 "Expected exactly 1 output");
+
+          Value inputA_memref = linalgGenericOp.getInputs()[0];
+          Value inputB_memref = linalgGenericOp.getInputs()[1];
+          Value outputC_memref = linalgGenericOp.getOutputs()[0];
+
           rewriter.setInsertionPoint(linalgGenericOp);
           // Apply linalg to affine loops pass
           auto linalgLoops =
@@ -98,6 +108,17 @@ public:
               [&](int64_t index) {
                 return op.getNonParticipatingLoopDims(index);
               });
+
+          Operation *outerLoop = linalgLoops.value()[0];
+          Block *parentBlk = outerLoop->getBlock();
+          auto insertPos = std::next(Block::iterator(outerLoop));
+
+          rewriter.setInsertionPoint(parentBlk, insertPos);
+          for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+            rewriter.eraseOp(loopOp);
+          }
+          rewriter.create<ttir::TileMatmulBlockOp>(
+              op.getLoc(), inputA_memref, inputB_memref, outputC_memref);
         });
         if (linalgToAffineFailed) {
           return failure();
