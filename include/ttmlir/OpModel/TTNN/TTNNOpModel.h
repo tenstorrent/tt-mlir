@@ -202,6 +202,38 @@ struct OpModel<mlir::tt::ttnn::LogicalXorOp>
     : BinaryEltwiseOpModel<mlir::tt::ttnn::LogicalXorOp> {};
 
 //===----------------------------------------------------------------------===//
+// Ternary Eltwise Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpT>
+struct TernaryEltwiseOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShapeA,
+                   mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                   llvm::ArrayRef<int64_t> inputShapeB,
+                   mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                   llvm::ArrayRef<int64_t> inputShapeC,
+                   mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
+                   llvm::ArrayRef<int64_t> outputShape,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+               llvm::ArrayRef<int64_t> inputShapeB,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+               llvm::ArrayRef<int64_t> inputShapeC,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
+               llvm::ArrayRef<int64_t> outputShape,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+template <>
+struct OpModel<mlir::tt::ttnn::WhereOp>
+    : TernaryEltwiseOpModel<mlir::tt::ttnn::WhereOp> {};
+
+//===----------------------------------------------------------------------===//
 // Reduction Ops
 //===----------------------------------------------------------------------===//
 
@@ -616,32 +648,6 @@ struct OpModel<mlir::tt::ttnn::EmbeddingOp> {
                mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
                mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
-
-//===----------------------------------------------------------------------===//
-// WhereOp
-//===----------------------------------------------------------------------===//
-namespace WhereOpInterface {
-llvm::Expected<OpConstraints>
-getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
-                 llvm::ArrayRef<int64_t> inputShapeA,
-                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                 llvm::ArrayRef<int64_t> inputShapeB,
-                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                 llvm::ArrayRef<int64_t> inputShapeC,
-                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-                 llvm::ArrayRef<int64_t> outputShape,
-                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-
-llvm::Expected<size_t>
-getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
-             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-             llvm::ArrayRef<int64_t> inputShapeB,
-             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-             llvm::ArrayRef<int64_t> inputShapeC,
-             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-             llvm::ArrayRef<int64_t> outputShape,
-             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-}; // namespace WhereOpInterface
 
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

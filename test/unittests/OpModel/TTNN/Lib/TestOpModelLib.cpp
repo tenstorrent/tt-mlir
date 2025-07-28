@@ -2156,10 +2156,11 @@ TEST_F(OpModelTest, Where) {
       CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
-  auto constraintsExp = WhereOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
-      inputLayout, inputTensorShape, inputLayout, inputTensorShape,
-      outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::WhereOp>::getOpConstraints(
+          CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
+          inputLayout, inputTensorShape, inputLayout, inputTensorShape,
+          outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
@@ -2167,9 +2168,10 @@ TEST_F(OpModelTest, Where) {
   EXPECT_EQ(peakSize, 10240);
   EXPECT_EQ(outputSize, 2048);
 
-  auto runtimeExp = WhereOpInterface::getOpRuntime(
-      inputTensorShape, inputLayout, inputTensorShape, inputLayout,
-      inputTensorShape, inputLayout, inputTensorShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::WhereOp>::getOpRuntime(
+          inputTensorShape, inputLayout, inputTensorShape, inputLayout,
+          inputTensorShape, inputLayout, inputTensorShape, outputLayout);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }

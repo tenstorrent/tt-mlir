@@ -254,6 +254,8 @@ auto getOpSymbol() {
     return ::ttnn::maximum;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::MinimumOp>) {
     return ::ttnn::minimum;
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::WhereOp>) {
+    return ::ttnn::where;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::MeanOp>) {
     return ::ttnn::mean;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::SumOp>) {
@@ -559,109 +561,6 @@ Device::getDeviceConstraints(mlir::tt::ttcore::GridAttr workerGrid) {
 #endif
   return true;
 }
-
-//===----------------------------------------------------------------------===//
-// Template functions for ternary elementwise operations.
-//===----------------------------------------------------------------------===//
-
-#ifdef TTMLIR_ENABLE_OPMODEL
-template <typename OpSymbol>
-llvm::Expected<OpConstraints>
-getEltwiseTernaryOpConstraints(OpSymbol opSymbol, ttcore::GridAttr deviceGrid,
-                               llvm::ArrayRef<int64_t> inputShapeA,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                               llvm::ArrayRef<int64_t> inputShapeB,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                               llvm::ArrayRef<int64_t> inputShapeC,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-                               llvm::ArrayRef<int64_t> outputShape,
-                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
-
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
-
-  auto inputSpecCExp =
-      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
-  if (!inputSpecCExp) {
-    return inputSpecCExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
-
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Create query closure
-  auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(opSymbol, device, inputSpecA,
-                                               inputSpecB, inputSpecC,
-                                               outputMemoryConfig);
-  };
-
-  return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
-                                     query);
-}
-
-template <typename OpSymbol>
-llvm::Expected<size_t>
-getEltwiseTernaryOpRuntime(OpSymbol opSymbol,
-                           llvm::ArrayRef<int64_t> inputShapeA,
-                           mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                           llvm::ArrayRef<int64_t> inputShapeB,
-                           mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                           llvm::ArrayRef<int64_t> inputShapeC,
-                           mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-                           llvm::ArrayRef<int64_t> outputShape,
-                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
-
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
-
-  auto inputSpecCExp =
-      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
-  if (!inputSpecCExp) {
-    return inputSpecCExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
-
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Create query closure
-  auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(opSymbol, device, inputSpecA,
-                                           inputSpecB, inputSpecC,
-                                           outputMemoryConfig);
-  };
-
-  return operation::getOpRuntime(query);
-}
-#endif
 
 //===----------------------------------------------------------------------===//
 // Unary Eltwise Ops
@@ -979,6 +878,116 @@ template struct BinaryEltwiseOpModel<mlir::tt::ttnn::LessThanOp>;
 template struct BinaryEltwiseOpModel<mlir::tt::ttnn::LogicalAndOp>;
 template struct BinaryEltwiseOpModel<mlir::tt::ttnn::LogicalOrOp>;
 template struct BinaryEltwiseOpModel<mlir::tt::ttnn::LogicalXorOp>;
+
+//===----------------------------------------------------------------------===//
+// Ternary Eltwise Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> inputShapeC,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  auto inputSpecCExp =
+      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
+  if (!inputSpecCExp) {
+    return inputSpecCExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
+                                               device, inputSpecA, inputSpecB,
+                                               inputSpecC, outputMemoryConfig);
+  };
+
+  return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> inputShapeC,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  auto inputSpecCExp =
+      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
+  if (!inputSpecCExp) {
+    return inputSpecCExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
+                                           inputSpecA, inputSpecB, inputSpecC,
+                                           outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+// Explicit template instantiation for TernaryEltwiseOpModel.
+template struct TernaryEltwiseOpModel<mlir::tt::ttnn::WhereOp>;
 
 //===----------------------------------------------------------------------===//
 // Reduction Ops
@@ -2594,45 +2603,6 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::EmbeddingOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(embeddingOpQuery);
-#else
-  return llvm::createStringError("Not Implemented");
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-//===----------------------------------------------------------------------===//
-// WhereOp
-//===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> WhereOpInterface::getOpConstraints(
-    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-    llvm::ArrayRef<int64_t> inputShapeC,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-    llvm::ArrayRef<int64_t> outputShape,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  return getEltwiseTernaryOpConstraints(
-      ::ttnn::where, deviceGrid, inputShapeA, inputLayoutA, inputShapeB,
-      inputLayoutB, inputShapeC, inputLayoutC, outputShape, outputLayout);
-#else
-  return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-llvm::Expected<size_t>
-WhereOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
-                               llvm::ArrayRef<int64_t> inputShapeB,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
-                               llvm::ArrayRef<int64_t> inputShapeC,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutC,
-                               llvm::ArrayRef<int64_t> outputShape,
-                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  return getEltwiseTernaryOpRuntime(::ttnn::where, inputShapeA, inputLayoutA,
-                                    inputShapeB, inputLayoutB, inputShapeC,
-                                    inputLayoutC, outputShape, outputLayout);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
