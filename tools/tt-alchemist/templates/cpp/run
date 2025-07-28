@@ -1,14 +1,17 @@
-#!/bin/bash
+#!/bin/sh
 
 # Exit on error
 set -e
 
-# Allow running only from the script directory
-script_dir=$(dirname "$(realpath "$0")")
-if [ "$(pwd)" != ${script_dir} ]; then
-  echo "Error: must run from ${script_dir}"
+# Get absolute path of script directory (portable method)
+script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ "$(pwd)" != "$script_dir" ]; then
+  echo "Error: must run from $script_dir"
   exit 1
 fi
+
+# Set TT_METAL_HOME to the installed metalium directory (portable method)
+export TT_METAL_HOME="$script_dir/ttnn-install/libexec/tt-metalium"
 
 # Build
 echo "==================== BUILDING TTNN STANDALONE ==================="
