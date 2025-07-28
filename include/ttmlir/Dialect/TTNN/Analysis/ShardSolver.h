@@ -328,7 +328,6 @@ public:
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
-      const llvm::DenseSet<Operation *> &rowMajorOutputOps = {},
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout =
           {},
       std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
@@ -369,8 +368,6 @@ private:
 
   // Edges indicated for resharding.
   llvm::DenseSet<Edge> memReconfigEdges;
-  // Row major output ops.
-  llvm::DenseSet<Operation *> rowMajorOutputOps;
   // Override output layout parameters.
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 

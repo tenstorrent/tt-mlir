@@ -153,7 +153,7 @@ void DFShardingPolicy::run() {
     progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
-        overrideReshardEdges, rowMajorOutputOps, overrideOutputLayout);
+        overrideReshardEdges, overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

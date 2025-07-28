@@ -56,7 +56,6 @@ ShardSolver::ShardSolver(
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
-    const llvm::DenseSet<Operation *> &rowMajorOutputOps,
     const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                  Operation *, OpConfig)>
@@ -65,7 +64,6 @@ ShardSolver::ShardSolver(
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
       memReconfigEdges(overrideReshardEdges),
-      rowMajorOutputOps(rowMajorOutputOps),
       overrideOutputLayout(overrideOutputLayout),
       customCheckShardCompatible(customCheckShardCompatible) {
   pathSets.reserve(shardSpecs.size());

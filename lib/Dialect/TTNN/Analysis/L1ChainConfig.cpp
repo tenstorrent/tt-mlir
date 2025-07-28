@@ -29,7 +29,6 @@ ShardSolver L1ChainConfig::resolveWithSolver(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
-    const llvm::DenseSet<Operation *> &rowMajorOutputOps,
     const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout) {
   assert(state == L1ChainState::Built);
 
@@ -38,7 +37,7 @@ ShardSolver L1ChainConfig::resolveWithSolver(
   //
   ShardSolver shardSolver(tensorTypePossibleLayouts, legalConfigs, opL1MemSpecs,
                           l1ChainedOps, usableL1CacheSize, overrideReshardEdges,
-                          rowMajorOutputOps, overrideOutputLayout);
+                          overrideOutputLayout);
 
   state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;
 

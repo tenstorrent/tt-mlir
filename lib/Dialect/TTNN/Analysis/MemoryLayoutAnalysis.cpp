@@ -66,7 +66,6 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule,
         analysisInput.usableL1CacheSize);
     dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
-                                  analysisInput.rowMajorOutputOps,
                                   analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
     break;
