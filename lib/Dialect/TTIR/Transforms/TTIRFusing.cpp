@@ -966,6 +966,10 @@ private:
     ArrayRef<int64_t> updateShape =
         mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
             .getShape();
+    
+    llvm::errs() << "getCacheUpdatePositions: Checking ScatterOp at "
+                 << scatterOp.getLoc() << "\n";
+
     if (inputShape.size() != 4 || updateShape.size() != 4) {
       return std::nullopt;
     }
@@ -976,6 +980,37 @@ private:
     }
 
     int cacheUpdateSize = updateShape[2];
+
+    // XLA case single device unsharded
+    if(scatterIdxShape.size() == 2){
+      if (scatterIdxShape[0] != cacheUpdateSize) {
+        return std::nullopt;
+      }
+      //    %138 = "ttir.reshape"(%136, %137) <{shape = [7 : i32, 1 : i32]}> : (tensor<7xi64>, tensor<7x1xi64>) -> tensor<7x1xi64>
+      auto reshapeOp = scatterIndices.getDefiningOp<ttir::ReshapeOp>();
+      if (!reshapeOp) {
+        return std::nullopt;
+      }
+      
+      //     %136 = "ttir.where"(%128, %134, %arg117, %135) : (tensor<7xi1>, tensor<7xi64>, tensor<7xi64>, tensor<7xi64>) -> tensor<7xi64>
+      auto whereOp = reshapeOp.getInput().getDefiningOp<ttir::WhereOp>();
+      mlir::Value input = whereOp.getThird();
+      // check if the input comes from a block argument, which it does not - it comes from a ttir.where ...
+
+      auto blockArg = mlir::cast<BlockArgument>(input);
+      if (!blockArg) {
+        return std::nullopt;
+      }
+
+      // check for shape of the opresult argument is 1D and is == cacheUpdateSize
+      auto inputShape =
+          mlir::cast<RankedTensorType>(input.getType()).getShape();
+      if (inputShape.size() != 1 || inputShape[0] != cacheUpdateSize) {
+        return std::nullopt;
+      }
+      return input;
+    }
+
     if (scatterIdxShape.size() == 1) {
       if (scatterIdxShape[0] != cacheUpdateSize) {
         return std::nullopt;
@@ -997,6 +1032,9 @@ private:
       }
       return input;
     }
+
+    // in the singledevice case - scatter indices comes from a reshape 
+
     // Check that the scatter indices input is a concat op that produces the
     // scatter indices for a cache update/fill:
     //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
