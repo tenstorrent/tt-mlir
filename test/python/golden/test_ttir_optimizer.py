@@ -28,6 +28,7 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
                     return True
     return False
 
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -41,7 +42,7 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
 @pytest.mark.parametrize(
-    "stride,padding,dilation,groups", [([1, 1], [1,1], [1,1], 1)]
+    "stride,padding,dilation,groups", [([1, 1], [1, 1], [1, 1], 1)]
 )
 def test_conv2d_sharding(
     shapes: List[Shape],
@@ -79,9 +80,10 @@ def test_conv2d_sharding(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=os.environ.get("SYSTEM_DESC_PATH"),
-        pipeline_options=["enable-optimizer=true", "memory-layout-analysis-enabled=true"],
-        target="ttnn",  
+        pipeline_options=[
+            "enable-optimizer=true",
+            "memory-layout-analysis-enabled=true",
+        ],
+        target="ttnn",
     )
     assert check_sharded_input_output(output_file_mlir, "conv2d")
-    
-
