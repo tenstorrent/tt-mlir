@@ -89,12 +89,14 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
     return false;
   }
 
-  // Copy all files from templates directory to output directory
+  // Copy all files and directories from templates directory to output directory
   //
   try {
     for (const auto &entry : fs::directory_iterator(templatesPath)) {
       fs::path destPath = outputPath / entry.path().filename();
-      fs::copy(entry.path(), destPath, fs::copy_options::overwrite_existing);
+      fs::copy(entry.path(), destPath,
+               fs::copy_options::overwrite_existing |
+                   fs::copy_options::recursive);
     }
   } catch (const fs::filesystem_error &e) {
     std::cout << "Failed to copy template files: " << e.what() << std::endl;

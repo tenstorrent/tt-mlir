@@ -21,89 +21,16 @@ else()
   endif()
 endif()
 
-# TT_METAL_HOME env variable needs to be set
-if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
-    return()
+# Add local ttnn-install to CMAKE_PREFIX_PATH if it exists
+set(TTNN_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttnn-install")
+if(EXISTS ${TTNN_INSTALL_DIR})
+    list(APPEND CMAKE_PREFIX_PATH ${TTNN_INSTALL_DIR})
 endif()
 
-# Metal dir variables
-set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
-if(DEFINED ENV{TT_METAL_LIB})
-  set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
-else()
-  set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
-endif()
+# Find TT-NN package (required for standalone mode)
+find_package(TT-NN REQUIRED)
 
-if (DEFINED ENV{CPM_SOURCE_CACHE})
-  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
-else()
-  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
-endif()
-message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
-
-# Directories to search for headers
-#
-set(INCLUDE_DIRS
-    # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
-    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
-    ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
-    ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
-    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
-
-    # Metalium
-    ${METAL_SRC_DIR}
-    ${METAL_SRC_DIR}/tt_metal
-    ${METAL_SRC_DIR}/tt_metal/api
-    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
-    ${METAL_SRC_DIR}/tt_metal/hw/inc
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
-    ${METAL_SRC_DIR}/tt_metal/include
-    ${METAL_SRC_DIR}/tt_stl
-    ${METAL_SRC_DIR}/tt_stl/tt_stl
-    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
-    ${METAL_SRC_DIR}/tt_metal/third_party/magic_enum
-    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
-    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
-
-    # TTNN
-    ${METAL_SRC_DIR}/ttnn
-    ${METAL_SRC_DIR}/ttnn/api
-    ${METAL_SRC_DIR}/ttnn/core
-    ${METAL_SRC_DIR}/ttnn/cpp
-    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
-)
-
-# Link directories
-#
-set(LINK_DIRS
-    ${METAL_LIB_DIR}
-)
-
-# Libraries to link
-#
-set(LINK_LIBS
-    tt_metal
-    device
-    ${METAL_LIB_DIR}/_ttnncpp.so
-)
-
-# Compile definitions
-#
-set(COMPILE_DEFS
-    FMT_HEADER_ONLY  # needed for fmt lib
-)
+# All dependencies are handled by the TT-NN package
 
 #       _                     _         _
 #  ___ | |_  __ _  _ __    __| |  __ _ | |  ___   _ __    ___
@@ -115,9 +42,7 @@ add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
-target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
-target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
+# Link with TT-NN which provides all necessary dependencies
+target_link_libraries(ttnn-standalone PRIVATE TT-NN::ttnn)
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)

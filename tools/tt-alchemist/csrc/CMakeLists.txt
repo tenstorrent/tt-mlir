@@ -87,6 +87,11 @@ install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
 
 # ======================================
 
+# Include component installation utilities
+include(${CMAKE_CURRENT_SOURCE_DIR}/InstallComponents.cmake)
+
+# ======================================
+
 
 # Python wheel building and installation
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
@@ -140,12 +145,14 @@ add_custom_command(
   COMMENT "Copying shared libraries to Python package"
 )
 
-# Always copy all templates
+# Copy all templates and install components for cpp standalone
 add_custom_target(tt_alchemist_copy_templates
+  DEPENDS install-ttnn-components
   COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
-  COMMENT "Copying templates into Python package"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
+  COMMENT "Copying templates and TT-NN components into Python package"
 )
 
 # Build wheel
