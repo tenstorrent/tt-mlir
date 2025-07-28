@@ -6,7 +6,7 @@ import pytest
 import ttrt
 import ttrt.runtime
 import torch
-from ttrt.common.util import *
+from ttrt import *
 from ..utils import Helper, DeviceContext, assert_pcc, get_runtime_tensor_from_torch
 
 

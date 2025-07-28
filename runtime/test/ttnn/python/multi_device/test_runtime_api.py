@@ -6,7 +6,7 @@ import math
 import pytest
 import ttrt
 import ttrt.runtime
-from ttrt.common.util import *
+from ttrt import *
 
 
 @pytest.mark.parametrize(

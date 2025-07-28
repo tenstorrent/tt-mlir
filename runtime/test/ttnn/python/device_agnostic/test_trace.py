@@ -7,7 +7,7 @@ import pytest
 import torch.nn.functional as F
 import ttrt
 import ttrt.runtime
-from ttrt.common.util import *
+from ttrt import *
 from ..utils import (
     TT_MLIR_HOME,
     Helper,

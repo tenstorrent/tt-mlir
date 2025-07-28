@@ -13,7 +13,7 @@ from ttmlir.compile_and_run import (
     ttir_to_ttnn,
     ttnn_to_flatbuffer,
 )
-from ttrt.common.util import Binary
+from ttrt import Binary
 
 from .execution_result import ExecutionPhase, ExecutionResult
 from .utils import (

@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from ttrt.common.util import Binary
+from ttrt import Binary
 
 from .pydantic_models import OpTest, TensorDesc
 from .utils import ModuleWrapper

@@ -425,7 +425,7 @@ The other way to use the APIs under `ttrt` is importing it as a library. This al
 
 ### Import `ttrt` as a python package
 ```bash
-from ttrt.common.api import API
+import ttrt
 ```
 
 ### Setup API and register all features
@@ -448,7 +448,7 @@ query_instance = API.Query(args=custom_args)
 You can specify a specific logging module you want to set inside your API instance. The rationale behind this is to support different instances of different APIs, all being able to be logged to a different file. You can also customize the level of detail your log file contains.
 
 ```bash
-from ttrt.common.util import Logger
+from ttrt import Logger
 import os
 
 os.environ["LOGGER_LEVEL"] = "DEBUG"
@@ -461,7 +461,7 @@ read_instance = API.Read(logger=custom_logger)
 You can specify a specific artifacts directory to store all the generate metadata during the execution of any API run. This allows you to specify different artifact directories if you wish for different instances of APIs.
 
 ```bash
-from ttrt.common.util import Artifacts
+from ttrt import Artifacts
 
 log_file_name = "some_file_name.log"
 artifacts_folder_path = "/opt/folder"
@@ -483,9 +483,7 @@ result_code, results = run_instance()
 You can do interesting stuff when combining all the above features into your python script
 
 ```bash
-from ttrt.common.api import API
-from ttrt.common.util import Logger
-from ttrt.common.util import Artifacts
+import ttrt
 
 API.initialize_apis()
 

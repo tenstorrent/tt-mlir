@@ -14,7 +14,7 @@ raising RuntimeError that can be handled with a try-except block in caller.
 import os
 
 from ttmlir.ir import Module
-from ttrt.common.util import Binary
+from ttrt import Binary
 
 from .compile_and_run_internal import *
 

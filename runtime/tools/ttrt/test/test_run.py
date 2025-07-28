@@ -19,8 +19,6 @@ import pytest
 import inspect
 
 import ttrt
-from ttrt.common.util import *
-from ttrt.common.api import API
 
 from util import *
 

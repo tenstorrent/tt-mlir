@@ -7,7 +7,7 @@ import ttrt
 import ttrt.runtime
 import torch
 from ttrt.common.query import Query
-from ttrt.common.util import *
+from ttrt import *
 from enum import Enum
 from dataclasses import dataclass
 from typing import Callable, List, Any

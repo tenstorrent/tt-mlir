@@ -25,7 +25,7 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
         )
         return None
 
-    from ttrt.common.util import Binary, Logger, FileManager
+    from ttrt import Binary, Logger, FileManager
 
     logger = Logger()
     file_manager = FileManager(logger)
@@ -65,7 +65,7 @@ def golden_map_from_flatbuffer(fb_path, program=0):
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
         )
         return []
-    from ttrt.common.util import Binary, Logger, FileManager
+    from ttrt import Binary, Logger, FileManager
 
     logger = Logger()
     file_manager = FileManager(logger)

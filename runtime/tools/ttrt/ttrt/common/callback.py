@@ -7,7 +7,7 @@ from functools import partial
 import csv
 import json
 
-from ttrt.common.util import *
+from ttrt import *
 
 
 class CallbackRuntimeConfig:

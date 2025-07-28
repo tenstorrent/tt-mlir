@@ -16,7 +16,7 @@ from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
 )
 from ttrt.common.api import API
-from ttrt.common.util import Binary, FileManager, Logger
+from ttrt import Binary, FileManager, Logger
 
 from .compile_and_run_utils import *
 

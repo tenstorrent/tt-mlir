@@ -19,7 +19,7 @@ from pathlib import Path
 import csv
 import ast
 
-from ttrt.common.util import *
+from ttrt import *
 from ttrt.common.query import Query
 
 

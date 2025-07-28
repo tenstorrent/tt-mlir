@@ -8,3 +8,5 @@ install(DIRECTORY ttmlir ttmlir-c ${TTMLIR_BINARY_DIR}/include/ttmlir
   PATTERN "*.inc"
   PATTERN "*.td"
 )
+
+# IDK

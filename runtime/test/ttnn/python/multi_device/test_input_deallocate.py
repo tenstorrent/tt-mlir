@@ -8,7 +8,7 @@ import threading
 import ttrt
 import ttrt.runtime
 import torch
-from ttrt.common.util import *
+from ttrt import *
 from .constants import FLATBUFFER_BASE_PATH
 
 from ..utils import (

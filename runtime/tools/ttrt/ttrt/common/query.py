@@ -16,7 +16,7 @@ from pkg_resources import get_distribution
 import shutil
 import atexit
 
-from ttrt.common.util import *
+from ttrt import *
 
 
 class Query:

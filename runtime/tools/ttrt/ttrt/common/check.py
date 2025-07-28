@@ -17,7 +17,7 @@ import shutil
 import atexit
 import difflib
 
-from ttrt.common.util import *
+from ttrt import *
 from ttrt.common.query import Query
 
 
