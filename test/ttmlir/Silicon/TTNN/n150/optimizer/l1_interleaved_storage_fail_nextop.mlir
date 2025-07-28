@@ -5,15 +5,14 @@
 
 module @L1InterleavedTestLargeTensorSharded attributes {} {
   func.func @forward(%arg0: tensor<6144x6144xbf16>, %arg1: tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16> {
-    // Each core would get 1024 tiles, which is 2 MiB, exceeding per-core L1
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<192x192x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
     // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
 
     %0 = ttir.empty() : tensor<6144x6144xbf16>
-    // CHECK: "ttnn.relu"{{.*}}-> tensor<6144x6144xbf16, #[[DRAM_LAYOUT:.*]]>
+    // CHECK: "ttnn.relu"{{.*}}-> tensor<6144x6144xbf16, #[[DRAM_LAYOUT]]>
     %1 = "ttir.relu"(%arg0, %0) : (tensor<6144x6144xbf16>, tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16>
 
-    // CHECK: "ttnn.add"{{.*}}-> tensor<6144x6144xbf16, #[[SHARDED_LAYOUT:.*]]>
+    // CHECK: "ttnn.add"{{.*}}-> tensor<6144x6144xbf16, #[[SHARDED_LAYOUT]]>
     %2 = ttir.empty() : tensor<6144x6144xbf16>
     %3 = "ttir.add"(%1, %arg1, %2) : (tensor<6144x6144xbf16>, tensor<6144x6144xbf16>, tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16> loc(#loc)
 
