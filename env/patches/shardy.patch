@@ -673,6 +673,14 @@ index 000000000..86ca2aeb7
 +string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
 +file(WRITE "${SHARDY_ROOT_DIR}/sdy.py" "${FILE_CONTENTS}")
 +
++if (EXISTS ${SHARDY_ROOT_DIR}/dialects)
++  file(REMOVE_RECURSE ${SHARDY_ROOT_DIR}/dialects)
++endif()
++file(MAKE_DIRECTORY ${SHARDY_ROOT_DIR}/dialects)
++FILE(COPY ${SHARDY_ROOT_DIR}/sdy.py DESTINATION ${SHARDY_ROOT_DIR}/dialects)
++FILE(COPY ${SHARDY_ROOT_DIR}/sdy_ops.td DESTINATION ${SHARDY_ROOT_DIR}/dialects)
++FILE(COPY ${SHARDY_ROOT_DIR}/sdy_enums.td DESTINATION ${SHARDY_ROOT_DIR}/dialects)
++
 +declare_mlir_python_sources(SdyPythonSources)
 +declare_mlir_python_sources(SdyPythonSources.Dialects
 +  ADD_TO_PARENT SdyPythonSources
@@ -681,10 +689,10 @@ index 000000000..86ca2aeb7
 +declare_mlir_dialect_python_bindings(
 +  ADD_TO_PARENT SdyPythonSources.Dialects
 +  ROOT_DIR "${SHARDY_ROOT_DIR}"
-+  TD_FILE sdy_ops.td
++  TD_FILE dialects/sdy_ops.td
 +  GEN_ENUM_BINDINGS ON
-+  GEN_ENUM_BINDINGS_TD_FILE sdy_enums.td
-+  SOURCES sdy.py
++  GEN_ENUM_BINDINGS_TD_FILE dialects/sdy_enums.td
++  SOURCES dialects/sdy.py
 +  DIALECT_NAME sdy
 +)
 +
