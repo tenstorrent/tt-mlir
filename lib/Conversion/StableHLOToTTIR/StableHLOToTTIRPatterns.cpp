@@ -2164,6 +2164,53 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRTTMarkCustomCallOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto callTargetName = adaptor.getCallTargetNameAttr();
+    if (callTargetName.getValue() != "tt.mark") {
+      return failure();
+    }
+
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
+      return failure();
+    }
+
+    auto roleAttr = srcOp->getAttrOfType<StringAttr>("tt.role");
+    if (!roleAttr) {
+      return failure();
+    }
+
+    Value operand = adaptor.getInputs().front();
+    auto *operandDefiningOp = operand.getDefiningOp();
+
+    if (operandDefiningOp) {
+      operandDefiningOp->setAttr("tt.role", roleAttr);
+    } else if (auto blockArg = mlir::dyn_cast<BlockArgument>(operand)) {
+      auto *parentOp = blockArg.getOwner()->getParentOp();
+      auto argIndex = blockArg.getArgNumber();
+
+      if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(parentOp)) {
+        funcOp.setArgAttr(argIndex, "tt.role", roleAttr);
+      }
+    }
+
+    rewriter.replaceOp(srcOp, operand);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SliceOp> {
 
@@ -2608,6 +2655,13 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                                              ctx);
 }
 
+static void addTTMarkCustomCallConversionPattern(MLIRContext *ctx,
+                                                 RewritePatternSet &patterns,
+                                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRTTMarkCustomCallOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 static void
 addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
@@ -2697,6 +2751,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTransposeOpConversionPattern(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addCCLOpsConversionPattern(ctx, patterns, typeConverter);
+  addTTMarkCustomCallConversionPattern(ctx, patterns, typeConverter);
   addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
