@@ -819,17 +819,33 @@ enum class BinaryEltwiseOpType {
   Add,
   Mul,
   Subtract,
-  GreaterThan,
   Maximum,
-  Minimum
+  Minimum,
+  Divide,
+  Equal,
+  NotEqual,
+  GreaterEqual,
+  GreaterThan,
+  LessEqual,
+  LessThan,
+  LogicalAnd,
+  LogicalOr,
+  LogicalXor,
+  // Use the following value when the op is not yet known:
+  Unknown
 };
-class OpModelBinaryEltwiseParam : public OpModelTest,
-                                  public testing::WithParamInterface<
-                                      std::tuple<BinaryEltwiseOpType,
-                                                 detail::TestTensor, // inputA
-                                                 detail::TestTensor, // inputB
-                                                 detail::TestTensor, // output
-                                                 detail::ExpectedResult>> {
+
+struct BinaryEltwiseParam {
+  BinaryEltwiseOpType opType;
+  detail::TestTensor inputA;
+  detail::TestTensor inputB;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelBinaryEltwiseParam
+    : public OpModelTest,
+      public testing::WithParamInterface<BinaryEltwiseParam> {
 
 protected:
   std::map<BinaryEltwiseOpType,
@@ -837,16 +853,23 @@ protected:
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
+      // clang-format off
       runtimeMap = {
-          {BinaryEltwiseOpType::Add, AddOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Subtract, SubtractOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::GreaterThan,
-           GreaterThanOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Maximum, MaximumOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Minimum, MinimumOpInterface::getOpRuntime},
-      };
-
+          {BinaryEltwiseOpType::Add,            AddOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Mul,            MultiplyOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Subtract,       SubtractOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Maximum,        MaximumOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Minimum,        MinimumOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Divide,         DivideOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Equal,          EqualOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::NotEqual,       NotEqualOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::GreaterEqual,   GreaterEqualOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::GreaterThan,    GreaterThanOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::LessEqual,      LessEqualOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::LessThan,       LessThanOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::LogicalAnd,     LogicalAndOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::LogicalOr,      LogicalOrOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::LogicalXor,     LogicalXorOpInterface::getOpRuntime}};
   std::map<BinaryEltwiseOpType,
            std::function<llvm::Expected<OpConstraints>(
                ttcore::GridAttr, llvm::ArrayRef<int64_t>,
@@ -854,26 +877,32 @@ protected:
                mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
                mlir::tt::ttnn::TTNNLayoutAttr)>>
       constraintsMap = {
-          {BinaryEltwiseOpType::Add, AddOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Subtract,
-           SubtractOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::GreaterThan,
-           GreaterThanOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Maximum, MaximumOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Minimum, MinimumOpInterface::getOpConstraints},
-      };
-
+          {BinaryEltwiseOpType::Add,            AddOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Mul,            MultiplyOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Subtract,       SubtractOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Maximum,        MaximumOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Minimum,        MinimumOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Divide,         DivideOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Equal,          EqualOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::NotEqual,       NotEqualOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::GreaterEqual,   GreaterEqualOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::GreaterThan,    GreaterThanOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::LessEqual,      LessEqualOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::LessThan,       LessThanOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::LogicalAnd,     LogicalAndOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::LogicalOr,      LogicalOrOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::LogicalXor,     LogicalXorOpInterface::getOpConstraints}};
+  // clang-format on
   void RunTest() {
-    const auto opType = get<0>(GetParam());
+    const auto opType = GetParam().opType;
     const auto [inputShapeA, inputTensorLayoutA, inputBufferTypeA,
-                inputVirtualGridA] = std::get<1>(GetParam());
+                inputVirtualGridA] = GetParam().inputA;
     const auto [inputShapeB, inputTensorLayoutB, inputBufferTypeB,
-                inputVirtualGridB] = std::get<2>(GetParam());
+                inputVirtualGridB] = GetParam().inputB;
     const auto [outputShape, outputTensorLayout, outputBufferType,
-                outputVirtualGrid] = std::get<3>(GetParam());
+                outputVirtualGrid] = GetParam().output;
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = std::get<4>(GetParam());
+                expectedOutputSize] = GetParam().expectedResult;
 
     const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
         inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
@@ -914,107 +943,88 @@ protected:
 
 TEST_P(OpModelBinaryEltwiseParam, BinaryOp) { RunTest(); }
 
-const std::initializer_list<
-    std::tuple<detail::TestTensor, detail::TestTensor, detail::TestTensor,
-               detail::ExpectedResult>>
-    binaryEltwiseParams = {
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(
-            detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
-            detail::interleaved2048X2048Dram,
-            detail::ExpectedResult{false, 0, 0,
-                                   0}), // incompatible dimensions at the input
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(
-            detail::TestTensor{
-                {16 * OpModelFixture::workerCoresN300 * 32, 32},
-                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                mlir::tt::ttnn::BufferType::L1,
-                llvm::SmallVector<int64_t>{8, 1}},
-            detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{
-                {16 * OpModelFixture::workerCoresN300 * 32, 32},
-                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                mlir::tt::ttnn::BufferType::L1,
-                llvm::SmallVector<int64_t>{8, 1}},
-            detail::ExpectedResult{true, 4096, 262144, 262144}),
-        std::make_tuple(
-            detail::TestTensor{
-                {16 * OpModelFixture::workerCoresN300 * 32, 32},
-                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                mlir::tt::ttnn::BufferType::L1,
-                llvm::SmallVector<int64_t>{8, 1}},
-            detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 8192, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{
-                {16 * OpModelFixture::workerCoresN300 * 32, 32},
-                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                mlir::tt::ttnn::BufferType::L1,
-                llvm::SmallVector<int64_t>{8, 1}},
-            detail::ExpectedResult{true, 8192, 262144, 262144})};
+const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
+     detail::interleaved2048X2048Dram, detail::interleaved2048X2048Dram,
+     detail::ExpectedResult{false, 0, 0, 0}}, // incompatible dimensions at
+                                              // the input
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+     detail::ExpectedResult{true, 12288, 2048, 2048}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+     detail::ExpectedResult{true, 12288, 2048, 2048}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+     detail::ExpectedResult{true, 12288, 2048, 2048}},
+    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+     detail::ExpectedResult{true, 12288, 2048, 2048}},
+    {BinaryEltwiseOpType::Unknown,
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                        mlir::tt::ttnn::BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                        mlir::tt::ttnn::BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                        mlir::tt::ttnn::BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::ExpectedResult{true, 4096, 262144, 262144}},
+    {BinaryEltwiseOpType::Unknown,
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                        mlir::tt::ttnn::BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                        mlir::tt::ttnn::BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                        mlir::tt::ttnn::BufferType::DRAM},
+     detail::ExpectedResult{true, 8192, 0, 0}},
+    {BinaryEltwiseOpType::Unknown,
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                        mlir::tt::ttnn::BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                        mlir::tt::ttnn::BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                        mlir::tt::ttnn::BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::ExpectedResult{true, 8192, 262144, 262144}}};
 
-::testing::internal::ParamGenerator<
-    std::tuple<BinaryEltwiseOpType, detail::TestTensor, detail::TestTensor,
-               detail::TestTensor, detail::ExpectedResult>>
-generateBinaryEltwiseParams(
-    BinaryEltwiseOpType opType,
-    std::initializer_list<
-        std::tuple<detail::TestTensor, detail::TestTensor, detail::TestTensor,
-                   detail::ExpectedResult>>
-        values) {
-  std::vector<
-      std::tuple<BinaryEltwiseOpType, detail::TestTensor, detail::TestTensor,
-                 detail::TestTensor, detail::ExpectedResult>>
-      newValues;
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParams(BinaryEltwiseOpType opType,
+                            std::initializer_list<BinaryEltwiseParam> values,
+                            std::size_t extraCbRequirement = 0) {
+  // The expected size of the circular buffer is the same for most binary ops,
+  // but some of them (such as Divide, LogicalOr and LogicalXor) extra memory is
+  // required due to the op's implementation.
+  std::vector<BinaryEltwiseParam> newValues;
   for (const auto &v : values) {
-    newValues.emplace_back(std::make_tuple(opType, std::get<0>(v),
-                                           std::get<1>(v), std::get<2>(v),
-                                           std::get<3>(v)));
-    // std::cout << "[Debug] Value fed into test: " << v << std::endl;
+    newValues.emplace_back(v);
+    // Update the op type from Unknown to the actual op type:
+    newValues.back().opType = opType;
+    if (extraCbRequirement > 0) {
+      newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
+    }
   }
   return ::testing::ValuesIn(newValues);
 }
@@ -1033,11 +1043,6 @@ INSTANTIATE_TEST_SUITE_P(
                                 binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
-    GreaterThanTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::GreaterThan,
-                                binaryEltwiseParams));
-
-INSTANTIATE_TEST_SUITE_P(
     MaximumTests, OpModelBinaryEltwiseParam,
     generateBinaryEltwiseParams(BinaryEltwiseOpType::Maximum,
                                 binaryEltwiseParams));
@@ -1046,6 +1051,55 @@ INSTANTIATE_TEST_SUITE_P(
     MinimumTests, OpModelBinaryEltwiseParam,
     generateBinaryEltwiseParams(BinaryEltwiseOpType::Minimum,
                                 binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    DivideTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::Divide,
+                                binaryEltwiseParams, 2048));
+
+INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelBinaryEltwiseParam,
+                         generateBinaryEltwiseParams(BinaryEltwiseOpType::Equal,
+                                                     binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    NotEqualTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::NotEqual,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    GreaterEqualTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::GreaterEqual,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    GreaterThanTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::GreaterThan,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    LessEqualTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::LessEqual,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    LessThanTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::LessThan,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    LogicalAndTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalAnd,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    LogicalOrTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalOr,
+                                binaryEltwiseParams, 4096));
+
+INSTANTIATE_TEST_SUITE_P(
+    LogicalXorTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalXor,
+                                binaryEltwiseParams, 4096));
 
 // ==== Binary Eltwise Ops Ends ====
 
@@ -2153,7 +2207,7 @@ protected:
     } else {
       llvm::consumeError(runtimeExp.takeError());
     }
-  }
+  } // namespace mlir::tt::op_model::ttnn
 };
 
 TEST_P(OpModelEmbeddingParam, EmbeddingParam) { RunTest(); }
