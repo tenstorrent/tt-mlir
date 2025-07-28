@@ -10,7 +10,6 @@ from ttrt.runtime import (
     update_tensor_in_pool,
     Tensor as RtTensor,
     TensorRef,
-    ProgramContext,
 )
 
 
@@ -26,7 +25,7 @@ def get_torch_tensor(tensor: RtTensor) -> torch.Tensor:
 
 
 def update_device_tensor(
-    program_context: ProgramContext,
+    program_context,
     tensor_ref: TensorRef,
     dst_tensor: RtTensor,
     src_tensor: torch.Tensor,
