@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
 
 #include <vector>
@@ -18,6 +19,7 @@ namespace mlir::tt::ttnn {
 
 struct L1InterleavedAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalL1InterleavedConfigs;
+  llvm::DenseMap<Operation *, OpConfig> currentConfigs;
   func::FuncOp funcOp;
   unsigned usableL1CacheSize = 0;
 
@@ -26,13 +28,16 @@ struct L1InterleavedAnalysisInput {
   L1InterleavedAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>>
           &legalL1InterleavedConfigs, // only tiled rn, but could have row-major
+      const llvm::DenseMap<Operation *, OpConfig> &currentConfigs,
       const func::FuncOp &funcOp, unsigned usableL1CacheSize)
-      : legalL1InterleavedConfigs(legalL1InterleavedConfigs), funcOp(funcOp),
+      : legalL1InterleavedConfigs(legalL1InterleavedConfigs),
+        currentConfigs(currentConfigs), funcOp(funcOp),
         usableL1CacheSize(usableL1CacheSize) {}
 
   bool operator==(const L1InterleavedAnalysisInput &rhs) const {
     return legalL1InterleavedConfigs == rhs.legalL1InterleavedConfigs &&
-           funcOp == rhs.funcOp && usableL1CacheSize == rhs.usableL1CacheSize;
+           currentConfigs == rhs.currentConfigs && funcOp == rhs.funcOp &&
+           usableL1CacheSize == rhs.usableL1CacheSize;
   }
 
   bool operator!=(const L1InterleavedAnalysisInput &rhs) const {
@@ -70,8 +75,9 @@ private:
   // available after LegalLayoutsAnalysis)
   std::vector<OpConfig> getL1InterleavedLayoutConfigs(Operation *op) const;
 
-  // Check if operation currently uses DRAM layout
-  bool usesDRAMLayout(Operation *op) const;
+  bool outputsDRAMLayout(Operation *op) const;
+
+  bool outputsL1Layout(Operation *op) const;
 
   // Check if operation has exactly one user that is immediate next in schedule
   bool hasImmediateConsumer(Operation *op) const;
@@ -81,9 +87,10 @@ private:
 
   // Check if upgrading operation to L1 interleaved if safe, return updated
   // layout
-  llvm::Expected<TTNNLayoutAttr>
-  checkUpgradeToL1Interleaved(Operation *consumerOp,
-                              const OpConfig &consumerConfig) const;
+  llvm::Expected<TTNNLayoutAttr> checkUpgradeToL1Interleaved(
+      Operation *consumerOp, const OpConfig &consumerConfig,
+      const Operation *upgradedProducerOp,
+      const TTNNLayoutAttr upgradedProducerLayout) const;
 
 public:
   L1InterleavedAnalysis(Operation *op) : TTNNAnalysis(op) {}

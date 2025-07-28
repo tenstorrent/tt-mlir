@@ -1,6 +1,6 @@
-// Test for L1InterleavedAnalysis: simple fork-join pattern
+// Test for L1InterleavedAnalysis: simple fork-join pattern with some sharded inputs
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-analysis-enabled=true max-legal-layouts=32" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-analysis-enabled=true max-legal-layouts=32 override-output-layout=op=l1:height_sharded" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedTestForkJoin attributes {} {
@@ -15,17 +15,19 @@ module @L1InterleavedTestForkJoin attributes {} {
     %7 = "ttir.relu"(%5, %6) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // Fork: %7 used in two ops
     %8 = ttir.empty() : tensor<64x128xbf16>
-    %9 = "ttir.neg"(%7, %8) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    %9 = "ttir.neg"(%7, %8) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     %10 = ttir.empty() : tensor<64x128xbf16>
-    %11 = "ttir.abs"(%7, %10) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    %11 = "ttir.abs"(%7, %10) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // Join: add the results
     %12 = ttir.empty() : tensor<64x128xbf16>
     %13 = "ttir.add"(%9, %11, %12) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     return %13 : tensor<64x128xbf16>
   }
 }
+#loc = loc("op")
 // CHECK-DAG: #[[DRAM:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
 // CHECK-DAG: #[[L1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
+// CHECK-DAG: #[[SHARDED:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
 
 // not immediately consumed -> dram
 // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
@@ -37,7 +39,7 @@ module @L1InterleavedTestForkJoin attributes {} {
 // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
 
 // not immediately consumed, not backend supported -> dram
-// CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+// CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
 // not backend supported -> dram
-// CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+// CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
 // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
