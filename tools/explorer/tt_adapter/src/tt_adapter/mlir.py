@@ -500,18 +500,6 @@ def parse_conv2d_config(attr):
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
-                key="dtype",
-                value=str(ttcore.DataType(conv2d_config.dtype_as_int)),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": [str(o) for o in ttcore.DataType],
-            },
-        )
-    )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
                 key="weights_dtype",
                 value=str(ttcore.DataType(conv2d_config.weights_dtype_as_int)),
             ),
