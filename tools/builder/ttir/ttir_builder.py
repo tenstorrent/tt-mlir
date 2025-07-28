@@ -5,7 +5,7 @@
 from __future__ import annotations
 import inspect
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
@@ -135,7 +135,7 @@ class TTIRBuilder(Builder):
 
             golden = (
                 Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
+                if isinstance(golden_output, Sequence)
                 else Golden(golden_output)
             )
 
