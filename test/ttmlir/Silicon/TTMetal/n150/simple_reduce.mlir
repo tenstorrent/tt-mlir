@@ -1,7 +1,7 @@
 // UNSUPPORTED: true
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
+// RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
 #l1_ = #ttcore.memory_space<l1>
 #layout1 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <4x4>, memref<64x96xf32, #l1_>>
 #layout2 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <4x1>, memref<64x32xf32, #l1_>>

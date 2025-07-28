@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=32 override-conv2d-config=conv1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false" -o resnet50_fused_single_layer_ttnn.mlir %s
 // RUN: FileCheck %s --input-file=resnet50_fused_single_layer_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer resnet50_fused_single_layer_ttnn.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn resnet50_fused_single_layer_ttnn.mlir
 
 #loc = loc("ResNetForImageClassification")
 module @ResNetBlock attributes {} {

@@ -36,6 +36,15 @@ ttmlirTTKernelInterleavedAddrGenFastTypeGet(MlirContext ctx);
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx);
 
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorArgsTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorPageMappingTypeGet(MlirContext ctx);
+
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx,
                                                           MlirType argType,
                                                           size_t operandIndex,

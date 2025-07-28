@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @broadcast_noop(%arg0: tensor<1x2x3x4x5xbf16>) -> tensor<1x2x3x4x5xbf16> {
     // CHECK-NOT: "ttir.broadcast"

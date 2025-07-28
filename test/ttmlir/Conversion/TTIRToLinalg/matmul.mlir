@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-ttir-to-linalg %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttir-to-linalg -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
   func.func @test_matmul(%arg0: tensor<1x784xf32>, %arg1: tensor<784x512xf32>) -> tensor<1x512xf32> {

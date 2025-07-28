@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttnn-create-input-gens %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-create-input-gens -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
 #system_desc = #ttnn.buffer_type<system_memory>

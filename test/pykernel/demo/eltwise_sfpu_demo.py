@@ -44,20 +44,16 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
     @writer_thread()
     def writer_unary_interleaved(
-        cb_in: CircularBuffer,
         cb_out: CircularBuffer,
         dst_addr,
         num_tiles,
         start_id,
-        dst_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
-        dataformat = get_dataformat(cb_out)
 
-        s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -73,19 +69,15 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
     @reader_thread()
     def reader_unary_interleaved(
         cb_in: CircularBuffer,
-        cb_out: CircularBuffer,
         src_addr,
         num_tiles,
         start_id,
-        src_is_dram: CompileTimeValue,
     ):
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
-        dataformat = get_dataformat(cb_in)
 
-        s0 = get_interleaved_addr_gen_fast(
-            src_is_dram, src_addr, tile_bytes, dataformat
-        )
+        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        s0 = TensorAccessor(tensor_accessor_args, src_addr, tile_bytes)
 
         end_id = start_id + num_tiles
         ii: int = start_id
@@ -106,8 +98,9 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         cb_in = self.create_cb(in_tensor, 0)
         cb_out = self.create_cb(out_tensor, 1)
         start_id = 0
-        is_dram_input = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
         num_tiles = ceil(max(map(lambda t: t.volume(), [in_tensor, out_tensor])) / 1024)
+
+        self.set_tensor_accessor_config([in_tensor, out_tensor])
 
         kernels = [
             self.create_kernel(
@@ -119,21 +112,17 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.writer_unary_interleaved,
-                cb_in,
                 cb_out,
                 out_tensor.buffer_address(),
                 num_tiles,
                 start_id,
-                dst_is_dram=is_dram_input,
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
                 cb_in,
-                cb_out,
                 in_tensor.buffer_address(),
                 num_tiles,
                 start_id,
-                src_is_dram=is_dram_input,
             ),
         ]
 

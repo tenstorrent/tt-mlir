@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path% mesh-shape=2,4" %s > %t.ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.ttnn.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path% mesh-shape=2,4" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 256 + d2, d3), <1x1>, memref<256x512xf32, #system_memory>>

@@ -1,9 +1,8 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | \
-// RUN:     ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_eltwise_ceil attributes {} {

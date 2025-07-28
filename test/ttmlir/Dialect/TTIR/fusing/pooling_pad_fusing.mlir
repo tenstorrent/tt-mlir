@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s -ttir-fusing | FileCheck %s
+// RUN: ttmlir-opt -ttir-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @main(%arg0: tensor<1x64x112x112xbf16>) -> tensor<1x64x56x56xbf16>{
     // CHECK-NOT: "ttir.pad"

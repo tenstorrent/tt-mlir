@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s | FileCheck %s
+// RUN: ttmlir-opt -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>

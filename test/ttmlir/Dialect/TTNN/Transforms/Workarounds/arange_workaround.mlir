@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --canonicalize --ttnn-workaround --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize --ttnn-workaround --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
 #ttnn_layout_arange_output = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x32x!ttcore.tile<32x32, si32>, #ttnn.buffer_type<dram>>, <interleaved>>

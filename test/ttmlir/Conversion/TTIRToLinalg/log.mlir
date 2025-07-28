@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-ttir-to-linalg %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttir-to-linalg -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 func.func @log_test(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: = tensor.empty() : [[SIZE:tensor<64x128xf32>]]

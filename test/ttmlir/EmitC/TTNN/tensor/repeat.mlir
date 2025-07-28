@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-repeat-folding-workaround-pass=false" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc %t.mlir > %t2.mlir
-// RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-repeat-folding-workaround-pass=false" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
+// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc -o %t2.mlir %t.mlir
+// RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 // UNSUPPORTED: true
 // Marked as UNSUPPORTED because of segfault: https://github.com/tenstorrent/tt-mlir/issues/3266

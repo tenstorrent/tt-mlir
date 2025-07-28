@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_0_dim1(%arg0: tensor<1x10xi64>) -> tensor<1x10xi64> {
