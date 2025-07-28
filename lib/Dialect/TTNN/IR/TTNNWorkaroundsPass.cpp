@@ -388,7 +388,7 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
 
   // All remaining binary ops.
   // Tracked in :
-  // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
+  // https://github.com/tenstorrent/tt-metal/issues/25112
   if (isa<ttnn::DivideOp, ttnn::PowOp, ttnn::RemainderOp, ttnn::GreaterEqualOp,
           ttnn::GreaterThanOp, ttnn::LessEqualOp, ttnn::LessThanOp>(op)) {
     if (dType == mlir::tt::ttcore::DataType::Float32 ||
