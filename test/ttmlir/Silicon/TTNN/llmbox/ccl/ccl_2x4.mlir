@@ -133,3 +133,55 @@ func.func public @collective_permute_cluster_0_partial_target_pairs(%arg0: tenso
   // CHECK: "ttnn.mesh_shard"
   return %5 : tensor<1x1x8192x512xf32>
 }
+
+func.func public @all_to_all_same_dim_cluster_0(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
+  %0 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.mesh_shard"
+  %2 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %3 = "ttir.all_to_all"(%1, %2) <{replica_groups = dense<[[0, 1], [2, 3], [4, 5], [6, 7]]> : tensor<4x2xi64>, concat_dim = 2 : si32, split_count = 2 : si32, split_dim = 2 : si32}> : (tensor<1x1x4096x128xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.point_to_point"
+  %4 = ttir.empty() : tensor<1x1x8192x512xf32>
+  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x4096x128xf32>, tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
+  // CHECK: "ttnn.mesh_shard"
+  return %5 : tensor<1x1x8192x512xf32>
+}
+
+func.func public @all_to_all_same_dim_cluster_1(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
+  %0 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.mesh_shard"
+  %2 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %3 = "ttir.all_to_all"(%1, %2) <{replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, concat_dim = 2 : si32, split_count = 4 : si32, split_dim = 2 : si32}> : (tensor<1x1x4096x128xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.point_to_point"
+  %4 = ttir.empty() : tensor<1x1x8192x512xf32>
+  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x4096x128xf32>, tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
+  // CHECK: "ttnn.mesh_shard"
+  return %5 : tensor<1x1x8192x512xf32>
+}
+
+func.func public @all_to_all_different_dim_cluster_0(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x4096x1024xf32> {jax.result_info = ""}) {
+  %0 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.mesh_shard"
+  %2 = ttir.empty() : tensor<1x1x2048x256xf32>
+  %3 = "ttir.all_to_all"(%1, %2) <{replica_groups = dense<[[0, 1], [2, 3], [4, 5], [6, 7]]> : tensor<4x2xi64>, concat_dim = 3 : si32, split_count = 2 : si32, split_dim = 2 : si32}> : (tensor<1x1x4096x128xf32>, tensor<1x1x2048x256xf32>) -> tensor<1x1x2048x256xf32>
+  // CHECK: "ttnn.point_to_point"
+  %4 = ttir.empty() : tensor<1x1x4096x1024xf32>
+  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x2048x256xf32>, tensor<1x1x4096x1024xf32>) -> tensor<1x1x4096x1024xf32>
+  // CHECK: "ttnn.mesh_shard"
+  return %5 : tensor<1x1x4096x1024xf32>
+}
+
+func.func public @all_to_all_different_dim_cluster_1(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x2048x2048xf32> {jax.result_info = ""}) {
+  %0 = ttir.empty() : tensor<1x1x4096x128xf32>
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x4096x128xf32>) -> tensor<1x1x4096x128xf32>
+  // CHECK: "ttnn.mesh_shard"
+  %2 = ttir.empty() : tensor<1x1x1024x512xf32>
+  %3 = "ttir.all_to_all"(%1, %2) <{replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, concat_dim = 3 : si32, split_count = 4 : si32, split_dim = 2 : si32}> : (tensor<1x1x4096x128xf32>, tensor<1x1x1024x512xf32>) -> tensor<1x1x1024x512xf32>
+  // CHECK: "ttnn.point_to_point"
+  %4 = ttir.empty() : tensor<1x1x2048x2048xf32>
+  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x1024x512xf32>, tensor<1x1x2048x2048xf32>) -> tensor<1x1x2048x2048xf32>
+  // CHECK: "ttnn.mesh_shard"
+  return %5 : tensor<1x1x2048x2048xf32>
+}
