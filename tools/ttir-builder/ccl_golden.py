@@ -6,18 +6,10 @@ from typing import Tuple, List, Union
 from ttmlir.ir import Attribute
 import torch
 from .sharded_tensor import ShardedTensor, TensorLike
-import itertools
 from functools import reduce
 
-# We cannot inspect the intermediate buffer on a multi-device.
-# Therefore, we only support Graph Level golden.
-# Although generating an Op level golden is not needed,
-# we return a random torch.Tensor with the correct output shape and type for TTIR.
 
-# ToDo(hongseok): Develop support for generating Op Level golden for CCL Ops.
-
-
-def sharding(
+def _sharding(
     tensor: torch.Tensor, mesh_shape: Tuple[int], shard_dims: Tuple[Union[int, None]]
 ) -> List[torch.Tensor]:
     """
@@ -50,7 +42,7 @@ def sharding(
     return shards
 
 
-def unsharding(
+def _unsharding(
     shards: List[torch.Tensor],
     mesh_shape: Tuple[int],
     shard_dims: Tuple[Union[int, None]],
@@ -101,14 +93,14 @@ def mesh_shard_golden(
         assert isinstance(input, torch.Tensor), "Input must be a torch.Tensor"
         if "replicate" in shard_type_str:
             shard_dims = [None] * len(mesh_shape)
-        shards = sharding(input, mesh_shape, shard_dims)
+        shards = _sharding(input, mesh_shape, shard_dims)
         return ShardedTensor(shards, mesh_shape)
     elif "shard_to_full" in shard_direction_str:
         assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
         if "replicate" in shard_type_str:
-            full = unsharding(input.shards, [1], [1])
+            full = _unsharding(input.shards, [1], [1])
         else:
-            full = unsharding(input.shards, mesh_shape, shard_dims)
+            full = _unsharding(input.shards, mesh_shape, shard_dims)
         return full
 
 
@@ -129,6 +121,25 @@ def all_gather_golden(
     return ShardedTensor(output, mesh_shape)
 
 
+def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
+    reduce_type_str = str(reduce_type).lower()
+    if "sum" in reduce_type_str:
+        reduced_tensor = reduce(torch.add, inputs)
+    elif "mean" in reduce_type_str:
+        reduced_tensor = reduce(torch.add, inputs) / len(inputs)
+    elif "max" in reduce_type_str:
+        reduced_tensor = reduce(torch.max, inputs)
+    elif "min" in reduce_type_str:
+        reduced_tensor = reduce(torch.min, inputs)
+    elif "std" in reduce_type_str:
+        reduced_tensor = torch.std(torch.stack(inputs), dim=0, unbiased=False)
+    elif "var" in reduce_type_str:
+        reduced_tensor = torch.var(torch.stack(inputs), dim=0, unbiased=False)
+    else:
+        raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
+    return reduced_tensor
+
+
 def all_reduce_golden(
     input: ShardedTensor,
     mesh_shape: Tuple[int, int],
@@ -140,22 +151,7 @@ def all_reduce_golden(
     grouped_tensors = input.replica_groups(cluster_axis)
     for group in grouped_tensors:
         group_tensors = list(group.values())
-        # reduce
-        reduce_type_str = str(reduce_type).lower()
-        if "sum" in reduce_type_str:
-            reduced_tensor = reduce(torch.add, group_tensors)
-        elif "mean" in reduce_type_str:
-            reduced_tensor = reduce(torch.add, group_tensors) / len(group_tensors)
-        elif "max" in reduce_type_str:
-            reduced_tensor = reduce(torch.max, group_tensors)
-        elif "min" in reduce_type_str:
-            reduced_tensor = reduce(torch.min, group_tensors)
-        elif "std" in reduce_type_str:
-            reduced_tensor = torch.std(group_tensors)
-        elif "var" in reduce_type_str:
-            reduced_tensor = torch.var(group_tensors)
-        else:
-            raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
+        reduced_tensor = _reduce(group_tensors, reduce_type)
         for id in group.keys():
             output[id] = reduced_tensor.clone()
     assert None not in output, "Not all shards are reduced"
@@ -174,27 +170,12 @@ def reduce_scatter_golden(
     grouped_tensors = input.replica_groups(cluster_axis)
     for group in grouped_tensors:
         group_tensors = list(group.values())
-        # reduce
-        reduce_type_str = str(reduce_type).lower()
-        if "sum" in reduce_type_str:
-            reduced_tensor = reduce(torch.add, group_tensors)
-        elif "mean" in reduce_type_str:
-            reduced_tensor = reduce(torch.add, group_tensors) / len(group_tensors)
-        elif "max" in reduce_type_str:
-            reduced_tensor = reduce(torch.max, group_tensors)
-        elif "min" in reduce_type_str:
-            reduced_tensor = reduce(torch.min, group_tensors)
-        elif "std" in reduce_type_str:
-            reduced_tensor = torch.std(group_tensors)
-        elif "var" in reduce_type_str:
-            reduced_tensor = torch.var(group_tensors)
-        else:
-            raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
-        reduced_tensors = torch.chunk(
+        reduced_tensor = _reduce(group_tensors, reduce_type)
+        scattered_tensor = torch.chunk(
             reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
         )
         for index, id in enumerate(group.keys()):
-            output[id] = reduced_tensors[index].clone()
+            output[id] = scattered_tensor[index].clone()
     assert None not in output, "Not all shards are reduced"
     return ShardedTensor(output, mesh_shape)
 
@@ -207,7 +188,7 @@ def collective_permute_golden(
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
     output_shards = [torch.zeros_like(shard) for shard in input.shards]
     for src, tgt in source_target_pairs:
-        output_shards[tgt] = input.shards[src]
+        output_shards[tgt] = input.shards[src].clone()
     return ShardedTensor(output_shards, mesh_shape)
 
 
@@ -220,20 +201,24 @@ def all_to_all_golden(
     replica_groups: List[List[int]],
 ) -> ShardedTensor:
     assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+
+    # Pre-allocate the output list
     output_shards = [None] * len(input.shards)
+
     for group in replica_groups:
-        split_tensors = []
-        for id in group:
-            split_tensors.append(
-                torch.chunk(input.shards[id], split_count, dim=split_dim)
+        assert len(group) == split_count, "group size must equal split_count"
+        # Split every source tensor into N = split_count chunks
+        splits_per_src: List[Tuple[torch.Tensor, ...]] = [
+            torch.chunk(input.shards[dev_id], split_count, dim=split_dim)
+            for dev_id in group
+        ]
+
+        # Reassemble chunks: dst_idx == slice index to receive
+        for dst_idx in range(split_count):
+            output_shards[group[dst_idx]] = torch.cat(
+                [splits_per_src[src_idx][dst_idx] for src_idx in range(split_count)],
+                dim=concat_dim,
             )
-        reorg_tensors = []
-        for i in range(split_count):
-            reorg_tensors.append(
-                torch.cat(
-                    [split_tensors[j][i] for j in range(split_count)], dim=concat_dim
-                )
-            )
-        for i, id in enumerate(group):
-            output_shards[id] = reorg_tensors[i]
+
+    assert None not in output_shards, "Some shards were not written"
     return ShardedTensor(output_shards, mesh_shape)
