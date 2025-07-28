@@ -63,74 +63,30 @@ const TestTensor inerleaved2048X2048L1 = {
 } // namespace detail
 
 // ==== Unary Eltwise Ops Starts ====
-enum class UnaryEltwiseOpType {
-  Relu,
-  Sqrt,
-  Sigmoid,
-  Sin,
-  Cos,
-  Exp,
-  Tanh,
-  Log,
-  Reciprocal
-};
 
+template <typename OpTy>
 class OpModelUnaryEltwiseParam : public OpModelTest,
                                  public testing::WithParamInterface<
-                                     std::tuple<UnaryEltwiseOpType,
-                                                detail::TestTensor, // input
+                                     std::tuple<detail::TestTensor, // input
                                                 detail::TestTensor, // output
                                                 detail::ExpectedResult>> {
 protected:
-  std::map<UnaryEltwiseOpType,
-           std::function<llvm::Expected<size_t>(
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
-      runtimeMap = {
-          {UnaryEltwiseOpType::Relu, ReluOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Sqrt, SqrtOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Sigmoid, SigmoidOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Sin, SinOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Cos, CosOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Exp, ExpOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Tanh, TanhOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Log, LogOpInterface::getOpRuntime},
-          {UnaryEltwiseOpType::Reciprocal, ReciprocalOpInterface::getOpRuntime},
-      };
-  std::map<UnaryEltwiseOpType,
-           std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
-               ttcore::GridAttr, llvm::ArrayRef<int64_t>,
-               mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
-               mlir::tt::ttnn::TTNNLayoutAttr)>>
-      constraintsMap = {
-          {UnaryEltwiseOpType::Relu, ReluOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Sqrt, SqrtOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Sigmoid, SigmoidOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Sin, SinOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Cos, CosOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Exp, ExpOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Tanh, TanhOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Log, LogOpInterface::getOpConstraints},
-          {UnaryEltwiseOpType::Reciprocal,
-           ReciprocalOpInterface::getOpConstraints},
-      };
   void RunTest() {
     auto params = GetParam();
-    const auto opType = std::get<0>(params);
     const auto [inputShape, inputTensorLayout, inputBufferType,
-                inputVirtualGrid] = std::get<1>(params);
+                inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
-                outputVirtualGrid] = std::get<2>(params);
+                outputVirtualGrid] = std::get<1>(params);
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = std::get<3>(params);
+                expectedOutputSize] = std::get<2>(params);
 
     const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    auto constraintsExp = constraintsMap.at(opType)(
-        CreateWorkerGrid(), inputShape, inputLayout, outputShape, outputLayout);
+    auto constraintsExp = op_model::ttnn::OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -146,8 +102,8 @@ protected:
       llvm::consumeError(constraintsExp.takeError());
     }
 
-    auto runtimeExp = runtimeMap.at(opType)(inputShape, inputLayout,
-                                            outputShape, outputLayout);
+    auto runtimeExp = op_model::ttnn::OpModel<OpTy>::getOpRuntime(
+        inputShape, inputLayout, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -157,7 +113,27 @@ protected:
   }
 };
 
-TEST_P(OpModelUnaryEltwiseParam, UnaryOp) { RunTest(); }
+// Type aliases for unary operations
+using OpModelReluParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::ReluOp>;
+using OpModelSqrtParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::SqrtOp>;
+using OpModelSigmoidParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::SigmoidOp>;
+using OpModelSinParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::SinOp>;
+using OpModelCosParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::CosOp>;
+using OpModelExpParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::ExpOp>;
+using OpModelTanhParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::TanhOp>;
+using OpModelLogParam = OpModelUnaryEltwiseParam<mlir::tt::ttnn::LogOp>;
+using OpModelReciprocalParam =
+    OpModelUnaryEltwiseParam<mlir::tt::ttnn::ReciprocalOp>;
+
+TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
+TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
+TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
+TEST_P(OpModelSinParam, SinOp) { RunTest(); }
+TEST_P(OpModelCosParam, CosOp) { RunTest(); }
+TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
+TEST_P(OpModelTanhParam, TanhOp) { RunTest(); }
+TEST_P(OpModelLogParam, LogOp) { RunTest(); }
+TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -204,169 +180,123 @@ const std::initializer_list<
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})};
 
-::testing::internal::ParamGenerator<
-    std::tuple<UnaryEltwiseOpType, detail::TestTensor, detail::TestTensor,
-               detail::ExpectedResult>>
-generateBinaryEltwiseParams(
-    UnaryEltwiseOpType opType,
-    std::initializer_list<std::tuple<detail::TestTensor, detail::TestTensor,
-                                     detail::ExpectedResult>>
-        values) {
-  std::vector<std::tuple<UnaryEltwiseOpType, detail::TestTensor,
-                         detail::TestTensor, detail::ExpectedResult>>
-      newValues;
-  for (const auto &v : values) {
-    newValues.emplace_back(std::make_tuple(opType, std::get<0>(v),
-                                           std::get<1>(v), std::get<2>(v)));
-  }
-  return ::testing::ValuesIn(newValues);
-}
+INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Relu,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Sqrt,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelSigmoidParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(
-                             UnaryEltwiseOpType::Sigmoid, unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(SinTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Sin,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(CosTests, OpModelCosParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(CosTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Cos,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Exp,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Tanh,
-                                                     unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(LogTests, OpModelUnaryEltwiseParam,
-                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Log,
-                                                     unaryEltwiseParams));
-
-INSTANTIATE_TEST_SUITE_P(
-    ReciprocalTests, OpModelUnaryEltwiseParam,
-    generateBinaryEltwiseParams(UnaryEltwiseOpType::Reciprocal,
-                                unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
 
-enum class ReductionOpType { Sum, Mean };
-
+template <typename OpTy>
 class OpModelReductionParam
     : public OpModelTest,
       public testing::WithParamInterface<
-          std::tuple<ReductionOpType,    // operation type
-                     detail::TestTensor, // input
-                     detail::TestTensor, // output
+          std::tuple<detail::TestTensor,                        // input
+                     detail::TestTensor,                        // output
                      std::optional<llvm::SmallVector<int64_t>>, // dim arg
                      bool,                                      // keep dim
                      detail::ExpectedResult>> {
 protected:
-  using ReductionOpConstraintsFunc =
-      std::function<llvm::Expected<OpConstraints>(
-          ttcore::GridAttr, llvm::ArrayRef<int64_t>,
-          mlir::tt::ttnn::TTNNLayoutAttr,
-          std::optional<llvm::ArrayRef<int64_t>>, bool,
-          mlir::tt::ttnn::TTNNLayoutAttr)>;
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
 
-  using ReductionOpRuntimeFunc = std::function<llvm::Expected<size_t>(
-      llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-      std::optional<llvm::ArrayRef<int64_t>>, bool,
-      mlir::tt::ttnn::TTNNLayoutAttr)>;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto dimArg = std::get<2>(params);
+    const auto keepDim = std::get<3>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<4>(params);
 
-  std::map<ReductionOpType,
-           std::pair<ReductionOpConstraintsFunc, ReductionOpRuntimeFunc>>
-      opMap = {
-          {ReductionOpType::Sum,
-           {SumOpInterface::getOpConstraints, SumOpInterface::getOpRuntime}},
-          {ReductionOpType::Mean,
-           {MeanOpInterface::getOpConstraints, MeanOpInterface::getOpRuntime}}};
+    const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = op_model::ttnn::OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
+        outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = op_model::ttnn::OpModel<OpTy>::getOpRuntime(
+        inputShape, inputLayout, dimArg, keepDim, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
 };
 
-TEST_P(OpModelReductionParam, Reduction) {
-  auto params = GetParam();
-  const ReductionOpType opType = std::get<0>(params);
-  const auto [inputShape, inputTensorLayout, inputBufferType,
-              inputVirtualGrid] = std::get<1>(params);
+// Type aliases for reduction operations
+using OpModelSumParam = OpModelReductionParam<mlir::tt::ttnn::SumOp>;
+using OpModelMeanParam = OpModelReductionParam<mlir::tt::ttnn::MeanOp>;
 
-  const auto [outputShape, outputTensorLayout, outputBufferType,
-              outputVirtualGrid] = std::get<2>(params);
-  const auto dimArg = std::get<3>(params);
-  const auto keepDim = std::get<4>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<5>(params);
+TEST_P(OpModelSumParam, SumOp) { RunTest(); }
+TEST_P(OpModelMeanParam, MeanOp) { RunTest(); }
 
-  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
-      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
-  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
-      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+// Test parameters for reduction operations
+static const auto reductionParams = ::testing::Values(
+    std::make_tuple(detail::interleavedN300X1024Dram,
+                    detail::interleavedN300X1024Dram,
+                    std::optional<llvm::SmallVector<int64_t>>{
+                        llvm::SmallVector<int64_t>{1}},
+                    true, detail::ExpectedResult{true, 12288, 0, 0}),
+    std::make_tuple(detail::interleavedN300X1024Dram,
+                    detail::interleavedN300X1024Dram,
+                    std::optional<llvm::SmallVector<int64_t>>{
+                        llvm::SmallVector<int64_t>{1, 2}},
+                    false, detail::ExpectedResult{false, 0, 0, 0}),
+    std::make_tuple(detail::interleavedN300X1024Dram,
+                    detail::interleavedN300X1024Dram,
+                    std::optional<llvm::SmallVector<int64_t>>{
+                        llvm::SmallVector<int64_t>{1, 0}},
+                    false, detail::ExpectedResult{true, 12288, 0, 0}),
+    std::make_tuple(detail::interleavedN300X1024L1,
+                    detail::interleavedN300X1024Dram,
+                    std::optional<llvm::SmallVector<int64_t>>{
+                        llvm::SmallVector<int64_t>{1}},
+                    false, detail::ExpectedResult{true, 12288, 0, 0}));
 
-  const auto &[constraintsFunc, runtimeFunc] = opMap.at(opType);
-  auto constraintsExp =
-      constraintsFunc(CreateWorkerGrid(), inputShape, inputLayout, dimArg,
-                      keepDim, outputLayout);
-  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
-  // which llvm::Expected<T> does not have
-  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
-  if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
-    EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
-    EXPECT_EQ(outputSize, expectedOutputSize);
-  } else {
-    // Must clean up the error
-    llvm::consumeError(constraintsExp.takeError());
-  }
+INSTANTIATE_TEST_SUITE_P(SumTests, OpModelSumParam, reductionParams);
 
-  auto runtimeExp =
-      runtimeFunc(inputShape, inputLayout, dimArg, keepDim, outputLayout);
-  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
-  if (expectedLegal) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    llvm::consumeError(runtimeExp.takeError());
-  }
-}
-
-// Helper function to generate test parameters for reduction operations
-template <ReductionOpType OpType>
-static auto generateReductionParams() {
-  return ::testing::Values(
-      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
-                      detail::interleavedN300X1024Dram,
-                      llvm::SmallVector<int64_t>{1}, true,
-                      detail::ExpectedResult{true, 12288, 0, 0}),
-      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
-                      detail::interleavedN300X1024Dram,
-                      llvm::SmallVector<int64_t>{1, 2}, false,
-                      detail::ExpectedResult{false, 0, 0, 0}),
-      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
-                      detail::interleavedN300X1024Dram,
-                      llvm::SmallVector<int64_t>{1, 0}, false,
-                      detail::ExpectedResult{true, 12288, 0, 0}),
-      std::make_tuple(OpType, detail::interleavedN300X1024L1,
-                      detail::interleavedN300X1024Dram,
-                      llvm::SmallVector<int64_t>{1}, false,
-                      detail::ExpectedResult{true, 12288, 0, 0}));
-}
-
-INSTANTIATE_TEST_SUITE_P(SumTests, OpModelReductionParam,
-                         generateReductionParams<ReductionOpType::Sum>());
-
-INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelReductionParam,
-                         generateReductionParams<ReductionOpType::Mean>());
+INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelMeanParam, reductionParams);
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -381,9 +311,10 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
-      inputLayout_dram);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_dram, -1,
+          inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
       constraintsExp.get();
@@ -391,36 +322,39 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
-      inputLayout_l1);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_dram, -1,
+          inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
-      inputLayout_dram);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_l1, -1,
+          inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
-      inputLayout_l1);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
-      inputLayout_dram);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_dram, -1,
+          inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -434,8 +368,9 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
                              {inputLayout_dram, inputLayout_l1},
                              {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
-    auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
-        tensorShape, input_layout, -1, tensorShape, output_layout);
+    auto runtimeExp =
+        op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpRuntime(
+            tensorShape, input_layout, -1, output_layout);
     EXPECT_TRUE(static_cast<bool>(runtimeExp));
     EXPECT_TRUE(runtimeExp.get() > 0);
   }
@@ -453,30 +388,33 @@ TEST_F(OpModelTest, Reshape) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = ReshapeOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
-      layoutDRAM);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ReshapeOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM,
+          {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = ReshapeOpInterface::getOpRuntime(
-      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ReshapeOp>::getOpRuntime(
+          tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = ReshapeOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
-      layoutL1);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ReshapeOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM,
+          {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
-  runtimeExp = ReshapeOpInterface::getOpRuntime(
+  runtimeExp = op_model::ttnn::OpModel<mlir::tt::ttnn::ReshapeOp>::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
@@ -496,9 +434,10 @@ TEST_F(OpModelTest, Slice) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = SliceOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
-      outputTensorShape, layoutDRAM);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SliceOp>::getOpConstraints(
+          CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
+          layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -506,8 +445,8 @@ TEST_F(OpModelTest, Slice) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp =
-      SliceOpInterface::getOpRuntime(inputTensorShape, layoutDRAM, begins, ends,
-                                     step, outputTensorShape, layoutDRAM);
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SliceOp>::getOpRuntime(
+          inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -527,9 +466,10 @@ TEST_F(OpModelTest, ToLayout) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutDRAMRowMajor);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+          layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
@@ -537,25 +477,29 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
-  auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpRuntime(
+          tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutL1RowMajorHS);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+          layoutL1RowMajorHS);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
-  runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpRuntime(
+          tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 
-  constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutDRAMRowMajor);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+          layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
@@ -563,8 +507,9 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
-  runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToLayoutOp>::getOpRuntime(
+          tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -587,18 +532,19 @@ TEST_F(OpModelTest, ToMemoryConfig) {
           mlir::tt::ttnn::BufferTypeAttr::get(
               &context, outputLayoutDRAMTiled.getBufferType()),
           std::nullopt /*shardSpec*/);
-  auto constraintsExp = ToMemoryConfigOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
-      tensorShape, outputLayoutDRAMTiled);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToMemoryConfigOp>::
+          getOpConstraints(CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled,
+                           memoryConfig, outputLayoutDRAMTiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = ToMemoryConfigOpInterface::getOpRuntime(
-      tensorShape, inputLayoutL1Tiled, memoryConfig, tensorShape,
-      outputLayoutDRAMTiled);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToMemoryConfigOp>::getOpRuntime(
+          tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutDRAMTiled);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -624,18 +570,21 @@ TEST_F(OpModelTest, ToMemoryConfig) {
       mlir::tt::ttnn::BufferTypeAttr::get(&context,
                                           outputLayoutL1Tiled.getBufferType()),
       shardSpec);
-  constraintsExp = ToMemoryConfigOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
-      tensorShape, outputLayoutL1Tiled);
+  constraintsExp = op_model::ttnn::OpModel<
+      mlir::tt::ttnn::ToMemoryConfigOp>::getOpConstraints(CreateWorkerGrid(),
+                                                          tensorShape,
+                                                          inputLayoutL1Tiled,
+                                                          memoryConfig,
+                                                          outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 16384);
   EXPECT_EQ(opCstr.outputL1BufferSize, 16384);
 
-  runtimeExp = ToMemoryConfigOpInterface::getOpRuntime(
-      tensorShape, inputLayoutL1Tiled, memoryConfig, tensorShape,
-      outputLayoutL1Tiled);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ToMemoryConfigOp>::getOpRuntime(
+          tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -649,18 +598,20 @@ TEST_F(OpModelTest, Concat) {
       CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
-  auto constraintsExp = ConcatOpInterface::getOpConstraints(
-      CreateWorkerGrid(), {inputTensorShape, inputTensorShape},
-      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ConcatOp>::getOpConstraints(
+          CreateWorkerGrid(), {inputTensorShape, inputTensorShape},
+          {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = ConcatOpInterface::getOpRuntime(
-      {inputTensorShape, inputTensorShape},
-      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ConcatOp>::getOpRuntime(
+          {inputTensorShape, inputTensorShape},
+          {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -681,40 +632,47 @@ TEST_F(OpModelTest, Transpose) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = TransposeOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM,
-                                                       0, 1, layoutDRAM);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpRuntime(
+          tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = TransposeOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1,
+          layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
-  runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM, 0, 1,
-                                                  layoutL1Interleaved);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpRuntime(
+          tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = TransposeOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, 1,
-      layoutL1WSharded);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, 1,
+          layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
-  runtimeExp = TransposeOpInterface::getOpRuntime(
-      tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TransposeOp>::getOpRuntime(
+          tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }
@@ -733,35 +691,39 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
-      inputLayout_l1_hs);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2,
+          inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
-      inputLayout_l1_i);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2,
+          inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
-  constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, tensorShape,
-      inputLayout_l1_hs);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2,
+          inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
-  auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
-      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SoftmaxOp>::getOpRuntime(
+          tensorShape, inputLayout_l1_i, -2, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -783,118 +745,56 @@ TEST_F(OpModelTest, Typecast) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = TypecastOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
-      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
-      tensorShape, inputLayoutDRAMIF32);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TypecastOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
+          ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
+          inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = TypecastOpInterface::getOpRuntime(
-      tensorShape, inputLayoutDRAMIBF16,
-      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
-      tensorShape, inputLayoutDRAMIF32);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TypecastOp>::getOpRuntime(
+          tensorShape, inputLayoutDRAMIBF16,
+          ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
+          inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = TypecastOpInterface::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
-      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
-      tensorShape, inputLayoutL1HSBF16);
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TypecastOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
+          ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
+          inputLayoutL1HSBF16);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
-  runtimeExp = TypecastOpInterface::getOpRuntime(
-      tensorShape, inputLayoutDRAMIBF16,
-      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
-      tensorShape, inputLayoutL1HSBF16);
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::TypecastOp>::getOpRuntime(
+          tensorShape, inputLayoutDRAMIBF16,
+          ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32),
+          inputLayoutL1HSBF16);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }
 
-// ==== Binary Eltwise Ops Starts ====
-enum class BinaryEltwiseOpType {
-  Add,
-  Mul,
-  Subtract,
-  Maximum,
-  Minimum,
-  Divide,
-  Equal,
-  NotEqual,
-  GreaterEqual,
-  GreaterThan,
-  LessEqual,
-  LessThan,
-  LogicalAnd,
-  LogicalOr,
-  LogicalXor,
-  // Use the following value when the op is not yet known:
-  Unknown
-};
-
 struct BinaryEltwiseParam {
-  BinaryEltwiseOpType opType;
   detail::TestTensor inputA;
   detail::TestTensor inputB;
   detail::TestTensor output;
   detail::ExpectedResult expectedResult;
 };
 
+template <typename OpTy>
 class OpModelBinaryEltwiseParam
     : public OpModelTest,
       public testing::WithParamInterface<BinaryEltwiseParam> {
 
 protected:
-  std::map<BinaryEltwiseOpType,
-           std::function<llvm::Expected<size_t>(
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
-      // clang-format off
-      runtimeMap = {
-          {BinaryEltwiseOpType::Add,            AddOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Mul,            MultiplyOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Subtract,       SubtractOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Maximum,        MaximumOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Minimum,        MinimumOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Divide,         DivideOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::Equal,          EqualOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::NotEqual,       NotEqualOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::GreaterEqual,   GreaterEqualOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::GreaterThan,    GreaterThanOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::LessEqual,      LessEqualOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::LessThan,       LessThanOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::LogicalAnd,     LogicalAndOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::LogicalOr,      LogicalOrOpInterface::getOpRuntime},
-          {BinaryEltwiseOpType::LogicalXor,     LogicalXorOpInterface::getOpRuntime}};
-  std::map<BinaryEltwiseOpType,
-           std::function<llvm::Expected<OpConstraints>(
-               ttcore::GridAttr, llvm::ArrayRef<int64_t>,
-               mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
-               mlir::tt::ttnn::TTNNLayoutAttr, llvm::ArrayRef<int64_t>,
-               mlir::tt::ttnn::TTNNLayoutAttr)>>
-      constraintsMap = {
-          {BinaryEltwiseOpType::Add,            AddOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Mul,            MultiplyOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Subtract,       SubtractOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Maximum,        MaximumOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Minimum,        MinimumOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Divide,         DivideOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::Equal,          EqualOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::NotEqual,       NotEqualOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::GreaterEqual,   GreaterEqualOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::GreaterThan,    GreaterThanOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::LessEqual,      LessEqualOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::LessThan,       LessThanOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::LogicalAnd,     LogicalAndOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::LogicalOr,      LogicalOrOpInterface::getOpConstraints},
-          {BinaryEltwiseOpType::LogicalXor,     LogicalXorOpInterface::getOpConstraints}};
   // clang-format on
   void RunTest() {
-    const auto opType = GetParam().opType;
     const auto [inputShapeA, inputTensorLayoutA, inputBufferTypeA,
                 inputVirtualGridA] = GetParam().inputA;
     const auto [inputShapeB, inputTensorLayoutB, inputBufferTypeB,
@@ -911,9 +811,9 @@ protected:
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    auto constraintsExp = constraintsMap[opType](
+    auto constraintsExp = op_model::ttnn::OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, outputShape, outputLayout);
+        inputLayoutB, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -930,8 +830,8 @@ protected:
     }
 
     llvm::Expected<size_t> runtimeExp =
-        runtimeMap[opType](inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-                           outputShape, outputLayout);
+        op_model::ttnn::OpModel<OpTy>::getOpRuntime(
+            inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -941,39 +841,81 @@ protected:
   }
 };
 
-TEST_P(OpModelBinaryEltwiseParam, BinaryOp) { RunTest(); }
+// Type aliases for binary operations
+using OpModelAddParam = OpModelBinaryEltwiseParam<mlir::tt::ttnn::AddOp>;
+using OpModelMultiplyParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::MultiplyOp>;
+using OpModelSubtractParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::SubtractOp>;
+using OpModelMaximumParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::MaximumOp>;
+using OpModelMinimumParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::MinimumOp>;
+using OpModelDivideParam = OpModelBinaryEltwiseParam<mlir::tt::ttnn::DivideOp>;
+using OpModelEqualParam = OpModelBinaryEltwiseParam<mlir::tt::ttnn::EqualOp>;
+using OpModelNotEqualParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::NotEqualOp>;
+using OpModelGreaterEqualParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::GreaterEqualOp>;
+using OpModelGreaterThanParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::GreaterThanOp>;
+using OpModelLessEqualParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::LessEqualOp>;
+using OpModelLessThanParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::LessThanOp>;
+using OpModelLogicalAndParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::LogicalAndOp>;
+using OpModelLogicalOrParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::LogicalOrOp>;
+using OpModelLogicalXorParam =
+    OpModelBinaryEltwiseParam<mlir::tt::ttnn::LogicalXorOp>;
+
+TEST_P(OpModelAddParam, AddOp) { RunTest(); }
+TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
+TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
+TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
+TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }
+TEST_P(OpModelDivideParam, DivideOp) { RunTest(); }
+TEST_P(OpModelEqualParam, EqualOp) { RunTest(); }
+TEST_P(OpModelNotEqualParam, NotEqualOp) { RunTest(); }
+TEST_P(OpModelGreaterEqualParam, GreaterEqualOp) { RunTest(); }
+TEST_P(OpModelGreaterThanParam, GreaterThanOp) { RunTest(); }
+TEST_P(OpModelLessEqualParam, LessEqualOp) { RunTest(); }
+TEST_P(OpModelLessThanParam, LessThanOp) { RunTest(); }
+TEST_P(OpModelLogicalAndParam, LogicalAndOp) { RunTest(); }
+TEST_P(OpModelLogicalOrParam, LogicalOrOp) { RunTest(); }
+TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
-     detail::interleaved2048X2048Dram, detail::interleaved2048X2048Dram,
+    {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
+     detail::interleaved2048X2048Dram,
      detail::ExpectedResult{false, 0, 0, 0}}, // incompatible dimensions at
                                               // the input
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {BinaryEltwiseOpType::Unknown, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {BinaryEltwiseOpType::Unknown,
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                         mlir::tt::ttnn::BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
@@ -985,8 +927,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         mlir::tt::ttnn::BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true, 4096, 262144, 262144}},
-    {BinaryEltwiseOpType::Unknown,
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                         mlir::tt::ttnn::BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
@@ -997,8 +938,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                         mlir::tt::ttnn::BufferType::DRAM},
      detail::ExpectedResult{true, 8192, 0, 0}},
-    {BinaryEltwiseOpType::Unknown,
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                         mlir::tt::ttnn::BufferType::DRAM},
      detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -1010,96 +950,50 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true, 8192, 262144, 262144}}};
 
-::testing::internal::ParamGenerator<BinaryEltwiseParam>
-generateBinaryEltwiseParams(BinaryEltwiseOpType opType,
-                            std::initializer_list<BinaryEltwiseParam> values,
-                            std::size_t extraCbRequirement = 0) {
-  // The expected size of the circular buffer is the same for most binary ops,
-  // but some of them (such as Divide, LogicalOr and LogicalXor) extra memory is
-  // required due to the op's implementation.
-  std::vector<BinaryEltwiseParam> newValues;
-  for (const auto &v : values) {
-    newValues.emplace_back(v);
-    // Update the op type from Unknown to the actual op type:
-    newValues.back().opType = opType;
-    if (extraCbRequirement > 0) {
-      newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
-    }
-  }
-  return ::testing::ValuesIn(newValues);
-}
+INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(AddTests, OpModelBinaryEltwiseParam,
-                         generateBinaryEltwiseParams(BinaryEltwiseOpType::Add,
-                                                     binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(MulTests, OpModelMultiplyParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(MulTests, OpModelBinaryEltwiseParam,
-                         generateBinaryEltwiseParams(BinaryEltwiseOpType::Mul,
-                                                     binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    SubtractTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::Subtract,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    MaximumTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::Maximum,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(MinimumTests, OpModelMinimumParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    MinimumTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::Minimum,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(DivideTests, OpModelDivideParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    DivideTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::Divide,
-                                binaryEltwiseParams, 2048));
+INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelEqualParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelBinaryEltwiseParam,
-                         generateBinaryEltwiseParams(BinaryEltwiseOpType::Equal,
-                                                     binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(NotEqualTests, OpModelNotEqualParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    NotEqualTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::NotEqual,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(GreaterEqualTests, OpModelGreaterEqualParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    GreaterEqualTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::GreaterEqual,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(GreaterThanTests, OpModelGreaterThanParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    GreaterThanTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::GreaterThan,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(LessEqualTests, OpModelLessEqualParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    LessEqualTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::LessEqual,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(LessThanTests, OpModelLessThanParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    LessThanTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::LessThan,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(LogicalAndTests, OpModelLogicalAndParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    LogicalAndTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalAnd,
-                                binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    LogicalOrTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalOr,
-                                binaryEltwiseParams, 4096));
-
-INSTANTIATE_TEST_SUITE_P(
-    LogicalXorTests, OpModelBinaryEltwiseParam,
-    generateBinaryEltwiseParams(BinaryEltwiseOpType::LogicalXor,
-                                binaryEltwiseParams, 4096));
+INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
+                         ::testing::ValuesIn(binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 
@@ -1136,9 +1030,10 @@ TEST_P(OpModelLinearParam, LinearParam) {
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  auto constraintsExp = LinearOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      biasShape, biasLayout, outputShape, outputLayout, false, false);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::LinearOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
+          inputLayoutB, biasShape, biasLayout, outputLayout, false, false);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -1154,9 +1049,10 @@ TEST_P(OpModelLinearParam, LinearParam) {
     llvm::consumeError(constraintsExp.takeError());
   }
 
-  auto runtimeExp = LinearOpInterface::getOpRuntime(
-      inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, biasShape,
-      biasLayout, outputShape, outputLayout, false, false);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::LinearOp>::getOpRuntime(
+          inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, biasShape,
+          biasLayout, outputLayout, false, false);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1383,9 +1279,10 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  auto constraintsExp = MatmulOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      outputShape, outputLayout, false, false);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MatmulOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
+          inputLayoutB, outputLayout, false, false);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -1401,9 +1298,10 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
     llvm::consumeError(constraintsExp.takeError());
   }
 
-  auto runtimeExp = MatmulOpInterface::getOpRuntime(
-      inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputShape,
-      outputLayout, false, false);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MatmulOp>::getOpRuntime(
+          inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout,
+          false, false);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1631,11 +1529,12 @@ TEST_P(OpModelConv2dParam, Conv2d) {
           /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
           /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
 
-  auto constraintsExp = Conv2dOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
-      std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
-      input_height, input_width, kernel_size, stride, padding, dilation, groups,
-      std::nullopt, deviceConfig, outputShape, outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::Conv2dOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, weightShape,
+          weightLayout, std::nullopt, std::nullopt, in_channels, out_channels,
+          batch_size, input_height, input_width, kernel_size, stride, padding,
+          dilation, groups, std::nullopt, deviceConfig, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1652,11 +1551,12 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = Conv2dOpInterface::getOpRuntime(
-      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
-      std::nullopt, in_channels, out_channels, batch_size, input_height,
-      input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
-      deviceConfig, outputShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::Conv2dOp>::getOpRuntime(
+          inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+          std::nullopt, in_channels, out_channels, batch_size, input_height,
+          input_width, kernel_size, stride, padding, dilation, groups,
+          std::nullopt, deviceConfig, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -1757,11 +1657,12 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = ConvTranspose2dOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
-      std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
-      input_height, input_width, kernel_size, stride, padding, output_padding,
-      dilation, groups, std::nullopt, outputShape, outputLayout);
+  auto constraintsExp = op_model::ttnn::
+      OpModel<mlir::tt::ttnn::ConvTranspose2dOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, weightShape,
+          weightLayout, std::nullopt, std::nullopt, in_channels, out_channels,
+          batch_size, input_height, input_width, kernel_size, stride, padding,
+          output_padding, dilation, groups, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1777,11 +1678,12 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = ConvTranspose2dOpInterface::getOpRuntime(
-      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
-      std::nullopt, in_channels, out_channels, batch_size, input_height,
-      input_width, kernel_size, stride, padding, output_padding, dilation,
-      groups, std::nullopt, outputShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ConvTranspose2dOp>::getOpRuntime(
+          inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+          std::nullopt, in_channels, out_channels, batch_size, input_height,
+          input_width, kernel_size, stride, padding, output_padding, dilation,
+          groups, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -1856,10 +1758,11 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = MaxPool2DOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
-      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-      ceilMode, outputShape, outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MaxPool2dOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
+          inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+          ceilMode, outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -1879,10 +1782,11 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = MaxPool2DOpInterface::getOpRuntime(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      outputShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MaxPool2dOp>::getOpRuntime(
+          inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+          inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+          outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1951,9 +1855,10 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = ClampScalarOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal, outputShape,
-      outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ClampScalarOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal,
+          outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -1973,8 +1878,9 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = ClampScalarOpInterface::getOpRuntime(
-      inputShape, inputLayout, minVal, maxVal, outputShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ClampScalarOp>::getOpRuntime(
+          inputShape, inputLayout, minVal, maxVal, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2021,9 +1927,10 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = PermuteOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, permutation, padValue,
-      outputShape, outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PermuteOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, permutation, padValue,
+          outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -2044,8 +1951,8 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
   SingletonDeviceContext::resetInstance();
 
   auto runtimeExp =
-      PermuteOpInterface::getOpRuntime(inputShape, inputLayout, permutation,
-                                       padValue, outputShape, outputLayout);
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PermuteOp>::getOpRuntime(
+          inputShape, inputLayout, permutation, padValue, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2110,9 +2017,10 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = UpsampleOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, scaleFactor, mode,
-      outputShape, outputLayout);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::UpsampleOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, scaleFactor, mode,
+          outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -2132,8 +2040,9 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = UpsampleOpInterface::getOpRuntime(
-      inputShape, inputLayout, scaleFactor, mode, outputShape, outputLayout);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::UpsampleOp>::getOpRuntime(
+          inputShape, inputLayout, scaleFactor, mode, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2181,9 +2090,9 @@ protected:
         mlir::tt::ttnn::TensorMemoryLayout::Interleaved, std::nullopt);
 
     auto constraintsExp =
-        op_model::ttnn::EmbeddingOpInterface::getOpConstraints(
+        op_model::ttnn::OpModel<mlir::tt::ttnn::EmbeddingOp>::getOpConstraints(
             CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,
-            weightTiledLayout, outputShape, outputTiledLayout);
+            weightTiledLayout, outputTiledLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
@@ -2198,9 +2107,10 @@ protected:
     }
 
     // Test runtime using the interface directly
-    auto runtimeExp = op_model::ttnn::EmbeddingOpInterface::getOpRuntime(
-        inputShape, inputTiledLayout, weightShape, weightTiledLayout,
-        outputShape, outputTiledLayout);
+    auto runtimeExp =
+        op_model::ttnn::OpModel<mlir::tt::ttnn::EmbeddingOp>::getOpRuntime(
+            inputShape, inputTiledLayout, weightShape, weightTiledLayout,
+            outputTiledLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_GT(runtimeExp.get(), 0);
