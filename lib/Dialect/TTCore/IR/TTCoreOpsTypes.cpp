@@ -704,23 +704,32 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 
 static llvm::SmallVector<int64_t>
 applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
-                                    mlir::DenseIntElementsAttr intervals,
+                                    llvm::ArrayRef<int64_t> normalizedIntervals,
                                     llvm::ArrayRef<int64_t> alignments) {
+
+  llvm::errs() << "applyCollapseIntervalsAndAlignments: \n";
+  llvm::errs() << "\t shape:";
+  llvm::interleaveComma(shape, llvm::errs());
+  llvm::errs() << "\n\t intervals: ";
+  llvm::interleaveComma(normalizedIntervals, llvm::errs());
+  llvm::errs() << "\n\t alignments: ";
+  llvm::interleaveComma(alignments, llvm::errs());
+  llvm::errs() << "\n";
+
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
   llvm::SmallVector<int64_t> resultShape;
 
   // Process with collapse intervals.
-  auto values = intervals.getValues<int64_t>();
-  assert(intervals && intervals.getType().getShape()[1] == 2);
-  auto numIntervals = intervals.getType().getShape()[0];
+  assert(normalizedIntervals.size() % 2 == 0);
+  int64_t numIntervals = normalizedIntervals.size() / 2;
 
   int64_t currentIdx = 0;
 
   for (int64_t i = 0; i < numIntervals; ++i) {
-    int64_t start = values[i * 2];
-    int64_t end = values[i * 2 + 1];
+    int64_t start = normalizedIntervals[i * 2];
+    int64_t end = normalizedIntervals[i * 2 + 1];
 
     // Handle Python-like negative indexing.
     if (start < 0) {
@@ -737,8 +746,12 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
     if (end - start == 1) {
       // Single dimension - apply alignment.
-      resultShape.push_back(
-          ttmlir::utils::alignUp(shape[start], alignments[start]));
+      auto alignedValue =
+          ttmlir::utils::alignUp(shape[start], alignments[start]);
+      llvm::errs() << "Interval [" << start << "," << end << "): pushing shape["
+                   << start << "]=" << shape[start] << " aligned to "
+                   << alignedValue << "\n";
+      resultShape.push_back(alignedValue);
     } else if (end > start) {
       // Start by aligning the innermost dimension.
       int64_t collapsedDim =
@@ -767,9 +780,16 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
+  llvm::errs() << "getPhysicalShape() tile shape:";
+  llvm::interleaveComma(tileShape, llvm::errs());
+  llvm::errs() << "\n";
+  llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapseIntervalsAndAlignments(
-          getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
+          getLogicalShape(), normalizedIntervals, getDimAlignments());
+  llvm::errs() << "getPhysicalShape() physical shape:";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "\n";
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -778,6 +798,9 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
+  llvm::errs() << "getPhysicalShape() result:";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "\n";
   return physicalShape;
 }
 
@@ -901,39 +924,22 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
     llvm::SmallVector<int64_t> normIntervals =
         normalizeAndFlattenIntervals(collapseIntervals, logicalShape.size());
 
+    llvm::errs() << "MetalLayoutAttr::get() collapsed intervals:";
+    llvm::interleaveComma(normIntervals, llvm::errs());
+    llvm::errs() << "\n";
+
     constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
 
     // Handle the last two intervals (which will map to tiles) with
     // grid-aware alignments.
     assert(deviceGridShape.size() >= 2);
-    for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
-         idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
+    assert(logicalShape.size() >= 2);
+    const size_t lastDimIdx = logicalShape.size() - 1;
+    const size_t secondLastDimIdx = logicalShape.size() - 2;
 
-      const int64_t intervalStart = normIntervals[idx * 2];
-      const int64_t intervalEnd = normIntervals[idx * 2 + 1];
-
-      // Calculate collapsed size for this interval.
-      int64_t collapsedSize = 1;
-      for (int64_t j = intervalStart; j < intervalEnd; ++j) {
-        collapsedSize *= logicalShape[j];
-      }
-
-      // Determine which tile dimension corresponds with this interval.
-      const int64_t tileIdx =
-          (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
-      const int64_t tileDim = tileShape[tileIdx];
-      const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
-
-      // Determine alignment based on collapsed size
-      // If size > gridAlignmentThreshold, align to grid boundary, else align to
-      // tile boundary
-      int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
-                              ? gridAlignmentThreshold
-                              : tileDim;
-
-      // Set alignment on the first dimension of the interval
-      dimAlignmentsVec[intervalStart] = alignment;
-    }
+    // Set tile alignment on the last two logical dimensions
+    dimAlignmentsVec[secondLastDimIdx] = tileShape[0]; // 32
+    dimAlignmentsVec[lastDimIdx] = tileShape[1];       // 32
 
     return get(context, logicalShape, dimAlignmentsVec, collapseIntervals,
                oobVal, memorySpace);
