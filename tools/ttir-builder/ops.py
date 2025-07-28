@@ -1972,20 +1972,11 @@ class TTIRBuilderOps:
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
         if dim_arg is not None:
-<<<<<<< HEAD
             kwargs = {"dim_arg": [dim_arg], "keep_dim": True}
             output_shape = input_shape.copy()
             output_shape[dim_arg] = 1
         else:
             kwargs = {"dim_arg": None, "keep_dim": True}
-=======
-            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": True}
-            ttir_kwargs["dim_arg"] = [dim_arg]
-            output_shape = input_shape.copy()
-            output_shape[dim_arg] = 1
-        else:
-            golden_kwargs = {"dim_arg": None, "keep_dim": True}
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             output_shape = [1] * ndim
 
         return self.op_proxy(
@@ -2157,20 +2148,12 @@ class TTIRBuilderOps:
         (*OpView*)
             Tensor with product values
         """
-<<<<<<< HEAD
         kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
-=======
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
         return self.op_proxy(
             ttir_golden.get_golden_function(ttir.ProdOp),
             ttir.ProdOp,
             [in0],
-<<<<<<< HEAD
             ttir_kwargs=kwargs,
-=======
-            golden_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
-            ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -2218,13 +2201,6 @@ class TTIRBuilderOps:
             ttir_golden.get_golden_function(ttir.EmbeddingOp),
             ttir.EmbeddingOp,
             [in0, in1],
-<<<<<<< HEAD
-=======
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-            ),
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -2544,13 +2520,6 @@ class TTIRBuilderOps:
             [in0, in1],
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-<<<<<<< HEAD
-=======
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-            ),
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -2616,14 +2585,6 @@ class TTIRBuilderOps:
             [in0, in1, in2],
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
-<<<<<<< HEAD
-=======
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-                self._get_golden_tensor(i[2]),
-            ),
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -3188,10 +3149,6 @@ class TTIRBuilderOps:
             ttir_golden.get_golden_function(ttir.PadOp),
             ttir.PadOp,
             [in0, in1],
-<<<<<<< HEAD
-=======
-            golden_kwargs={"padding": padding, "value": value},
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             ttir_kwargs={"padding": padding, "value": value},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             organize_golden_args=lambda i: [
@@ -3236,35 +3193,17 @@ class TTIRBuilderOps:
         (*OpView*)
             The selected slice of the tensor
         """
-<<<<<<< HEAD
         kwargs = {
             "dim": dim,
             "begin": begin,
             "length": length,
             "stride": stride,
         }
-=======
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
         return self.op_proxy(
             ttir_golden.get_golden_function(ttir.IndexSelectOp),
             ttir.IndexSelectOp,
             [in0],
-<<<<<<< HEAD
             ttir_kwargs=kwargs,
-=======
-            golden_kwargs={
-                "dim": dim,
-                "begin": begin,
-                "length": length,
-                "stride": stride,
-            },
-            ttir_kwargs={
-                "dim": dim,
-                "begin": begin,
-                "length": length,
-                "stride": stride,
-            },
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -3304,20 +3243,12 @@ class TTIRBuilderOps:
         (*OpView*)
             The indexed tensor
         """
-<<<<<<< HEAD
         kwargs = {"dim": dim, "begin": begin, "end": end, "step": step}
-=======
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
         return self.op_proxy(
             ttir_golden.get_golden_function(ttir.IndexOp),
             ttir.IndexOp,
             [in0],
-<<<<<<< HEAD
             ttir_kwargs=kwargs,
-=======
-            golden_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
-            ttir_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             unit_attrs=unit_attrs,
         )
 
@@ -3576,24 +3507,10 @@ class TTIRBuilderOps:
         if bias is not None:
             inputs.append(bias)
 
-<<<<<<< HEAD
-=======
-        # Convert bias operand to tensor for golden function
-        golden_bias = self._get_golden_tensor(bias) if bias is not None else None
-
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
         return self.op_proxy(
             ttir_golden.get_golden_function(ttir.LinearOp),
             ttir.LinearOp,
             [in0, in1],
-<<<<<<< HEAD
-=======
-            golden_kwargs={
-                "transpose_a": transpose_a,
-                "transpose_b": transpose_b,
-                "bias": golden_bias,
-            },
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             ttir_kwargs={
                 "transpose_a": transpose_a,
                 "transpose_b": transpose_b,
@@ -4877,20 +4794,7 @@ class TTIRBuilderOps:
             ttir_golden.get_golden_function(ttir.GatherOp),
             ttir.GatherOp,
             [input, start_indices],
-<<<<<<< HEAD
             ttir_kwargs=kwargs,
-=======
-            golden_kwargs={
-                "offset_dims": offset_dims,
-                "collapsed_slice_dims": collapsed_slice_dims,
-                "operand_batching_dims": operand_batching_dims,
-                "start_indices_batching_dims": start_indices_batching_dims,
-                "start_index_map": start_index_map,
-                "index_vector_dim": index_vector_dim,
-                "slice_sizes": slice_sizes,
-                "indices_are_sorted": indices_are_sorted,
-            },
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
@@ -5007,11 +4911,7 @@ class TTIRBuilderOps:
             ttir_golden.get_golden_function(ttir.SliceOp),
             ttir.SliceOp,
             [in0],
-<<<<<<< HEAD
             ttir_kwargs=kwargs,
-=======
-            golden_kwargs={"begins": begins, "ends": ends, "step": step},
->>>>>>> 1e49ed63c (all golden functions extracted into ttir_golden and ops.py refactored)
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
