@@ -1110,6 +1110,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllReduceOp: all_reduce_golden,
     ttir.ReduceScatterOp: reduce_scatter_golden,
     ttir.CollectivePermuteOp: collective_permute_golden,
+    ttir.AllToAllOp: all_to_all_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: create_smart_golden_wrapper(
         torch.nn.functional.leaky_relu, convert_kwargs={"parameter": "negative_slope"}
