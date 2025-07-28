@@ -17,6 +17,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <iostream>
 #include <type_traits>
 #include <utility>
 
@@ -247,6 +248,7 @@ using ComputeOpMap = OpMap<
   // Elementwise FPU
   std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
   std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,        ttkernel::MatmulBlockOp>>,
   std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
   std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
@@ -288,6 +290,23 @@ struct OpMapLookup<SrcOp, OpMap<std::pair<Key, Value>, Rest...>> {
 
 template <typename SrcOp, typename OpMap>
 using TTKernelOpPair = typename OpMapLookup<SrcOp, OpMap>::type;
+
+// template <typename OpTy>
+// LogicalResult StoreOpOfSubViewOpFolder<OpTy>::matchAndRewrite(
+//     OpTy storeOp, PatternRewriter &rewriter) const {
+  
+ 
+//   SmallVector<Value> indices(storeOp.getIndices().begin(),
+//                              storeOp.getIndices().end());
+//   SmallVector<Value> sourceIndices;
+//   affine::resolveIndicesIntoOpWithOffsetsAndStrides(
+//       rewriter, storeOp.getLoc(), subViewOp.getMixedOffsets(),
+//       subViewOp.getMixedStrides(), subViewOp.getDroppedDims(), indices,
+//       sourceIndices);
+
+//   return success();
+// }
+
 
 namespace {
 
@@ -341,6 +360,31 @@ public:
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC(), transpose);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
+      auto outCB = getOutCB(rewriter, op);
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      auto typeA = cast<MemRefType>(adaptor.getA().getType());
+      auto typeB = cast<MemRefType>(adaptor.getB().getType());
+
+      int64_t rt = typeA.getShape()[0];
+      int64_t kt = typeA.getShape()[1];          // == typeB.getShape()[0]
+      int64_t ct = typeB.getShape()[1];
+      auto rt_i32 = i32(rewriter, op->getLoc(), rt);
+      auto kt_i32 = i32(rewriter, op->getLoc(), kt);
+      auto ct_i32 = i32(rewriter, op->getLoc(), ct);
+
+      auto transpose = i32(rewriter, op->getLoc(), 0);
+      rewriter.create<ttkernel::MatmulBlockInitOp>(op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32); 
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::MatmulBlockInitShortOp>(op->getLoc(), cbA, cbB,
+                                                       transpose, ct_i32, rt_i32, kt_i32);
+      rewriter.create<ttkernel::MatmulBlockOp>(op->getLoc(), cbA, cbB,
+                                               adaptor.getA(), adaptor.getB(), adaptor.getOutput(),
+                                               transpose, ct_i32, rt_i32,
+                                               kt_i32);
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -1127,6 +1171,7 @@ void populateTTIRToTTKernelPatterns(
                // Elementwise FPU.
                ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulBlockOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
