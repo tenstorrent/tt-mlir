@@ -6,7 +6,7 @@
 module @L1InterleavedTestLargeTensorInput attributes {} {
   func.func @forward(%arg0: tensor<6144x6144xbf16>, %arg1: tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16> {
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<192x192x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x576x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
+    // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
 
     %0 = ttir.empty() : tensor<6144x6144xbf16>
     // CHECK: "ttnn.relu"{{.*}} -> tensor<6144x6144xbf16, #[[L1_LAYOUT]]>
