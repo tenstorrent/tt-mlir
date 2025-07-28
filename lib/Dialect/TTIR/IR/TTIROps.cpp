@@ -4711,7 +4711,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
-// ColllectiveBroadcastOp
+// CollectiveBroadcastOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
   // Check input/output/result types are RankedTensorType
@@ -4734,15 +4734,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     return emitOpError("replica_groups must be a 2D array");
   }
 
-  // Check attribute has at least one group
-  if (groupsType.getShape()[0] < 1) {
-    return emitOpError("replica_groups must have at least one group");
-  }
-  // Check each group has at least one device ID
-  if (groupsType.getShape()[1] < 1) {
-    return emitOpError("each replica group must have at least one device ID");
-  }
-
   // check all values are positive
   auto replicaIds = getReplicaGroups().getValues<int64_t>();
   if (llvm::any_of(replicaIds, [](int64_t id) { return id < 0; })) {
@@ -4758,6 +4749,20 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   }
 
   return success();
+}
+
+mlir::OpFoldResult
+mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
+  auto groupsType = getReplicaGroups().getType();
+  // If there is no group, the broadcast is a no-op.
+  if (groupsType.getShape()[0] < 1) {
+    return getInput();
+  }
+  // If there is only one device in a group, the broadcast is a no-op.
+  if (groupsType.getShape()[1] <= 1) {
+    return getInput();
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

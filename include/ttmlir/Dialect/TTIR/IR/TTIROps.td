@@ -5282,6 +5282,7 @@ def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 
