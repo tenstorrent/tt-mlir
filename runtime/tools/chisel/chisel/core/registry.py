@@ -152,7 +152,9 @@ class Registry:
             return False
         return last_op == op
 
-    def add_tensor(self, tensor: Union[OpResult, BlockArgument], kind: ExecutionType) -> None:
+    def add_tensor(
+        self, tensor: Union[OpResult, BlockArgument], kind: ExecutionType
+    ) -> None:
         """
         Register a tensor in the registry and track its location.
 

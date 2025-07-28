@@ -26,7 +26,10 @@ def get_torch_tensor(tensor: RtTensor) -> torch.Tensor:
 
 
 def update_device_tensor(
-    program_context: ProgramContext, tensor_ref: TensorRef, dst_tensor: RtTensor, src_tensor: torch.Tensor
+    program_context: ProgramContext,
+    tensor_ref: TensorRef,
+    dst_tensor: RtTensor,
+    src_tensor: torch.Tensor,
 ) -> None:
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
