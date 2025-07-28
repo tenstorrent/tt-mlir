@@ -12,20 +12,18 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 // Trait for ops that have memory config attribute.
-def HasMemoryConfigTrait : NativeOpTrait<"HasMemoryConfigTrait">
-{
+def HasMemoryConfigTrait : NativeOpTrait<"HasMemoryConfigTrait"> {
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
 // Trait for ops that have output data type attribute.
-def HasOutputDTypeTrait: NativeOpTrait<"HasOutputDTypeTrait">
-{
+def HasOutputDTypeTrait : NativeOpTrait<"HasOutputDTypeTrait"> {
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
 // Trait for ops that don't support implicit broadcast on operands.
-def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsTrait">
-{
+def ExplicateOperandBroadcastsTrait
+    : NativeOpTrait<"ExplicateOperandBroadcastsTrait"> {
   let cppNamespace = "::mlir::tt::ttnn";
 }
 

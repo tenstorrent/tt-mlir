@@ -12,28 +12,21 @@ include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsEnums.td"
 // TTMetal interface definitions
 //===----------------------------------------------------------------------===//
 
-def TTMetal_KernelConfigInterface: AttrInterface<"KernelConfigInterface"> {
+def TTMetal_KernelConfigInterface : AttrInterface<"KernelConfigInterface"> {
   let summary = "TT KernelConfigInterface";
   let cppNamespace = "::mlir::tt::ttmetal";
   let description = [{
   }];
-  let methods = [
-    InterfaceMethod<
-      "Get the symbol name for this kernel",
-      "mlir::SymbolRefAttr", "getKernelSymbol", (ins)
-    >,
-    InterfaceMethod<
-      "Get the thread type for this KernelConfig",
-      "mlir::tt::ttkernel::ThreadType", "getThreadType", (ins)
-    >,
-    InterfaceMethod<
-      "Get the core ranges KernelConfig",
-      "mlir::Attribute", "getCoreRange", (ins)
-    >,
-    InterfaceMethod<
-      "Get the kernel arguments for this KernelConfig",
-      "mlir::Attribute", "getKernelArgs", (ins)
-    >,
+  let methods =
+      [InterfaceMethod<"Get the symbol name for this kernel",
+                       "mlir::SymbolRefAttr", "getKernelSymbol", (ins)>,
+       InterfaceMethod<"Get the thread type for this KernelConfig",
+                       "mlir::tt::ttkernel::ThreadType", "getThreadType",
+                       (ins)>,
+       InterfaceMethod<"Get the core ranges KernelConfig", "mlir::Attribute",
+                       "getCoreRange", (ins)>,
+       InterfaceMethod<"Get the kernel arguments for this KernelConfig",
+                       "mlir::Attribute", "getKernelArgs", (ins)>,
   ];
 }
 

@@ -7,21 +7,27 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTIRGenericTileComputeLoops : Pass<"ttir-generic-tile-compute-loops", "::mlir::ModuleOp"> {
+def TTIRGenericTileComputeLoops
+    : Pass<"ttir-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
     This pass tiles affine compute loops according to the generic's subblock factors.
   }];
 
-  list<Option> options = [
-    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+  list<Option> options = [Option<
+                              "maxDstRegisterSizeTiles",
+                              "max-dst-register-size-tiles", "unsigned", "0",
+                              "Override the max dst size tiles or 0 if unset.">,
   ];
 
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mlir::ModuleOp"> {
-  let summary = "Insert dst register access.";
+def TTIRInsertDstRegisterAccess
+    : Pass<"ttir- insert -
+                    dst - register -
+                    access ", " ::mlir::ModuleOp "> {
+                    let summary = "Insert dst register access.";
   let description = [{
     This pass inserts a high level representation of the destination
     register, manages load and store accesses to it, and has primitive
@@ -83,10 +89,13 @@ def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mli
        - Generic op automatically inserts conditional guard for reload.
        - This pass only works on affine ops.
   }];
-  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
+  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect",
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::func::FuncDialect"];
 }
 
-def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
+def TTIRGenericLinearizeMemref
+    : Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
     This pass takes a nested loop structure over n-dimensional memrefs and linearizes
@@ -100,40 +109,61 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
           %0 = affine.load %arg2[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
           %1 = affine.load %arg3[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
           %2 = "ttir.tile_maximum"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-          affine.store %2, %arg4[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        }
-      }
-    ```
+      affine.store % 2,
+      % arg4[% arg5, % arg6] : memref<2x4x !ttcore.tile<32x32, f32>, #l1_>
+}
+}
+```
 
-    Into:
-    ```mlir
-      %collapse_shape = memref.collapse_shape %arg2 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_> into memref<8x!ttcore.tile<32x32, f32>, #l1_>
-      %collapse_shape_0 = memref.collapse_shape %arg3 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_> into memref<8x!ttcore.tile<32x32, f32>, #l1_>
-      %collapse_shape_1 = memref.collapse_shape %arg4 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_> into memref<8x!ttcore.tile<32x32, f32>, #l1_>
-      affine.for %arg5 = 0 to 2 {
-        affine.for %arg6 = 0 to 4 {
-          %0 = affine.load %collapse_shape[%arg5 * 4 + %arg6] : memref<8x!ttcore.tile<32x32, f32>, #l1_>
-          %1 = affine.load %collapse_shape_0[%arg5 * 4 + %arg6] : memref<8x!ttcore.tile<32x32, f32>, #l1_>
-          %2 = "ttir.tile_maximum"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-          affine.store %2, %collapse_shape_1[%arg5 * 4 + %arg6] : memref<8x!ttcore.tile<32x32, f32>, #l1_>
-        }
-      }
-    ```
-  }];
+    Into :
+    ```mlir %
+    collapse_shape = memref.collapse_shape %
+                     arg2[[0, 1]]
+    : memref<2x4x !ttcore.tile<32x32, f32>, #l1_> into
+          memref<8x !ttcore.tile<32x32, f32>, #l1_> %
+      collapse_shape_0 = memref.collapse_shape %
+                         arg3[[0, 1]]
+    : memref<2x4x !ttcore.tile<32x32, f32>, #l1_> into
+          memref<8x !ttcore.tile<32x32, f32>, #l1_> %
+      collapse_shape_1 = memref.collapse_shape %
+                         arg4[[0, 1]]
+    : memref<2x4x !ttcore.tile<32x32, f32>, #l1_> into
+          memref<8x !ttcore.tile<32x32, f32>, #l1_> affine.for %
+                         arg5 = 0 to 2 {
+  affine.for % arg6 = 0 to 4 {
+    % 0 = affine.load %
+          collapse_shape[% arg5 * 4 + % arg6]
+        : memref<8x !ttcore.tile<32x32, f32>, #l1_> %
+          1 = affine.load %
+              collapse_shape_0[% arg5 * 4 + % arg6]
+        : memref<8x !ttcore.tile<32x32, f32>, #l1_> %
+          2 = "ttir.tile_maximum"(% 0, % 1)
+        : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>)
+              ->!ttcore.tile<32x32, f32> affine.store %
+              2,
+      % collapse_shape_1[% arg5 * 4 + % arg6]
+        : memref<8x !ttcore.tile<32x32, f32>, #l1_>
+  }
+}
+```
+}];
 }
 
-def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
+def TTIROptimizeTensorLayout
+    : Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
     Analyze the graph and select optimal layouts, insert to_layout where needed.
   }];
 
-  list<Option> options = [
-        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
-    ];
+  list<Option> options = [ListOption<"overrideDeviceShape",
+                                     "override-device-shape", "int64_t",
+                                     "Override the device shape.">,
+  ];
 }
 
-def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
+def TTIRGenericGenerateDatamovement
+    : Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
     This pass makes the following transformation, given a generic compute region:
@@ -183,7 +213,8 @@ def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", 
   }];
 }
 
-def TTIRGenericHWThreadSelection : Pass<"ttir-generic-hw-thread-selection", "::mlir::ModuleOp"> {
+def TTIRGenericHWThreadSelection
+    : Pass<"ttir-generic-hw-thread-selection", "::mlir::ModuleOp"> {
   let summary = "Assign datamovement regions to hardware threads.";
   let description = [{
     This pass assigns the data movement regions to hardware threads. This usually means
@@ -222,14 +253,16 @@ def TTIRGenericHWThreadSelection : Pass<"ttir-generic-hw-thread-selection", "::m
       "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
       ttir.yield %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
       ttir.await %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+}) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
     ```
-  }];
+}];
 }
 
-def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::ModuleOp"> {
+def TTIRGenericGenerateLoops
+    : Pass<"ttir-generic-generate-loops", "::mlir::ModuleOp"> {
   let summary = "Generate generic loops.";
-  let description = [{
+  let description =
+      [{
     One of the final lowering forms of ttir generic op. This pass converts the affine declarative
     loops into imperative loops and the affine maps are erased. For example a generic region
     might transform as follows:
@@ -268,7 +301,8 @@ def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::Modu
 }
 
 def TTIRGenericLowerDMAs : Pass<"ttir-generic-lower-dmas", "::mlir::ModuleOp"> {
-  let summary = "Lower DMA ops from their high level form to fully indexed form.";
+  let summary =
+      "Lower DMA ops from their high level form to fully indexed form.";
   let description = [{
     This pass lowers DMA ops from their high level forms to fully indexed form.
 
@@ -295,7 +329,8 @@ def TTIRGenericLowerDMAs : Pass<"ttir-generic-lower-dmas", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::ModuleOp"> {
+def TTIRGenericRegionsToFuncs
+    : Pass<"ttir-generic-regions-to-funcs", "::mlir::ModuleOp"> {
   let summary = "Move generic regions to top level functions.";
   let description = [{
     This pass moves the generic regions to top level functions. This is a useful prerequisite
@@ -329,7 +364,7 @@ def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::M
   }];
 }
 
-def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
+def TTIRLowerToLayout : Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   let summary = "Lower layouts to generic ops.";
   let description = [{
     Transition between different tensor layouts.
@@ -377,7 +412,8 @@ def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRGenericApplyInterchange : Pass<"ttir-generic-apply-interchange", "::mlir::ModuleOp"> {
+def TTIRGenericApplyInterchange
+    : Pass<"ttir-generic-apply-interchange", "::mlir::ModuleOp"> {
   let summary = "Apply loop interchange on generic ops.";
   let description = [{
     For example, the default matmul interchange looks like:
@@ -393,12 +429,15 @@ def TTIRGenericApplyInterchange : Pass<"ttir-generic-apply-interchange", "::mlir
       (k, m, n) -> (m, n)
   }];
 
-  list<Option> options = [
-      ListOption<"matmulInterchange", "matmul-interchange", "int64_t", "Set an interchange for generic ops that match matmul style indexing maps and iterator types. The interchange indices here always correspond to the innermost 3 dims.">,
+  list<Option> options =
+      [ListOption<"matmulInterchange", "matmul-interchange", "int64_t",
+                  "Set an interchange for generic ops that match matmul style "
+                  "indexing maps and iterator types. The interchange indices "
+                  "here always correspond to the innermost 3 dims.">,
   ];
 }
 
-def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
+def TTIRAllocate : Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
     This pass handles several related tasks:
@@ -449,10 +488,12 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     }
     ```
   }];
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
+                           "::mlir::memref::MemRefDialect"];
 }
 
-def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
+def TTIRImplicitBroadcastFold
+    : Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
   let summary = "Broadcast operation is folded to all the consumers.";
   let description = [{
     This pass walks through the graph and folds broadcasts operations when it is implicitly supported by the operation.
@@ -469,9 +510,9 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
-{
-  let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
+def TTIRHoistTransform : Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp"> {
+  let summary = "Transform to perform hoist mechanics on any ops marked to be "
+                "hoisted for CPU lowering";
   let description = [{
     Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.  Currently we only have a manual analysis which requires a commandline list of named locs to hoist--in the future, we will have an automatic analysis as well.
 
@@ -494,24 +535,34 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
             %1 = call @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %1 : tensor<32x32xbf16>
           }
-          func.func private @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-        }
-      }
-      ttcore.cpu_module {
-        builtin.module {
-          func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2]} {
-            %0 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-            return %0 : tensor<32x32xbf16>
-          }
-        }
-      }
-  }];
+   func.func private
+      @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(
+           tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>)
+          ->tensor<32x32xbf16>
+}
+}
+ttcore.cpu_module {
+  builtin.module {
+    func.func @hoisted_ttir _add_3 2x32xbf16_32x32xbf16_32x32xbf16_func(
+          % arg0
+          : tensor<32x32xbf16>, % arg1
+          : tensor<32x32xbf16>, % arg2
+          : tensor<32x32xbf16>)
+          ->tensor<32x32xbf16> attributes{arg_ranks = [2, 2, 2, 2]} {
+    % 0 = "ttir.add"(% arg0, % arg1, % arg2)
+        : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>)
+              ->tensor<32x32xbf16> return %
+          0 : tensor<32x32xbf16>
+  }
+}
+}
+}];
 
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
-{
+def ElementTypeNormalization
+    : Pass<"ttir-element-type-normalization", "::mlir::ModuleOp"> {
   let summary = "Normalize element types into list of supported types.";
   let description = [{
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
@@ -519,8 +570,8 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   }];
 }
 
-def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
-{
+def TTIRFlattenSlidingWindow
+    : Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp"> {
   let summary = "Flatten sliding window ops.";
   let description = [{
     This is a compatibility pass for converting to the TTNN dialect.
@@ -554,8 +605,7 @@ def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::Modul
   }];
 }
 
-def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
-{
+def TTIREraseInverseOps : Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp"> {
   let summary = "Erase inverse ops.";
   let description = [{
     This pass walks through the graph and erases inverse operations.
@@ -567,27 +617,37 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
     on either end are inverses.
   }];
 
-  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
 
-  list<Option> options = [
-    Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
-    Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
-    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">
-  ];
+  list<Option> options =
+      [Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true",
+              "Enable commuting upwards. This should only be false for testing "
+              "purposes (i.e you want to test a commute downwards pattern)">,
+       Option<
+           "enableCommuteDownwards", "enable-commute-downwards", "bool", "true",
+           "Enable commuting downwards. This should only be false for testing "
+           "purposes (i.e you want to test a commute upwards pattern)">,
+       Option<"maxIterations", "max-iterations", "uint64_t", "100",
+              "Maximum number of iterations to perform commuting. The number "
+              "of TMs is expected to converge before this limit is reached.">];
 }
 
-def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
-{
-  let summary = "This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.";
+def TTIRExplicateTMs : Pass<"ttir-explicate-tms", "::mlir::ModuleOp"> {
+  let summary = "This pass walks through the graph and explicates implicit "
+                "broadcasts and reshapes on the graph edges.";
   let description = [{
     This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.
   }];
 
-  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert integer data types in quantized types to a specified bit width";
+def TTIRQuantDataTypeConversionPass
+    : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
+  let summary =
+      "Convert integer data types in quantized types to a specified bit width";
   let description = [{
     This pass converts all integer data types in quantized types (e.g., i8) to a specified
     bit width (e.g., i32) during ttir-to-ttnn conversion. This is a temporary workaround as
@@ -600,23 +660,24 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
     Output (with quant_bit_width=32):
       %0 = "ttir.quantize"(%arg0, %1) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>
   }];
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
+                           "mlir::quant::QuantDialect"];
 
-  list<Option> options = [
-    Option<"targetBitWidth", "target-bit-width", "uint32_t", "32", "Target integer bit width for quantized types (8, 16, 32, 64)">
-  ];
+  list<Option> options = [Option<
+      "targetBitWidth", "target-bit-width", "uint32_t", "32",
+      "Target integer bit width for quantized types (8, 16, 32, 64)">];
 }
 
-def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
-{
+def TTIRFusing : Pass<"ttir-fusing", "::mlir::ModuleOp"> {
   let summary = "TTIR fusing pass.";
-  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+  let description = "This pass tries to fuse operations together with goal to "
+                    "reduce the number of operations in the graph.";
 
-  let options = [
-      Option<"conv2dWithMultiplyEnabled",
-             "ttnn-enable-conv2d-with-multiply-pattern",
-             "bool", /*default=*/"false",
-             "Controls if we should enable the Conv2dWithMultiply pattern">,
+  let options =
+      [Option<"conv2dWithMultiplyEnabled",
+              "ttnn-enable-conv2d-with-multiply-pattern", "bool",
+              /*default=*/"false",
+              "Controls if we should enable the Conv2dWithMultiply pattern">,
   ];
 }
 

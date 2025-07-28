@@ -19,7 +19,6 @@ include "EmitPyAttrs.td"
 // EmitPy ops definitions
 //===----------------------------------------------------------------------===//
 
-
 def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
   let summary = "Opaque call operation";
   let description = [{
@@ -34,32 +33,30 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
     ```
   }];
 
-  let arguments = (ins
-    Arg<StrAttr, "the Python function to call">:$callee,
-    Arg<OptionalAttr<ArrayAttr>, "the order of operands and further attributes">:$args,
-    Variadic<AnyType>:$operands
-  );
+  let arguments = (ins Arg<StrAttr, "the Python function to call">:$callee,
+      Arg<OptionalAttr<ArrayAttr>,
+          "the order of operands and further attributes">:$args,
+      Variadic<AnyType>:$operands);
 
   let results = (outs Variadic<AnyType>);
 
-  let builders = [
-    OpBuilder<(ins
-      "::mlir::TypeRange":$result_types,
-      "::llvm::StringRef":$callee,
-      "::mlir::ValueRange":$operands,
-      CArg<"::mlir::ArrayAttr", "{}">:$args), [{
+  let builders = [OpBuilder<(ins "::mlir::TypeRange":$result_types,
+                                "::llvm::StringRef":$callee,
+                                "::mlir::ValueRange":$operands,
+                                CArg<"::mlir::ArrayAttr", "{}">:$args),
+                            [{
         build($_builder, $_state, result_types,  callee, args, operands);
-      }]
-    >
-  ];
+      }]>];
 
   let hasVerifier = 1;
-  let assemblyFormat = [{$callee `(` $operands `)` attr-dict `:` functional-type($operands, results)}];
+  let assemblyFormat =
+      [{$callee `(` $operands `)` attr-dict `:` functional-type($operands, results)}];
 }
 
 def EmitPy_ImportOp : EmitPy_Op<"import"> {
-  let summary = "Import operation";
-  let description = [{
+    let summary = "Import operation";
+    let description =
+        [{
      The `emitpy.import` operation allows to define a Python module import
      via various forms of the `import` statement.
 
@@ -70,13 +67,13 @@ def EmitPy_ImportOp : EmitPy_Op<"import"> {
      ```
   }];
 
-  let arguments = (ins
-    Arg<StrAttr, "module to import">:$module_name,
-    Arg<OptionalAttr<StrAttr>, "module alias">:$module_alias,
-    Arg<OptionalAttr<StrArrayAttr>, "specific members to import from the module">:$members_to_import,
-    Arg<OptionalAttr<StrArrayAttr>, "aliases for the module or the single imported members">:$member_aliases,
-    Arg<OptionalAttr<UnitAttr>, "import all members with *">:$import_all
-  );
+  let arguments = (ins Arg<StrAttr, "module to import">:$module_name,
+      Arg<OptionalAttr<StrAttr>, "module alias">:$module_alias,
+      Arg<OptionalAttr<StrArrayAttr>,
+          "specific members to import from the module">:$members_to_import,
+      Arg<OptionalAttr<StrArrayAttr>, "aliases for the module or the single "
+                                      "imported members">:$member_aliases,
+      Arg<OptionalAttr<UnitAttr>, "import all members with *">:$import_all);
 
   let hasVerifier = 1;
   let hasCustomAssemblyFormat = 1;
@@ -117,14 +114,14 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
     ```
   }];
 
-  let arguments = (ins
-    Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
-    Index:$index);
+  let arguments = (ins Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
+      Index:$index);
 
   let results = (outs EmitPy_OpaqueType:$result);
 
   // TODO (amilovanovic) : add custom verify method
-  let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat =
+      "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_AssignOp : EmitPy_Op<"assign"> {
@@ -136,18 +133,18 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
     Example:
 
     ```mlir
-    %2 = emitpy.assign %1 : <!emitpy.opaque<"ttnn.Tensor">>
+    %2 = emitpy.assign %1 :  < !emitpy.o paque <
+        "ttnn.Tensor" >>
     ```
     ```Python
-    // Code emitted for the operation above.
-    v2 = v1;
+                           // Code emitted for the operation above.
+                           v2 = v1;
     ```
   }];
 
-  let arguments = (ins
-    EmitPy_OpaqueType:$value);
+  let arguments = (ins EmitPy_OpaqueType : $value);
 
-  let results = (outs AnyType:$result);
+  let results = (outs AnyType : $result);
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
@@ -171,11 +168,14 @@ def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
 
   let arguments = (ins StrAttr:$value, Variadic<AnyType>:$fmtArgs);
 
-  let builders = [OpBuilder<(ins "::mlir::StringAttr":$value), [{ build($_builder, $_state, value, {}); }]>,
-                  OpBuilder<(ins "::llvm::StringRef":$value), [{ build($_builder, $_state, value, {}); }]>];
+  let builders = [OpBuilder<(ins "::mlir::StringAttr":$value),
+                            [{ build($_builder, $_state, value, {}); }]>,
+                  OpBuilder<(ins "::llvm::StringRef":$value),
+                            [{ build($_builder, $_state, value, {}); }]>];
 
   let hasVerifier = 1;
-  let assemblyFormat = "$value (`args` $fmtArgs^ `:` type($fmtArgs))? attr-dict";
+  let assemblyFormat =
+      "$value (`args` $fmtArgs^ `:` type($fmtArgs))? attr-dict";
 }
 
 def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {

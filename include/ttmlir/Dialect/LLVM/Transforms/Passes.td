@@ -7,9 +7,10 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LLVMEmitCallingConventionWrapperFuncs: Pass<"emit-calling-convention-wrappers", "::mlir::ModuleOp">
-{
-  let summary = "Emit unpacking functions to unwrap tensors into expected call signatures for our funcs lowered to LLVMDialect";
+def LLVMEmitCallingConventionWrapperFuncs
+    : Pass<"emit-calling-convention-wrappers", "::mlir::ModuleOp"> {
+  let summary = "Emit unpacking functions to unwrap tensors into expected call "
+                "signatures for our funcs lowered to LLVMDialect";
   let dependentDialects = ["mlir::LLVM::LLVMDialect"];
 }
 

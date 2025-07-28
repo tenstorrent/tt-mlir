@@ -7,7 +7,8 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::ModuleOp"> {
+def TTKernelControlDstSection
+    : Pass<"ttkernel-control-dst-section", "::mlir::ModuleOp"> {
   let summary = "Control Dst Register Critical Section";
   let description = [{
     Analyze the graph and insert tile_regs_* ops to control the dst critical section.

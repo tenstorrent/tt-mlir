@@ -38,6 +38,7 @@ def EmitPy_OpaqueAttr : EmitPy_Attr<"Opaque", "opaque"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def EmitPy_OpaqueOrTypedAttr : AnyAttrOf<[EmitPy_OpaqueAttr, TypedAttrInterface]>;
+def EmitPy_OpaqueOrTypedAttr
+    : AnyAttrOf<[EmitPy_OpaqueAttr, TypedAttrInterface]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYATTRIBUTES_TD

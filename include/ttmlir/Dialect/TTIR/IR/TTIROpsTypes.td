@@ -20,13 +20,15 @@ class TTIR_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def TTIR_MemTx : TTIR_Type<"MemTx", "mem_tx"> {
-    let summary = "TTIR memory transaction type.";
-    let description = "Memory transaction returned by dma op, used to wait for completion.";
+  let summary = "TTIR memory transaction type.";
+  let description =
+      "Memory transaction returned by dma op, used to wait for completion.";
 }
 
 def TTIR_Semaphore : TTIR_Type<"Semaphore", "semaphore"> {
-    let summary = "TTIR semaphore type.";
-    let description = "Semaphore primitive type used in combination with semaphore ops to synchronize cores.";
+  let summary = "TTIR semaphore type.";
+  let description = "Semaphore primitive type used in combination with "
+                    "semaphore ops to synchronize cores.";
 }
 
-#endif  // TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD
+#endif // TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD

@@ -10,9 +10,8 @@ include "mlir/IR/OpBase.td"
 // This interface is used to specify workarounds for TTNN operations.
 def TTNN_WorkaroundInterface : OpInterface<"TTNNWorkaroundInterface"> {
   let cppNamespace = "::mlir::tt::ttnn::wa";
-  let methods = [
-    InterfaceMethod<
-      /*desc=*/[{
+  let methods = [InterfaceMethod<
+                     /*desc=*/[{
         Returns the workarounds associated with each operand and result of this operation.
         If the operation is a Destination-Passing Style (DPS) operation, the same workarounds
         must apply to both the DPS initial operands and the operation results. These constraints
@@ -28,15 +27,14 @@ def TTNN_WorkaroundInterface : OpInterface<"TTNNWorkaroundInterface"> {
           - The output workaround must match the workaround for the second input operand,
           ensuring consistency as required by the DPS pattern.
       }],
-      /*retTy=*/"TTNNOperandsWorkarounds",
-      /*methodName=*/"getOperandsWorkarounds",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
+                     /*retTy=*/"TTNNOperandsWorkarounds",
+                     /*methodName=*/"getOperandsWorkarounds",
+                     /*args=*/(ins),
+                     /*methodBody=*/"",
+                     /*defaultImplementation=*/[{
         // Return default empty workarounds for all input and output operands
         return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
-      }]
-    >,
+      }]>,
   ];
 
   let verify = [{

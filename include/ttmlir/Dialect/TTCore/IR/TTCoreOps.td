@@ -19,9 +19,11 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-def TTCore_GetTupleElementOp: TTCore_Op<"get_tuple_element", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
-    let summary = "GetTupleElement operation";
-    let description = [{
+def TTCore_GetTupleElementOp
+    : TTCore_Op<"get_tuple_element",
+                [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let summary = "GetTupleElement operation";
+  let description = [{
       Extracts element at `index` position of the `operand` tuple and produces a `result`.
 
       Example:
@@ -30,18 +32,19 @@ def TTCore_GetTupleElementOp: TTCore_Op<"get_tuple_element", [Pure, DeclareOpInt
       ```
     }];
 
-    let arguments = (ins TTCore_Tuple:$operand,
-                         ConfinedAttr<I32Attr, [IntNonNegative]>:$index
-    );
+  let arguments = (ins TTCore_Tuple:$operand,
+      ConfinedAttr<I32Attr, [IntNonNegative]>:$index);
 
-    let results = (outs TTCore_TupleMemberType:$result);
+  let results = (outs TTCore_TupleMemberType:$result);
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
       $operand `[` $index `]` attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTCore_TupleOp : TTCore_Op<"tuple", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+def TTCore_TupleOp
+    : TTCore_Op<"tuple", [Pure,
+                          DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Tuple operation";
   let description = [{
     Produces a `result` tuple from operands `operands`.
@@ -60,15 +63,12 @@ def TTCore_TupleOp : TTCore_Op<"tuple", [Pure, DeclareOpInterfaceMethods<InferTy
   }];
 }
 
-def TTCore_DeviceModuleOp : TTCore_Op<"device_module", [
-    IsolatedFromAbove,
-    NoRegionArguments,
-    NoTerminator,
-    SingleBlock,
-    SymbolTable,
+def TTCore_DeviceModuleOp
+    : TTCore_Op<"device_module", [IsolatedFromAbove, NoRegionArguments,
+                                  NoTerminator, SingleBlock, SymbolTable,
 ]> {
-  let summary = "Module-wrapper operation for device ops";
-  let description = [{
+    let summary = "Module-wrapper operation for device ops";
+    let description = [{
     Custom module operation that can a single ModuleOp, which should contain all funcs which should be run on device.
 
     Example:
@@ -87,7 +87,6 @@ def TTCore_DeviceModuleOp : TTCore_Op<"device_module", [
 
   let builders = [OpBuilder<(ins)>];
 
-
   // We need to ensure the block inside the region is properly terminated;
   // the auto-generated builders do not guarantee that.
   let skipDefaultBuilders = 1;
@@ -95,12 +94,9 @@ def TTCore_DeviceModuleOp : TTCore_Op<"device_module", [
   let hasVerifier = 1;
 }
 
-def TTCore_CPUModuleOp : TTCore_Op<"cpu_module", [
-    IsolatedFromAbove,
-    NoTerminator,
-    NoRegionArguments,
-    SingleBlock,
-    SymbolTable,
+def TTCore_CPUModuleOp
+    : TTCore_Op<"cpu_module", [IsolatedFromAbove, NoTerminator,
+                               NoRegionArguments, SingleBlock, SymbolTable,
 ]> {
   let summary = "Module-wrapper operation for CPU ops";
   let description = [{
@@ -134,7 +130,8 @@ def TTCore_DeviceOp : TTCore_Op<"device", [Symbol]> {
   let description = [{
   }];
 
-  let arguments = (ins SymbolNameAttr:$sym_name, TTCore_DeviceAttr:$device_attr);
+  let arguments = (ins SymbolNameAttr:$sym_name,
+      TTCore_DeviceAttr:$device_attr);
 
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
@@ -152,14 +149,10 @@ def TTCore_LoadCachedOp : TTCore_Op<"load_cached", []> {
     ```
   }];
 
-  let arguments = (ins
-    FlatSymbolRefAttr:$callee,
-    Variadic<AnyRankedTensor>:$inputs
-  );
+  let arguments = (ins FlatSymbolRefAttr:$callee,
+      Variadic<AnyRankedTensor>:$inputs);
 
-  let results = (outs
-    Variadic<AnyRankedTensor>:$results
-  );
+  let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat = [{
     `(` $callee `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $results)

@@ -12,16 +12,16 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def EmitPy_Dialect : Dialect {
-    let name = "emitpy";
-    let cppNamespace = "::mlir::tt::emitpy";
+  let name = "emitpy";
+  let cppNamespace = "::mlir::tt::emitpy";
 
-    // TODO (amilovanovic) add Dialects/emitpy.md to description
-    let summary = "Dialect to generate Python from MLIR.";
+  // TODO (amilovanovic) add Dialects/emitpy.md to description
+  let summary = "Dialect to generate Python from MLIR.";
 
-    let useDefaultTypePrinterParser = 1;
-    let useDefaultAttributePrinterParser = 1;
+  let useDefaultTypePrinterParser = 1;
+  let useDefaultAttributePrinterParser = 1;
 
-    let extraClassDeclaration = [{
+  let extraClassDeclaration = [{
         void registerTypes();
         void registerAttributes();
   }];

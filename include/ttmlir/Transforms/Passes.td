@@ -7,7 +7,8 @@
 
 include "mlir/Pass/PassBase.td"
 
-def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleOp"> {
+def ConstEvalHoistTransform
+    : Pass<"const-eval-hoist-transform", "::mlir::ModuleOp"> {
   let summary = "Transform to hoist const-eval subgraph into separate func(s)";
   let description = [{
     Transform pass which runs an analysis pass to find const-eval subgraphs in an input
@@ -52,14 +53,16 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let summary = "Undo const-eval hoisting by inlining const-eval functions";
   let description = [{
     This pass inlines all functions marked with the "const_eval" attribute,
-    effectively undoing the transformations performed by ConstEvalHoistTransform.
-  }];
+    effectively undoing the transformations performed by ConstEvalHoistTran sform
+                        .
+}];
 
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
-  let summary = "Transform functions with return values to use output parameters.";
+def ReenableLostDPS : Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
+  let summary =
+      "Transform functions with return values to use output parameters.";
   let description = [{
     This pass finds functions with the ttir.return_to_output_mapping attribute and
     transforms them to use output parameters instead of return values. This is useful
@@ -87,10 +90,12 @@ def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
     ```
   }];
 
-  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
+  let dependentDialects = ["mlir::linalg::LinalgDialect",
+                           "mlir::tensor::TensorDialect",
+                           "mlir::func::FuncDialect"];
 }
 
-def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
+def RemoveReturnValues : Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let summary = "Remove return values from functions.";
   let description = [{
     This pass finds functions with return values and transforms them to have no return

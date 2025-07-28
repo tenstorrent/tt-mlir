@@ -24,34 +24,34 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
     memref<1x2x3x4xttcore.tile> should be interpreted as a grid of 1x2 and a shard of 3x4. This interface
     provides some convenience methods for working with this interpretation of memref shape.
   }];
-  let methods = [
-    InterfaceMethod<
-      "Get the grid shape part of the memref shape (aka the first half)",
-      "llvm::ArrayRef<int64_t>", "getGridShape", (ins "ShapedType":$shapedType),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
+  let methods =
+      [InterfaceMethod<
+           "Get the grid shape part of the memref shape (aka the first half)",
+           "llvm::ArrayRef<int64_t>", "getGridShape",
+           (ins "ShapedType":$shapedType),
+           /*methodBody=*/"",
+           /*defaultImplementation=*/[{
         assert(shapedType.getRank() % 2 == 0 && "rank must be even");
         return shapedType.getShape().take_front(shapedType.getRank() / 2);
-      }]
-    >,
-    InterfaceMethod<
-      "Get the shard shape part of the memref shape (aka the second half)",
-      "llvm::ArrayRef<int64_t>", "getShardShape", (ins "ShapedType":$shapedType),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
+      }]>,
+       InterfaceMethod<
+           "Get the shard shape part of the memref shape (aka the second half)",
+           "llvm::ArrayRef<int64_t>", "getShardShape",
+           (ins "ShapedType":$shapedType),
+           /*methodBody=*/"",
+  /*defaultImplementation=*/[{
         assert(shapedType.getRank() % 2 == 0 && "rank must be even");
         return shapedType.getShape().drop_front(shapedType.getRank() / 2);
-      }]
-    >,
-    InterfaceMethod<
-      "Get the number of elements for the shard shape part of the memref shape (aka the second half)",
-      "int64_t", "getShardNumElements", (ins "ShapedType":$shapedType),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
+      }]>,
+       InterfaceMethod<"Get the number of elements for the shard shape part of "
+                       "the memref shape (aka the second half)",
+                       "int64_t", "getShardNumElements",
+                       (ins "ShapedType":$shapedType),
+                       /*methodBody=*/"",
+                       /*defaultImplementation=*/[{
         auto shardShape = getShardShape(shapedType);
         return std::accumulate(shardShape.begin(), shardShape.end(), 1LL, std::multiplies<int64_t>());
-      }]
-    >,
+      }]>,
   ];
 }
 

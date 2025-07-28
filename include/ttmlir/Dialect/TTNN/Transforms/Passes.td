@@ -7,14 +7,14 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTNNDeallocate: Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
+def TTNNDeallocate : Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
   let summary = "Insert deallocate ops for tensors.";
   let description = [{
     This pass inserts deallocate ops after a tensor value's last use.
   }];
 }
 
-def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
+def TTNNDecomposeLayouts : Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{
     This pass decomposes ToLayoutOps to memory ops (e.g. toDevice, toMemoryConfig etc.).
@@ -35,27 +35,22 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
     a valid and functional IR that can be executed on the hardware.
   }];
 
-  let options = [
-      Option<"layoutWorkaroundsEnabled",
-             "ttnn-enable-layout-workaround-pass",
-             "bool", /*default=*/"true",
-             "TTNN Layout Workarounds Pass">,
-      Option<"decompositionWorkaroundsEnabled",
-             "ttnn-enable-decomposition-workaround-pass",
-             "bool", /*default=*/"true",
-             "TTNN Decompsition Workarounds Pass">,
-      Option<"repeatFoldingWorkaroundEnabled",
-             "ttnn-enable-repeat-folding-workaround-pass",
-             "bool", /*default=*/"true",
-             "TTNN Repeat Folding Workaround Pass">,
-      Option<"optimizerEnabled",
-             "ttnn-is-optimizer-enabled",
-             "bool", /*default=*/"false",
-             "flag specifying if optimizer is enabled">,
+  let options =
+      [Option<"layoutWorkaroundsEnabled", "ttnn-enable-layout-workaround-pass",
+              "bool", /*default=*/"true", "TTNN Layout Workarounds Pass">,
+       Option<"decompositionWorkaroundsEnabled",
+              "ttnn-enable-decomposition-workaround-pass", "bool",
+              /*default=*/"true", "TTNN Decompsition Workarounds Pass">,
+       Option<"repeatFoldingWorkaroundEnabled",
+              "ttnn-enable-repeat-folding-workaround-pass", "bool",
+              /*default=*/"true", "TTNN Repeat Folding Workaround Pass">,
+       Option<"optimizerEnabled", "ttnn-is-optimizer-enabled", "bool",
+              /*default=*/"false", "flag specifying if optimizer is enabled">,
   ];
 }
 
-def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
+def TTNNCreateInputGenerators
+    : Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
     This pass creates input generators for the "forward" functions. It
@@ -95,7 +90,7 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
   }];
 }
 
-def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
+def TTNNTuplifyTensors : Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
     This pass identifies all functions in the module that exclusively use tensors as inputs and outputs. It rewrites
@@ -129,17 +124,18 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
     ```
   }];
 
-  let options = [
-    Option<"tuplifyInputIfEmpty",
-            "tuplify-input-if-empty",
-            "bool", /*default=*/"false",
-            "If input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
-            "signatures are required have tuples on the input, like the EmitC dylib path.">
-  ];
+  let options = [Option<"tuplifyInputIfEmpty", "tuplify-input-if-empty", "bool",
+                        /*default=*/"false",
+                        "If input arg is originally empty, force create an "
+                        "empty tuple arg. This is useful for scenarios where "
+                        "signatures are required have tuples on the input, "
+                        "like the EmitC dylib path.">];
 }
 
-def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
-  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and PrepareConv2dBias ops before them.";
+def TTNNPrepareConv2dWeightsAndBias
+    : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
+  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and "
+                "PrepareConv2dBias ops before them.";
   let description = [{
     This pass inserts a PrepareConv2dWeights and a PrepareConv2dBias operation before each Conv2d op, which preprocess the weights and bias used by the Conv2d operations.
     These operations can then be const-evaluated, leading to improved performance.
@@ -147,13 +143,14 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
-def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
-{
+def TTNNFusing : Pass<"ttnn-fusing", "::mlir::ModuleOp"> {
   let summary = "TTNN fusing pass.";
-  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+  let description = "This pass tries to fuse operations together with goal to "
+                    "reduce the number of operations in the graph.";
 }
 
-def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
+def TTNNTraceHoistTransform
+    : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
   let summary = "TTNN Trace hoist transform";
   let description = [{
     Transform pass which runs an analysis pass to find traceable subgraphs and hoist them into separate trace functions.
@@ -214,10 +211,12 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
   }];
 }
 
-def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
-{
+def TTNNUniqueLocations : Pass<"ttnn-unique-locations", "::mlir::ModuleOp"> {
   let summary = "Check if operations have unique locations.";
-  let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
+  let description =
+      "This pass checks if all operations relevant to the optimizer have "
+      "unique locations. If not, it will emit an error. This is necessary for "
+      "the overrides to be applied correctly.";
 }
 
 #endif

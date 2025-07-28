@@ -20,10 +20,10 @@ include "mlir/IR/CommonTypeConstraints.td"
 // Should Attr be a separate file?
 
 class TTCore_Attr<string name, string attrMnemonic, list<Trait> traits = [],
-                   string baseCppClass = "::mlir::Attribute">
+                  string baseCppClass = "::mlir::Attribute">
     : AttrDef<TTCore_Dialect, name, traits, baseCppClass> {
   let mnemonic = attrMnemonic;
-  let attrName = "ttcore." # attrMnemonic;
+  let attrName = "ttcore." #attrMnemonic;
 }
 
 def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
@@ -33,9 +33,8 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
   }];
 
   let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
-                        DefaultValuedParameter<
-                          "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$mapping);
+      DefaultValuedParameter<"AffineMap",
+                             "$_builder.getEmptyAffineMap()">:$mapping);
   let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
 
   let extraClassDeclaration = [{
@@ -68,17 +67,18 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
   }];
 }
 
-def TTCore_ArchAttr : EnumAttr<TTCore_Dialect, TTCore_Arch, "arch"> {
-  let assemblyFormat = "`<` $value `>`";
-}
+def TTCore_ArchAttr   : EnumAttr<TTCore_Dialect, TTCore_Arch, "arch"> {
+    let assemblyFormat = "`<` $value `>`";
+  }
 
-def TTCore_DataTypeAttr : EnumAttr<TTCore_Dialect, TTCore_DataType, "supportedDataTypes"> {
-  let assemblyFormat = "`<` $value `>`";
-}
+  def TTCore_DataTypeAttr
+      : EnumAttr<TTCore_Dialect, TTCore_DataType, "supportedDataTypes"> {
+    let assemblyFormat = "`<` $value `>`";
+  }
 
-def TTCore_CoreCoordAttr : TTCore_Attr<"CoreCoord", "core_coord"> {
-  let summary = "TT core_coord attribute";
-  let description = [{
+  def TTCore_CoreCoordAttr : TTCore_Attr<"CoreCoord", "core_coord"> {
+    let summary = "TT core_coord attribute";
+    let description = [{
     TT core_coord attribute containing a single physical core coordinate.
   }];
 
@@ -96,15 +96,18 @@ def TTCore_TileSizeAttr : TTCore_Attr<"TileSize", "tile_size"> {
   let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
-
-def TTCore_ChipPhysicalHelperCoresAttr : TTCore_Attr<"ChipPhysicalHelperCores", "chip_physical_helper_cores"> {
+def TTCore_ChipPhysicalHelperCoresAttr
+    : TTCore_Attr<"ChipPhysicalHelperCores", "chip_physical_helper_cores"> {
   let summary = "TT chip_physical_helper_cores attribute";
   let description = [{
     TT chip_physical_helper_cores attribute containing arrays of physical helper cores by core type in order of logical cores.
   }];
 
-  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
+  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$dram,
+      OptionalArrayRefParameter<"CoreCoordAttr">:$eth,
+      OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
+  let assemblyFormat = "`{` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ "
+                       "`]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
 def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
@@ -113,26 +116,18 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch,
-                    ArrayRefParameter<"int64_t">:$grid,
-                    ArrayRefParameter<"int64_t">:$coordTranslationOffsets,
-                    "unsigned":$l1Size,
-                    "unsigned":$numDramChannels,
-                    "unsigned":$dramChannelSize,
-                    "unsigned":$nocL1AddressAlignBytes,
-                    "unsigned":$pcieAddressAlignBytes,
-                    "unsigned":$nocDRAMAddressAlignBytes,
-                    "unsigned":$l1UnreservedBase,
-                    "unsigned":$eriscL1UnreservedBase,
-                    "unsigned":$dramUnreservedBase,
-                    "unsigned":$dramUnreservedEnd,
-                    "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
-                    ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
-                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
-                    "unsigned":$dstRegisterSizeTiles,
-                    "unsigned":$numCBs,
-                    "unsigned":$numComputeThreads,
-                    "unsigned":$numDatamovementThreads);
+  let parameters = (ins "ArchAttr":$arch, ArrayRefParameter<"int64_t">:$grid,
+      ArrayRefParameter<"int64_t">:$coordTranslationOffsets, "unsigned":$l1Size,
+      "unsigned":$numDramChannels, "unsigned":$dramChannelSize,
+      "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes,
+      "unsigned":$nocDRAMAddressAlignBytes, "unsigned":$l1UnreservedBase,
+      "unsigned":$eriscL1UnreservedBase, "unsigned":$dramUnreservedBase,
+      "unsigned":$dramUnreservedEnd,
+      "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
+      ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
+      ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
+      "unsigned":$dstRegisterSizeTiles, "unsigned":$numCBs,
+      "unsigned":$numComputeThreads, "unsigned":$numDatamovementThreads);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `coord_translation_offsets` `=` custom<DimensionList>($coordTranslationOffsets) `,`
@@ -152,9 +147,13 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `dst_register_size_tiles` `=` $dstRegisterSizeTiles `,`
                              `num_cbs` `=` $numCBs `,`
                              `num_compute_threads` `=` $numComputeThreads `,`
-                             `num_datamovement_threads` `=` $numDatamovementThreads `}`}];
+                             `num_datamovement_threads` `=` $numDatamovementThreads `
+  }
+  `
+}];
 
-  let extraClassDeclaration = [{
+let extraClassDeclaration =
+    [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
     unsigned getUsableDramChannelSize() const { return getDramUnreservedEnd() - getDramUnreservedBase(); }
   }];
@@ -170,8 +169,7 @@ def TTCore_CPUDescAttr : TTCore_Attr<"CPUDesc", "cpu_desc"> {
     TT cpu_desc attribute
   }];
 
-  let parameters = (ins "CPURole":$role,
-                        "StringAttr":$target_triple);
+  let parameters = (ins "CPURole":$role, "StringAttr":$target_triple);
   let assemblyFormat = [{`{` `role` `=` $role `,`
                              `target_triple` `=` $target_triple `}`}];
 }
@@ -182,7 +180,8 @@ def TTCore_ChipCoordAttr : TTCore_Attr<"ChipCoord", "chip_coord"> {
     TT chip_coord attribute
   }];
 
-  let parameters = (ins "unsigned":$rack, "unsigned":$shelf, "unsigned":$y, "unsigned":$x);
+  let parameters = (ins "unsigned":$rack, "unsigned":$shelf, "unsigned":$y,
+      "unsigned":$x);
   let assemblyFormat = "custom<VargDimensionList>($rack, $shelf, $y, $x)";
 }
 
@@ -193,10 +192,10 @@ def TTCore_ChipChannelAttr : TTCore_Attr<"ChipChannel", "chip_channel"> {
   }];
 
   let parameters = (ins "unsigned":$deviceId0,
-                        ArrayRefParameter<"int64_t">:$ethernetCoreCoord0,
-                        "unsigned":$deviceId1,
-                        ArrayRefParameter<"int64_t">:$ethernetCoreCoord1);
-  let assemblyFormat = "`<` `[` $deviceId0 `,` $ethernetCoreCoord0 `]` `,` `[` $deviceId1 `,` $ethernetCoreCoord1 `]` `>`";
+      ArrayRefParameter<"int64_t">:$ethernetCoreCoord0, "unsigned":$deviceId1,
+      ArrayRefParameter<"int64_t">:$ethernetCoreCoord1);
+  let assemblyFormat = "`<` `[` $deviceId0 `,` $ethernetCoreCoord0 `]` `,` `[` "
+                       "$deviceId1 `,` $ethernetCoreCoord1 `]` `>`";
 }
 
 def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
@@ -206,12 +205,14 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
   }];
 
   let parameters = (ins ArrayRefParameter<"CPUDescAttr">:$cpuDescs,
-                        ArrayRefParameter<"ChipDescAttr">:$chipDescs,
-                        ArrayRefParameter<"unsigned">:$chipDescIndices,
-                        ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
-                        ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
-                        OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
-  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
+      ArrayRefParameter<"ChipDescAttr">:$chipDescs,
+      ArrayRefParameter<"unsigned">:$chipDescIndices,
+      ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
+      ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
+      OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
+  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` "
+                       "$chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` "
+                       "`[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
     static SystemDescAttr getDefault(MLIRContext *context, Arch arch = Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
@@ -225,7 +226,10 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_ViewLayoutAttr
+    : TTCore_Attr<
+          "ViewLayout",
+          "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Describes a view layout of a memref buffer.
@@ -254,7 +258,10 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   }];
 }
 
-def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_ShardLayoutAttr
+    : TTCore_Attr<
+          "ShardLayout",
+          "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "Shard layout attribute in TT dialect";
   let description = [{
     Describes shard layout of a memref buffer.
@@ -266,9 +273,10 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        DefaultValuedParameter<"uint32_t", "1">:$buffers);
+      DefaultValuedParameter<"uint32_t", "1">:$buffers);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
+  let assemblyFormat =
+      "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
@@ -279,7 +287,9 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
-def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
+def TTCore_MetalLayoutAttr
+    : TTCore_Attr<"MetalLayout",
+                  "metal_layout", [TTCore_DeviceLayoutInterface]> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
@@ -293,51 +303,66 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         simpler, in particular convs, but it makes the lowered IR much easier to read
         and reason about.  The original tensor shapes leave breadcrumbs that make it
         much easier to map back to the input representation.
-      - **Collapsed dims**: We may collapse dimensions during transformation, but it
-        is important we capture this information such that it is not lost during tensor
-        transformation.  The collapsed_intervals field stores the collapses performed
-        during conversion from logical_shape to physical tensor shape.
-      - **Padding**: store the desired alignments s.t. padding can be simply encoded;
-      dim_alignments field represents alignment along each logical dim during collapse.
-      - **Memref translation**: ensure we have all necessary info s.t. we can trivally
-        lower a tensor into a memref without any intermediate passes.
+      - **Collapsed dims**: We may collapse dimensions during transformat ion,
+    but it is impor tant we capture this information such that it is not lost
+        during tensor transformation
+            .The collapsed_intervals field stores the collapses performed during
+                conversion from logical_shape to physical tensor shape.-
+    **Padding *
+        * : store the desired alignments s.t.padding can be simply encoded;
+dim_alignments field represents alignment along each logical dim during
+        collapse.-
+    **Memref translation ** : ensure we have all necessary info
+                                  s.t.we can trivally lower a tensor into a
+                                      memref without any intermediate passes.
 
-    For a logical tensor of shape [H, W] distributed across a grid [GY, GX], the tensor shape would be:
-    - Without tiling: [GY, GX, H/GY, W/GX]
-    - With tiling: [GY, GX, H/GY/TH, W/GX/TW, TH, TW] where TH,TW are tile dimensions
+                              For a logical tensor of
+                                  shape[H, W] distributed across a grid[GY, GX],
+    the tensor shape would be : -Without tiling : [GY, GX, H / GY, W / GX] -
+                                                  With tiling
+    : [GY, GX, H / GY / TH, W / GX / TW, TH, TW] where TH,
+    TW are tile dimensions
 
-    This makes the representation 1:1 with memrefs and eliminates the need for shape conversion passes.
+        This makes the representation 1 : 1 with memrefs and eliminates the need
+            for shape conversion passes.
 
-    Examples:
+    Examples :
     ```mlir
     // Logical 8x300 tensor distributed across 1x2 grid:
     // tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=8x300, ...>>
 
     // Logical 1024x1024 tensor distributed across 2x2 grid with 32x32 tiles:
-    // tensor<2x2x16x16x!ttcore.tile<32x32xf32>, #tt.metal_layout<logical_shape=1024x1024, ...>>
+    // tensor<2x2x16x16x!ttcore.tile<32x32xf32>,
+    // #tt.metal_layout<logical_shape=1024x1024, ...>>
     ```
-  }];
+}];
 
-  let parameters = (ins
-    // The logical tensor shape before distribution.
-    ArrayRefParameter<"int64_t">:$logical_shape,
+let parameters = (ins
+      // The logical tensor shape before distribution.
+      ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32.
-    ArrayRefParameter<"int64_t">:$dim_alignments,
+      // Alignment for each logical dim, default is 32x1x...x1x32.
+      ArrayRefParameter<"int64_t">:$dim_alignments,
 
-    // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
-    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapsed_intervals,
+      // Dim collapse info; must be encoded as 2D array of pairs, where each
+      // pair represent a half-open range. Negative indexing is supported.
+      AttrParameter<"DenseIntElementsAttr",
+                    "Intervals of dims to collpase">:$collapsed_intervals,
 
-    // Out of bounds value.
-    AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
+      // Out of bounds value.
+      AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
-    // Memory space for the tensor.
-    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
-  );
+      // Memory space for the tensor.
+      DefaultValuedParameter<"MemorySpace",
+                             "MemorySpace::System">:$memory_space);
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? `>`";
+let assemblyFormat =
+    "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` "
+    "`dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` "
+    "`collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` "
+    "$memory_space^)? `>`";
 
-  let extraClassDeclaration = [{
+let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      uint64_t deviceGridRank,
@@ -379,12 +404,14 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
     - An array of chip ids that this device is made up of. This array's length must match the volume of the mesh shape and should be
       interpreted in row-major order.
   }];
-  let parameters = (ins TTCore_GridAttr:$workerGrid,
-                        "AffineMap":$l1Map,
-                        "AffineMap":$dramMap,
-                        ArrayRefParameter<"int64_t">:$meshShape,
-                        ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+  let parameters = (ins TTCore_GridAttr:$workerGrid, "AffineMap":$l1Map,
+      "AffineMap":$dramMap, ArrayRefParameter<"int64_t">:$meshShape,
+      ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat =
+      "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` "
+      "qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` "
+      "`=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds "
+      "`]` `>`";
 
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
@@ -431,7 +458,8 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
   let genVerifyDecl = 1;
 }
 
-def TTCore_MemorySpaceAttr : EnumAttr<TTCore_Dialect, TTCore_MemorySpace, "memory_space"> {
+def TTCore_MemorySpaceAttr
+    : EnumAttr<TTCore_Dialect, TTCore_MemorySpace, "memory_space"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
@@ -439,36 +467,44 @@ def TTCore_OOBValAttr : EnumAttr<TTCore_Dialect, TTCore_OOBVal, "oob_val"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_IteratorTypeAttr : EnumAttr<TTCore_Dialect, TTCore_IteratorType, "iterator_type"> {
+def TTCore_IteratorTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_IteratorType, "iterator_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_IteratorTypeArrayAttr : TypedArrayAttrBase<TTCore_IteratorTypeAttr, "">;
+def TTCore_IteratorTypeArrayAttr
+    : TypedArrayAttrBase<TTCore_IteratorTypeAttr, "">;
 
-def TTCore_ArgumentAllocationAttr : TTCore_Attr<"ArgumentAllocation", "arg_alloc", []> {
+def TTCore_ArgumentAllocationAttr
+    : TTCore_Attr<"ArgumentAllocation", "arg_alloc", []> {
   let summary = "Argument allocation attribute in TT dialect";
   let description = [{
     Holds the metadata for the allocation of an function argument i.e. for graph inputs.
   }];
-  let parameters = (ins "uint64_t":$address, "uint64_t":$size, "MemorySpace":$memorySpace);
+  let parameters = (ins "uint64_t":$address, "uint64_t":$size,
+      "MemorySpace":$memorySpace);
   let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
 }
 
-def TTCore_ReduceTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ReduceType, "reduce_type"> {
+def TTCore_ReduceTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_ReduceType, "reduce_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
 def TTCore_ReduceTypeArrayAttr : TypedArrayAttrBase<TTCore_ReduceTypeAttr, "">;
 
-def TTCore_MeshShardDirectionAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardDirection, "shard_direction"> {
+def TTCore_MeshShardDirectionAttr
+    : EnumAttr<TTCore_Dialect, TTCore_MeshShardDirection, "shard_direction"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_ShardStatusAttr : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
+def TTCore_ShardStatusAttr
+    : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
+def TTCore_MeshShardTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
   let summary = "MeshShard shard_type attribute in TT dialect";
   let description = [{
     Define sharded tensor data of mesh_shard op.
@@ -480,7 +516,8 @@ def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTCore_TensorMeshShardingAxisAttr : TTCore_Attr<"TensorMeshShardingAxis", "tensor_sharding", []> {
+def TTCore_TensorMeshShardingAxisAttr
+    : TTCore_Attr<"TensorMeshShardingAxis", "tensor_sharding", []> {
   let summary = "Tensor mesh sharding axis info attribute in TT dialect.";
   let description = [{
     Details per tensor dimension sharding and axes info.
@@ -488,11 +525,12 @@ def TTCore_TensorMeshShardingAxisAttr : TTCore_Attr<"TensorMeshShardingAxis", "t
     - (optional) axes: mesh shard dimensions. Axes may be empty if it is not being sharded.
   }];
   let parameters = (ins "int64_t":$shard_shape,
-                        OptionalArrayRefParameter<"int64_t">:$axes);
+      OptionalArrayRefParameter<"int64_t">:$axes);
   let assemblyFormat = "$shard_shape (`(`$axes^`)`)?";
 }
 
-def TTCore_TensorMeshShardingAttr : TTCore_Attr<"TensorMeshSharding", "mesh_sharding", []> {
+def TTCore_TensorMeshShardingAttr
+    : TTCore_Attr<"TensorMeshSharding", "mesh_sharding", []> {
   let summary = "Tensor mesh sharding attribute in TT dialect.";
   let description = [{
     Describes a tensor's multi-device status.
@@ -511,9 +549,12 @@ def TTCore_TensorMeshShardingAttr : TTCore_Attr<"TensorMeshSharding", "mesh_shar
           at "mesh"'s second hardware dimension. 1 indicates no sharding, so 16384 is not
           being sharded.
   }];
-  let parameters = (ins "StringAttr":$name,
-                        OptionalArrayRefParameter<"TensorMeshShardingAxisAttr">:$tensor_mesh_sharding_axis);
-  let assemblyFormat = "`<` $name (`,` `[` $tensor_mesh_sharding_axis^ `]` )? `>`";
+  let parameters =
+      (ins "StringAttr":$name,
+          OptionalArrayRefParameter<
+              "TensorMeshShardingAxisAttr">:$tensor_mesh_sharding_axis);
+  let assemblyFormat =
+      "`<` $name (`,` `[` $tensor_mesh_sharding_axis^ `]` )? `>`";
 
   let extraClassDeclaration = [{
       static TensorMeshShardingAttr get(::mlir::MLIRContext *context, StringRef name) {
@@ -530,7 +571,7 @@ def TTCore_MeshAttr : TTCore_Attr<"Mesh", "mesh", []> {
     Describes a mesh config including name and shape.
   }];
   let parameters = (ins "StringAttr":$name,
-                        ArrayRefParameter<"int64_t">:$shape);
+      ArrayRefParameter<"int64_t">:$shape);
   let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
 }
 
@@ -563,12 +604,13 @@ class TTCore_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
-    let summary = "TT tile";
-    let description = "Tile type in TT dialect";
-    let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
-    let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
+  let summary = "TT tile";
+  let description = "Tile type in TT dialect";
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
+      "DataType":$dataType);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
 
-    let extraClassDeclaration = [{
+  let extraClassDeclaration = [{
       static constexpr std::array<int64_t, 2> getDefaultShape() { return {32, 32}; }
       static TileType get(Type elementType, ArrayRef<int64_t> shape = getDefaultShape());
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
@@ -581,7 +623,7 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
       Type getElementType() const;
     }];
 
-    let genVerifyDecl = 1;
+  let genVerifyDecl = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -592,7 +634,8 @@ def TTCore_Tuple : NestedTupleOf<[AnyRankedTensor]>;
 
 def TTCore_TupleMemberType : AnyTypeOf<[AnyRankedTensor]>;
 
-def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "argument_type"> {
+def TTCore_ArgumentTypeAttr
+    : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "argument_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

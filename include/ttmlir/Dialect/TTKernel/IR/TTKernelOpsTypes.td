@@ -18,12 +18,12 @@ class TTKernel_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
-    let summary = "TTKernel cb";
-    let description = "Circular buffer type in TTKernel dialect";
-    let parameters = (ins "MemRefType":$memref);
-    let assemblyFormat = "`<` $memref `>`";
+  let summary = "TTKernel cb";
+  let description = "Circular buffer type in TTKernel dialect";
+  let parameters = (ins "MemRefType" : $memref);
+  let assemblyFormat = "`<` $memref `>`";
 
-    let extraClassDeclaration = [{
+  let extraClassDeclaration = [{
         ::llvm::ArrayRef<int64_t> getShape() const {
           return getMemref().getShape();
         }
@@ -46,64 +46,75 @@ def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
 }
 
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
-    let summary = "TTKernel noc address";
-    let description = "Noc address type in TTKernel dialect";
+  let summary = "TTKernel noc address";
+  let description = "Noc address type in TTKernel dialect";
 }
 
-def TTKernel_ThreadTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ThreadType, "thread"> {
+def TTKernel_ThreadTypeAttr
+    : EnumAttr<TTKernel_Dialect, TTKernel_ThreadType, "thread"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTKernel_ThreadTypeArrayAttr : TypedArrayAttrBase<TTKernel_ThreadTypeAttr, "">;
+def TTKernel_ThreadTypeArrayAttr
+    : TypedArrayAttrBase<TTKernel_ThreadTypeAttr, "">;
 
-def TTKernel_ReduceTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "reduce_type"> {
+def TTKernel_ReduceTypeAttr
+    : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "reduce_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTKernel_ReduceDimAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "reduce_dim"> {
+def TTKernel_ReduceDimAttr
+    : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "reduce_dim"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
 def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
-    let summary = "TTKernel l1 address";
-    let description = "L1 address type in TTKernel dialect";
+  let summary = "TTKernel l1 address";
+ let description = "L1 address type in TTKernel dialect";
 }
 
 def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
-    let summary = "TTKernel l1 address pointer";
-    let description = "L1 pointer address type in TTKernel dialect";
+  let summary = "TTKernel l1 address pointer";
+  let description = "L1 pointer address type in TTKernel dialect";
 }
 
-def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
-    let summary = "TTKernel InterleavedAddrGenFast type";
-    let description = "InterleavedAddrGenFast type in TTKernel dialect";
+def TTKernel_InterleavedAddrGenFast
+    : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
+  let summary = "TTKernel InterleavedAddrGenFast type";
+  let description = "InterleavedAddrGenFast type in TTKernel dialect";
 }
 
-def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
+def TTKernel_TensorAccessorArgs
+    : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs type";
-  let description = "TensorAccessor args type that stores compile + runtime information";
+  let description =
+      "TensorAccessor args type that stores compile + runtime information";
 }
 
-def TTKernel_TensorAccessor : TTKernel_Type<"TensorAccessor", "TensorAccessor"> {
+def TTKernel_TensorAccessor
+    : TTKernel_Type<"TensorAccessor", "TensorAccessor"> {
   let summary = "TensorAccessor type";
-  let description = "Accessor that encapsulates logic to access tensor information";
+  let description =
+      "Accessor that encapsulates logic to access tensor information";
 }
 
-def TTKernel_TensorAccessorPageMapping : TTKernel_Type<"TensorAccessorPageMapping", "PageMapping"> {
+def TTKernel_TensorAccessorPageMapping
+    : TTKernel_Type<"TensorAccessorPageMapping", "PageMapping"> {
   let summary = "TensorAccessor PageMapping struct";
-  let description = "TensorAccessor struct that holds bank_id and bank_page_offset";
+  let description =
+      "TensorAccessor struct that holds bank_id and bank_page_offset";
 }
 
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
-    let summary = "TTKernel compute data format type";
-    let description = "Data format type in TTKernel dialect";
+  let summary = "TTKernel compute data format type";
+  let description = "Data format type in TTKernel dialect";
 }
 
 class TTKernel_Attr<string name, string attrMnemonic, list<Trait> traits = [],
-                   string baseCppClass = "::mlir::Attribute">
+                    string baseCppClass = "::mlir::Attribute">
     : AttrDef<TTKernel_Dialect, name, traits, baseCppClass> {
   let mnemonic = attrMnemonic;
-  let attrName = "ttkernel." # attrMnemonic;
+  let attrName = "ttkernel." #attrMnemonic;
 }
 
 def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
@@ -111,7 +122,7 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
   let description = [{
   }];
   let parameters = (ins "ArgType":$arg_type, "size_t":$operand_index,
-                        DefaultValuedParameter<"bool", "true">:$is_uniform);
+      DefaultValuedParameter<"bool", "true">:$is_uniform);
   let assemblyFormat = "`<` struct(params) `>`";
 
   let extraClassDeclaration = [{
@@ -127,8 +138,9 @@ def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
     A list of argument attibutes, of which form the argument specification for this kernel.
   }];
   let parameters = (ins OptionalArrayRefParameter<"ArgAttr">:$rt_args,
-                        OptionalArrayRefParameter<"ArgAttr">:$ct_args);
-  let assemblyFormat = "`<` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
+      OptionalArrayRefParameter<"ArgAttr">:$ct_args);
+  let assemblyFormat = "`<` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` "
+                       "`=` `[` $ct_args^ `]`)? `>`";
 
   let extraClassDeclaration = [{
     static ArgSpecAttr setArgSpec(func::FuncOp func, ArgSpecAttr argSpec);
