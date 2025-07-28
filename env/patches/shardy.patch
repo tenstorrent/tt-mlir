@@ -666,20 +666,20 @@ index 000000000..86ca2aeb7
 @@ -0,0 +1,45 @@
 +# Shardy MLIR Module
 +
-+set(SHARDY_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
++set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
 +
 +# Rename _sdy_enums_gen in sdy.py
-+file(READ "${SHARDY_ROOT_DIR}/sdy.py" FILE_CONTENTS)
++file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
 +string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
-+file(WRITE "${SHARDY_ROOT_DIR}/sdy.py" "${FILE_CONTENTS}")
++file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
 +
-+if (EXISTS ${SHARDY_ROOT_DIR}/dialects)
-+  file(REMOVE_RECURSE ${SHARDY_ROOT_DIR}/dialects)
++if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
++  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
 +endif()
-+file(MAKE_DIRECTORY ${SHARDY_ROOT_DIR}/dialects)
-+FILE(COPY ${SHARDY_ROOT_DIR}/sdy.py DESTINATION ${SHARDY_ROOT_DIR}/dialects)
-+FILE(COPY ${SHARDY_ROOT_DIR}/sdy_ops.td DESTINATION ${SHARDY_ROOT_DIR}/dialects)
-+FILE(COPY ${SHARDY_ROOT_DIR}/sdy_enums.td DESTINATION ${SHARDY_ROOT_DIR}/dialects)
++file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
 +
 +declare_mlir_python_sources(SdyPythonSources)
 +declare_mlir_python_sources(SdyPythonSources.Dialects
@@ -688,7 +688,7 @@ index 000000000..86ca2aeb7
 +
 +declare_mlir_dialect_python_bindings(
 +  ADD_TO_PARENT SdyPythonSources.Dialects
-+  ROOT_DIR "${SHARDY_ROOT_DIR}"
++  ROOT_DIR "${SHARDY_MODULE_DIR}"
 +  TD_FILE dialects/sdy_ops.td
 +  GEN_ENUM_BINDINGS ON
 +  GEN_ENUM_BINDINGS_TD_FILE dialects/sdy_enums.td
