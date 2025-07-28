@@ -43,7 +43,7 @@ void L1InterleavedAnalysis::analysisImplementation() {
       return;
     }
     // Skip if operation doesn't use DRAM layout
-    if (!usesDRAMLayout(op)) {
+    if (!outputsDRAMLayout(op)) {
       return;
     }
     // Skip if producer is not immediately consumed by consumer
@@ -71,7 +71,9 @@ void L1InterleavedAnalysis::analysisImplementation() {
     // (rowMajor and tiled)
     for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
       llvm::Expected<TTNNLayoutAttr> possibleL1Layout =
-          checkUpgradeToL1Interleaved(op, opL1InterleavedConfig);
+          checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
+                                      /*upgradedProducerOp=*/nullptr,
+                                      /*upgradedProducerLayout=*/nullptr);
 
       if (!possibleL1Layout) {
         llvm::Error error = possibleL1Layout.takeError();
@@ -105,7 +107,7 @@ L1InterleavedAnalysis::getL1InterleavedLayoutConfigs(Operation *op) const {
   return it->second;
 }
 
-bool L1InterleavedAnalysis::usesDRAMLayout(Operation *op) const {
+bool L1InterleavedAnalysis::outputsDRAMLayout(Operation *op) const {
   // Check if the operation has a result type that is a tensor
   if (op->getNumResults() == 0) {
     return false;
@@ -124,6 +126,30 @@ bool L1InterleavedAnalysis::usesDRAMLayout(Operation *op) const {
 
   if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
     return ttnnLayout.hasDRAMBufferType();
+  }
+
+  return false;
+}
+
+bool L1InterleavedAnalysis::outputsL1Layout(Operation *op) const {
+  // Check if the operation has a result type that is a tensor
+  if (op->getNumResults() == 0) {
+    return false;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return false;
+  }
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return false;
+  }
+
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return ttnnLayout.hasL1BufferType();
   }
 
   return false;
@@ -162,7 +188,9 @@ bool L1InterleavedAnalysis::isTiledTensorLayout(Operation *op) const {
 
 llvm::Expected<TTNNLayoutAttr>
 L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
-    Operation *consumerOp, const OpConfig &consumerConfig) const {
+    Operation *consumerOp, const OpConfig &consumerConfig,
+    const Operation *upgradedProducerOp,
+    const TTNNLayoutAttr upgradedProducerLayout) const {
   // Figure out this const based on exec data, but will be replaced
   // with API.
   constexpr float tensorL1UsageCap = 0.8;
@@ -199,6 +227,14 @@ L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
     }
 
     if (operand.getDefiningOp()) {
+      if (operand.getDefiningOp() == upgradedProducerOp) {
+        // If it's a nested check of update candidate's (producer in this scope)
+        // consumer's storage
+        inputLayouts.push_back(upgradedProducerLayout);
+        producersL1OutputUsage +=
+            utils::getOpOutputL1Usage(upgradedProducerLayout);
+        continue;
+      }
       auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
       if (it != analysisResult.upgradedConfigs.end()) {
         inputLayouts.push_back(it->second.outputLayout);
@@ -262,6 +298,38 @@ L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Not enough L1 memory for op %s",
                                    consumerOp->getName().getStringRef().data());
+  }
+  // Check if upgrading this operation would cause memory conflicts with its
+  // consumer, using one recursion level
+  if (!upgradedProducerOp) {
+    Operation *nextConsumerOp = *consumerOp->getUsers().begin();
+    assert(nextConsumerOp && "Operation must have a consumer");
+    // If next consumer uses L1 memory, verify both operations can coexist in L1
+    if (outputsL1Layout(nextConsumerOp)) {
+      const OpConfig &nextConsumerOpConfig =
+          analysisInput.currentConfigs.at(nextConsumerOp);
+
+      llvm::Expected<TTNNLayoutAttr> nextConsumerOpL1Layout =
+          checkUpgradeToL1Interleaved(nextConsumerOp, nextConsumerOpConfig,
+                                      consumerOp, outputLayout);
+
+      if (!nextConsumerOpL1Layout) {
+        llvm::Error error = nextConsumerOpL1Layout.takeError();
+        std::string errorStr = llvm::toString(std::move(error));
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "L1InterleavedAnalysis: Upgrade blocked - consumer {} "
+                     "would exceed L1 memory: {}",
+                     errorStr);
+        return llvm::createStringError(
+            llvm::inconvertibleErrorCode(),
+            "L1 upgrade blocked: consumer %s would exceed memory limits",
+            nextConsumerOp->getName().getStringRef().data());
+      }
+      TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
+      assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayout &&
+             "Expected consumer of updated op layout to match the one in "
+             "OpConfig");
+    }
   }
 
   TTMLIR_DEBUG(

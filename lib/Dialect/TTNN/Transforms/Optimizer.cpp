@@ -492,7 +492,8 @@ public:
         L1InterleavedAnalysis l1InterleavedAnalysis =
             getAnalysis<L1InterleavedAnalysis>();
         l1InterleavedAnalysis.init(L1InterleavedAnalysisInput(
-            l1InterleavedLegalConfigs, func, chipDesc.getUsableL1Size()));
+            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
+            chipDesc.getUsableL1Size()));
         auto l1InterleavedOpConfigs =
             l1InterleavedAnalysis.getResult().upgradedConfigs;
 
