@@ -9,10 +9,10 @@ module @L1InterleavedTestLargeTensorInput attributes {} {
     // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x576x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
 
     %0 = ttir.empty() : tensor<6144x6144xbf16>
-    // CHECK: "ttnn.relu"{{.*}}-> tensor<6144x6144xbf16, #[[L1_LAYOUT:.*]]>
+    // CHECK: "ttnn.relu"{{.*}} -> tensor<6144x6144xbf16, #[[L1_LAYOUT]]>
     %1 = "ttir.relu"(%arg0, %0) : (tensor<6144x6144xbf16>, tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16>
 
-    // CHECK: "ttnn.add"{{.*}}-> tensor<6144x6144xbf16, #[[DRAM_LAYOUT:.*]]>
+    // CHECK: "ttnn.add"{{.*}} -> tensor<6144x6144xbf16, #[[DRAM_LAYOUT]]>
     %2 = ttir.empty() : tensor<6144x6144xbf16>
     %3 = "ttir.add"(%1, %arg1, %2) : (tensor<6144x6144xbf16>, tensor<6144x6144xbf16>, tensor<6144x6144xbf16>) -> tensor<6144x6144xbf16>
 

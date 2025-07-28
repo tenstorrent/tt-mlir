@@ -5,14 +5,13 @@
 
 module @L1InterleavedTestLargeTensorOutput attributes {} {
   func.func @forward(%arg0: tensor<8192x8192xbf16>, %arg1: tensor<8192x8192xbf16>) -> tensor<8192x8192xbf16> {
-    // Each core would get 1024 tiles, which is 2 MiB, exceeding per-core L1
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<256x256x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
     %0 = ttir.empty() : tensor<8192x8192xbf16>
-    // CHECK: "ttnn.relu"{{.*}}-> tensor<8192x8192xbf16, #[[DRAM_LAYOUT:.*]]>
+    // CHECK: "ttnn.relu"{{.*}} -> tensor<8192x8192xbf16, #[[DRAM_LAYOUT]]>
     %1 = "ttir.relu"(%arg0, %0) : (tensor<8192x8192xbf16>, tensor<8192x8192xbf16>) -> tensor<8192x8192xbf16>
 
-    // CHECK: "ttnn.add"{{.*}}-> tensor<8192x8192xbf16, #[[DRAM_LAYOUT:.*]]>
+    // CHECK: "ttnn.add"{{.*}} -> tensor<8192x8192xbf16, #[[DRAM_LAYOUT]]>
     %2 = ttir.empty() : tensor<8192x8192xbf16>
     %3 = "ttir.add"(%1, %arg1, %2) : (tensor<8192x8192xbf16>, tensor<8192x8192xbf16>, tensor<8192x8192xbf16>) -> tensor<8192x8192xbf16>
 
