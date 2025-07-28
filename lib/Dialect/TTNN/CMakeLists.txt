@@ -1,5 +1,6 @@
 add_subdirectory(Utils)
 add_subdirectory(IR)
 add_subdirectory(Analysis)
+add_subdirectory(Validation)
 add_subdirectory(Transforms)
 add_subdirectory(Pipelines)

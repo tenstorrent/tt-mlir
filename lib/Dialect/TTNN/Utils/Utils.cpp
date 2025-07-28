@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -241,9 +242,34 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
 TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
                                            TTNNLayoutAttr layout,
                                            llvm::ArrayRef<int64_t> shape) {
+  std::string shapeStr;
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0) {
+      shapeStr += ", ";
+    }
+    shapeStr += std::to_string(shape[i]);
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "convertTTNNLayoutToRowMajor: Input layout: {}, shape: [{}]",
+               layout, shapeStr);
+
   Type elementType =
       utils::getElementType(context, Layout::RowMajor, layout.getDataType());
-  return layout.withElementType(elementType, shape);
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "convertTTNNLayoutToRowMajor: Original element type: {}, "
+               "Row-major element type: {}",
+               layout.getElementType(), elementType);
+
+  TTNNLayoutAttr result = layout.withElementType(elementType, shape);
+
+  TTMLIR_DEBUG(
+      ttmlir::LogComponent::Optimizer,
+      "convertTTNNLayoutToRowMajor: Result layout: {}, result.getLayout()={}",
+      result, static_cast<int>(result.getLayout()));
+
+  return result;
 }
 
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
