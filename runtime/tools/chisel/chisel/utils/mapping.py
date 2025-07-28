@@ -129,9 +129,6 @@ def custom_broadcast(x, size=None):
             if size[i] < x.shape[i]:
                 size[i] = x.shape[i]
         except Exception as e:
-            import pdb
-
-            pdb.set_trace()
             print(f"Broadcasting error: {e}")
     return x.expand(size)
 
@@ -342,7 +339,6 @@ def custom_matmul(x, y, transpose_a=False, transpose_b=False):
 
 
 def custom_transpose(x, dim0, dim1):
-    # import pdb; pdb.set_trace()
     return x.transpose(dim0, dim1)
 
 

@@ -219,10 +219,7 @@ class IRModule:
             last_loc_line[hash_location(op.location)] = i
         return last_loc_line
 
-    def _dfs(self, op: Operation, walk_order: WalkOrder = WalkOrder.POST_ORDER):
-        """
-        Depth first search on MLIR operatons graph.
-        """
+    def _dfs(self, op: Operation, walk_order: WalkOrder = WalkOrder.POST_ORDER) -> List[Operation]:
         assert op is not None
         ops = []
 
