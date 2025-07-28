@@ -94,7 +94,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/InstallComponents.cmake)
 
 
 # Python wheel building and installation
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Copy Python files to build directory
 set(PYTHON_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python)
