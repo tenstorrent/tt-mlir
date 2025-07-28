@@ -663,7 +663,7 @@ new file mode 100644
 index 000000000..86ca2aeb7
 --- /dev/null
 +++ b/shardy/integrations/python/ir/CMakeLists.txt
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,45 @@
 +# Shardy MLIR Module
 +
 +set(SHARDY_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
