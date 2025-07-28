@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         LegalTensorLayoutAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
+        PostOptimizerValidationAnalysis.cpp
         ScalarDataTypeAnalysis.cpp
         ShardSolver.cpp
         TensorLayouts.cpp
@@ -24,6 +25,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
 
         LINK_LIBS PUBLIC
         MLIRScheduler
+        MLIRTTNNValidation
         TTMLIRTTNNUtils
         TTNNOpModelLib
         )

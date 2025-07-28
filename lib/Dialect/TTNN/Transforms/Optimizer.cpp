@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/PostOptimizerValidationAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
@@ -155,6 +156,11 @@ protected:
       *this, "row-major-enabled",
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
+      ::llvm::cl::init(false)};
+  ::mlir::Pass::Option<bool> postOptimizerValidationEnabled{
+      *this, "post-optimizer-validation-enabled",
+      ::llvm::cl::desc("Enable post-optimizer validation analysis with "
+                       "fallback strategies."),
       ::llvm::cl::init(false)};
 
 private:
@@ -303,6 +309,15 @@ public:
     OpConfigAnalysis opConfigAnalysis = getAnalysis<OpConfigAnalysis>();
     opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalConfigs)));
 
+    // Post-optimizer validation analysis: verify operation configurations
+    // will work at runtime and apply fallback strategies when needed
+    //
+    PostOptimizerValidationAnalysis postOptimizerValidationAnalysis(moduleOp);
+    if (postOptimizerValidationEnabled) {
+      postOptimizerValidationAnalysis.init(
+          PostOptimizerValidationAnalysisInput(opConfigAnalysis.getResult()));
+    }
+
     // Pure application of determined grid sizes to the operations.
     // No further analysis.
     //
@@ -350,14 +365,29 @@ public:
         llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
         // Update the output layout attribute with the new one.
+        // Use updated config from post-optimizer validation if available,
+        // otherwise use original
         //
-        if (opConfigAnalysis.getResult().contains(op)) {
+        OpConfig configToUse;
+        if (postOptimizerValidationEnabled &&
+            postOptimizerValidationAnalysis.getResult()
+                .hasUpdatedOpConfig(op)) {
+          configToUse =
+              postOptimizerValidationAnalysis.getResult().getUpdatedOpConfig(
+                  op, postOptimizerValidationAnalysis.getInput());
+          TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                       "Using updated config from validation for operation {}",
+                       op->getName());
+        } else if (opConfigAnalysis.getResult().contains(op)) {
+          configToUse = opConfigAnalysis.getResult().at(op);
+        } else {
+          return; // No config available for this operation
+        }
+
+        if (configToUse.outputLayout) {
           RankedTensorType newTensorType = RankedTensorType::get(
-              tensorShape,
-              opConfigAnalysis.getResult()
-                  .at(op)
-                  .outputLayout.getScalarElementType(),
-              opConfigAnalysis.getResult().at(op).outputLayout);
+              tensorShape, configToUse.outputLayout.getScalarElementType(),
+              configToUse.outputLayout);
 
           // Update the memory space and layout of the op.
           //
@@ -419,8 +449,11 @@ public:
           // Set specific Conv2d Op configuration if it is exists.
           //
 
+          // Set specific Conv2d Op configuration if it exists.
+          //
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            auto opAttributes = opConfigAnalysis.getResult().at(op);
+            // Use the same configToUse that we determined above
+            auto opAttributes = configToUse;
             if (std::holds_alternative<ttnn::Conv2dAttrs>(
                     opAttributes.opSpecificAttrs)) {
               ttnn::Conv2dAttrs conv2dAttrs =
@@ -446,6 +479,14 @@ public:
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
 
       insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
+
+      // Apply input operand conversions and output reverts from post-optimizer
+      // validation
+      if (postOptimizerValidationEnabled) {
+        applyPostOptimizerValidationTransforms(
+            func, postOptimizerValidationAnalysis.getResult(),
+            postOptimizerValidationAnalysis.getInput());
+      }
 
       SmallVector<Type> funcResultTypes;
 
@@ -919,9 +960,16 @@ private:
   // optimizer to determine if a memory reconfig is needed for non-sharded ops.
   void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
     func->walk([&](Operation *op) {
-      if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
+      // Temporarily disable hardcoded upsample workaround to test new
+      // validation system
+      if (!isa<ttnn::MaxPool2dOp>(op) /* && !isa<ttnn::UpsampleOp>(op) */) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "insertRowMajorLayouts: Skipping {} (not MaxPool2d)",
+                     op->getName());
         return;
       }
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "insertRowMajorLayouts: Processing {}", op->getName());
 
       RankedTensorType resultType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
@@ -1007,6 +1055,194 @@ private:
                    op->getName());
       convertOpToRowMajorAndBack(op);
     });
+  }
+
+  // Apply input operand conversions and output layout reverts from
+  // post-optimizer validation This runs after spilling to apply the
+  // transformations needed for validated operations
+  void applyPostOptimizerValidationTransforms(
+      func::FuncOp func,
+      const PostOptimizerValidationAnalysisResult &validationResult,
+      const PostOptimizerValidationAnalysisInput &validationInput) {
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Applying post-optimizer validation transforms");
+
+    // Apply input operand changes and output layout reverts for operations that
+    // needed fallback configurations
+    for (const auto &[operation, opResult] :
+         validationResult.operationResults) {
+      if (!opResult.fixedWithFallback) {
+        continue; // Skip operations that didn't need changes
+      }
+
+      // Apply input operand changes if any
+      if (!opResult.inputOperandChanges.empty()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Applying {} input operand changes for operation {}",
+                     opResult.inputOperandChanges.size(), operation->getName());
+
+        for (const auto &change : opResult.inputOperandChanges) {
+          applyInputOperandChange(operation, change);
+        }
+      }
+
+      // Apply output layout revert if the backend returned a different layout
+      // than originally expected
+      if (opResult.hasOutputLayoutChange()) {
+        // Get the original config that was chosen before validation
+        const OpConfig &originalConfig = validationInput.chosenOpConfigs.at(operation);
+        applyOutputLayoutRevert(operation, opResult.getUpdatedOutputLayout(),
+                                originalConfig.outputLayout);
+      }
+    }
+  }
+
+  // Apply a single input operand change by inserting ToLayoutOp
+  void applyInputOperandChange(Operation *operation,
+                               const InputOperandChange &change) {
+    Value operand = operation->getOperand(change.operandIndex);
+    auto currentTensorType = mlir::cast<RankedTensorType>(operand.getType());
+    auto currentLayoutAttr =
+        mlir::cast<TTNNLayoutAttr>(currentTensorType.getEncoding());
+
+    // Build the new layout attribute with the required changes
+    TTNNLayoutAttr newLayoutAttr = currentLayoutAttr;
+
+    // Handle layout changes (ROW_MAJOR vs TILE)
+    if (change.targetLayout.has_value()) {
+      newLayoutAttr = newLayoutAttr.withLayout(change.targetLayout.value(),
+                                               currentTensorType.getShape());
+    }
+
+    if (change.targetMemoryLayout.has_value()) {
+      newLayoutAttr =
+          newLayoutAttr.withMemoryLayout(change.targetMemoryLayout.value());
+    }
+
+    if (change.targetBufferType.has_value()) {
+      newLayoutAttr =
+          newLayoutAttr.withBufferType(change.targetBufferType.value());
+    }
+
+    // Create new tensor type with updated layout
+    RankedTensorType newTensorType = RankedTensorType::get(
+        currentTensorType.getShape(),
+        newLayoutAttr.getElementType(), // Use new layout's element type
+        newLayoutAttr);
+
+    // Determine which layout to use for ToLayoutOp
+    Layout targetLayoutValue =
+        change.targetLayout.value_or(currentLayoutAttr.getLayout());
+
+    // Insert ToLayout operation to perform the transformation
+    OpBuilder builder(operation);
+
+    // Create proper MemoryConfigAttr for the target layout
+    MemoryConfigAttr memoryConfigAttr = MemoryConfigAttr::get(
+        operation->getContext(), newLayoutAttr.getMemLayout(),
+        BufferTypeAttr::get(operation->getContext(),
+                            newLayoutAttr.getBufferType()),
+        /*shardSpec=*/std::nullopt);
+
+    auto toLayoutOp = builder.create<ToLayoutOp>(
+        operation->getLoc(), newTensorType, operand,
+        LayoutAttr::get(operation->getContext(), targetLayoutValue),
+        /*dtype=*/nullptr, memoryConfigAttr);
+
+    // Replace the operand with the result of ToLayout
+    operation->setOperand(change.operandIndex, toLayoutOp.getResult());
+
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Applied input operand change for operation {} operand {}: "
+        "layout {} -> {}, memory layout {} -> {}, buffer type {} -> {}",
+        operation->getName(), change.operandIndex,
+        change.originalLayout.getLayout(),
+        change.targetLayout.value_or(change.originalLayout.getLayout()),
+        change.originalLayout.getMemLayout().getValue(),
+        change.targetMemoryLayout.value_or(
+            change.originalLayout.getMemLayout().getValue()),
+        change.originalLayout.getBufferType(),
+        change.targetBufferType.value_or(
+            change.originalLayout.getBufferType()));
+  }
+
+  // Insert a revert ToLayoutOp to convert from backend's actual output layout
+  // back to expected layout This maintains compatibility with consumers when
+  // the backend produces a different layout than expected
+  void applyOutputLayoutRevert(Operation *operation,
+                               TTNNLayoutAttr actualOutputLayout,
+                               TTNNLayoutAttr expectedOutputLayout) {
+    if (operation->getNumResults() != 1) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Skipping output layout revert for operation {} - expected "
+                   "1 result, got {}",
+                   operation->getName(), operation->getNumResults());
+      return;
+    }
+
+    // Only insert revert if the layouts are actually different
+    if (actualOutputLayout == expectedOutputLayout) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Skipping output layout revert for operation {} - layouts "
+                   "are identical",
+                   operation->getName());
+      return;
+    }
+
+    Value result = operation->getResult(0);
+    auto currentResultType = mlir::cast<RankedTensorType>(result.getType());
+
+    // Save all uses of the operation's result before making changes
+    llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+    for (auto &use : result.getUses()) {
+      uses.emplace_back(use.getOwner(), use.getOperandNumber());
+    }
+
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Inserting output layout revert for operation {} from {} to {}",
+        operation->getName(), actualOutputLayout, expectedOutputLayout);
+
+    // Insert ToLayoutOp after the operation to revert back to the original
+    // expected layout
+    OpBuilder builder(operation->getContext());
+    builder.setInsertionPointAfter(operation);
+
+    // Create the expected result type for the revert operation
+    RankedTensorType expectedResultType = RankedTensorType::get(
+        currentResultType.getShape(), currentResultType.getElementType(),
+        expectedOutputLayout);
+
+    // Create proper MemoryConfigAttr for the expected layout
+    MemoryConfigAttr expectedMemoryConfigAttr = MemoryConfigAttr::get(
+        operation->getContext(), expectedOutputLayout.getMemLayout(),
+        BufferTypeAttr::get(operation->getContext(),
+                            expectedOutputLayout.getBufferType()),
+        /*shardSpec=*/std::nullopt);
+
+    auto revertToLayoutOp = builder.create<ToLayoutOp>(
+        ttmlir::utils::appendLocationSuffix(operation->getLoc(),
+                                            "_revert_layout"),
+        expectedResultType, result,
+        LayoutAttr::get(operation->getContext(),
+                        expectedOutputLayout.getLayout()),
+        /*dtype=*/nullptr, expectedMemoryConfigAttr);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Inserted revert ToLayout after operation {} to restore "
+                 "expected layout {}",
+                 operation->getName(), expectedOutputLayout);
+
+    // Update all saved uses to point to the revert operation instead
+    for (auto &use : uses) {
+      Operation *useOp = use.first;
+      useOp->setOperand(use.second, revertToLayoutOp.getResult());
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Updated consumer {}@{} to use reverted layout",
+                   useOp->getName(), useOp->getLoc());
+    }
   }
 
   // Trace all possible layouts for debugging
