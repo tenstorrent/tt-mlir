@@ -59,15 +59,12 @@ void L1InterleavedAnalysis::analysisImplementation() {
 
     bool isCurrentlyTiled = isTiledTensorLayout(op);
 
-    // Modern alternative to std::stable_sort that avoids deprecated buffer
-    // management; Partition configs to prioritize those matching current tiling
-    // preference
-    std::stable_partition(opL1InterleavedConfigs.begin(),
-                          opL1InterleavedConfigs.end(),
-                          [isCurrentlyTiled](const OpConfig &config) {
-                            bool configTiled = config.outputLayout.isTiled();
-                            return configTiled == isCurrentlyTiled;
-                          });
+    // Partition configs to prioritize those matching current tiling preference
+    std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
+                   [isCurrentlyTiled](const OpConfig &config) {
+                     bool configTiled = config.outputLayout.isTiled();
+                     return configTiled == isCurrentlyTiled;
+                   });
 
     // Try both L1 interleaved configs until one works if there are multiple
     // (rowMajor and tiled)
