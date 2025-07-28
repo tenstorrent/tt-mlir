@@ -8,7 +8,8 @@ repos:
     rev: v18.1.7
     hooks:
     - id: clang-format
-      types_or: [c++, c]
+      types_or: [text]
+      files: '\.(c|cpp|h|hpp|td)$'
       args: [-style=file, -i]
   - repo: https://github.com/espressif/check-copyright/
     rev: v1.0.3
