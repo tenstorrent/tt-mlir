@@ -8,6 +8,7 @@ declare_mlir_python_sources(TTIRBuilderSources
   SOURCES
     __init__.py
     ccl_golden.py
+    sharded_tensor.py
     test_optimizer_overrides.py
     utils.py
     apis.py
