@@ -45,7 +45,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNWORKAROUNDS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-
 // If the layout of the output result has changed as a result of applying a
 // workaround, this method transforms the layout back to the previous state
 // by inserting a ToLayoutOp after the op result output in order to maintain

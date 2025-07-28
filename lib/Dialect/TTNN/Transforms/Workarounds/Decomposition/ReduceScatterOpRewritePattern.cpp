@@ -10,8 +10,9 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-LogicalResult TTNNReduceScatterWorkarounds::matchAndRewrite(
-    ttnn::ReduceScatterOp op, PatternRewriter &rewriter) const {
+LogicalResult
+TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
+                                              PatternRewriter &rewriter) const {
   RankedTensorType inputType = op.getInput().getType();
   int64_t rank = inputType.getRank();
 
@@ -47,12 +48,11 @@ LogicalResult TTNNReduceScatterWorkarounds::matchAndRewrite(
   SmallVector<int32_t> paddedShapeI32(paddedInputShape.begin(),
                                       paddedInputShape.end());
   RankedTensorType reshapeInputType =
-      ttnn::utils::RankedTensorTypeFactory::create(inputType,
-                                                   paddedInputShape);
+      ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
   auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_to_4d"),
-      reshapeInputType, op.getInput(),
-      rewriter.getI32ArrayAttr(paddedShapeI32), ttnn::MemoryConfigAttr());
+      reshapeInputType, op.getInput(), rewriter.getI32ArrayAttr(paddedShapeI32),
+      ttnn::MemoryConfigAttr());
 
   // Create 4D output tensor type
   RankedTensorType paddedOutputType =
