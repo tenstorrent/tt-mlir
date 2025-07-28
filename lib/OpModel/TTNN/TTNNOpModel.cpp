@@ -2928,21 +2928,54 @@ llvm::Expected<size_t> EmbeddingOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
-
+// const ttnn::Shape& shape,
+//         const DataType& dtype,
+//         const Layout& layout,
+//         MeshDevice* device,
+//         const MemoryConfig& memory_config
 llvm::Expected<OpConstraints> EmptyOpInterface::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    mlir::tt::ttcore::DataTypeAttr dtype,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr mamoryConfig) {
+    mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto emptyOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::empty, device, conversion::getShape(inputShape),
+        conversion::getDataType(dtype.getValue()),
+        conversion::getPageLayout(inputLayout), device,
+        conversion::getMemoryConfig(memoryConfig));
+  };
+
+  return operation::getOpConstraints("EmptyOpInterface", dtype.getContext(),
+                                     deviceGrid, emptyOpQuery);
+#else
   return OpConstraints{};
+#endif //
 }
 
 llvm::Expected<size_t>
 EmptyOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                mlir::tt::ttcore::DataTypeAttr dtype,
-                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                               mlir::tt::ttnn::MemoryConfigAttr mamoryConfig) {
-  return 0;
+                               mlir::tt::ttnn::Layout inputLayout,
+                               mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto emptyOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::empty, device, conversion::getShape(inputShape),
+        conversion::getDataType(dtype.getValue()),
+        conversion::getPageLayout(inputLayout), device,
+        conversion::getMemoryConfig(memoryConfig));
+  };
+
+  return operation::getOpRuntime("EmptyOpInterface", emptyOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif //
 }
 
 } // namespace mlir::tt::op_model::ttnn

@@ -2052,30 +2052,60 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   EXPECT_EQ(stats2.misses, 2);
 }
 
-// TEST_F(OpModelBase, EmptyOpInterface) {
-//   // create EmptyOp
-//   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-//   auto outputType = createRankedTensorType(tensorShape);
-//   auto empty = builder.create<EmptyOp>(builder.getUnknownLoc(), outputType);
-//   // test EmptyOp interface
-//   auto constraintsExp = getOpConstraints(empty.getOperation());
-//   if (constraintsExp) {
-//     auto l1 = constraintsExp.get();
-//     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-//     EXPECT_EQ(cbSize, 16384);
-//     EXPECT_EQ(peakSize, 525312);
-//     EXPECT_EQ(outputSize, 262144);
-//   } else {
-//     FAIL() << "Missing L1 constraints; Error="
-//            << llvm::toString(constraintsExp.takeError()) << std::endl;
-//   }
+TEST_F(OpModelBase, EmptyOpInterface) {
+  // create EmptyOp with full TTNN layout attributes
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
-//   // Test EmptyOp runtime
-//   auto runtimeExp = getOpRuntime(empty.getOperation());
-//   if (runtimeExp) {
-//     EXPECT_GT(runtimeExp.get(), 0);
-//   } else {
-//     FAIL() << llvm::toString(runtimeExp.takeError());
-//   }
-// }
+  // Create a proper TTNN layout for the tensor
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  RankedTensorType inputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Cast to get TTNN layout attributes
+  RankedTensorType inputTensorType = mlir::cast<RankedTensorType>(inputType);
+  ttnn::TTNNLayoutAttr ttnnLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputTensorType.getEncoding());
+
+  // Create memory config attribute
+  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+      &context, ttnnLayoutAttr.getMemLayout(),
+      ttnn::BufferTypeAttr::get(&context, ttnnLayoutAttr.getBufferType()),
+      std::nullopt); // No sharding for this test
+
+  // Create a device value (required for EmptyOp)
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create the EmptyOp with all required parameters
+  auto empty = builder.create<ttnn::EmptyOp>(
+      builder.getUnknownLoc(), inputType,
+      ttnn::ShapeAttr::get(&context, inputTensorType.getShape()),
+      ttcore::DataTypeAttr::get(&context, ttnnLayoutAttr.getDataType()),
+      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()), device,
+      memoryConfigAttr);
+
+  // test EmptyOp interface
+  auto constraintsExp = getOpConstraints(empty.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test EmptyOp runtime
+  auto runtimeExp = getOpRuntime(empty.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
 } // namespace mlir::tt::ttnn

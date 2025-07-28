@@ -16,6 +16,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <iostream>
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -1369,24 +1370,16 @@ EmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // EmptyOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-// (mlir::tt::ttcore::GridAttr deviceGrid,
-//   llvm::ArrayRef<int64_t> inputShape,
-//   mlir::tt::ttcore::DataTypeAttr dtype,
-//   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-//   mlir::tt::ttnn::MemoryConfigAttr mamoryConfig);
-
 llvm::Expected<op_model::ttnn::OpConstraints>
 EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto device = getDevice();
-  assert(device);
+  assert(inputs.size() == 0);
+  assert(getDevice() && "Device is not set");
 
   const llvm::ArrayRef<int64_t> shape = getShape().getShape();
   const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();
-  // const mlir::tt::ttnn::TTNNLayoutAttr layout = getLayoutAttr();
-  const mlir::tt::ttnn::MemoryConfigAttr mamoryConfig = getMemoryConfigAttr();
+  const mlir::tt::ttnn::Layout layout = getLayoutAttr().getValue();
+  const mlir::tt::ttnn::MemoryConfigAttr memoryConfig = getMemoryConfigAttr();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -1394,17 +1387,25 @@ EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
   return opConstraintsCache().getOrCompute(
       op_model::ttnn::EmptyOpInterface::getOpConstraints, *this, deviceGrid,
-      shape, dtype, inputs[0], mamoryConfig);
+      shape, dtype, layout, memoryConfig);
 }
 
 llvm::Expected<size_t>
 EmptyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                       const OpConfig &opConfig) {
-  return llvm::make_error<llvm::StringError>("Not Implemented",
-                                             llvm::inconvertibleErrorCode());
+  assert(inputs.size() == 0);
+  assert(getDevice() && "Device is not set");
+
+  const llvm::ArrayRef<int64_t> shape = getShape().getShape();
+  const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();
+  const mlir::tt::ttnn::Layout layout = getLayoutAttr().getValue();
+  const mlir::tt::ttnn::MemoryConfigAttr memoryConfig = getMemoryConfigAttr();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::EmptyOpInterface::getOpRuntime, *this, shape, dtype,
+      layout, memoryConfig);
 }
 
 } // namespace mlir::tt::ttnn
