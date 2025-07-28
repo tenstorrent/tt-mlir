@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "llvm/ADT/DenseSet.h"
 
@@ -328,6 +329,8 @@ public:
       const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::DenseSet<Operation *> &rowMajorOutputOps = {},
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout =
+          {},
       std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                    Operation *, OpConfig)>
           customCheckShardCompatible = nullptr);
@@ -368,6 +371,8 @@ private:
   llvm::DenseSet<Edge> memReconfigEdges;
   // Row major output ops.
   llvm::DenseSet<Operation *> rowMajorOutputOps;
+  // Override output layout parameters.
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
   std::function<llvm::Expected<TTNNLayoutAttr>(mlir::Value, TTNNLayoutAttr,
                                                mlir::Operation *, OpConfig)>

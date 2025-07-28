@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/DenseSet.h"
@@ -23,6 +24,7 @@ private:
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::DenseSet<Operation *> rowMajorOutputOps;
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
   void pickOpShardConfigs(ShardSolver &shardSolver,
                           const L1ChainConfig &l1ChainConfig);
@@ -41,10 +43,13 @@ public:
 
   void run() final;
 
-  void setOverrides(const llvm::DenseSet<Edge> &reshardEdges,
-                    const llvm::DenseSet<Operation *> &rowMajorOutputOps) {
+  void setOverrides(
+      const llvm::DenseSet<Edge> &reshardEdges,
+      const llvm::DenseSet<Operation *> &rowMajorOutputOps,
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout) {
     overrideReshardEdges = reshardEdges;
     this->rowMajorOutputOps = rowMajorOutputOps;
+    this->overrideOutputLayout = overrideOutputLayout;
   }
 };
 

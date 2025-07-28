@@ -40,6 +40,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
@@ -281,7 +282,8 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          overrideReshardEdges, rowMajorOutputOps, memoryLayoutAnalysisPolicy));
+          overrideReshardEdges, rowMajorOutputOps, overrideOutputLayout,
+          memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =

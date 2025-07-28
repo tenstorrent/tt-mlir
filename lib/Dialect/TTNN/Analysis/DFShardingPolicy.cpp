@@ -17,6 +17,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
@@ -152,7 +153,7 @@ void DFShardingPolicy::run() {
     progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
-        overrideReshardEdges, rowMajorOutputOps);
+        overrideReshardEdges, rowMajorOutputOps, overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

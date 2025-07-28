@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/DenseSet.h"
@@ -26,6 +27,7 @@ struct MemoryLayoutAnalysisInput {
   unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::DenseSet<Operation *> rowMajorOutputOps;
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
   MemoryLayoutAnalysisPolicyType policy;
 
@@ -37,11 +39,13 @@ struct MemoryLayoutAnalysisInput {
       unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::DenseSet<Operation *> &rowMajorOutputOps,
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
       MemoryLayoutAnalysisPolicyType policy)
       : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
         overrideReshardEdges(overrideReshardEdges),
-        rowMajorOutputOps(rowMajorOutputOps), policy(policy) {}
+        rowMajorOutputOps(rowMajorOutputOps),
+        overrideOutputLayout(overrideOutputLayout), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
     return legalConfigs == rhs.legalConfigs;

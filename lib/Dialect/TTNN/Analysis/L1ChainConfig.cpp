@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
@@ -28,7 +29,8 @@ ShardSolver L1ChainConfig::resolveWithSolver(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
-    const llvm::DenseSet<Operation *> &rowMajorOutputOps) {
+    const llvm::DenseSet<Operation *> &rowMajorOutputOps,
+    const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout) {
   assert(state == L1ChainState::Built);
 
   // Reconcile adjacent shard specs.
@@ -36,7 +38,7 @@ ShardSolver L1ChainConfig::resolveWithSolver(
   //
   ShardSolver shardSolver(tensorTypePossibleLayouts, legalConfigs, opL1MemSpecs,
                           l1ChainedOps, usableL1CacheSize, overrideReshardEdges,
-                          rowMajorOutputOps);
+                          rowMajorOutputOps, overrideOutputLayout);
 
   state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;
 

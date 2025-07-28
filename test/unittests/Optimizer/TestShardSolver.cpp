@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -153,6 +154,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::DenseSet<mlir::Operation *> rowMajorOutputOps;
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
@@ -271,7 +273,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   ShardSolver shardSolver(/*tensorTypePossibleLayouts=*/nullptr, legalConfigs,
                           opL1MemSpecs, l1ChainedOps, usableL1CacheSize,
                           overrideReshardEdges, rowMajorOutputOps,
-                          checkShardCompatible);
+                          overrideOutputLayout, checkShardCompatible);
 
   ASSERT_TRUE(shardSolver.resolve());
 

@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
@@ -65,7 +66,8 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule,
         analysisInput.usableL1CacheSize);
     dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
-                                  analysisInput.rowMajorOutputOps);
+                                  analysisInput.rowMajorOutputOps,
+                                  analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
     break;
   }
