@@ -28,7 +28,7 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
   return std::nullopt;
 }
 
-static void rewriteOperand(OpBuilder &builder, LoweredDMAOpInterface dma,
+static void rewriteOperand(OpBuilder &builder, DMAOpInterface dma,
                            OpOperand &dmaOperand, unsigned operandIndex) {
   MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
   AffineMap affineMapView = builder.getMultiDimIdentityMap(memref.getRank());
@@ -41,9 +41,8 @@ static void rewriteOperand(OpBuilder &builder, LoweredDMAOpInterface dma,
   dmaOperand.set(globalOperand->getResult(0));
 }
 
-static void rewriteCapturedLoweredDMAOperands(OpBuilder &builder,
-                                              GenericOp generic,
-                                              LoweredDMAOpInterface dma) {
+static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
+                                       DMAOpInterface dma) {
 
   auto srcIndex = getCapturedOperandIndex(generic, dma.getSrc());
   auto dstIndex = getCapturedOperandIndex(generic, dma.getDst());
@@ -70,8 +69,8 @@ public:
     OpBuilder builder(&getContext());
     int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
-      generic.walk([&](LoweredDMAOpInterface dma) {
-        rewriteCapturedLoweredDMAOperands(builder, generic, dma);
+      generic.walk([&](DMAOpInterface dma) {
+        rewriteCapturedDMAOperands(builder, generic, dma);
       });
 
       SmallVector<Attribute> threads;

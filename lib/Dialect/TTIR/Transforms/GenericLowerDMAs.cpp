@@ -350,7 +350,7 @@ public:
         dma.isDstRemote() || (dma.isSrcLocal() && dma.isDstLocal());
 
     if (isLoweredToWrite) {
-      rewriter.replaceOpWithNewOp<ttir::LoweredDMAWriteOp>(
+      rewriter.replaceOpWithNewOp<ttir::DMAWriteOp>(
           dma, dma.getResult().getType(), dma.getSrc(), srcIndices,
           dma.getDst(), dstIndices,
           rewriter.getI64IntegerAttr(dma.getNumElems()),
@@ -358,7 +358,7 @@ public:
     } else {
       // should never have multicast fields defined for reads
       assert(dma.getMcastStartIndex().empty() && dma.getMcastShape().empty());
-      rewriter.replaceOpWithNewOp<ttir::LoweredDMAReadOp>(
+      rewriter.replaceOpWithNewOp<ttir::DMAReadOp>(
           dma, dma.getResult().getType(), dma.getSrc(), srcIndices,
           dma.getDst(), dstIndices,
           rewriter.getI64IntegerAttr(dma.getNumElems()));

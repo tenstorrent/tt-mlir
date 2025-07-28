@@ -293,15 +293,15 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 }
 
 //===----------------------------------------------------------------------===//
-// LoweredDMAWriteOp and LoweredDMAReadOp
+// DMAWriteOp and DMAReadOp
 //===----------------------------------------------------------------------===//
 
-void mlir::tt::ttir::LoweredDMAWriteOp::getAsmResultNames(
+void mlir::tt::ttir::DMAWriteOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
 }
 
-void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
+void mlir::tt::ttir::DMAWriteOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
@@ -310,7 +310,7 @@ void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
                        mlir::SideEffects::DefaultResource::get());
 }
 
-::mlir::LogicalResult mlir::tt::ttir::LoweredDMAWriteOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::DMAWriteOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
 
@@ -327,8 +327,7 @@ void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
   }
 
   if (srcType.getElementType() != dstType.getElementType()) {
-    return emitOpError(
-        "Operands to LoweredDMAWrite must have the same element type");
+    return emitOpError("Operands to DMAWrite must have the same element type");
   }
 
   if (isDstRemote() && isMcast()) {
@@ -366,12 +365,12 @@ void mlir::tt::ttir::LoweredDMAWriteOp::getEffects(
   return success();
 }
 
-void mlir::tt::ttir::LoweredDMAReadOp::getAsmResultNames(
+void mlir::tt::ttir::DMAReadOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
 }
 
-void mlir::tt::ttir::LoweredDMAReadOp::getEffects(
+void mlir::tt::ttir::DMAReadOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
@@ -379,7 +378,7 @@ void mlir::tt::ttir::LoweredDMAReadOp::getEffects(
                        0 /*stage*/, true /*effectOnFullRegion*/,
                        mlir::SideEffects::DefaultResource::get());
 }
-::mlir::LogicalResult mlir::tt::ttir::LoweredDMAReadOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
 
@@ -396,8 +395,7 @@ void mlir::tt::ttir::LoweredDMAReadOp::getEffects(
   }
 
   if (srcType.getElementType() != dstType.getElementType()) {
-    return emitOpError(
-        "Operands to LoweredDMAWrite must have the same element type");
+    return emitOpError("Operands to DMAWrite must have the same element type");
   }
 
   constexpr int64_t kExpectedIndicesRemote = 3;

@@ -574,11 +574,11 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
 }
 
 
-def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write",
+def TTIR_DMAWriteOp : TTIR_GenericRegionDatamovementOp<"dma_write",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
-  , TTIR_LoweredDMAOpInterface
+  , TTIR_DMAOpInterface
   ]> {
 
     let summary = "Fully indexed and lowered TTIR DMA Op for writes";
@@ -590,7 +590,7 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
       This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
 
       ```mlir
-      %tx = ttir.lowered_dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
+      %tx = ttir.dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
         : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
       ```
 
@@ -646,11 +646,11 @@ def TTIR_LoweredDMAWriteOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_write
     }];
 }
 
-def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
+def TTIR_DMAReadOp : TTIR_GenericRegionDatamovementOp<"dma_read",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
-  , TTIR_LoweredDMAOpInterface
+  , TTIR_DMAOpInterface
   ]> {
 
     let summary = "Fully indexed and lowered TTIR DMA Op for read";
@@ -662,12 +662,12 @@ def TTIR_LoweredDMAReadOp : TTIR_GenericRegionDatamovementOp<"lowered_dma_read",
       This operation only supports unicast (mulicast are write-only).
 
       ```mlir
-      %tx = ttir.lowered_dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
+      %tx = ttir.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
         : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
       ```
 
       Constraints:
-      - src MUST be a REMOTE memref! if both operands are local, use LoweredDMAWriteOp
+      - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
     }];

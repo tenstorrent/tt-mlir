@@ -643,20 +643,18 @@ Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
   return rewriter.create<arith::AddIOp>(loc, baseAddr, offset);
 }
 
-class TTIRLoweredDMAReadRewriter
-    : public OpConversionPattern<ttir::LoweredDMAReadOp> {
+class TTIRDMAReadRewriter : public OpConversionPattern<ttir::DMAReadOp> {
 public:
-  TTIRLoweredDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                             const ttir::AssociatedDMAWaits *associatedDMAWaits)
-      : OpConversionPattern<ttir::LoweredDMAReadOp>(typeConverter, context),
+  TTIRDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                      const ttir::AssociatedDMAWaits *associatedDMAWaits)
+      : OpConversionPattern<ttir::DMAReadOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
 
   LogicalResult
-  matchAndRewrite(ttir::LoweredDMAReadOp op,
-                  ttir::LoweredDMAReadOpAdaptor adaptor,
+  matchAndRewrite(ttir::DMAReadOp op, ttir::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    llvm::dbgs() << "Calling TTIRLoweredDMAReadRewriter matchAndRewrite ... \n";
+    llvm::dbgs() << "Calling TTIRDMAReadRewriter matchAndRewrite ... \n";
 
     auto device = ttcore::lookupDevice(op);
     auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
@@ -664,7 +662,7 @@ public:
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
-    // NOTE: All reads must be from remote locations in LoweredDMAReadOp
+    // NOTE: All reads must be from remote locations in DMAReadOp
     // local->local transfers are lowered as nocAsyncWrites, which require
     // write barriers.
     auto srcNocAddr =
@@ -696,18 +694,15 @@ private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
 };
 
-class TTIRLoweredDMAWriteRewriter
-    : public OpConversionPattern<ttir::LoweredDMAWriteOp> {
+class TTIRDMAWriteRewriter : public OpConversionPattern<ttir::DMAWriteOp> {
 public:
-  TTIRLoweredDMAWriteRewriter(
-      TypeConverter &typeConverter, MLIRContext *context,
-      const ttir::AssociatedDMAWaits *associatedDMAWaits)
-      : OpConversionPattern<ttir::LoweredDMAWriteOp>(typeConverter, context),
+  TTIRDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                       const ttir::AssociatedDMAWaits *associatedDMAWaits)
+      : OpConversionPattern<ttir::DMAWriteOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
 
   LogicalResult
-  matchAndRewrite(ttir::LoweredDMAWriteOp op,
-                  ttir::LoweredDMAWriteOpAdaptor adaptor,
+  matchAndRewrite(ttir::DMAWriteOp op, ttir::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     auto device = ttcore::lookupDevice(op);
@@ -1172,8 +1167,8 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRLoweredDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
-  patterns.add<ttkernel::TTIRLoweredDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
   // clang-format on
 }
 
