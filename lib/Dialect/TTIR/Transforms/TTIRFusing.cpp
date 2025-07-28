@@ -11,6 +11,10 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "ttir-fusing"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -496,8 +500,12 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ScatterOp scatterOp,
                   mlir::PatternRewriter &rewriter) const final {
+    LLVM_DEBUG(llvm::dbgs() << "CacheFillUpdatePattern: Attempting to match ScatterOp at "
+                           << scatterOp.getLoc() << "\n");
+    
     auto CachePositions = getCacheUpdatePositions(scatterOp);
     if (!CachePositions) {
+      LLVM_DEBUG(llvm::dbgs() << "CacheFillUpdatePattern: Failed to get cache update positions\n");
       return mlir::failure();
     }
 
@@ -505,6 +513,7 @@ public:
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
     if (cacheUpdateInputShape.size() != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "CacheFillUpdatePattern: Cache update input shape size != 1\n");
       return mlir::failure();
     }
 
@@ -517,6 +526,7 @@ public:
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
     if (cacheUpdateInputShape[0] != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "CacheFillUpdatePattern: Successfully fusing ScatterOp into FillCacheOp\n");
       rewriter.replaceOpWithNewOp<FillCacheOp>(
           scatterOp, scatterOp.getResult().getType(), // Result type
           cache,                                      // Cache tensor
@@ -524,6 +534,7 @@ public:
           batchOffsetAttr                             // Batch offset
       );
     } else {
+      LLVM_DEBUG(llvm::dbgs() << "CacheFillUpdatePattern: Successfully fusing ScatterOp into UpdateCacheOp\n");
       rewriter.replaceOpWithNewOp<UpdateCacheOp>(
           scatterOp, scatterOp.getResult().getType(), // Result type
           cache,                                      // Cache tensor
@@ -1112,13 +1123,17 @@ class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
   void runOnOperation() final {
+    LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Starting pass on operation\n");
+    
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<Conv2dTagWeights>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Failed to apply Conv2dTagWeights patterns\n");
         signalPassFailure();
         return;
       }
+      LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Successfully applied Conv2dTagWeights patterns\n");
     }
     {
       RewritePatternSet patterns(&getContext());
@@ -1146,8 +1161,15 @@ public:
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
-      (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
+      auto result = applyPatternsGreedily(getOperation(), std::move(patterns), config);
+      if (failed(result)) {
+        LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Failed to apply fusion patterns\n");
+      } else {
+        LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Successfully applied all fusion patterns\n");
+      }
     }
+    
+    LLVM_DEBUG(llvm::dbgs() << "TTIRFusingPass: Completed pass on operation\n");
   }
 };
 } // namespace
