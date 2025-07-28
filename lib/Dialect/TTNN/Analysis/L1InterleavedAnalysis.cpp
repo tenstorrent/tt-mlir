@@ -13,6 +13,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/Support/Casting.h"
 
 #include <algorithm>
 #include <cassert>
@@ -27,6 +28,14 @@ void L1InterleavedAnalysis::analysisImplementation() {
     // Skip operations that have the row-major workaround later on in Optimizer
     if (isa<ttnn::MaxPool2dOp>(op) || isa<ttnn::UpsampleOp>(op)) {
       return;
+    }
+
+    // Skip operations whose consumers are MaxPool2dOp or UpsampleOp, also
+    // because they have the row-major workaround later on in Optimizer.
+    for (auto *user : op->getUsers()) {
+      if (isa<ttnn::MaxPool2dOp>(user) || isa<ttnn::UpsampleOp>(user)) {
+        return;
+      }
     }
 
     // Skip if operation doesn't have L1 interleaved layout available
