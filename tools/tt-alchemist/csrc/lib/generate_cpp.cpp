@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 namespace tt::alchemist {
 
 bool TTAlchemist::generateCpp(const std::string &input_file,
-                              const std::string &output_dir) {
+                              const std::string &output_dir, bool is_local) {
   // Check if input file exists
   //
   if (!fs::exists(input_file)) {
@@ -74,9 +74,14 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
     }
   }
 
-  // Get the path to the templates directory
+  // Get the path to the templates directory based on mode
   //
-  fs::path templatesPath = get_templates_dir() / "cpp";
+  fs::path templatesPath;
+  if (is_local) {
+    templatesPath = get_templates_dir() / "cpp" / "local";
+  } else {
+    templatesPath = get_templates_dir() / "cpp" / "standalone";
+  }
 
   if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {
     std::cout << "Templates directory does not exist: " << templatesPath
@@ -96,9 +101,14 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
     return false;
   }
 
-  // Create ttnn-standalone.cpp with the generated C++ code
+  // Create .cpp with the generated C++ code
   //
-  fs::path cppFilePath = outputPath / "ttnn-standalone.cpp";
+  fs::path cppFilePath;
+  if (is_local) {
+    cppFilePath = outputPath / "ttnn-local.cpp";
+  } else {
+    cppFilePath = outputPath / "ttnn-standalone.cpp";
+  }
   std::ofstream cppFile(cppFilePath);
   if (!cppFile.is_open()) {
     std::cout << "Failed to create C++ file: " << cppFilePath << std::endl;
@@ -120,9 +130,10 @@ extern "C" {
 // Generate a standalone solution
 bool tt_alchemist_TTAlchemist_generateCpp(void *instance,
                                           const char *input_file,
-                                          const char *output_dir) {
+                                          const char *output_dir,
+                                          bool is_local) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->generateCpp(input_file, output_dir);
+  return alchemist->generateCpp(input_file, output_dir, is_local);
 }
 
 } // extern "C"
