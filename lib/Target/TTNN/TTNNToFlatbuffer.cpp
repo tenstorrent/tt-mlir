@@ -1703,9 +1703,11 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
-  assert(op.getPadding().size() == 2 &&
-         "TTNN currently only supports symmetric padding (top/bottom, "
-         "left/right). The padding attribute must be a vector of size 2.");
+  assert((op.getPadding().size() == 2) ||
+         (op.getPadding().size() == 4 && op.getCeilMode()) &&
+             "TTNN currently only supports symmetric padding (top/bottom, "
+             "left/right) when ceil_mode = false. The padding attribute must "
+             "be a vector of size 2.");
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
       toFlatbuffer(cache, op.getPadding());
 
