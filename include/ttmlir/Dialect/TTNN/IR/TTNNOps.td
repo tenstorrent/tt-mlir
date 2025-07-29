@@ -279,7 +279,9 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise ceil.";
     let description = [{
       Eltwise ceil operation.

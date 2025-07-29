@@ -625,6 +625,7 @@ template struct UnaryEltwiseOpModel<mlir::tt::ttnn::AbsOp>;
 template struct UnaryEltwiseOpModel<mlir::tt::ttnn::CosOp>;
 template struct UnaryEltwiseOpModel<mlir::tt::ttnn::TanhOp>;
 template struct UnaryEltwiseOpModel<mlir::tt::ttnn::LogOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::CeilOp>;
 template struct UnaryEltwiseOpModel<mlir::tt::ttnn::ReciprocalOp>;
 
 //===----------------------------------------------------------------------===//

@@ -72,6 +72,9 @@ template <>
 struct OpModel<LogOp> : UnaryEltwiseOpModel<LogOp> {};
 
 template <>
+struct OpModel<CeilOp> : UnaryEltwiseOpModel<CeilOp> {};
+
+template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
 //===----------------------------------------------------------------------===//
