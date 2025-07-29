@@ -9,16 +9,16 @@ module {
     // CHECK: return %arg0
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.avg_pool2d"(%arg0, %0) <{
-        kernel_height = 1: si32, 
-        kernel_width = 1: si32, 
-        stride_height = 1: si32, 
-        stride_width = 1: si32, 
-        dilation_height = 1: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 0: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 1: si32,
+        kernel_width = 1: si32,
+        stride_height = 1: si32,
+        stride_width = 1: si32,
+        dilation_height = 1: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 0: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
@@ -31,16 +31,16 @@ module {
     // CHECK: return %arg0
     %0 = ttir.empty() : tensor<1x64x64x32xf32>
     %1 = "ttir.max_pool2d"(%arg0, %0) <{
-        kernel_height = 1: si32, 
-        kernel_width = 1: si32, 
-        stride_height = 1: si32, 
-        stride_width = 1: si32, 
-        dilation_height = 1: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 0: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 1: si32,
+        kernel_width = 1: si32,
+        stride_height = 1: si32,
+        stride_width = 1: si32,
+        dilation_height = 1: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 0: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x64x64x32xf32>, tensor<1x64x64x32xf32>) -> tensor<1x64x64x32xf32>
     return %1 : tensor<1x64x64x32xf32>
@@ -52,16 +52,16 @@ module {
     // CHECK: ttir.avg_pool2d
     %0 = ttir.empty() : tensor<1x16x16x16xf32>
     %1 = "ttir.avg_pool2d"(%arg0, %0) <{
-        kernel_height = 2: si32, 
-        kernel_width = 2: si32, 
-        stride_height = 2: si32, 
-        stride_width = 2: si32, 
-        dilation_height = 1: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 0: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 2: si32,
+        kernel_width = 2: si32,
+        stride_height = 2: si32,
+        stride_width = 2: si32,
+        dilation_height = 1: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 0: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x32x32x16xf32>, tensor<1x16x16x16xf32>) -> tensor<1x16x16x16xf32>
     return %1 : tensor<1x16x16x16xf32>
@@ -73,16 +73,16 @@ module {
     // CHECK: ttir.max_pool2d
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.max_pool2d"(%arg0, %0) <{
-        kernel_height = 1: si32, 
-        kernel_width = 1: si32, 
-        stride_height = 1: si32, 
-        stride_width = 1: si32, 
-        dilation_height = 1: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 1: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 1: si32,
+        kernel_width = 1: si32,
+        stride_height = 1: si32,
+        stride_width = 1: si32,
+        dilation_height = 1: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 1: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
@@ -95,12 +95,12 @@ module {
     // CHECK: return %arg0
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.pooling"(%arg0, %0) <{
-        pooling_method = #ttir<pooling_method Max>, 
-        window_dimensions = array<i64: 1, 1, 1, 1>, 
-        window_strides = array<i64: 1, 1, 1, 1>, 
-        base_dilations = array<i64: 1, 1, 1, 1>, 
-        window_dilations = array<i64: 1, 1, 1, 1>, 
-        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, 
+        pooling_method = #ttir<pooling_method Max>,
+        window_dimensions = array<i64: 1, 1, 1, 1>,
+        window_strides = array<i64: 1, 1, 1, 1>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>,
         operandSegmentSizes = array<i32: 1, 1>
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
@@ -113,12 +113,12 @@ module {
     // CHECK: return %arg0
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.pooling"(%arg0, %0) <{
-        pooling_method = #ttir<pooling_method Average>, 
-        window_dimensions = array<i64: 1, 1, 1, 1>, 
-        window_strides = array<i64: 1, 1, 1, 1>, 
-        base_dilations = array<i64: 1, 1, 1, 1>, 
-        window_dilations = array<i64: 1, 1, 1, 1>, 
-        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, 
+        pooling_method = #ttir<pooling_method Average>,
+        window_dimensions = array<i64: 1, 1, 1, 1>,
+        window_strides = array<i64: 1, 1, 1, 1>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>,
         operandSegmentSizes = array<i32: 1, 1>
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
@@ -130,12 +130,12 @@ module {
     // CHECK: ttir.pooling
     %0 = ttir.empty() : tensor<1x16x16x16xf32>
     %1 = "ttir.pooling"(%arg0, %0) <{
-        pooling_method = #ttir<pooling_method Max>, 
-        window_dimensions = array<i64: 1, 2, 2, 1>, 
-        window_strides = array<i64: 1, 2, 2, 1>, 
-        base_dilations = array<i64: 1, 1, 1, 1>, 
-        window_dilations = array<i64: 1, 1, 1, 1>, 
-        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, 
+        pooling_method = #ttir<pooling_method Max>,
+        window_dimensions = array<i64: 1, 2, 2, 1>,
+        window_strides = array<i64: 1, 2, 2, 1>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>,
         operandSegmentSizes = array<i32: 1, 1>
     }> : (tensor<1x32x32x16xf32>, tensor<1x16x16x16xf32>) -> tensor<1x16x16x16xf32>
     return %1 : tensor<1x16x16x16xf32>
@@ -147,12 +147,12 @@ module {
     // CHECK: ttir.pooling
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.pooling"(%arg0, %0) <{
-        pooling_method = #ttir<pooling_method Max>, 
-        window_dimensions = array<i64: 1, 1, 1, 1>, 
-        window_strides = array<i64: 1, 1, 1, 1>, 
-        base_dilations = array<i64: 1, 1, 1, 1>, 
-        window_dilations = array<i64: 1, 1, 1, 1>, 
-        padding = array<i64: 0, 0, 1, 1, 0, 0, 0, 0>, 
+        pooling_method = #ttir<pooling_method Max>,
+        window_dimensions = array<i64: 1, 1, 1, 1>,
+        window_strides = array<i64: 1, 1, 1, 1>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 1, 1, 0, 0, 0, 0>,
         operandSegmentSizes = array<i32: 1, 1>
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
@@ -164,16 +164,16 @@ module {
     // CHECK: ttir.avg_pool2d
     %0 = ttir.empty() : tensor<1x16x16x16xf32>
     %1 = "ttir.avg_pool2d"(%arg0, %0) <{
-        kernel_height = 1: si32, 
-        kernel_width = 1: si32, 
-        stride_height = 2: si32, 
-        stride_width = 2: si32, 
-        dilation_height = 1: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 0: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 1: si32,
+        kernel_width = 1: si32,
+        stride_height = 2: si32,
+        stride_width = 2: si32,
+        dilation_height = 1: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 0: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x32x32x16xf32>, tensor<1x16x16x16xf32>) -> tensor<1x16x16x16xf32>
     return %1 : tensor<1x16x16x16xf32>
@@ -185,16 +185,16 @@ module {
     // CHECK: ttir.max_pool2d
     %0 = ttir.empty() : tensor<1x32x32x16xf32>
     %1 = "ttir.max_pool2d"(%arg0, %0) <{
-        kernel_height = 1: si32, 
-        kernel_width = 1: si32, 
-        stride_height = 1: si32, 
-        stride_width = 1: si32, 
-        dilation_height = 2: si32, 
-        dilation_width = 1: si32, 
-        ceil_mode = false, 
-        padding_left = 0: si32, 
-        padding_right = 0: si32, 
-        padding_top = 0: si32, 
+        kernel_height = 1: si32,
+        kernel_width = 1: si32,
+        stride_height = 1: si32,
+        stride_width = 1: si32,
+        dilation_height = 2: si32,
+        dilation_width = 1: si32,
+        ceil_mode = false,
+        padding_left = 0: si32,
+        padding_right = 0: si32,
+        padding_top = 0: si32,
         padding_bottom = 0: si32
     }> : (tensor<1x32x32x16xf32>, tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32>
     return %1 : tensor<1x32x32x16xf32>
