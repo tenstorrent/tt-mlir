@@ -314,7 +314,6 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
   // Create TTNNLayoutAttr with Int32 data type manually
-  // (CreateTiledLayout only supports FloatType, not IntegerType)
   auto int32DataType = mlir::tt::ttcore::DataType::Int32;
   auto tileType =
       mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
@@ -344,7 +343,7 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 16384); // Expected values for BitwiseNot with Int32
+    EXPECT_EQ(cbSize, 16384);
     EXPECT_EQ(peakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
@@ -1081,6 +1080,39 @@ TEST_F(OpModelBase, transposeOp) {
   }
 
   auto runtimeExp = getOpRuntime(transpose.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, morehCumSumOp) {
+  // create MorehCumSumOp
+  llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
+  llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  auto morehCumSum = builder.create<MorehCumSumOp>(
+      builder.getUnknownLoc(), output.getType(), input,
+      builder.getI64IntegerAttr(0), nullptr);
+
+  // test morehCumSum Op interface
+  auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 34816);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(morehCumSum.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

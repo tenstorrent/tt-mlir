@@ -314,6 +314,24 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace TransposeOpInterface
 
 //===----------------------------------------------------------------------===//
+// MorehCumSumOp
+//===----------------------------------------------------------------------===//
+
+namespace MorehCumSumOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int64_t dim,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int64_t dim,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace MorehCumSumOpInterface
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
