@@ -79,6 +79,18 @@ declare_mlir_python_sources(TTMLIRPythonSources.Util
   SOURCES util.py
 )
 
+declare_mlir_python_sources(TTMLIRPythonSources.Runtime
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES runtime.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonSources.Binary
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES binary.py
+)
+
 # Enable Site Initialization Target to be piped into _mlir_libs/__init__.py
 declare_mlir_python_sources(TTMLIRPythonSiteInitialize
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -103,6 +115,8 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     OptimizerOverrides.cpp
     Passes.cpp
     Util.cpp
+    Runtime.cpp
+    Binary.cpp
   EMBED_CAPI_LINK_LIBS
     MLIRCAPITransforms
     TTMLIRCAPI
