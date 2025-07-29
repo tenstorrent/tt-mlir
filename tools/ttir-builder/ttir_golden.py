@@ -611,29 +611,26 @@ def all_gather_golden(
     return ShardedTensor(output, input.shard_shape)
 
 
+# Map of supported reduction keywords to callable functions
+_REDUCE = {
+    "sum": lambda xs: torch.sum(torch.stack(xs), 0),
+    "mean": lambda xs: torch.mean(torch.stack(xs), 0),
+    "max": lambda xs: torch.amax(torch.stack(xs), 0),
+    "min": lambda xs: torch.amin(torch.stack(xs), 0),
+    "std": lambda xs: torch.std(torch.stack(xs), 0),  # default correction=1
+    "var": lambda xs: torch.var(torch.stack(xs), 0),
+}
+
+
 def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
-    reduce_type_str = str(reduce_type).lower()
-    if "sum" in reduce_type_str:
-        reduced_tensor = sum_ttir_compatible(
-            torch.stack(inputs), dim_arg=0, keep_dim=False
-        )
-    elif "mean" in reduce_type_str:
-        reduced_tensor = mean_ttir_compatible(
-            torch.stack(inputs), dim_arg=0, keep_dim=False
-        )
-    elif "max" in reduce_type_str:
-        reduced_tensor = torch.max(torch.stack(inputs), dim=0, unbiased=False)
-    elif "min" in reduce_type_str:
-        reduced_tensor = min_ttir_compatible(
-            torch.stack(inputs), dim_arg=0, keep_dim=False
-        )
-    elif "std" in reduce_type_str:
-        reduced_tensor = torch.std(torch.stack(inputs), dim=0, unbiased=False)
-    elif "var" in reduce_type_str:
-        reduced_tensor = torch.var(torch.stack(inputs), dim=0, unbiased=False)
-    else:
-        raise ValueError(f"Unsupported reduce type: {reduce_type_str}")
-    return reduced_tensor
+    key = str(reduce_type).lower()
+    # Handle alias form like "reduce_type<sum>"
+    if key.startswith("#ttcore.reduce_type<") and key.endswith(">"):
+        key = key[20:-1]
+    try:
+        return _REDUCE[key](inputs)
+    except KeyError as err:
+        raise ValueError(f"Unsupported reduce type: {reduce_type}") from err
 
 
 def all_reduce_golden(
