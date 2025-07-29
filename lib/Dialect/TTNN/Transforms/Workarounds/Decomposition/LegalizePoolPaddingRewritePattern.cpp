@@ -34,13 +34,21 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
     return success();
   }
 
-  // At this point we know that the padding is uneven. And so we must explicitly
-  // put a PadOp in between the Pool2dOp and the original input. This is ensured
-  // by <Pool2dOp>::verify()
+  // At this point we know that the padding is uneven. If ceil_mode = true, this
+  // is supported in ttnn and we can return failure(). We return failure() since
+  // the pattern we wish to match is uneven padding and ceil_mode = false. Thus
+  // this is not a match.
+  if (srcOp.getCeilMode()) {
+    return failure();
+  }
+
+  // We must now explicate the padding as the padding is uneven and ceil_mode =
+  // false. we must put a PadOp in between the Pool2dOp and the original input.
 
   // The ttnn Pool2dOp will be in the format which takes the flattened input:
-  // shape (1, 1, N*H*W, C) If this is the case we must insert a reshape op to
-  // change the shape to (N, H, W, C) to apply the padding.
+  // shape (1, 1, N*H*W, C) (this is ensured by <Pool2dOp>::verify()). So we
+  // must insert a reshape op to change the shape to (N, H, W, C) to apply the
+  // padding.
   SmallVector<int64_t> reshapeOutputShape = {
       srcOp.getBatchSize(), srcOp.getInputHeight(), srcOp.getInputWidth(),
       srcOp.getChannels()};
