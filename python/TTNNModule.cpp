@@ -109,27 +109,26 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
-             std::optional<tt::ttcore::TensorMeshShardingAttr>
-                 tensorMeshSharding = std::nullopt) {
+             std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
-            if (tensorMeshSharding.has_value()) {
-              tensorMeshShardingAttr = tensorMeshSharding.value();
+            tt::ttcore::TensorMeshAttr tensorMeshAttr;
+            if (tensorMesh.has_value()) {
+              tensorMeshAttr = tensorMesh.value();
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshShardingAttr));
+                tensorMeshAttr));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(),
-          nb::arg("tensorMeshSharding") = nb::none())
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
