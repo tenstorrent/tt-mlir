@@ -121,6 +121,7 @@ using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
 using OpModelTanhParam = OpModelUnaryEltwiseParam<TanhOp>;
 using OpModelLogParam = OpModelUnaryEltwiseParam<LogOp>;
 using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
+using OpModelAbsParam = OpModelUnaryEltwiseParam<AbsOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -130,6 +131,7 @@ TEST_P(OpModelCosParam, CosOp) { RunTest(); }
 TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
 TEST_P(OpModelTanhParam, TanhOp) { RunTest(); }
 TEST_P(OpModelLogParam, LogOp) { RunTest(); }
+TEST_P(OpModelAbsParam, AbsOp) { RunTest(); }
 TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
 
 const std::initializer_list<
@@ -195,6 +197,9 @@ INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelAbsParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,

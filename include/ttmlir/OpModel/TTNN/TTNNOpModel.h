@@ -60,6 +60,9 @@ template <>
 struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
 
 template <>
+struct OpModel<AbsOp> : UnaryEltwiseOpModel<AbsOp> {};
+
+template <>
 struct OpModel<CosOp> : UnaryEltwiseOpModel<CosOp> {};
 
 template <>

@@ -215,6 +215,8 @@ auto getOpSymbol() {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
     return ::ttnn::sin;
+  } else if constexpr (std::is_same_v<OpTy, AbsOp>) {
+    return ::ttnn::abs;
   } else if constexpr (std::is_same_v<OpTy, CosOp>) {
     return ::ttnn::cos;
   } else if constexpr (std::is_same_v<OpTy, TanhOp>) {
@@ -616,13 +618,14 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 // Explicit template instantiation for UnaryEltwiseOpModel.
-template struct UnaryEltwiseOpModel<ReluOp>;
-template struct UnaryEltwiseOpModel<SqrtOp>;
-template struct UnaryEltwiseOpModel<SinOp>;
-template struct UnaryEltwiseOpModel<CosOp>;
-template struct UnaryEltwiseOpModel<TanhOp>;
-template struct UnaryEltwiseOpModel<LogOp>;
-template struct UnaryEltwiseOpModel<ReciprocalOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::ReluOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::SqrtOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::SinOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::AbsOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::CosOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::TanhOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::LogOp>;
+template struct UnaryEltwiseOpModel<mlir::tt::ttnn::ReciprocalOp>;
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp

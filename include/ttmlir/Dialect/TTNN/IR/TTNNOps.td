@@ -263,7 +263,9 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcast
     }];
 }
 
-def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
+def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise absolute.";
     let description = [{
       Eltwise absolute operation.
