@@ -675,37 +675,7 @@ def create_smart_golden_wrapper(original_func, convert_kwargs=None):
     return wrapper
 
 
-# Smart wrappers for common reduction operations
-def sum_ttir_compatible(input_tensor, dim_arg=None, keep_dim=True):
-    """
-    @brief TTIR-compatible wrapper for torch.sum
-    @param input_tensor Input tensor to sum
-    @param dim_arg TTIR-style dimension argument (list or None)
-    @param keep_dim Whether to keep reduced dimensions
-    @return Sum along specified dimensions
-    """
-    if dim_arg is None:
-        return torch.sum(input_tensor, keepdim=keep_dim)
-    elif isinstance(dim_arg, list):
-        return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
-    else:
-        return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
-
-
-def mean_ttir_compatible(input_tensor, dim_arg=None, keep_dim=True):
-    """
-    @brief TTIR-compatible wrapper for torch.mean
-    @param input_tensor Input tensor to compute mean of
-    @param dim_arg TTIR-style dimension argument (list or None)
-    @param keep_dim Whether to keep reduced dimensions
-    @return Mean along specified dimensions
-    """
-    if dim_arg is None:
-        return torch.mean(input_tensor, keepdim=keep_dim)
-    elif isinstance(dim_arg, list):
-        return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
-    else:
-        return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
+# Smart wrappers for common operations that need special handling
 
 
 def min_ttir_compatible(input_tensor, dim_arg=None, keep_dim=True):
@@ -730,17 +700,6 @@ def min_ttir_compatible(input_tensor, dim_arg=None, keep_dim=True):
         if isinstance(dim_arg, list) and len(dim_arg) == 1:
             dim_arg = dim_arg[0]
         return torch.min(input_tensor, dim=dim_arg, keepdim=keep_dim)
-
-
-def transpose_ttir_compatible(input_tensor, dim0, dim1):
-    """
-    @brief TTIR-compatible wrapper for torch.transpose
-    @param input_tensor Input tensor to transpose
-    @param dim0 First dimension to transpose
-    @param dim1 Second dimension to transpose
-    @return Transposed tensor
-    """
-    return torch.transpose(input_tensor, dim0, dim1)
 
 
 def permute_ttir_compatible(input_tensor, permutation):
@@ -789,16 +748,6 @@ def unsqueeze_ttir_compatible(input_tensor, dim=0):
     return torch.unsqueeze(input_tensor, dim=dim)
 
 
-def broadcast_ttir_compatible(input_tensor, size):
-    """
-    @brief TTIR-compatible wrapper for torch.broadcast_to
-    @param input_tensor Input tensor to broadcast
-    @param size Target size for broadcasting
-    @return Broadcasted tensor
-    """
-    return torch.broadcast_to(input_tensor, size)
-
-
 def softmax_ttir_compatible(input_tensor, dimension=1):
     """
     @brief TTIR-compatible wrapper for torch.nn.functional.softmax
@@ -807,37 +756,6 @@ def softmax_ttir_compatible(input_tensor, dimension=1):
     @return Softmax result
     """
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
-
-
-def slice_ttir_compatible(input_tensor, begins, ends, step):
-    """
-    @brief TTIR-compatible wrapper for slice operation that accepts MLIR attributes or raw values
-    @param input_tensor Input tensor to slice
-    @param begins Starting indices (can be MLIR attributes or raw values)
-    @param ends Ending indices (can be MLIR attributes or raw values)
-    @param step Step sizes (can be MLIR attributes or raw values)
-    @return Sliced tensor
-    """
-    # Handle MLIR attributes by extracting raw values
-    from ttmlir.ir import ArrayAttr
-
-    if hasattr(begins, "value") and hasattr(begins, "__getitem__"):  # MLIR ArrayAttr
-        begins_values = [attr.value for attr in begins]
-    else:
-        begins_values = begins
-
-    if hasattr(ends, "value") and hasattr(ends, "__getitem__"):  # MLIR ArrayAttr
-        ends_values = [attr.value for attr in ends]
-    else:
-        ends_values = ends
-
-    if hasattr(step, "value") and hasattr(step, "__getitem__"):  # MLIR ArrayAttr
-        step_values = [attr.value for attr in step]
-    else:
-        step_values = step
-
-    # Use the original slice_golden implementation
-    return slice_golden(input_tensor, begins_values, ends_values, step_values)
 
 
 def max_pool2d_ttir_compatible(
