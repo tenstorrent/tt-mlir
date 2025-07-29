@@ -2492,7 +2492,7 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::UpsampleOp>::getOpRuntime(
 struct EmbeddingOpArgs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
-  ::ttnn::TensorSpec outputSpec;
+  std::optional<::ttnn::TensorSpec> outputSpec;
 };
 
 llvm::Expected<EmbeddingOpArgs>
@@ -2516,12 +2516,15 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
   }
   ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
-  auto outputSpecExp =
-      detail::convertToTensorSpec(device, weightShape, outputLayout);
-  if (!outputSpecExp) {
-    return outputSpecExp.takeError();
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  if (outputLayout) {
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, weightShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    outputSpec = outputSpecExp.get();
   }
-  ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
 
   return EmbeddingOpArgs{inputSpec, weightSpec, outputSpec};
 }
@@ -2549,16 +2552,15 @@ OpModel<mlir::tt::ttnn::EmbeddingOp>::getOpConstraints(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType outputDataType =
-      conversion::getDataType(outputLayout.getDataType());
+  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
-        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType,
-        outputDataType, detail::getNullableMemoryConfig(outputLayout),
+        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
+        detail::getNullableMemoryConfig(outputLayout),
         embeddingOpArgs.outputSpec);
   };
 
@@ -2590,16 +2592,15 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::EmbeddingOp>::getOpRuntime(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType outputDataType =
-      conversion::getDataType(outputLayout.getDataType());
+  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
-        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType,
-        outputDataType, detail::getNullableMemoryConfig(outputLayout),
+        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
+        detail::getNullableMemoryConfig(outputLayout),
         embeddingOpArgs.outputSpec);
   };
 
