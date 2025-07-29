@@ -1120,6 +1120,38 @@ TEST_F(OpModelBase, morehCumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, repeatInterleaveOp) {
+  // create RepeatInterleaveOp
+  llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
+  llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  auto repeatInterleave = builder.create<RepeatInterleaveOp>(
+      builder.getUnknownLoc(), output.getType(), input, 2, 0, nullptr);
+
+  // test repeatInterleave Op interface
+  auto constraintsExp = getOpConstraints(repeatInterleave.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 512);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(repeatInterleave.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
