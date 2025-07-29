@@ -7,8 +7,9 @@ Core chisel modules for MLIR operation analysis and compilation pipeline.
 """
 
 from .compile_pipeline import chisel_pipeline
+from .context import ChiselContext
 from .enums import ExecutionType
 from .ops import IRModule
 from .registry import Registry
 
-__all__ = ["chisel_pipeline", "ExecutionType", "IRModule", "Registry"]
+__all__ = ["chisel_pipeline", "ChiselContext", "ExecutionType", "IRModule", "Registry"]
