@@ -1061,8 +1061,6 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
@@ -1560,6 +1558,27 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
+createScatterOp(FlatbufferObjectCache &cache, ScatterOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  int32_t dim = op.getDim();
+
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+  auto source = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSource()));
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, in, dim, index, source,
+                                             out, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
 createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1997,11 +2016,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createEltwiseBinaryCompositeOp(cache, remainderOp),
                            debugString, locInfo);
   }
-  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, scatterOp),
-                           debugString, locInfo);
-  }
   if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, atan2Op),
@@ -2202,6 +2216,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
+                           debugString, locInfo);
+  }
+  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
+    return createOperation(cache, createScatterOp(cache, scatterOp),
                            debugString, locInfo);
   }
   if (auto prepareConv2dWeightsOp = dyn_cast<PrepareConv2dWeightsOp>(op);

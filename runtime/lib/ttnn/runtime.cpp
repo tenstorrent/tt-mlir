@@ -1062,6 +1062,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ReshapeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRef = opContext.type_as_ScatterOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SliceOp: {
     tensorRef = opContext.type_as_SliceOp()->out();
     break;
@@ -1308,6 +1312,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     tensorRefs = {opContext.type_as_ReshapeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRefs = {opContext.type_as_ScatterOp()->input(),
+                  opContext.type_as_ScatterOp()->index(),
+                  opContext.type_as_ScatterOp()->source()};
     break;
   }
   case ::tt::target::ttnn::OpType::SliceOp: {

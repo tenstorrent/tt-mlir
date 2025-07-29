@@ -36,7 +36,6 @@ enum EltwiseBinaryCompositeOpType: uint32 {
   Maximum,
   Minimum,
   Remainder,
-  Scatter,
   Pow,
   Atan2,
   BitwiseAnd,

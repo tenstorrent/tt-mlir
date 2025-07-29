@@ -297,6 +297,9 @@ public:
   static TTNNOperandsWorkarounds
   createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
                                         bool allDimensions);
+
+  // Create workaround for scatter op operands.
+  static TTNNOperandsWorkarounds createScatterOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

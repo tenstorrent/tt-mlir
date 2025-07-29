@@ -684,4 +684,19 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
+
+// Factory method to create a set of workarounds for scatter op operands.
+// Scatter op requires row major data.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorWorkaround;
+  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addOutputOperandWorkaround(rowMajorWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

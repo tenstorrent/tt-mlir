@@ -1451,11 +1451,11 @@ public:
           op, "ttnn and tt-metal have limited scatter support. Inserted window "
               "dimenstion must be 1 in the input tensor shape.");
     }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndexVectorDim(),
+        adaptor.getScatterIndices(), adaptor.getUpdate(),
+        /*memory_config=*/nullptr);
 
     return success();
   }

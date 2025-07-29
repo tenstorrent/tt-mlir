@@ -77,10 +77,6 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
     break;
   }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter: {
-    ::tt::runtime::ttnn::operations::data_movement::run(op, context);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
     break;

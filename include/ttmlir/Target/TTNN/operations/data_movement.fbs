@@ -78,3 +78,12 @@ table WriteTensorOp {
   blocking: bool;
   cq_id: uint32;
 }
+
+table ScatterOp {
+  input: tt.target.ttnn.TensorRef;
+  dim: int32;
+  index: tt.target.ttnn.TensorRef;
+  source: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
