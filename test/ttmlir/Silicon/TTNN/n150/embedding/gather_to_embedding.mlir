@@ -1,7 +1,8 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   // Examples 0 to 5 are from models.
   func.func @gather_0(%operand: tensor<32000x1024xbf16>, %start_indices: tensor<1x32xi32>) -> tensor<1x32x1024xbf16> {

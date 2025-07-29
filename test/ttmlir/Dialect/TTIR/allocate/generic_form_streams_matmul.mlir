@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
 #parallel = #ttcore.iterator_type<parallel>

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt %s -ttir-fusing | FileCheck %s
+// RUN: ttmlir-opt -ttir-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // Test case with a FillCache scatter op pattern
 module @scatter_fill_cache{

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-ttkernel-to-emitc %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttkernel-to-emitc -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
 

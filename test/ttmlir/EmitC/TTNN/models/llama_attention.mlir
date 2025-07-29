@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc %t.mlir > %t2.mlir
-// RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
+// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc -o %t2.mlir %t.mlir
+// RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 module @LlamaSelfAttention attributes {} {
   func.func @forward(%arg0: tensor<1x12x3200xf32> {ttir.name = "hidden_states_1"}, %arg1: tensor<1x1x12x12xf32> {ttir.name = "attention_mask"}, %arg2: tensor<1x12xf32> {ttir.name = "position_ids"}, %arg3: tensor<1x50x1xf32> {ttir.name = "input_0_unsqueeze_12"}, %arg4: tensor<1x32x50x100xf32> {ttir.name = "dc.input_tensor.index_25.2"}, %arg5: tensor<1xf32> {ttir.name = "input_1_multiply_26"}, %arg6: tensor<1x32x50x100xf32> {ttir.name = "dc.input_tensor.index_27.2"}, %arg7: tensor<1x32x50x100xf32> {ttir.name = "dc.input_tensor.index_39.2"}, %arg8: tensor<1xf32> {ttir.name = "input_1_multiply_40"}, %arg9: tensor<1x32x50x100xf32> {ttir.name = "dc.input_tensor.index_41.2"}, %arg10: tensor<1xf32> {ttir.name = "input_1_multiply_49"}, %arg11: tensor<3200x3200xf32> {ttir.name = "model.q_proj.weight"}, %arg12: tensor<3200x3200xf32> {ttir.name = "model.k_proj.weight"}, %arg13: tensor<3200x3200xf32> {ttir.name = "model.v_proj.weight"}, %arg14: tensor<3200x3200xf32> {ttir.name = "model.o_proj.weight"}) -> (tensor<1x12x3200xf32> {ttir.name = "SelfAttention.output_reshape_67"}) {

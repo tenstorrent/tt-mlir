@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --canonicalize --ttir-element-type-normalization %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize --ttir-element-type-normalization -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 func.func public @constant_i1() -> tensor<32x32xi1> {
   // CHECK: "ttir.full"

@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o mnist_sharding_ttnn.mlir %s
 // RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer mnist_sharding_ttnn.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
 // XFAIL: *
 // TODO(rpavlovicTT): #https://github.com/tenstorrent/tt-metal/issues/21846 re-enable
 

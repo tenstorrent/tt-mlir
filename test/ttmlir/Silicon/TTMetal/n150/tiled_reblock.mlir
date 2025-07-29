@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-allocate --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-allocate --convert-ttir-to-ttmetal -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
+// RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
 // UNSUPPORTED: true
 
 #l1_ = #ttcore.memory_space<l1>

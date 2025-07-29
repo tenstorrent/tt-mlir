@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @transpose_involution(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-NOT: "ttir.transpose"

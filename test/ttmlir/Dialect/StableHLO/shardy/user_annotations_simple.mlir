@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 sdy.mesh @mesh = <["model"=1, "batch"=2]>

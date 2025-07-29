@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=8 override-output-layout=embedding_236=dram:interleaved:tile:1x1:bf16" -o llama_prefill_single_layer_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=llama_prefill_single_layer_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer llama_prefill_single_layer_ttnn.mlir > %t.ttnn
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn llama_prefill_single_layer_ttnn.mlir
 #loc = loc("LlamaModel":0:0)
 module @LlamaModel attributes {} {
   func.func @forward(

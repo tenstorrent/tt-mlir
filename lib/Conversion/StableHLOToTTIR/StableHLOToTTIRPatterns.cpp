@@ -2435,6 +2435,29 @@ private:
 };
 } // namespace
 
+namespace {
+class StableHLOToTTIRAllToAllOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllToAllOp> {
+  using OpConversionPattern<mlir::stablehlo::AllToAllOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllToAllOp srcOp,
+                  mlir::stablehlo::AllToAllOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllToAllOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getSplitDimension(), adaptor.getConcatDimension(),
+        adaptor.getSplitCount(), adaptor.getReplicaGroups());
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -2606,6 +2629,7 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
+  patterns.add<StableHLOToTTIRAllToAllOpConversionPattern>(typeConverter, ctx);
 }
 
 static void

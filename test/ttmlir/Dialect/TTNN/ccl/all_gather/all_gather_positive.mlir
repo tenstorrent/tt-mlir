@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=1,4" %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=1,4" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 // Unit tests for ttnn all_gather op
 
 // -----

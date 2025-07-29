@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 // UNSUPPORTED: true
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module attributes {torch.debug_module_name = "_lambda"} {
