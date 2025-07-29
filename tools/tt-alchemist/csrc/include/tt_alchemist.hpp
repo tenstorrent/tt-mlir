@@ -29,12 +29,12 @@ public:
   bool modelToPython(const std::string &input_file);
 
   // Generate a standalone solution with the generated C++ code
-  bool generateCpp(const std::string &input_file,
-                   const std::string &output_dir);
+  bool generateCpp(const std::string &input_file, const std::string &output_dir,
+                   bool is_local = true);
 
   // Generate a standalone solution with the generated Python code
   bool generatePython(const std::string &input_file,
-                      const std::string &output_dir);
+                      const std::string &output_dir, bool is_local = true);
 
 private:
   TTAlchemist();

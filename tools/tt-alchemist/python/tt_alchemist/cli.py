@@ -58,8 +58,21 @@ def model_to_python_cmd(input_file, verbose):
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
 @click.argument("output_dir", type=click.Path())
+@click.option(
+    "--local",
+    "mode",
+    flag_value="local",
+    default=True,
+    help="Generate for local execution (default)",
+)
+@click.option(
+    "--standalone",
+    "mode",
+    flag_value="standalone",
+    help="Generate for standalone execution",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def generate_cpp_cmd(input_file, output_dir, verbose):
+def generate_cpp_cmd(input_file, output_dir, mode, verbose):
     """Generate standalone solution with the generated C++ code.
 
     This generates a directory with all necessary files to build and run the
@@ -69,15 +82,16 @@ def generate_cpp_cmd(input_file, output_dir, verbose):
     try:
         if verbose:
             click.echo(
-                f"Generating solution from {input_file} in directory {output_dir}"
+                f"Generating {mode} solution from {input_file} in directory {output_dir}"
             )
 
-        success = generate_cpp(input_file, output_dir)
+        is_local = mode == "local"
+        success = generate_cpp(input_file, output_dir, is_local)
         if success:
-            click.echo(f"Successfully generated solution in: {output_dir}")
+            click.echo(f"Successfully generated {mode} solution in: {output_dir}")
             return 0
         else:
-            click.echo(f"Failed to generate solution in: {output_dir}")
+            click.echo(f"Failed to generate {mode} solution in: {output_dir}")
             return 1
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
@@ -87,8 +101,21 @@ def generate_cpp_cmd(input_file, output_dir, verbose):
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
 @click.argument("output_dir", type=click.Path())
+@click.option(
+    "--local",
+    "mode",
+    flag_value="local",
+    default=True,
+    help="Generate for local execution (default)",
+)
+@click.option(
+    "--standalone",
+    "mode",
+    flag_value="standalone",
+    help="Generate for standalone execution",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def generate_python_cmd(input_file, output_dir, verbose):
+def generate_python_cmd(input_file, output_dir, mode, verbose):
     """Generate standalone solution with the generated Python code.
 
     This generates a directory with all necessary files to build and run the
@@ -98,15 +125,16 @@ def generate_python_cmd(input_file, output_dir, verbose):
     try:
         if verbose:
             click.echo(
-                f"Generating solution from {input_file} in directory {output_dir}"
+                f"Generating {mode} solution from {input_file} in directory {output_dir}"
             )
 
-        success = generate_python(input_file, output_dir)
+        is_local = mode == "local"
+        success = generate_python(input_file, output_dir, is_local)
         if success:
-            click.echo(f"Successfully generated solution in: {output_dir}")
+            click.echo(f"Successfully generated {mode} solution in: {output_dir}")
             return 0
         else:
-            click.echo(f"Failed to generate solution in: {output_dir}")
+            click.echo(f"Failed to generate {mode} solution in: {output_dir}")
             return 1
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)

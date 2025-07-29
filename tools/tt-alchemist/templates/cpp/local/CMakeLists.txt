@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ttnn-standalone CXX)
+project(ttnn-local CXX)
 
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -21,13 +21,23 @@ else()
   endif()
 endif()
 
+#############################
+# Set env pointer variables #
+#############################
+
 # TT_METAL_HOME env variable needs to be set
+#
 if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
+    message(WARNING "TT_METAL_HOME is not set. Skipping build.")
     return()
 endif()
 
-# Metal dir variables
+###########################
+# Calculate env variables #
+###########################
+
+# Metal src dir and lib dir
+#
 set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
 if(DEFINED ENV{TT_METAL_LIB})
   set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
@@ -35,6 +45,8 @@ else()
   set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
 endif()
 
+# CPM Cache
+#
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
@@ -52,7 +64,7 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
+    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
 
     # Metalium
     ${METAL_SRC_DIR}
@@ -111,13 +123,13 @@ set(COMPILE_DEFS
 # \__ \| |_| (_| || | | || (_| || (_| || || (_) || | | ||  __/
 # |___/ \__|\__,_||_| |_| \__,_| \__,_||_| \___/ |_| |_| \___|
 
-add_executable(ttnn-standalone ttnn-standalone.cpp)
-set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
+add_executable(ttnn-local ttnn-local.cpp)
+set_property(TARGET ttnn-local PROPERTY CXX_STANDARD 20)
+set_property(TARGET ttnn-local PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
-target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
-target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
+target_include_directories(ttnn-local PRIVATE ${INCLUDE_DIRS})
+target_link_directories(ttnn-local PRIVATE ${LINK_DIRS})
+target_link_libraries(ttnn-local PRIVATE ${LINK_LIBS})
+target_compile_definitions(ttnn-local PRIVATE ${COMPILE_DEFS})
 
-target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+target_precompile_headers(ttnn-local PRIVATE ttnn-precompiled.hpp)
