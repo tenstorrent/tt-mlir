@@ -821,9 +821,32 @@ public:
         padToCompare = padOp;
       }
 
-      if (padOp.getPadding() != padToCompare.getPadding()) {
+      if (padOp.getPadding() != padToCompare.getPadding() ||
+          padOp.getValue() != padToCompare.getValue()) {
         return failure();
       }
+
+      // If the pooling method is max, then we need to check that the pad value
+      // is -inf
+      if (op.getPoolingMethod() == PoolingMethod::Max) {
+        float padValue = padOp.getValue().convertToFloat();
+        if (padValue != -std::numeric_limits<float>::infinity()) {
+          return mlir::failure();
+        }
+      }
+      // If the pooling method is sum, then we need to check that the pad value
+      // is 0
+      else if (op.getPoolingMethod() == PoolingMethod::Sum) {
+        float padValue = padOp.getValue().convertToFloat();
+        if (padValue != 0.0) {
+          return mlir::failure();
+        }
+      }
+      // If the pooling method is average, then we cannot fuse this pattern.
+      else {
+        return mlir::failure();
+      }
+
       newInputs.push_back(padOp.getInput());
     }
 

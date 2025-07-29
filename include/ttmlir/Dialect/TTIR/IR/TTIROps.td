@@ -3623,6 +3623,8 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  let hasFolder = 1;
+
   let hasVerifier = 1;
 }
 
@@ -3689,6 +3691,8 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
 
     let hasVerifier = 1;
 }
