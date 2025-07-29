@@ -1105,13 +1105,13 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   return success();
 }
 
-
 //===----------------------------------------------------------------------===//
 // Pooling helper functions
 //===----------------------------------------------------------------------===//
 
 // Check if a AvgPool2dOp or MaxPool2dOp operation is identity
-// Identity operation folding: kernel=[1,1], stride=[1,1], dilation=[1,1], padding=[0,0,0,0]
+// Identity operation folding: kernel=[1,1], stride=[1,1], dilation=[1,1],
+// padding=[0,0,0,0]
 template <typename Pool2dOp>
 static bool isIdentityPool2d(Pool2dOp op) {
   return op.getKernelHeight() == 1 && op.getKernelWidth() == 1 &&
@@ -1122,12 +1122,17 @@ static bool isIdentityPool2d(Pool2dOp op) {
 }
 
 // Check if a PoolingOp is identity
-// Identity operation folding: all dimensions=1, strides=1, dilations=1, padding=0
+// Identity operation folding: all dimensions=1, strides=1, dilations=1,
+// padding=0
 static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
-  return llvm::all_of(op.getWindowDimensions(), [](int64_t dim) { return dim == 1; }) &&
-         llvm::all_of(op.getWindowStrides(), [](int64_t stride) { return stride == 1; }) &&
-         llvm::all_of(op.getBaseDilations(), [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getWindowDilations(), [](int64_t dilation) { return dilation == 1; }) &&
+  return llvm::all_of(op.getWindowDimensions(),
+                      [](int64_t dim) { return dim == 1; }) &&
+         llvm::all_of(op.getWindowStrides(),
+                      [](int64_t stride) { return stride == 1; }) &&
+         llvm::all_of(op.getBaseDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getWindowDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
          llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
 }
 
@@ -1222,7 +1227,9 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   return newOp.getOperation();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor, SmallVectorImpl<OpFoldResult> &results) {
+::mlir::LogicalResult
+mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
+                                SmallVectorImpl<OpFoldResult> &results) {
   if (isIdentityPooling(*this)) {
     results.append(getInputs().begin(), getInputs().end());
     return mlir::success();
