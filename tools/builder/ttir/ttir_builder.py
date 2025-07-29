@@ -187,28 +187,6 @@ class TTIRBuilder(Builder):
     ) -> OpView:
         return self._op_proxy(op_ttir_function, inputs, unit_attrs)
 
-    def _ccl_proxy(
-        self,
-        op_ttir_function: Callable,
-        inputs: List[Operand],
-        kwargs: dict = {},
-    ) -> OpView:
-        self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
-        return self._op_proxy(
-            op_ttir_function=op_ttir_function,
-            inputs=inputs,
-            organize_golden_args=lambda i: (
-                [self._get_golden_tensor(i[0]), self.mesh_shape]
-            ),
-            organize_ttir_args=lambda i, o, shape: (
-                self._get_type(o),
-                i[0],
-                o,
-            ),
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
     # ----- Public Op Generators ----
 
     def get_dimension_size(
@@ -4597,16 +4575,18 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        kwargs = {
+        ttir_kwargs = {
             "shard_type": Attribute.parse(shard_type),
             "shard_direction": Attribute.parse(shard_direction),
             "shard_shape": shard_shape,
             "shard_dims": shard_dims,
         }
-        return self._ccl_proxy(
+        golden_kwargs = dict(ttir_kwargs, mesh_shape=self.mesh_shape)
+        return self._op_proxy(
             ttir.MeshShardOp,
             [input],
-            kwargs,
+            ttir_kwargs=ttir_kwargs,
+            golden_kwargs=golden_kwargs,
         )
 
     def all_gather(
@@ -4658,10 +4638,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
         """
         kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.AllGatherOp,
             [input],
-            kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def all_reduce(
@@ -4694,10 +4675,11 @@ class TTIRBuilder(Builder):
             "reduce_type": Attribute.parse(reduce_type),
             "cluster_axis": cluster_axis,
         }
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.AllReduceOp,
             [input],
-            kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def reduce_scatter(
@@ -4734,10 +4716,11 @@ class TTIRBuilder(Builder):
             "scatter_dim": scatter_dim,
             "cluster_axis": cluster_axis,
         }
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.ReduceScatterOp,
             [input],
-            kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def collective_permute(
@@ -4773,10 +4756,11 @@ class TTIRBuilder(Builder):
         kwargs = {
             "source_target_pairs": source_target_pairs,
         }
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.CollectivePermuteOp,
             [input],
-            kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def all_to_all(
@@ -4826,10 +4810,11 @@ class TTIRBuilder(Builder):
             "split_count": split_count,
             "replica_groups": replica_groups,
         }
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.AllToAllOp,
             [input],
-            kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def collective_broadcast(
@@ -4860,8 +4845,9 @@ class TTIRBuilder(Builder):
         kwargs = {
             "replica_groups": replica_groups,
         }
-        return self._ccl_proxy(
+        return self._op_proxy(
             ttir.CollectiveBroadcastOp,
             [input],
-            kwargs=kwargs,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
         )
