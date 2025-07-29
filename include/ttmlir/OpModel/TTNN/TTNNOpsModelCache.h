@@ -23,7 +23,7 @@ template <typename ValueT>
 class TTNNOpModelCache;
 
 // Singleton accessor functions.
-TTNNOpModelCache<op_model::ttnn::OpConstraints> &opConstraintsCache();
+TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache();
 TTNNOpModelCache<size_t> &opRuntimeCache();
 
 // A cache for TTNN operation model results. This cache stores the results of
@@ -33,7 +33,7 @@ template <typename ValueT>
 class TTNNOpModelCache {
   // It is important to define the singleton accessor functions to prevent
   // multiple instances of the cache to be created.
-  friend TTNNOpModelCache<op_model::ttnn::OpConstraints> &opConstraintsCache();
+  friend TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache();
   friend TTNNOpModelCache<size_t> &opRuntimeCache();
 
 public:
@@ -157,12 +157,12 @@ private:
 };
 
 // Singleton accessor implementations
-inline TTNNOpModelCache<op_model::ttnn::OpConstraints> &opConstraintsCache() {
+inline TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache() {
   // According to C++11 standards:
   //  §6.7 [stmt.dcl] p4 If control enters the declaration concurrently while
   //  the variable is being initialized, the concurrent execution shall wait for
   //  completion of the initialization.
-  static TTNNOpModelCache<op_model::ttnn::OpConstraints> instance;
+  static TTNNOpModelCache<op_model::OpConstraints> instance;
   return instance;
 }
 

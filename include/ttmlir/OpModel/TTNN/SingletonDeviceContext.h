@@ -18,7 +18,7 @@ class MeshDevice;
 } // namespace tt_metal
 } // namespace tt
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 
 // Singleton class to manage the device context, ensuring the device remains
 // active while compiler is running multiple graph traces without real
@@ -50,7 +50,7 @@ private:
   void openDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
   void closeDevice();
 };
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
 #endif // TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H

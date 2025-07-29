@@ -35,7 +35,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                      some operations this may be different from the requested output layout
                 If the op is illegal, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"llvm::Expected<mlir::tt::op_model::ttnn::OpConstraints>",
+            /*retTy=*/"llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>",
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
             /*methodBody=*/"",
