@@ -1455,7 +1455,7 @@ public:
     // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
+        adaptor.getInput(), ttnn::MemoryConfigAttr());
 
     return success();
   }

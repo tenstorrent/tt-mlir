@@ -198,6 +198,13 @@ class Run:
             help="enable d2m return event",
         )
         Run.register_arg(
+            name="--disable-mask-based-scatter",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable mask-based scatter workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -576,6 +583,7 @@ class Run:
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
                 self["--enable-d2m-return-event"],
+                not self["--disable-mask-based-scatter"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {

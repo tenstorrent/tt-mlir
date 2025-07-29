@@ -14,7 +14,8 @@ struct Env {
                         bool readUpdateIndexFromDeviceForKVCache = true,
                         bool traceImplicitFromDevice = true,
                         bool blackholeWorkarounds = true,
-                        bool d2mReturnEvent = false);
+                        bool d2mReturnEvent = false,
+                        bool maskBasedScatter = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -45,17 +46,25 @@ struct Env {
   // tt metal MeshEvent and should be removed once the issue is fixed.
   bool d2mReturnEvent;
 
+  // TODO (bug #4356): Currently, scatter op is worked around to use mask-based
+  // scatter. We should use the ttnn::scatter op once it is more flexible and we
+  // can verify that it works correctly for all of our use cases. Currently
+  // encountering issues where ttnn::scatter fails when the index tensor is does
+  // not have the same shape as the input tensor on dims other than the scatter
+  // dim, causing our scatter silicon test to fail.
+  bool maskBasedScatter;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
                 bool traceImplicitFromDevice, bool blackholeWorkarounds,
-                bool d2mReturnEvent)
+                bool d2mReturnEvent, bool maskBasedScatter)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         traceImplicitFromDevice(traceImplicitFromDevice),
         blackholeWorkarounds(blackholeWorkarounds),
-        d2mReturnEvent(d2mReturnEvent) {}
+        d2mReturnEvent(d2mReturnEvent), maskBasedScatter(maskBasedScatter) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -71,6 +80,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
   os << "\t"
      << "d2mReturnEvent: " << env.d2mReturnEvent << "\n";
+  os << "\t"
+     << "maskBasedScatter: " << env.maskBasedScatter << "\n";
   os << "}";
   return os;
 }

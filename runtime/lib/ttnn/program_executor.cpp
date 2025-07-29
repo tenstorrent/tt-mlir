@@ -27,6 +27,7 @@
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
+#include "operations/data_movement/scatter.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
@@ -257,6 +258,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
+                                          getContext());
+  }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    return operations::data_movement::run(op->type_as_ScatterOp(),
                                           getContext());
   }
   case ::tt::target::ttnn::OpType::SliceOp: {

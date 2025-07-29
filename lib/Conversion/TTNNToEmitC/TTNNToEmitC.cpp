@@ -2096,6 +2096,35 @@ public:
 };
 } // namespace
 
+// ScatterOp conversion pattern
+//
+namespace {
+class ScatterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ScatterOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScatterOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getUpdate()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // SliceOp conversion pattern
 //
 namespace {
@@ -2424,7 +2453,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::ScatterOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
@@ -2439,8 +2467,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
-               SortOpConversionPattern, PermuteOpConversionPattern,
+               RepeatInterleaveOpConversionPattern, ScatterOpConversionPattern,
+               SliceOpConversionPattern, SortOpConversionPattern,
+               PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
                                                                   ctx);
 

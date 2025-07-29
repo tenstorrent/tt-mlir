@@ -8,10 +8,11 @@ namespace tt::runtime::workaround {
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
                     bool traceImplicitFromDevice, bool blackholeWorkarounds,
-                    bool d2mReturnEvent) {
-  static const Env config(
-      swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
-      traceImplicitFromDevice, blackholeWorkarounds, d2mReturnEvent);
+                    bool d2mReturnEvent, bool maskBasedScatter) {
+  static const Env config(swapBinaryOperands,
+                          readUpdateIndexFromDeviceForKVCache,
+                          traceImplicitFromDevice, blackholeWorkarounds,
+                          d2mReturnEvent, maskBasedScatter);
   return config;
 }
 } // namespace tt::runtime::workaround

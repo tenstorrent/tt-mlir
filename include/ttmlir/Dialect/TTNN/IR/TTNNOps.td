@@ -1897,11 +1897,17 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp: TTNN_Op<"scatter"> {
     let summary = "Scatter op.";
     let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
+      Embeds the values of the 'update' tensor into 'input' and puts the value in the 'output' tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$update,
+                         AnyRankedTensor:$input,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
