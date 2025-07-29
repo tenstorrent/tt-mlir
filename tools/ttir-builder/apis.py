@@ -871,8 +871,8 @@ class TTIRBuilder(TTIRBuilderOps):
                 if loc is not None
                 else get_loc_of_extra_file_callee(id=id)
             )
-            # Filter out PyTorch-specific parameters for TTIR operations (not used by MLIR)
-            pytorch_only_params = [
+            # Filter out golden-function-specific parameters for TTIR operations (not used by MLIR)
+            golden_only_params = [
                 "out",
                 "size",
                 "data",
@@ -881,9 +881,10 @@ class TTIRBuilder(TTIRBuilderOps):
                 "repeats",
                 "scale",
                 "zero_point",
+                "mesh_shape",
             ]
             ttir_kwargs_filtered = {
-                k: v for k, v in ttir_kwargs.items() if k not in pytorch_only_params
+                k: v for k, v in ttir_kwargs.items() if k not in golden_only_params
             }
 
             # Account for cases in which ttir_arg organization is not needed:
@@ -943,55 +944,6 @@ class TTIRBuilder(TTIRBuilderOps):
             The created elementwise operation
         """
         return self.op_proxy(op_golden_function, op_ttir_function, inputs, unit_attrs)
-
-    @autodoc_skip
-    def ccl_proxy(
-        self,
-        op_golden_function: Callable,
-        op_ttir_function: Callable,
-        inputs: List[Operand],
-        kwargs: dict = {},
-    ) -> OpView:
-        """
-        Creates CCL TTIR operations. Forces
-        golden check level to GRAPH_LEVEL and provides specialized argument
-        organization for CCL operations.
-
-        Parameters
-        ----------
-        op_golden_function : Callable
-            Function that creates the operation using golden approach
-
-        op_ttir_function : Callable
-            Function that creates the operation using TTIR approach
-
-        inputs : *List[Operand]*
-            List of input operands for the operation
-        kwargs : dict, optional
-            Additional keyword arguments for both golden and TTIR functions (default: {})
-
-        Returns
-        -------
-        OpView
-            The created CCL operation
-        """
-        # Force GoldenCheckLevel to GRAPH_LEVEL when CCL Ops are used(phase 0)
-        self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
-        return self.op_proxy(
-            op_golden_function=op_golden_function,
-            op_ttir_function=op_ttir_function,
-            inputs=inputs,
-            organize_golden_args=lambda i: (
-                [self._get_golden_tensor(i[0]), self.mesh_shape]
-            ),
-            organize_ttir_args=lambda i, o, shape: (
-                self._get_type(o),
-                i[0],
-                o,
-            ),
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
 
 
 # Remove autodoc_skip from Sphinx documentation

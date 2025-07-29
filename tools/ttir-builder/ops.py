@@ -4400,16 +4400,17 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         kwargs = {
+            "mesh_shape": self.mesh_shape,
             "shard_type": Attribute.parse(shard_type),
             "shard_direction": Attribute.parse(shard_direction),
             "shard_shape": shard_shape,
             "shard_dims": shard_dims,
         }
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.MeshShardOp),
             ttir.MeshShardOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def all_gather(
@@ -4461,11 +4462,11 @@ class TTIRBuilderOps:
         (*OpView*)
         """
         kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.AllGatherOp),
             ttir.AllGatherOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def all_reduce(
@@ -4498,11 +4499,11 @@ class TTIRBuilderOps:
             "reduce_type": Attribute.parse(reduce_type),
             "cluster_axis": cluster_axis,
         }
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.AllReduceOp),
             ttir.AllReduceOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def reduce_scatter(
@@ -4539,11 +4540,11 @@ class TTIRBuilderOps:
             "scatter_dim": scatter_dim,
             "cluster_axis": cluster_axis,
         }
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.ReduceScatterOp),
             ttir.ReduceScatterOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def collective_permute(
@@ -4579,11 +4580,11 @@ class TTIRBuilderOps:
         kwargs = {
             "source_target_pairs": source_target_pairs,
         }
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.CollectivePermuteOp),
             ttir.CollectivePermuteOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
     def gather(
@@ -4964,11 +4965,11 @@ class TTIRBuilderOps:
             "split_count": split_count,
             "replica_groups": replica_groups,
         }
-        return self.ccl_proxy(
+        return self.op_proxy(
             ttir_golden.get_golden_function(ttir.AllToAllOp),
             ttir.AllToAllOp,
             [input],
-            kwargs,
+            ttir_kwargs=kwargs,
         )
 
 

@@ -590,14 +590,12 @@ def mesh_shard_golden(
 
 def all_gather_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     all_gather_dim: int,
     cluster_axis: int,
 ) -> ShardedTensor:
     """
     @brief Return a ShardedTensor which was gathered from all devices.
     @param input Input tensor to gather from all devices
-    @param mesh_shape Shape of the device mesh
     @param all_gather_dim Dimension to gather along
     @param cluster_axis Axis of the cluster for gathering
     @return ShardedTensor which was gathered from all devices
@@ -610,7 +608,7 @@ def all_gather_golden(
         for id in group.keys():
             output[id] = gathered_tensor.clone()
     assert None not in output, "Not all shards are gathered"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
@@ -640,14 +638,12 @@ def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
 
 def all_reduce_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     cluster_axis: int,
     reduce_type: Attribute,
 ) -> ShardedTensor:
     """
     @brief Return a ShardedTensor which was reduced across devices.
     @param input Input tensor to reduce across devices
-    @param mesh_shape Shape of the device mesh
     @param cluster_axis Axis of the cluster for reduction
     @param reduce_type Type of reduction operation
     @return ShardedTensor which was reduced across devices
@@ -661,12 +657,11 @@ def all_reduce_golden(
         for id in group.keys():
             output[id] = reduced_tensor.clone()
     assert None not in output, "Not all shards are reduced"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 def reduce_scatter_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     reduce_type: Attribute,
     scatter_dim: int,
     cluster_axis: int,
@@ -674,7 +669,6 @@ def reduce_scatter_golden(
     """
     @brief Return a ShardedTensor which was reduced and scattered across devices.
     @param input Input tensor to reduce and scatter
-    @param mesh_shape Shape of the device mesh
     @param reduce_type Type of reduction operation
     @param scatter_dim Dimension to scatter along
     @param cluster_axis Axis of the cluster for operation
@@ -686,18 +680,15 @@ def reduce_scatter_golden(
     for group in grouped_tensors:
         group_tensors = list(group.values())
         reduced_tensor = _reduce(group_tensors, reduce_type)
-        scattered_tensor = torch.chunk(
-            reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
-        )
+        scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
         for index, id in enumerate(group.keys()):
             output[id] = scattered_tensor[index].clone()
     assert None not in output, "Not all shards are reduced"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 def collective_permute_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
 ) -> ShardedTensor:
     """
@@ -711,12 +702,11 @@ def collective_permute_golden(
     output_shards = [torch.zeros_like(shard) for shard in input.shards]
     for src, tgt in source_target_pairs:
         output_shards[tgt] = input.shards[src].clone()
-    return ShardedTensor(output_shards, mesh_shape)
+    return ShardedTensor(output_shards, input.shard_shape)
 
 
 def all_to_all_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     split_dim: int,
     concat_dim: int,
     split_count: int,
@@ -725,7 +715,6 @@ def all_to_all_golden(
     """
     @brief Return a ShardedTensor which was redistributed across devices.
     @param input Input tensor to permute across devices
-    @param mesh_shape Shape of the device mesh
     @param split_dim Dimension to split along
     @param concat_dim Dimension to concatenate along
     @param split_count Number of splits to perform
@@ -748,7 +737,7 @@ def all_to_all_golden(
                 dim=concat_dim,
             )
     assert None not in output_shards, "Some shards were not written"
-    return ShardedTensor(output_shards, mesh_shape)
+    return ShardedTensor(output_shards, input.shard_shape)
 
 
 def create_smart_golden_wrapper(original_func, convert_kwargs=None):
