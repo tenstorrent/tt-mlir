@@ -505,22 +505,32 @@ jobs:
         source testenv/bin/activate
         tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
 
-    - name: Run tt-alchemist API test - generate-cpp
+    - name: Run tt-alchemist API test - generate-cpp (mnist)
       shell: bash
       run: |
         source testenv/bin/activate
-        rm -rf /tmp/test-generate-cpp
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-cpp
-        cd /tmp/test-generate-cpp
-        [ -d /tmp/test-generate-cpp ] || { echo "Directory not found: /tmp/test-generate-cpp" >&2; exit 1; }
-        # ./run  # TODO: enable when fixed
+        rm -rf /tmp/test-generate-cpp-mnist
+        tt-alchemist generate-cpp tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-cpp-mnist --standalone
+        cd /tmp/test-generate-cpp-mnist
+        [ -d /tmp/test-generate-cpp-mnist ] || { echo "Directory not found: /tmp/test-generate-cpp-mnist" >&2; exit 1; }
+        ./run
+
+    - name: Run tt-alchemist API test - generate-cpp (resnet)
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        rm -rf /tmp/test-generate-cpp-resnet
+        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet.mlir /tmp/test-generate-cpp-resnet --standalone
+        cd /tmp/test-generate-cpp-resnet
+        [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
+        ./run
 
     - name: Run tt-alchemist API test - generate-python
       shell: bash
       run: |
         source testenv/bin/activate
         rm -rf /tmp/test-generate-python
-        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-python
+        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-python --standalone
         cd /tmp/test-generate-python
         [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
         # ./run  # TODO: enable when fixed
