@@ -1256,8 +1256,8 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   if (!getCeilMode() && getPaddingTop() == getPaddingBottom() - 1 &&
       getPaddingLeft() == getPaddingRight() - 1) {
     setCeilMode(true);
-    // setPaddingBottom(getPaddingTop());
-    // setPaddingRight(getPaddingLeft());
+    setPaddingBottom(getPaddingTop());
+    setPaddingRight(getPaddingLeft());
     return getResult();
   }
   return nullptr;
@@ -1277,8 +1277,8 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   if (!getCeilMode() && getPaddingTop() == getPaddingBottom() - 1 &&
       getPaddingLeft() == getPaddingRight() - 1) {
     setCeilMode(true);
-    // setPaddingBottom(getPaddingTop());
-    // setPaddingRight(getPaddingLeft());
+    setPaddingBottom(getPaddingTop());
+    setPaddingRight(getPaddingLeft());
     return getResult();
   }
   return nullptr;
