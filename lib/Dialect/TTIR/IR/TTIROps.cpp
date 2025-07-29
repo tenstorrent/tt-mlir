@@ -1105,6 +1105,30 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   return success();
 }
 
+
+//===----------------------------------------------------------------------===//
+// Pooling helper functions
+//===----------------------------------------------------------------------===//
+
+// Check if a AvgPool2dOp or MaxPool2dOp operation is identity
+template <typename Pool2dOp>
+static bool isIdentityPool2d(Pool2dOp op) {
+  return op.getKernelHeight() == 1 && op.getKernelWidth() == 1 &&
+         op.getStrideHeight() == 1 && op.getStrideWidth() == 1 &&
+         op.getDilationHeight() == 1 && op.getDilationWidth() == 1 &&
+         op.getPaddingLeft() == 0 && op.getPaddingRight() == 0 &&
+         op.getPaddingTop() == 0 && op.getPaddingBottom() == 0;
+}
+
+// Check if a PoolingOp is identity
+static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
+  return llvm::all_of(op.getWindowDimensions(), [](int64_t dim) { return dim == 1; }) &&
+         llvm::all_of(op.getWindowStrides(), [](int64_t stride) { return stride == 1; }) &&
+         llvm::all_of(op.getBaseDilations(), [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getWindowDilations(), [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
+}
+
 //===----------------------------------------------------------------------===//
 // PoolingOp
 // Ensures the following constraints:
@@ -1195,6 +1219,15 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
       getWindowDilations(), getPadding());
   return newOp.getOperation();
 }
+
+::mlir::LogicalResult mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor, SmallVectorImpl<OpFoldResult> &results) {
+  if (isIdentityPooling(*this)) {
+    results.append(getInputs().begin(), getInputs().end());
+    return mlir::success();
+  }
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
@@ -1252,9 +1285,25 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return verifyPooling2dOp(this);
 }
 
+// AvgPool2dOp folder
+::mlir::OpFoldResult mlir::tt::ttir::AvgPool2dOp::fold(FoldAdaptor adaptor) {
+  if (isIdentityPool2d(*this)) {
+    return getInput();
+  }
+  return {};
+}
+
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
+
+// MaxPool2dOp folder
+::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
+  if (isIdentityPool2d(*this)) {
+    return getInput();
+  }
+  return {};
+}
 
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
