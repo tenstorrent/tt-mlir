@@ -1111,6 +1111,7 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 //===----------------------------------------------------------------------===//
 
 // Check if a AvgPool2dOp or MaxPool2dOp operation is identity
+// Identity operation folding: kernel=[1,1], stride=[1,1], dilation=[1,1], padding=[0,0,0,0]
 template <typename Pool2dOp>
 static bool isIdentityPool2d(Pool2dOp op) {
   return op.getKernelHeight() == 1 && op.getKernelWidth() == 1 &&
@@ -1121,6 +1122,7 @@ static bool isIdentityPool2d(Pool2dOp op) {
 }
 
 // Check if a PoolingOp is identity
+// Identity operation folding: all dimensions=1, strides=1, dilations=1, padding=0
 static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
   return llvm::all_of(op.getWindowDimensions(), [](int64_t dim) { return dim == 1; }) &&
          llvm::all_of(op.getWindowStrides(), [](int64_t stride) { return stride == 1; }) &&
