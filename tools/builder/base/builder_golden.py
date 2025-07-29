@@ -1770,7 +1770,6 @@ def mesh_shard_golden(
 
 def all_gather_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     all_gather_dim: int,
     cluster_axis: int,
 ) -> ShardedTensor:
@@ -1781,8 +1780,6 @@ def all_gather_golden(
     ----------
     input : ShardedTensor
         Input tensor to gather from all devices
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     all_gather_dim : int
         Dimension to gather along
     cluster_axis : int
@@ -1801,7 +1798,7 @@ def all_gather_golden(
         for id in group.keys():
             output[id] = gathered_tensor.clone()
     assert None not in output, "Not all shards are gathered"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 # Map of supported reduction keywords to callable functions
@@ -1828,7 +1825,6 @@ def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
 
 def all_reduce_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     cluster_axis: int,
     reduce_type: Attribute,
 ) -> ShardedTensor:
@@ -1839,8 +1835,6 @@ def all_reduce_golden(
     ----------
     input : ShardedTensor
         Input tensor to reduce across devices
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     cluster_axis : int
         Axis of the cluster for reduction
     reduce_type : Attribute
@@ -1860,12 +1854,11 @@ def all_reduce_golden(
         for id in group.keys():
             output[id] = reduced_tensor.clone()
     assert None not in output, "Not all shards are reduced"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 def reduce_scatter_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     reduce_type: Attribute,
     scatter_dim: int,
     cluster_axis: int,
@@ -1877,8 +1870,6 @@ def reduce_scatter_golden(
     ----------
     input : ShardedTensor
         Input tensor to reduce and scatter
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     reduce_type : Attribute
         Type of reduction operation
     scatter_dim : int
@@ -1897,18 +1888,15 @@ def reduce_scatter_golden(
     for group in grouped_shards:
         group_tensors = list(group.values())
         reduced_tensor = _reduce(group_tensors, reduce_type)
-        scattered_tensor = torch.chunk(
-            reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
-        )
+        scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
         for index, id in enumerate(group.keys()):
             output[id] = scattered_tensor[index].clone()
     assert None not in output, "Not all shards are reduced"
-    return ShardedTensor(output, mesh_shape)
+    return ShardedTensor(output, input.shard_shape)
 
 
 def collective_permute_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
 ) -> ShardedTensor:
     """
@@ -1918,8 +1906,6 @@ def collective_permute_golden(
     ----------
     input : ShardedTensor
         Input tensor to permute across devices
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     source_target_pairs : List[Tuple[int, int]]
         List of (source, target) device ID pairs for permutation
 
@@ -1937,7 +1923,6 @@ def collective_permute_golden(
 
 def all_to_all_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     split_dim: int,
     concat_dim: int,
     split_count: int,
@@ -1950,8 +1935,6 @@ def all_to_all_golden(
     ----------
     input : ShardedTensor
         Input tensor to perform all-to-all communication on
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     split_dim : int
         Dimension to split the input tensor along
     concat_dim : int
@@ -1982,12 +1965,11 @@ def all_to_all_golden(
                 dim=concat_dim,
             )
     assert None not in output_shards, "Some shards were not written"
-    return ShardedTensor(output_shards, mesh_shape)
+    return ShardedTensor(output_shards, input.shard_shape)
 
 
 def collective_broadcast_golden(
     input: ShardedTensor,
-    mesh_shape: Tuple[int, int],
     replica_groups: List[Tuple[int, int]],
 ) -> ShardedTensor:
     """
@@ -1997,8 +1979,6 @@ def collective_broadcast_golden(
     ----------
     input : ShardedTensor
         Input tensor to broadcast across devices
-    mesh_shape : Tuple[int, int]
-        Shape of the device mesh
     replica_groups : List[Tuple[int, int]]
         Groups of replica devices for broadcasting
 
