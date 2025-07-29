@@ -1193,10 +1193,14 @@ llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
   ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
+  ttsl::Span<const int> beginsSpan = ::ttsl::make_const_span(beginsVec);
+  ttsl::Span<const int> endsSpan = ::ttsl::make_const_span(endsVec);
+  ttsl::Span<const int> stepSpan = ::ttsl::make_const_span(stepVec);
+
   // Create query closure
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
         detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
     // conversion::getShape(outputShape), std::nullopt);
@@ -1232,10 +1236,14 @@ llvm::Expected<size_t> OpModel<SliceOp>::getOpRuntime(
   ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
+  ttsl::Span<const int> beginsSpan = ::ttsl::make_const_span(beginsVec);
+  ttsl::Span<const int> endsSpan = ::ttsl::make_const_span(endsVec);
+  ttsl::Span<const int> stepSpan = ::ttsl::make_const_span(stepVec);
+
   // Create query closure
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
         detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
   };
