@@ -666,5 +666,24 @@ struct OpModel<mlir::tt::ttnn::EmptyOp> {
                mlir::tt::ttnn::MemoryConfigAttr memoryConfig);
 };
 
+//===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<mlir::tt::ttnn::ArangeOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
+                   ::mlir::IntegerAttr step,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
+               ::mlir::IntegerAttr step,
+               std::optional<mlir::tt::ttcore::DataType> dtype,
+               std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig);
+};
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

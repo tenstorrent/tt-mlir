@@ -2192,4 +2192,86 @@ TEST_F(OpModelTest, Where) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+TEST_F(OpModelTest, EmptyOp) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutL1Tiled =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  mlir::tt::ttnn::MemoryConfigAttr memoryConfig =
+      mlir::tt::ttnn::MemoryConfigAttr::get(
+          &context, inputLayoutL1Tiled.getMemLayout(),
+          mlir::tt::ttnn::BufferTypeAttr::get(
+              &context, inputLayoutL1Tiled.getBufferType()),
+          std::nullopt /*shardSpec*/);
+  mlir::tt::ttcore::DataTypeAttr dtype =
+      mlir::tt::ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32);
+  mlir::tt::ttnn::Layout layout = mlir::tt::ttnn::Layout::Tile;
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
+          CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 4096);
+  EXPECT_EQ(outputSize, 4096);
+
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::EmptyOp>::getOpRuntime(
+          inputTensorShape, dtype, layout, memoryConfig);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+TEST_F(OpModelTest, ArangeOp) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  // ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
+  //    ::mlir::IntegerAttr step,
+  //    std::optional<mlir::tt::ttcore::DataType> dtype,
+  //    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig
+
+  //   auto *deviceGrid = SingletonDeviceContext::getInstance().getDevice();
+  //   deviceGrid->enable_program_cache();
+
+  // Create IntegerAttr parameters
+  ::mlir::IntegerAttr startAttr = builder.getI32IntegerAttr(0);
+  ::mlir::IntegerAttr endAttr = builder.getI32IntegerAttr(10);
+  ::mlir::IntegerAttr stepAttr = builder.getI32IntegerAttr(1);
+
+  // Create optional dtype
+  std::optional<mlir::tt::ttcore::DataType> dtype =
+      mlir::tt::ttcore::DataType::Float32;
+
+  // Create optional memory config
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig =
+      mlir::tt::ttnn::MemoryConfigAttr::get(
+          &context, inputLayout.getMemLayout(),
+          mlir::tt::ttnn::BufferTypeAttr::get(&context,
+                                              inputLayout.getBufferType()),
+          std::nullopt /*shardSpec*/);
+
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
+          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  // Basic assertions to verify the op constraints are computed
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+
+  //   SingletonDeviceContext::resetInstance();
+  //   SingletonDeviceContext::getInstance().getDevice()->enable_program_cache();
+
+  //   auto runtimeExp =
+  //       op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpRuntime(
+  //           startAttr, endAttr, stepAttr, dtype, std::nullopt);
+  //   EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  //   EXPECT_GT(runtimeExp.get(), 0);
+}
+
 } // namespace mlir::tt::op_model::ttnn

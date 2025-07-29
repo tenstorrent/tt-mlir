@@ -1703,7 +1703,9 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty",
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.

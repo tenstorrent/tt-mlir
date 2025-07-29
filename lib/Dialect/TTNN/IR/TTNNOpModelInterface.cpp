@@ -17,6 +17,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include "mlir/IR/BuiltinAttributes.h"
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -1419,4 +1420,43 @@ EmptyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       shape, dtype, layout, memoryConfig);
 }
 
+//===----------------------------------------------------------------------===//
+// ArangeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ArangeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  ::mlir::IntegerAttr startAttr = getStartAttr();
+  ::mlir::IntegerAttr endAttr = getEndAttr();
+  ::mlir::IntegerAttr stepAttr = getStepAttr();
+  std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig = getMemoryConfig();
+
+  const mlir::tt::ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints,
+      *this, deviceGrid, startAttr, endAttr, stepAttr, dtype, memConfig);
+}
+
+llvm::Expected<size_t>
+ArangeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  ::mlir::IntegerAttr startAttr = getStartAttr();
+  ::mlir::IntegerAttr endAttr = getEndAttr();
+  ::mlir::IntegerAttr stepAttr = getStepAttr();
+
+  std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig = getMemoryConfig();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpRuntime, *this,
+      startAttr, endAttr, stepAttr, dtype, memConfig);
+}
 } // namespace mlir::tt::ttnn
