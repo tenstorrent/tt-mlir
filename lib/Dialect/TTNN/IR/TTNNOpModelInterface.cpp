@@ -171,6 +171,7 @@ getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
       op.getKeepDim(), opConfig.outputLayout);
 }
+
 template <typename OpT>
 llvm::Expected<size_t>
 getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,

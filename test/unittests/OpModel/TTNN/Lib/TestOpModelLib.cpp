@@ -791,7 +791,6 @@ template <typename OpTy>
 class OpModelBinaryEltwiseParam
     : public OpModelTest,
       public testing::WithParamInterface<BinaryEltwiseParam> {
-
 protected:
   // clang-format on
   void RunTest() {
@@ -950,50 +949,67 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true, 8192, 262144, 262144}}};
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
+                            std::size_t extraCbRequirement = 0) {
+  // The expected size of the circular buffer is the same for most binary ops,
+  // but some of them (such as Divide, LogicalOr and LogicalXor) extra memory is
+  // required due to the op's implementation.
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MulTests, OpModelMultiplyParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MinimumTests, OpModelMinimumParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(DivideTests, OpModelDivideParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/2048));
 
 INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelEqualParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(NotEqualTests, OpModelNotEqualParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(GreaterEqualTests, OpModelGreaterEqualParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(GreaterThanTests, OpModelGreaterThanParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LessEqualTests, OpModelLessEqualParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LessThanTests, OpModelLessThanParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalAndTests, OpModelLogicalAndParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
 
 INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
-                         ::testing::ValuesIn(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
 
 // ==== Binary Eltwise Ops Ends ====
 

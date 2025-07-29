@@ -261,7 +261,8 @@ auto getOpSymbol() {
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::SumOp>) {
     return ::ttnn::sum;
   } else {
-    ttmlir::utils::always_false();
+    static_assert(ttmlir::utils::always_false(),
+                  "add mapping from TTNN dialect to TTNN lib op");
   }
 }
 
