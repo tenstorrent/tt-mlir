@@ -149,8 +149,15 @@ add_custom_command(
 add_custom_target(tt_alchemist_copy_templates
   DEPENDS install-ttnn-components
   COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
+  # C++ templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone
+  # Python templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/standalone
+  #
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
   COMMENT "Copying templates and TT-NN components into Python package"
 )
