@@ -123,7 +123,6 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
-        module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
