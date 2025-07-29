@@ -43,7 +43,7 @@ private:
   bool isCommuteDownwardsViable(QuantizableOpInterface op,
                                 ttir::DequantizeOp dequantOp) const override {
     // Require that this operand is one of the inputs to the op
-    // and that its result has only one user (to avoid duplicating work)
+    // and that its result has only one user (to avoid duplicating work).
     if (op->hasAttr("ttir.skip_qdq_commute")) {
       return false;
     }
@@ -64,14 +64,14 @@ private:
       auto dq = op->getOperand(operand->getOperandNumber())
                     .getDefiningOp<ttir::DequantizeOp>();
       if (dq) {
-        // push back the input -> dequantize -> op.
+        // Push back the input -> dequantize -> op.
         quantOperands.push_back(dq.getOperand(0));
       } else {
-        // push back the input -> op.
+        // Push back the input -> op.
         quantOperands.push_back(op->getOperand(operand->getOperandNumber()));
       }
     }
-    // this checks the basic legality of an attempt to commute DQs past the op.
+    // This checks the basic legality of an attempt to commute DQs past the op.
     return op.isQuantizedRewriteFavorable(quantOperands);
   }
 
@@ -104,13 +104,13 @@ private:
             mlir::cast<RankedTensorType>(newResult.getType());
         if (mlir::dyn_cast<mlir::quant::QuantizedType>(
                 newResultType.getElementType())) {
-          // It's quantized, so insert a DequantizeOp
+          // It's quantized, so insert a DequantizeOp.
           auto newDequant =
               mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
                   rewriter, op->getLoc(), oldType, newResult);
           newResults.push_back(newDequant);
         } else {
-          // It's already floating-point or non-quantized
+          // It's already floating-point or non-quantized.
           newResults.push_back(newResult);
         }
       }
@@ -122,20 +122,20 @@ private:
       Operation *fallbackOp = rewriter.clone(*op.getOperation());
       fallbackOp->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
       for (auto result : fallbackOp->getResults()) {
-        // the quantize's output type is the same shape as the op output type,
-        // just quantized (type taken from dequantOp)
-        // TODO(anuhsing): enable multiple dequant types
+        // The quantize's output type is the same shape as the op output type,
+        // just quantized (type taken from dequantOp).
+        // TODO(anuhsing): enable multiple dequant types.
         RankedTensorType originalType =
             mlir::cast<RankedTensorType>(result.getType());
         quant::QuantizedType quantType = mlir::dyn_cast<quant::QuantizedType>(
             dequantOp.getInput().getType().getElementType());
         RankedTensorType quantizeType = RankedTensorType::get(
             originalType.getShape(), quantType, originalType.getEncoding());
-        // create quantize op.
+        // Create quantize op.
         mlir::tt::ttir::QuantizeOp quantize =
             mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::QuantizeOp>(
                 rewriter, op->getLoc(), quantizeType, result);
-        // now dequantize op, effectively commuting the original dequantize.
+        // Now dequantize op, effectively commuting the original dequantize.
         mlir::tt::ttir::DequantizeOp dequantize =
             mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
                 rewriter, op->getLoc(), originalType, quantize);
@@ -152,8 +152,8 @@ struct RewriteDQToRequantize
   LogicalResult
   matchAndRewrite(mlir::tt::ttir::QuantizeOp op,
                   mlir::PatternRewriter &rewriter) const override {
-    // if the op preceding this op is a dequantize op, then we can fold this to
-    // a requantize
+    // If the op preceding this op is a dequantize op, then we can fold this to
+    // a requantize.
     if (!op.getInput().getDefiningOp()) {
       return mlir::failure();
     }
@@ -187,7 +187,7 @@ public:
       signalPassFailure();
       return;
     }
-    // clean up attribute
+    // Clean up attribute.
     getOperation()->walk(
         [](Operation *op) { op->removeAttr("ttir.skip_qdq_commute"); });
   }
