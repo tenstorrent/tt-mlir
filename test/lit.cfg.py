@@ -51,8 +51,12 @@ if config.enable_opmodel:
     config.parallelism_group = "opmodel"
     config.available_features.add("opmodel")
 
-# Regression tests are optionally enabled for specific CI jobs via environment variable.
-if os.getenv("TTMLIR_ENABLE_REGRESSION_TESTS", "").upper() in ["1", "ON", "TRUE"]:
+# Optimizer models regression tests are optionally enabled for specific CI jobs via environment variable.
+if os.getenv("TTMLIR_ENABLE_OPTIMIZER_MODELS_REGRESSION_TESTS", "").upper() in [
+    "1",
+    "ON",
+    "TRUE",
+]:
     config.available_features.add("regression")
 
 # system_desc_path: The system desc that is to be used to generate the binary files.

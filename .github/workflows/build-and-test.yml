@@ -377,29 +377,17 @@ jobs:
           cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
         fi
 
-    # Regression tests for models - run llvm-lit with regression flag and execute flatbuffer
-    # To run locally: ./test/ttmlir/Silicon/TTNN/n150/optimizer/regression_tests/run_regression_tests.sh
-    - name: Run Regression Tests
+    # Optimizer models regression tests - run llvm-lit with regression flag and execute flatbuffer
+    - name: Run Optimizer Models Regression Tests
       if: matrix.build.type == 'ttrt' && matrix.build.image == 'speedy' && matrix.build.runs-on == 'n150' && matrix.build.suite == 'op_model'
       shell: bash
       run: |
         source env/activate
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        export TTMLIR_ENABLE_REGRESSION_TESTS=1
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
 
-        echo "Running regression tests with llvm-lit..."
-        llvm-lit -v ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/regression_tests/
-
-        echo "Running ttrt on generated flatbuffers..."
-        cd ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/regression_tests/Output/
-        for ttnn_file in *.tmp.ttnn; do
-          if [ -f "$ttnn_file" ]; then
-            echo "Executing $ttnn_file with ttrt..."
-            ttrt run "$ttnn_file" || { echo "ERROR: ttrt execution failed for $ttnn_file"; exit 1; }
-          fi
-        done
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-optimizer-models-regression
 
     - name: Prepare tt-explorer Test
       if: matrix.build.suite == 'explorer'
