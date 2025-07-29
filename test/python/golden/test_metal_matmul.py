@@ -146,3 +146,56 @@ def test_matmul_ttnn_shapes(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.fails_golden
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 8192, 3072),
+        (32, 3072, 3072),
+        (32, 3072, 1024),
+        (32, 32, 8192),
+        (32, 3072, 128256),
+    ],
+)
+@pytest.mark.parametrize("dst_register_size_tiles", [8])
+# Large matmuls, based on ttnn's matmul benchmarks
+def test_matmul_1d_shapes(
+    shape: tuple[int],
+    dst_register_size_tiles: int,
+    request,
+):
+    lhs = (
+        shape[0],
+        shape[1],
+    )
+    rhs = (
+        shape[1],
+        shape[2],
+    )
+
+    def matmul_blocking(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
+    options = [
+        "override-device-shape=1,64",
+        f"max-dst-register-size-tiles={dst_register_size_tiles}",
+        f"matmul-interchange=2,0,1",
+    ]
+    compile_to_flatbuffer(
+        matmul_blocking,
+        [lhs, rhs],
+        target="ttmetal",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        print_ir=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )

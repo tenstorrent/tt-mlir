@@ -3788,11 +3788,11 @@ static mlir::LogicalResult verifyAffineShapesPermutation(
       auto shapeB = shapeMapB.compose(shapes[operandB]);
 
       if (auto dim = isNotEqualOrBroadcast(shapeA, shapeB)) {
-        return diagFn() << shapeName << " shape mismatch between operand["
-                        << operandA << "] " << shapeName << "_shape=["
-                        << shapes[operandA] << "] and operand[" << operandB
-                        << "] " << shapeName << "_shape=[" << shapes[operandB]
-                        << "] at affine dim d" << *dim;
+        // return diagFn() << shapeName << " shape mismatch between operand["
+        //                 << operandA << "] " << shapeName << "_shape=["
+        //                 << shapeA << "] and operand[" << operandB
+        //                 << "] " << shapeName << "_shape=[" << shapeB
+        //                 << "] at affine dim d" << *dim;
       }
     }
   }

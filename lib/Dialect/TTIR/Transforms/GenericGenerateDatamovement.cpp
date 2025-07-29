@@ -104,6 +104,17 @@ public:
     SmallVector<Value> conditions;
   };
 
+  // Keep 8 columns, push overflow into extra rows.
+  // Return {rows, cols}.  If the grid is already 2-D or not a 1xN skinny
+  // grid, the original shape is returned unchanged.
+  static SmallVector<int64_t> normaliseSkinnyGrid(ArrayRef<int64_t> shape,
+                                                  int64_t physCols = 8) {
+    if (shape.size() == 2 && shape[0] == 1 && shape[1] % physCols == 0) {
+      return {shape[1] / physCols, physCols};
+    }
+    return SmallVector<int64_t>(shape.begin(), shape.end());
+  }
+
   static McastArguments
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
                                 ttcore::GridAttr grid,
@@ -118,22 +129,47 @@ public:
     args.mcastCoreIndex.reserve(grid.getShape().size());
     args.mcastShape.reserve(grid.getShape().size());
 
+    bool mcastBothDims = false;
+
+    if (std::any_of(grid.getShape().begin(), grid.getShape().end(),
+                    [](int64_t dim) { return dim > 7; })) {
+      grid = ttcore::GridAttr::get(rewriter.getContext(),
+                                   normaliseSkinnyGrid(grid.getShape()));
+      mcastBothDims = true;
+    }
+
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
+      Value gridDim = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIndexAttr(grid.getShape()[dim]));
+      Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIndexAttr(grid.getShape()[dim] - 1));
       if (iteratorType == ttcore::IteratorType::Parallel) {
-        args.senderCoreIndex.push_back(Value(core));
         args.mcastCoreIndex.push_back(Value(core));
-        args.mcastShape.push_back(Value(one));
+        if (mcastBothDims) {
+          args.senderCoreIndex.push_back(zero);
+          args.mcastShape.push_back(gridDim);
+          args.mcastVolume *= grid.getShape()[dim];
+        } else {
+          args.senderCoreIndex.push_back(Value(core));
+          args.mcastShape.push_back(one);
+        }
       } else {
-        int64_t numDests = grid.getShape()[dim] - 1;
-        Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
+        int64_t dimShape = grid.getShape()[dim];
+        int64_t dimShapeMinusOne = dimShape - 1;
         assert(iteratorType == ttcore::IteratorType::Reduction);
-        args.senderCoreIndex.push_back(zero);
         args.mcastCoreIndex.push_back(one);
-        args.mcastShape.push_back(gridDimMinusOne);
-        args.mcastVolume *= numDests;
+        if (mcastBothDims) {
+          args.senderCoreIndex.push_back(zero);
+          args.mcastShape.push_back(gridDim);
+        } else {
+          args.senderCoreIndex.push_back(zero);
+          args.mcastShape.push_back(gridDimMinusOne);
+        }
+        args.mcastVolume *= dimShapeMinusOne;
 
         Value condition = rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
