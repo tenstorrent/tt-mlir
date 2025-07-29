@@ -36,6 +36,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include "llvm/ADT/STLExtras.h"
 #include <memory>
 #include <vector>
 
@@ -154,6 +155,7 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
   return extents;
 }
 
+<<<<<<< HEAD
 static bool isMemrefDeviceDRAMMemspace(MemRefType memref) {
   return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
              .getValue() == ttcore::MemorySpace::DeviceDRAM;
@@ -161,6 +163,40 @@ static bool isMemrefDeviceDRAMMemspace(MemRefType memref) {
 static bool isMemrefDeviceL1Memspace(MemRefType memref) {
   return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
              .getValue() == ttcore::MemorySpace::DeviceL1;
+}
+
+// Create an extended mapping that handles N-D to 2-D projection
+static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
+                                               size_t gridRank) {
+  MLIRContext *ctx = originalMapping.getContext();
+
+  assert(originalMapping.getNumDims() == 2 && "Expected 2D input mapping");
+
+  if (gridRank == 2) {
+    return originalMapping; // No change needed
+  }
+
+  // For N-D grid, we want to map the last 2 dimensions through the original
+  // mapping
+
+  // Create a mapping from old dims to new dims
+  // d0 -> d[gridRank-2], d1 -> d[gridRank-1]
+  llvm::DenseMap<AffineExpr, AffineExpr> dimReplacements;
+  dimReplacements[getAffineDimExpr(0, ctx)] =
+      getAffineDimExpr(gridRank - 2, ctx);
+  dimReplacements[getAffineDimExpr(1, ctx)] =
+      getAffineDimExpr(gridRank - 1, ctx);
+
+  // Apply the mapping to each result expression
+  SmallVector<AffineExpr> results;
+  for (auto result : originalMapping.getResults()) {
+    auto remapped = result.replace(dimReplacements);
+    results.push_back(remapped);
+  }
+
+  // Create new map with higher dimensional input
+  return AffineMap::get(gridRank, originalMapping.getNumSymbols(), results,
+                        ctx);
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
@@ -234,9 +270,11 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
   auto memrefShardShape = shardLayout.getShardShape(memref);
-  std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+  auto extendedMapping = extendMappingForHigherDimGrid(
+      device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  std::vector<target::Dim2dRange> coreRangeSet =
+      toFlatbuffer(cache, memrefGridShape, extendedMapping);
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
@@ -359,8 +397,13 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
          "expected shard layout for circular buffer config generation");
 
   auto memrefGridShape = shardLayout.getGridShape(memref);
+
+  // Add the same extension here!
+  auto extendedMapping = extendMappingForHigherDimGrid(
+      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+      toFlatbuffer(cache, memrefGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
