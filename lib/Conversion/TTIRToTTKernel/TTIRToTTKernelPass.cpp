@@ -57,6 +57,9 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    target.addLegalOp<memref::CastOp>();
+    target.addLegalOp<memref::SubViewOp>();
+
 
     // Allow loads and stores to integer element types.
     //   i.e. riscv accesses to L1.
