@@ -24,6 +24,7 @@ from ttmlir.ir import (
     DenseI32ArrayAttr,
     DenseI64ArrayAttr,
 )
+from builder.base.sharded_tensor import ShardedTensor, TensorLike
 
 
 def unpack_mlir_attr(attr):
@@ -1649,28 +1650,91 @@ def repeat_interleave_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tens
     return torch.repeat_interleave(input_tensor, repeats, dim=dim)
 
 
-# CCL (Collective Communication Library) Golden Functions
-# We cannot inspect the intermediate buffer on a multi-device.
-# Therefore, we only support Graph Level golden.
-# Although generating an Op level golden is not needed,
-# we return a random torch.Tensor with the correct output shape and type for TTIR.
+def _sharding(
+    tensor: torch.Tensor, mesh_shape: Tuple[int], shard_dims: Tuple[Union[int, None]]
+) -> List[torch.Tensor]:
+    """
+    Shards or replicates a tensor based on mesh shape and shard dimensions.
+
+    Args:
+        tensor (torch.Tensor): Tensor to shard.
+        mesh_shape (Tuple[int]): Number of shards or replicas per dimension.
+        shard_dims (Tuple[int or None]): Shard dimension for each level, or -1/None to replicate.
+
+    Returns:
+        List[torch.Tensor]: List of resulting tensor shards or replicas.
+    """
+    assert len(mesh_shape) == len(
+        shard_dims
+    ), "mesh_shape and shard_dims must have the same length"
+
+    shards = [tensor]
+    for dim_size, shard_dim in zip(mesh_shape, shard_dims):
+        temp_shards = []
+        if shard_dim is None or shard_dim == -1:
+            # replicate each tensor dim_size times
+            for shard in shards:
+                temp_shards.extend([shard.clone() for _ in range(dim_size)])
+        else:
+            # split tensor into dim_size chunks along shard_dim
+            for shard in shards:
+                temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
+        shards = temp_shards
+    return shards
+
+
+def _unsharding(
+    shards: List[torch.Tensor],
+    mesh_shape: Tuple[int],
+    shard_dims: Tuple[Union[int, None]],
+) -> torch.Tensor:
+    """
+    Reconstructs the original tensor from shards. Supports both sharding and replication.
+
+    Args:
+        shards (List[torch.Tensor]): Sharded or replicated tensor list.
+        mesh_shape (Tuple[int]): Number of shards or replicas per dimension.
+        shard_dims (Tuple[int or None]): Dimensions along which the tensor was sharded,
+                                         or -1/None if it was replicated.
+
+    Returns:
+        torch.Tensor: The reconstructed tensor.
+    """
+    assert len(mesh_shape) == len(
+        shard_dims
+    ), "mesh_shape and shard_dims must have the same length"
+
+    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
+        if shard_dim is None or shard_dim == -1:
+            # It was replication: only keep one copy per group
+            shards = shards[::dim_size]
+        else:
+            # It was sharding: group and concatenate
+            temp_shards = []
+            for i in range(0, len(shards), dim_size):
+                concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
+                temp_shards.append(concat_shard)
+            shards = temp_shards
+
+    # assert len(shards) == 1, "Unsharding failed to reduce to a single tensor"
+    return shards[0]
 
 
 def mesh_shard_golden(
-    input: torch.Tensor,
+    input: TensorLike,
     mesh_shape: Tuple[int, int],
     shard_type: Attribute,
     shard_direction: Attribute,
     shard_shape: Tuple[int, int],
     shard_dims: List[int],
-) -> torch.Tensor:
+) -> TensorLike:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing mesh_shard on the input.
+    Return a TensorLike which was sharded or unsharded by mesh_shard.
 
     Parameters
     ----------
-    input : torch.Tensor
-        Input tensor to be sharded
+    input : TensorLike
+        Input tensor to be sharded or ShardedTensor to be unsharded
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
     shard_type : Attribute
@@ -1684,33 +1748,38 @@ def mesh_shard_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        TensorLike which was sharded or unsharded by mesh_shard.
     """
-    out_shape = list(input.shape)
-    if "devices" in str(shard_type).lower():
-        for shard_dim in shard_dims:
-            if shard_dim == -1:
-                continue
-            if "shard_to_full" in str(shard_direction).lower():
-                out_shape[shard_dim] *= shard_shape[shard_dim]
-            elif "full_to_shard" in str(shard_direction).lower():
-                out_shape[shard_dim] //= shard_shape[shard_dim]
-    return torch.randn(out_shape, dtype=input.dtype)
+    shard_direction_str = str(shard_direction).lower()
+    shard_type_str = str(shard_type).lower()
+    if "full_to_shard" in shard_direction_str:
+        assert isinstance(input, torch.Tensor), "Input must be a torch.Tensor"
+        if "replicate" in shard_type_str:
+            shard_dims = [None] * len(mesh_shape)
+        shards = _sharding(input, mesh_shape, shard_dims)
+        return ShardedTensor(shards, mesh_shape)
+    elif "shard_to_full" in shard_direction_str:
+        assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+        if "replicate" in shard_type_str:
+            full = _unsharding(input.shards, [1], [1])
+        else:
+            full = _unsharding(input.shards, mesh_shape, shard_dims)
+        return full
 
 
 def all_gather_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     all_gather_dim: int,
     cluster_axis: int,
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing all_gather on the input.
+    Return a ShardedTensor which was gathered from all devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to gather from all devices
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1721,26 +1790,54 @@ def all_gather_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was gathered from all devices
     """
-    out_shape = list(input.shape)
-    out_shape[all_gather_dim] *= mesh_shape[cluster_axis]
-    return torch.randn(out_shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output = [None] * len(input.shards)
+    grouped_shards = input.grouped_shards(cluster_axis)
+    for group in grouped_shards:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for id in group.keys():
+            output[id] = gathered_tensor.clone()
+    assert None not in output, "Not all shards are gathered"
+    return ShardedTensor(output, mesh_shape)
+
+
+# Map of supported reduction keywords to callable functions
+_REDUCE = {
+    "sum": lambda xs: torch.sum(torch.stack(xs), 0),
+    "mean": lambda xs: torch.mean(torch.stack(xs), 0),
+    "max": lambda xs: torch.amax(torch.stack(xs), 0),
+    "min": lambda xs: torch.amin(torch.stack(xs), 0),
+    "std": lambda xs: torch.std(torch.stack(xs), 0),  # default correction=1
+    "var": lambda xs: torch.var(torch.stack(xs), 0),
+}
+
+
+def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> torch.Tensor:
+    key = str(reduce_type).lower()
+    # Handle alias form like "reduce_type<sum>"
+    if key.startswith("#ttcore.reduce_type<") and key.endswith(">"):
+        key = key[20:-1]
+    try:
+        return _REDUCE[key](inputs)
+    except KeyError as err:
+        raise ValueError(f"Unsupported reduce type: {reduce_type}") from err
 
 
 def all_reduce_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     cluster_axis: int,
     reduce_type: Attribute,
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing all_reduce on the input.
+    Return a ShardedTensor which was reduced across devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to reduce across devices
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1751,25 +1848,34 @@ def all_reduce_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was reduced across devices
     """
-    return torch.randn(input.shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output = [None] * len(input.shards)
+    grouped_shards = input.grouped_shards(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = _reduce(group_tensors, reduce_type)
+        for id in group.keys():
+            output[id] = reduced_tensor.clone()
+    assert None not in output, "Not all shards are reduced"
+    return ShardedTensor(output, mesh_shape)
 
 
 def reduce_scatter_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     reduce_type: Attribute,
     scatter_dim: int,
     cluster_axis: int,
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing reduce_scatter on the input.
+    Return a ShardedTensor which was reduced and scattered across devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to reduce and scatter
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1782,25 +1888,35 @@ def reduce_scatter_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was reduced and scattered across devices
     """
-    out_shape = list(input.shape)
-    out_shape[scatter_dim] //= mesh_shape[cluster_axis]
-    return torch.randn(out_shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output = [None] * len(input.shards)
+    grouped_shards = input.grouped_shards(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = _reduce(group_tensors, reduce_type)
+        scattered_tensor = torch.chunk(
+            reduced_tensor, mesh_shape[cluster_axis], dim=scatter_dim
+        )
+        for index, id in enumerate(group.keys()):
+            output[id] = scattered_tensor[index].clone()
+    assert None not in output, "Not all shards are reduced"
+    return ShardedTensor(output, mesh_shape)
 
 
 def collective_permute_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
+    Return a ShardedTensor which was permuted across devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to permute across devices
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1809,26 +1925,30 @@ def collective_permute_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was permuted across devices
     """
-    return torch.randn(input.shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output_shards = [torch.zeros_like(shard) for shard in input.shards]
+    for src, tgt in source_target_pairs:
+        output_shards[tgt] = input.shard_at(src).clone()
+    return ShardedTensor(output_shards, input.shard_shape)
 
 
 def all_to_all_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     split_dim: int,
     concat_dim: int,
     split_count: int,
     replica_groups: List[List[int]],
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing all_to_all on the input.
+    Return a ShardedTensor which was redistributed across devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to perform all-to-all communication on
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1843,26 +1963,39 @@ def all_to_all_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was redistributed across devices.
     """
-    out_shape = list(input.shape)
-    out_shape[split_dim] //= split_count
-    out_shape[concat_dim] *= split_count
-    return torch.randn(out_shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output_shards = [None] * len(input.shards)
+    for group in replica_groups:
+        assert len(group) == split_count, "group size must equal split_count"
+        # Split every source tensor into N = split_count chunks
+        splits_per_src: List[Tuple[torch.Tensor, ...]] = [
+            torch.chunk(input.shard_at(dev_id), split_count, dim=split_dim)
+            for dev_id in group
+        ]
+        # Reassemble chunks: dst_idx == slice index to receive
+        for dst_idx in range(split_count):
+            output_shards[group[dst_idx]] = torch.cat(
+                [splits_per_src[src_idx][dst_idx] for src_idx in range(split_count)],
+                dim=concat_dim,
+            )
+    assert None not in output_shards, "Some shards were not written"
+    return ShardedTensor(output_shards, mesh_shape)
 
 
 def collective_broadcast_golden(
-    input: torch.Tensor,
+    input: ShardedTensor,
     mesh_shape: Tuple[int, int],
     replica_groups: List[Tuple[int, int]],
-) -> torch.Tensor:
+) -> ShardedTensor:
     """
-    Return a random torch.Tensor which has the correct shape and type after doing collective_broadcast on the input.
+    Return a ShardedTensor which was broadcasted across devices.
 
     Parameters
     ----------
-    input : torch.Tensor
+    input : ShardedTensor
         Input tensor to broadcast across devices
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1871,10 +2004,16 @@ def collective_broadcast_golden(
 
     Returns
     -------
-    torch.Tensor
-        Random tensor with correct output shape and type
+    ShardedTensor
+        ShardedTensor which was broadcasted across devices.
     """
-    return torch.randn(input.shape, dtype=input.dtype)
+    assert isinstance(input, ShardedTensor), "Input must be a ShardedTensor"
+    output_shards = [None] * len(input.shards)
+    for group in replica_groups:
+        for device in group:
+            output_shards[device] = input.shard_at(group[0]).clone()
+    assert None not in output_shards, "Some shards were not written"
+    return ShardedTensor(output_shards, input.shard_shape)
 
 
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
