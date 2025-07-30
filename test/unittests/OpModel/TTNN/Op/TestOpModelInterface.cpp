@@ -1783,6 +1783,47 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
+  // Create input tensors for embedding op
+  // [batch_size, seq_len]
+  llvm::SmallVector<int64_t> inputShape = {workerCoresN300, 1024};
+  // [vocab_size, hidden_size]
+  llvm::SmallVector<int64_t> weightShape = {256, 128};
+  // [batch_size, seq_len, hidden_size]
+  llvm::SmallVector<int64_t> outputShape = {workerCoresN300, 1024, 128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  // Create EmbeddingOp
+  auto embedding = builder.create<EmbeddingOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input, weight});
+
+  // Test EmbeddingOp interface constraints
+  auto constraintsExp = embedding.getOpConstraints(
+      getInputLayouts(embedding), OpConfig(/*outputLayout=*/nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(outputSize, 262144);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test EmbeddingOp runtime
+  auto runtimeExp = embedding.getOpRuntime(getInputLayouts(embedding),
+                                           OpConfig(/*outputLayout=*/nullptr));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, CacheOpConstraintsTest) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
