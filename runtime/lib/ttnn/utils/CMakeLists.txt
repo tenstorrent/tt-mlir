@@ -9,7 +9,7 @@ add_library(TTRuntimeTTNNUtils
 )
 set_property(TARGET TTRuntimeTTNNUtils PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
-  target_compile_options(TTRuntimeTTNNUtils PUBLIC -mavx -mavx2)
+  target_compile_options(TTRuntimeTTNNUtils PUBLIC -march=x86-64-v3)
 endif()
 target_include_directories(TTRuntimeTTNNUtils PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include

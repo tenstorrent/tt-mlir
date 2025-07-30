@@ -177,7 +177,7 @@ set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
 set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
-  target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
+  target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
 endif()
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
