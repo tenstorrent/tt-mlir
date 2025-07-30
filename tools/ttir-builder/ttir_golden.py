@@ -1040,7 +1040,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
             "dimension": "dimension"
         },  # Keep dimension as dimension for softmax_ttir_compatible
     ),
-    ttir.MatmulOp: create_smart_golden_wrapper(torch.matmul),
+    ttir.MatmulOp: create_smart_golden_wrapper(
+        lambda a, b, transpose_a=False, transpose_b=False, **kwargs: torch.matmul(
+            torch.transpose(a, -2, -1) if transpose_a else a,
+            torch.transpose(b, -2, -1) if transpose_b else b,
+        )
+    ),
     ttir.EmbeddingOp: create_smart_golden_wrapper(embedding_golden),
     ttir.CumSumOp: create_smart_golden_wrapper(
         torch.cumsum,
