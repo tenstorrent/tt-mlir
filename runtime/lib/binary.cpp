@@ -136,12 +136,16 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
-  return getBinary(binary)->schema_hash()->c_str();
+std::string getSchemaHash(Flatbuffer binary) {
+  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
+  std::string schema_string(schema.begin(), schema.end());
+  return schema_string;
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
-  return getBinary(binary)->ttmlir_git_hash()->c_str();
+std::string getTTMLIRGitHash(Flatbuffer binary) {
+  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
+  std::string git_hash_string(git_hash.begin(), git_hash.end());
+  return git_hash_string;
 }
 
 std::string asJson(Flatbuffer binary) {
@@ -271,12 +275,16 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
-  return getBinary(binary)->schema_hash()->c_str();
+std::string getSchemaHash(Flatbuffer binary) {
+  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
+  std::string schema_string(schema.begin(), schema.end());
+  return schema_string;
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
-  return getBinary(binary)->ttmlir_git_hash()->c_str();
+std::string getTTMLIRGitHash(Flatbuffer binary) {
+  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
+  std::string git_hash_string(git_hash.begin(), git_hash.end());
+  return git_hash_string;
 }
 
 std::string asJson(Flatbuffer binary) {
@@ -399,12 +407,16 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
-  return getBinary(binary)->schema_hash()->c_str();
+std::string getSchemaHash(Flatbuffer binary) {
+  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
+  std::string schema_string(schema.begin(), schema.end());
+  return schema_string;
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
-  return getBinary(binary)->ttmlir_git_hash()->c_str();
+std::string getTTMLIRGitHash(Flatbuffer binary) {
+  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
+  std::string git_hash_string(git_hash.begin(), git_hash.end());
+  return git_hash_string;
 }
 
 std::string asJson(Flatbuffer binary) {
@@ -451,7 +463,7 @@ void Flatbuffer::storeToMemory(
   std::memcpy(serializedFlatbuffer.data(), handle.get(), size);
 }
 
-std::string_view Flatbuffer::getFileIdentifier() const {
+std::string Flatbuffer::getFileIdentifier() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ::tt::target::ttnn::TTNNBinaryIdentifier();
@@ -489,7 +501,7 @@ std::string Flatbuffer::getVersion() const {
   LOG_FATAL("Unsupported binary format");
 }
 
-std::string_view Flatbuffer::getSchemaHash() const {
+std::string Flatbuffer::getSchemaHash() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getSchemaHash(*this);
@@ -530,7 +542,7 @@ bool Flatbuffer::checkSchemaHash() const {
   LOG_FATAL("Unsupported binary format");
 }
 
-std::string_view Flatbuffer::getTTMLIRGitHash() const {
+std::string Flatbuffer::getTTMLIRGitHash() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getTTMLIRGitHash(*this);

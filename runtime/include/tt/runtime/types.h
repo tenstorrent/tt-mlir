@@ -221,11 +221,11 @@ struct Flatbuffer : public detail::ObjectImpl {
 
   void store(const char *path) const;
   void storeToMemory(std::vector<std::byte> &serializedFlatbuffer) const;
-  std::string_view getFileIdentifier() const;
+  std::string getFileIdentifier() const;
   std::string getVersion() const;
-  std::string_view getSchemaHash() const;
+  std::string getSchemaHash() const;
   bool checkSchemaHash() const;
-  std::string_view getTTMLIRGitHash() const;
+  std::string getTTMLIRGitHash() const;
   std::string asJson() const;
 };
 

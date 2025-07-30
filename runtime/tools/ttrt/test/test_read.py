@@ -165,9 +165,19 @@ def test_section_read():
         "--result-file"
     ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--section"] = "all"
-    read_instance = API.Read(args=custom_args)
-    read_instance()
+    sections = [
+        "all",
+        "version",
+        "system_desc",
+        "mlir",
+        "inputs",
+        "outputs",
+        "op_stats",
+    ]  # "cpp"
+    for section in sections:
+        custom_args["--section"] = section
+        read_instance = API.Read(args=custom_args)
+        read_instance()
 
 
 def test_section_cmd_read():
