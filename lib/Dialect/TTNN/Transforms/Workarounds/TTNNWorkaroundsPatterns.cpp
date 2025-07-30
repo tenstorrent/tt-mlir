@@ -523,95 +523,29 @@ public:
       }
     }
 
-    // TODO(wooseoklee): Once it supports two dimensional tensor
-    // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
-    // this workaround solution.
-    if (inputTypeShape.size() < 4) {
-      // We need to expand the current inputShape size to a tensor with
-      // rank=4. We do this by adding leading 1's to the inputShape to create
-      // a new shape with rank=4.
-      uint32_t requiredOnesInput = 4 - inputTypeShape.size();
-      llvm::SmallVector<int64_t> reshapedInputShape(requiredOnesInput, 1);
-      reshapedInputShape.append(inputTypeShape);
+    // TODO(wooseoklee): Once ttnn supports all_reduce op
+    // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
+    // convert directly to ttnn.all_reduce.
 
-      ArrayAttr reshapedInputShapeAttr =
-          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
-              reshapedInputShape.begin(), reshapedInputShape.end()));
-      auto reshapedInputType =
-          RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
+    // Determine the shape of its input tensor. The new tensor
+    // shape at the scatter_dim will be tensor_shape[scatter_dim] =
+    // original_tensor_shape / num_devices.
+    inputTypeShape[dimension] =
+        inputTypeShape[dimension] / meshShape[clusterAxis];
+    auto scatteredInputType =
+        RankedTensorType::Builder(inputType).setShape(inputTypeShape);
 
-      // Create a new reshape op.
-      ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          ttmlir::utils::appendLocationSuffix(loc, "_preReshape"),
-          Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
-          /* memory_config */ nullptr);
+    // Create a new reducer scatter op.
+    ttnn::ReduceScatterOp reduceScatterOp =
+        rewriter.create<ttnn::ReduceScatterOp>(
+            ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+            Type(scatteredInputType), op.getInput(), deviceValue,
+            op.getReduceType(), dimension, clusterAxis);
 
-      // Determine new dimension since entire tensor shape got shifted.
-      dimension = dimension + requiredOnesInput;
-
-      // Determine the shape of its input tensor. The new tensor
-      // shape at the scatter_dim will be tensor_shape[scatter_dim] =
-      // original_tensor_shape / num_devices.
-      reshapedInputShape[dimension] =
-          reshapedInputShape[dimension] / meshShape[clusterAxis];
-      auto scatteredInputType =
-          RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
-
-      // Create a new reduce scatter op.
-      ttnn::ReduceScatterOp reduceScatterOp =
-          rewriter.create<ttnn::ReduceScatterOp>(
-              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-              Type(scatteredInputType), preReshapeOp.getResult(), deviceValue,
-              op.getReduceType(), dimension, clusterAxis);
-
-      // We need to reshape the output to tensor rank=4 as well.
-      RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
-      llvm::SmallVector<int64_t> outputTypeShape(outputType.getShape());
-
-      uint32_t requiredOnesOutput = 4 - outputTypeShape.size();
-      llvm::SmallVector<int64_t> reshapedOutputShape(requiredOnesOutput, 1);
-      reshapedOutputShape.append(outputTypeShape);
-
-      auto reshapedOutputType =
-          RankedTensorType::Builder(outputType).setShape(reshapedOutputShape);
-      ArrayAttr reshapedOutputShapeAttr =
-          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
-              outputTypeShape.begin(), outputTypeShape.end()));
-
-      // Create a new all gather op.
-      ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-          ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
-          Type(reshapedOutputType), reduceScatterOp.getResult(), deviceValue,
-          dimension, clusterAxis);
-
-      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-          op, Type(outputType), allGatherOp.getResult(),
-          reshapedOutputShapeAttr, /* memory_config */ nullptr);
-    } else {
-      // TODO(wooseoklee): Once ttnn supports all_reduce op
-      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
-      // convert directly to ttnn.all_reduce.
-
-      // Determine the shape of its input tensor. The new tensor
-      // shape at the scatter_dim will be tensor_shape[scatter_dim] =
-      // original_tensor_shape / num_devices.
-      inputTypeShape[dimension] =
-          inputTypeShape[dimension] / meshShape[clusterAxis];
-      auto scatteredInputType =
-          RankedTensorType::Builder(inputType).setShape(inputTypeShape);
-
-      // Create a new reducer scatter op.
-      ttnn::ReduceScatterOp reduceScatterOp =
-          rewriter.create<ttnn::ReduceScatterOp>(
-              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-              Type(scatteredInputType), op.getInput(), deviceValue,
-              op.getReduceType(), dimension, clusterAxis);
-
-      // Replace all_reduce op with all_gather op.
-      rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-          op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
-          clusterAxis);
-    }
+    // Replace all_reduce op with all_gather op.
+    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+        op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
+        clusterAxis);
     return success();
   }
 
