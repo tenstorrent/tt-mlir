@@ -1309,7 +1309,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   // supports Height, Block or Width Sharded Layouts but got
   // TensorMemoryLayout::INTERLEAVED"
   auto badConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1324,7 +1324,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -1348,7 +1349,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1363,7 +1364,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
@@ -1505,7 +1507,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
-      &context, /*dtype=*/ttcore::DataType::BFloat16,
+      &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
       /*activation=*/StringAttr::get(&context, ""),
       /*deallocate_activation=*/BoolAttr::get(&context, false),
@@ -1520,7 +1522,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
+      /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -1776,6 +1779,47 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
 
   // Test EmbeddingOp runtime
   auto runtimeExp = getOpRuntime(embedding.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
+  // Create input tensors for embedding op
+  // [batch_size, seq_len]
+  llvm::SmallVector<int64_t> inputShape = {workerCoresN300, 1024};
+  // [vocab_size, hidden_size]
+  llvm::SmallVector<int64_t> weightShape = {256, 128};
+  // [batch_size, seq_len, hidden_size]
+  llvm::SmallVector<int64_t> outputShape = {workerCoresN300, 1024, 128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  // Create EmbeddingOp
+  auto embedding = builder.create<EmbeddingOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input, weight});
+
+  // Test EmbeddingOp interface constraints
+  auto constraintsExp = embedding.getOpConstraints(
+      getInputLayouts(embedding), OpConfig(/*outputLayout=*/nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(outputSize, 262144);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test EmbeddingOp runtime
+  auto runtimeExp = embedding.getOpRuntime(getInputLayouts(embedding),
+                                           OpConfig(/*outputLayout=*/nullptr));
   if (runtimeExp) {
     EXPECT_GT(runtimeExp.get(), 0);
   } else {

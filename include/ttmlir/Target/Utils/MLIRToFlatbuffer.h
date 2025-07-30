@@ -774,8 +774,7 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getDtype()),
-      toFlatbuffer(cache, config.getWeightsDtype()),
+      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
       toFlatbuffer(cache, config.getActivation()),
       toFlatbuffer(cache, config.getDeallocateActivation()),
       toFlatbuffer(cache, config.getReallocateHaloOutput()),
@@ -790,7 +789,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
-      toFlatbuffer(cache, config.getEnableSubblockPadding()));
+      toFlatbuffer(cache, config.getEnableSubblockPadding()),
+      toFlatbuffer(cache, config.getInPlace()));
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
@@ -865,8 +865,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-             ttcore::TensorMeshShardingAttr tensorMeshSharding,
-             ttnn::BufferType bufferType,
+             ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr,
              ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid) {
   auto shapeInt64 = memref.getShape();
@@ -891,7 +890,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   }
 
   ::tt::target::ttnn::StorageType storageType;
-  if (tensorMeshSharding) {
+  if (tensorMesh) {
     storageType = ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
@@ -959,8 +958,7 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // flatbuffer LayoutDescs.
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
-      toFlatbuffer(cache, layoutAttr.getMemref(),
-                   layoutAttr.getTensorMeshSharding(),
+      toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
 }

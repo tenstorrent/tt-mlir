@@ -5,7 +5,7 @@
 module {
   func.func @conv2d_invalid_input_shape(%arg0: tensor<32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Input must be a 4D tensor
+    // CHECK: error: 'ttir.conv2d' op input must be a 4D tensor
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -21,7 +21,7 @@ module {
 module {
   func.func @conv2d_invalid_weight_shape(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Weight must be a 4D tensor
+    // CHECK: error: 'ttir.conv2d' op weight must be a 4D tensor
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -37,7 +37,7 @@ module {
 module {
   func.func @conv2d_invalid_bias_shape(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Bias must be a 4D tensor
+    // CHECK: error: 'ttir.conv2d' op bias must be a 4D tensor
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -53,7 +53,7 @@ module {
 module {
   func.func @conv2d_invalid_output_shape(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<30x30x64xbf16> {
     %0 = ttir.empty() : tensor<30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Output must be a 4D tensor
+    // CHECK: error: 'ttir.conv2d' op output must be a 4D tensor
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
