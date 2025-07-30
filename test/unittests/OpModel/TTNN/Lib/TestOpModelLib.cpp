@@ -2228,14 +2228,6 @@ TEST_F(OpModelTest, ArangeOp) {
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
       CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  // ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
-  //    ::mlir::IntegerAttr step,
-  //    std::optional<mlir::tt::ttcore::DataType> dtype,
-  //    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig
-
-  //   auto *deviceGrid = SingletonDeviceContext::getInstance().getDevice();
-  //   deviceGrid->enable_program_cache();
-
   // Create IntegerAttr parameters
   ::mlir::IntegerAttr startAttr = builder.getI32IntegerAttr(0);
   ::mlir::IntegerAttr endAttr = builder.getI32IntegerAttr(10);
@@ -2263,15 +2255,6 @@ TEST_F(OpModelTest, ArangeOp) {
   EXPECT_EQ(cbSize, 0);
   EXPECT_EQ(peakSize, 0);
   EXPECT_EQ(outputSize, 0);
-
-  //   SingletonDeviceContext::resetInstance();
-  //   SingletonDeviceContext::getInstance().getDevice()->enable_program_cache();
-
-  //   auto runtimeExp =
-  //       op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpRuntime(
-  //           startAttr, endAttr, stepAttr, dtype, std::nullopt);
-  //   EXPECT_TRUE(static_cast<bool>(runtimeExp));
-  //   EXPECT_GT(runtimeExp.get(), 0);
 }
 
 } // namespace mlir::tt::op_model::ttnn

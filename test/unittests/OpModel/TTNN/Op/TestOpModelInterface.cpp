@@ -1965,4 +1965,96 @@ TEST_F(OpModelBase, EmptyOpInterface) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
+
+TEST_F(OpModelBase, ArangeOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create the result tensor type with row-major layout (appropriate for arange
+  // sequence)
+  auto layout = CreateRowMajorLayout(tensorShape, ttnn::BufferType::DRAM,
+                                     ttnn::TensorMemoryLayout::Interleaved);
+  auto resultType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create device
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create dtype attribute
+  auto dtype = ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16);
+
+  // Create memory config attribute
+  auto memoryConfig = ttnn::MemoryConfigAttr::get(
+      &context, layout.getMemLayout(),
+      ttnn::BufferTypeAttr::get(&context, layout.getBufferType()),
+      std::nullopt);
+
+  // Create ArangeOp with IntegerAttr parameters
+  auto startAttr = builder.getI64IntegerAttr(0);
+  auto endAttr = builder.getI64IntegerAttr(1024);
+  auto stepAttr = builder.getI64IntegerAttr(1);
+
+  auto arange =
+      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
+                               endAttr, stepAttr, dtype, device, memoryConfig);
+
+  // test ArangeOp interface
+  auto constraintsExp = getOpConstraints(arange.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  // The following call produces this error: 'Writes are not supported during
+  // trace capture'. That's why I have disabled it for now:
+  // auto runtimeExp = getOpRuntime(arange.getOperation());
+  // if (runtimeExp) {
+  //   EXPECT_GT(runtimeExp.get(), 0);
+  // } else {
+  //   FAIL() << llvm::toString(runtimeExp.takeError());
+  // }
+}
+
+TEST_F(OpModelBase, ArangeOpInterfaceNullOutput) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 5};
+
+  // Create the result tensor type with row-major layout (appropriate for arange
+  // sequence)
+  auto layout = CreateRowMajorLayout(tensorShape, ttnn::BufferType::DRAM,
+                                     ttnn::TensorMemoryLayout::Interleaved);
+  auto resultType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create ArangeOp with IntegerAttr parameters
+  auto startAttr = builder.getI64IntegerAttr(0);
+  auto endAttr = builder.getI64IntegerAttr(10);
+  auto stepAttr = builder.getI64IntegerAttr(2);
+
+  auto arange =
+      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
+                               endAttr, stepAttr, /*dtype=*/nullptr,
+                               /*device=*/nullptr, /*memoryConfig=*/nullptr);
+
+  // test ArangeOp interface
+  auto backend = dyn_cast<OpModel>(arange.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(arange), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
 } // namespace mlir::tt::ttnn
