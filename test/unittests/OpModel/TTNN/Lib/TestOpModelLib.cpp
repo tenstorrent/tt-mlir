@@ -2164,23 +2164,23 @@ class OpModelConv2dParam : public OpModelTest,
 TEST_P(OpModelConv2dParam, Conv2d) {
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
-              inputVirtualGrid] = std::get<0>(params);
+              inputVirtualGrid] = params.input;
   const auto [weightShape, weightTensorLayout, weightBufferType,
-              weightVirtualGrid] = std::get<1>(params);
+              weightVirtualGrid] = params.weight;
   const auto [outputShape, outputTensorLayout, outputBufferType,
-              outputVirtualGrid] = std::get<2>(params);
-  const auto in_channels = std::get<3>(params);
-  const auto out_channels = std::get<4>(params);
-  const auto batch_size = std::get<5>(params);
-  const auto input_height = std::get<6>(params);
-  const auto input_width = std::get<7>(params);
-  const auto kernel_size = std::get<8>(params);
-  const auto stride = std::get<9>(params);
-  const auto padding = std::get<10>(params);
-  const auto dilation = std::get<11>(params);
-  const auto groups = std::get<12>(params);
+              outputVirtualGrid] = params.output;
+  const auto in_channels = params.inChannels;
+  const auto out_channels = params.outChannels;
+  const auto batch_size = params.batchSize;
+  const auto input_height = params.inputHeight;
+  const auto input_width = params.inputWidth;
+  const auto kernel_size = params.kernelSize;
+  const auto stride = params.stride;
+  const auto padding = params.padding;
+  const auto dilation = params.dilation;
+  const auto groups = params.groups;
   const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<13>(params);
+              expectedOutputSize] = params.expectedResult;
 
   const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,

@@ -124,10 +124,10 @@ Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams) {
   // Parse expected result
   auto expectedResult = parseExpectedResult(conv2dParams["expected_result"]);
 
-  return std::make_tuple(inputTensor, weightTensor, outputTensor, inChannels,
-                         outChannels, batchSize, inputHeight, inputWidth,
-                         kernelSize, stride, padding, dilation, groups,
-                         expectedResult);
+  return Conv2dParams(inputTensor, weightTensor, outputTensor, inChannels,
+                      outChannels, batchSize, inputHeight, inputWidth,
+                      kernelSize, stride, padding, dilation, groups,
+                      expectedResult);
 }
 
 } // namespace yaml_utils
