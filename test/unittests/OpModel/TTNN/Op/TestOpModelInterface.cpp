@@ -5,7 +5,6 @@
 #include "OpModelFixture.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
