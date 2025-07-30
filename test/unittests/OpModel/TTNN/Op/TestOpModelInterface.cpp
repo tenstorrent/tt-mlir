@@ -1393,6 +1393,39 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
+TEST_F(OpModelBase, morehCumSumOp) {
+  // create MorehCumSumOp
+  llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
+  llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  auto morehCumSum = builder.create<MorehCumSumOp>(
+      builder.getUnknownLoc(), output.getType(), input,
+      builder.getI64IntegerAttr(0), nullptr);
+
+  // test morehCumSum Op interface
+  auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 34816);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(morehCumSum.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};

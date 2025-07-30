@@ -769,6 +769,69 @@ TEST_F(OpModelTest, Transpose) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, MorehCumSum) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1Interleaved =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1WSharded =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpRuntime(
+          tensorShape, layoutDRAM, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpRuntime(
+          tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0,
+          layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 133120);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpRuntime(
+          tensorShape, layoutL1Interleaved, 0, layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, SoftmaxSharded) {
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};

@@ -1012,7 +1012,9 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw",
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
+def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Moreh cummulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.

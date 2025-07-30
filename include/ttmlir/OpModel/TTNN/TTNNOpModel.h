@@ -485,6 +485,23 @@ struct OpModel<TransposeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// MorehCumSumOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::MorehCumSumOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int64_t dim,
+      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int64_t dim,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 

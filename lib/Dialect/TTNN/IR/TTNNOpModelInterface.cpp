@@ -1411,6 +1411,42 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// MorehCumSumOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+MorehCumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpConstraints,
+      *this, deviceGrid, inputShape, inputs[0], getDim(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+MorehCumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpRuntime,
+      *this, inputShape, inputs[0], getDim(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
