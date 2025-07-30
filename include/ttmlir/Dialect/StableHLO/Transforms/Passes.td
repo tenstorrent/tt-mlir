@@ -166,4 +166,46 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
+def PropagateRoleAttributesPass : Pass<"propagate-role-attributes", "::mlir::ModuleOp">
+{
+  let summary = "Propagate tt.role attributes from func.call operations to arguments";
+  let description = [{
+    This pass propagates tt.role attributes from func.call operations up through the call chain to function arguments, ultimately reaching the main function arguments.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    func.func private @tt.mark_256_f32(%arg0: tensor<256xf32>) -> tensor<256xf32> {
+      return %arg0 : tensor<256xf32>
+    }
+    func.func private @lambda(%arg0: tensor<256xf32>) -> tensor<256xf32> {
+      %0 = call @tt.mark_256_f32(%arg0) {tt.role = "weight"} : (tensor<256xf32>) -> tensor<256xf32>
+      return %0 : tensor<256xf32>
+    }
+    func.func public @main(%arg0: tensor<256xf32>) -> tensor<256xf32> {
+      %0 = call @lambda(%arg0) : (tensor<256xf32>) -> tensor<256xf32>
+      return %0 : tensor<256xf32>
+    }
+    ```
+
+    Into:
+    ```mlir
+    func.func private @tt.mark_256_f32(%arg0: tensor<256xf32>) -> tensor<256xf32> {
+      return %arg0 : tensor<256xf32>
+    }
+    func.func private @lambda(%arg0: tensor<256xf32> {tt.role = "weight"}) -> tensor<256xf32> {
+      %0 = call @tt.mark_256_f32(%arg0) {tt.role = "weight"} : (tensor<256xf32>) -> tensor<256xf32>
+      return %0 : tensor<256xf32>
+    }
+    func.func public @main(%arg0: tensor<256xf32> {tt.role = "weight"}) -> tensor<256xf32> {
+      %0 = call @lambda(%arg0) : (tensor<256xf32>) -> tensor<256xf32>
+      return %0 : tensor<256xf32>
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::func::FuncDialect"
+  ];
+}
+
 #endif

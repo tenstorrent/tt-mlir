@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 
 #include "mlir/Transforms/Passes.h"
 
@@ -13,6 +14,9 @@ namespace mlir::tt::stablehlo {
 
 void createStableHLOPipeline(OpPassManager &pm,
                              const StableHLOPipelineOptions &options) {
+  // Propagate tt.role attributes before inlining.
+  pm.addPass(createPropagateRoleAttributesPass());
+
   // Inline all operations to make analysis easier.
   pm.addPass(mlir::createInlinerPass());
 
