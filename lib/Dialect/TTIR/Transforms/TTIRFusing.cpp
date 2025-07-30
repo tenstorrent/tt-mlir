@@ -611,23 +611,50 @@ private:
     //    2. Check that the 3rd input comes from the cachePositions func input
     ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
     if (!concatOp) {
+            return std::nullopt;
+    }
+
+    bool isEffectively1D = false;
+    int64_t effectiveSize = 1;
+    int64_t nonUnaryDims = 0;
+    for (int64_t dim : scatterIdxShape) {
+      if (dim != 1) {
+        nonUnaryDims++;
+        effectiveSize *= dim;
+      }
+    }
+    isEffectively1D = (nonUnaryDims <= 1);
+    if (isEffectively1D && effectiveSize != cacheUpdateSize) {
+
+
+    bool isIndexGrid =
+        (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
+         scatterIdxShape[1] == inputShape[1] &&
+         scatterIdxShape[2] == cacheUpdateSize &&
+         scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
+
+    // Check that is either a 1D cache update or a 4D index grid.
+    if (!isEffectively1D && !isIndexGrid) {
       return std::nullopt;
     }
 
-    mlir::OperandRange inputs = concatOp.getInputs();
-    int32_t dim = concatOp.getDim();
-    if (inputs.size() != 4 || dim != 4) {
-      return std::nullopt;
+    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+    auto blockArgs =
+        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+    for (auto blockArg : blockArgs) {
+      // Check if the block argument is a cachePositions input.
+      auto argTensorShape =
+          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
+      if (argTensorShape.size() != 1) {
+        continue;
+      }
+      if (argTensorShape[0] == cacheUpdateSize) {
+        // We found the cachePositions input tensor.
+        return blockArg;
+      }
     }
 
-    if (!isBroadcastedDimIndices(inputs[0], 0) ||
-        !isBroadcastedDimIndices(inputs[1], 1) ||
-        !isBroadcastedDimIndices(inputs[3], 3)) {
-      return std::nullopt;
-    }
-
-    auto cachePositionInput = getCachePositionsInput(inputs[2]);
-    return cachePositionInput;
+    return std::nullopt;
   }
 
   // For the concat input that can be tracked to the cachePositions input,
