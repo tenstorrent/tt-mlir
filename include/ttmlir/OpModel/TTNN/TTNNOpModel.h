@@ -75,6 +75,9 @@ template <>
 struct OpModel<CeilOp> : UnaryEltwiseOpModel<CeilOp> {};
 
 template <>
+struct OpModel<SignOp> : UnaryEltwiseOpModel<SignOp> {};
+
+template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
 //===----------------------------------------------------------------------===//
@@ -109,6 +112,37 @@ struct OpModel<ExpOp> {
                                              TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// ErfOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ErfOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ErfcOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ErfcOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+};
 //===----------------------------------------------------------------------===//
 // Binary Eltwise Ops
 //===----------------------------------------------------------------------===//

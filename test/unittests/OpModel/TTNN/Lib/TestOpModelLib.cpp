@@ -120,9 +120,13 @@ using OpModelCosParam = OpModelUnaryEltwiseParam<CosOp>;
 using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
 using OpModelTanhParam = OpModelUnaryEltwiseParam<TanhOp>;
 using OpModelLogParam = OpModelUnaryEltwiseParam<LogOp>;
-using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
 using OpModelAbsParam = OpModelUnaryEltwiseParam<AbsOp>;
 using OpModelCeilParam = OpModelUnaryEltwiseParam<CeilOp>;
+using OpModelSignParam = OpModelUnaryEltwiseParam<SignOp>;
+using OpModelErfParam = OpModelUnaryEltwiseParam<ErfOp>;
+using OpModelErfcParam = OpModelUnaryEltwiseParam<ErfcOp>;
+using OpModelReciprocalParam =
+    OpModelUnaryEltwiseParam<ReciprocalOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -134,6 +138,9 @@ TEST_P(OpModelTanhParam, TanhOp) { RunTest(); }
 TEST_P(OpModelLogParam, LogOp) { RunTest(); }
 TEST_P(OpModelAbsParam, AbsOp) { RunTest(); }
 TEST_P(OpModelCeilParam, CeilOp) { RunTest(); }
+TEST_P(OpModelSignParam, SignOp) { RunTest(); }
+TEST_P(OpModelErfParam, ErfOp) { RunTest(); }
+TEST_P(OpModelErfcParam, ErfcOp) { RunTest(); }
 TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
 
 const std::initializer_list<
@@ -205,6 +212,15 @@ INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelAbsParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(CeilTests, OpModelCeilParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(SignTests, OpModelSignParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(ErfTests, OpModelErfParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,

@@ -288,7 +288,9 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil",
     }];
 }
 
-def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise sign operation.";
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
@@ -318,14 +320,18 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
     }];
 }
 
-def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
+def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise erf op.";
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
       }];
 }
 
-def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise erfc op.";
     let description = [{
         Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
