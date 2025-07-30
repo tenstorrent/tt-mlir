@@ -1297,14 +1297,24 @@ private:
         static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
     });
 
-    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+    SmallVector<int32_t> padding({
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
     });
 
+    // Padding is top, bottom, left, right. If bottom == top + 1, and right ==
+    // left + 1. The padding should be set to top == bottom and left == right
+    // with ceil_mode= true.
     auto ceilModeAttr = rewriter.getBoolAttr(false);
+    if (padding[1] == padding[0] + 1 && padding[3] == padding[2] + 1) {
+      padding[0] = padding[1];
+      padding[2] = padding[3];
+      ceilModeAttr = rewriter.getBoolAttr(true);
+    }
+
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr(padding);
 
     llvm::SmallVector<Value> outputs;
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
