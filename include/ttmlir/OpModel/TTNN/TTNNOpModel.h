@@ -502,6 +502,24 @@ struct OpModel<mlir::tt::ttnn::MorehCumSumOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RepeatInterleaveOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::RepeatInterleaveOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const unsigned int repeats,
+      const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+               const unsigned int repeats, const int dim,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 

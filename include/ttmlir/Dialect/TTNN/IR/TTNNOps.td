@@ -1126,7 +1126,9 @@ def TTNN_TransposeOp : TTNN_Op<"transpose",
     let hasVerifier = 1;
 }
 
-def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat interleave op.";
     let description = [{
       Repeats elements of a tensor along a specified dimension.
