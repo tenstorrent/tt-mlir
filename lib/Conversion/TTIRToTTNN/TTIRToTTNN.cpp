@@ -1439,6 +1439,51 @@ public:
 } // namespace
 
 namespace {
+class RandOpConversionPattern : public OpConversionPattern<ttir::RandOp> {
+public:
+  using OpConversionPattern<ttir::RandOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RandOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Get ttnn::TTNNLayoutAttr of the result type.
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    mlir::tt::ttcore::DataType dtype =
+        mlir::tt::ttcore::elementTypeToDataType(adaptor.getDtype());
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::Layout ttnnLayoutEnum =
+        layoutAttr.isTiled() ? ttnn::Layout::Tile : ttnn::Layout::RowMajor;
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+
+    ttnn::ShapeAttr sizeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(),
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+
+    rewriter.replaceOpWithNewOp<ttnn::RandOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), sizeAttr,
+        device, dTypeAttr, tensorLayoutAttr, memoryConfigAttr,
+        adaptor.getLowAttr(), adaptor.getHighAttr(), adaptor.getSeedAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
@@ -1813,6 +1858,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReduceScatterOpConversionPattern,
            CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
+           RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
