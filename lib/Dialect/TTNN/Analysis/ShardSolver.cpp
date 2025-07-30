@@ -287,9 +287,8 @@ bool ShardSolver::resolveStep() {
   return true;
 }
 
-bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
-                                                        OpConfig outputConfig,
-                                                        bool rowMajorInput) {
+bool ShardSolver::supportsInterleavedInputShardedOutput(
+    Operation *op, OpConfig outputConfig, bool rowMajorInputOverride) {
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   TTNNLayoutAttr inputLayout =
@@ -299,7 +298,7 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
-  if (rowMajorInput) {
+  if (rowMajorInputOverride) {
     inputLayout = utils::convertTTNNLayoutToRowMajor(op->getContext(),
                                                      inputLayout, tensorShape);
   }
@@ -330,14 +329,14 @@ bool ShardSolver::preprocessFirstOp() {
   }
 
   Operation *preFirstOp = firstOp->getOperand(0).getDefiningOp();
-  bool rowMajorInput = false;
+  bool rowMajorInputOverride = false;
   if (preFirstOp && isa<NameLoc>(preFirstOp->getLoc())) {
     StringRef opLocName = mlir::cast<NameLoc>(preFirstOp->getLoc()).getName();
     auto opOutputOverride = overrideOutputLayout.find(opLocName);
     if (opOutputOverride != overrideOutputLayout.end() &&
         opOutputOverride->getValue().memoryLayout.has_value() &&
         opOutputOverride->getValue().memoryLayout.value() == Layout::RowMajor) {
-      rowMajorInput = true;
+      rowMajorInputOverride = true;
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Row-major input override found for first op in chain {}",
                    firstOp->getName());
@@ -357,7 +356,7 @@ bool ShardSolver::preprocessFirstOp() {
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
-                                               rowMajorInput)) {
+                                               rowMajorInputOverride)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Interleaved to sharded not possible for config idx {} "
                    "\n\tlayout: {}",

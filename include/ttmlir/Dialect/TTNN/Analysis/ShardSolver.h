@@ -335,9 +335,9 @@ public:
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
-  bool supportsInterleavedInputShardedOutput(Operation *op,
-                                             OpConfig outputConfig,
-                                             bool rowMajorInput = false);
+  bool
+  supportsInterleavedInputShardedOutput(Operation *op, OpConfig outputConfig,
+                                        bool rowMajorInputOverride = false);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
   bool resolve();
