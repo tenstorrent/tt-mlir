@@ -1155,6 +1155,401 @@ private:
   }
 };
 
+class FuseAveragePooling : public mlir::OpRewritePattern<DivOp> {
+public:
+  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
+    // Numerator must be poolingOp.
+    PoolingOp numerator = op.getLhs().getDefiningOp<PoolingOp>();
+    if (!numerator) {
+      return mlir::failure();
+    }
+
+    // Numerator must have the Sum pooling method.
+    if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
+      return mlir::failure();
+    }
+
+    // Denominator must trace through first operands to pooling op.
+    Value currentDenominator = op.getRhs();
+    PoolingOp denominator;
+    while (!currentDenominator.getDefiningOp<PoolingOp>()) {
+      if (!currentDenominator.getDefiningOp()) {
+        return mlir::failure();
+      }
+      // We expect that the pooling denominator is only reshaped (for rank
+      // change) and broadcasted if any ops lies between at all. If any other
+      // ops lie between the denominator pooling op and the div op, then we
+      // cannot fuse.
+      if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
+        return mlir::failure();
+      }
+      currentDenominator = currentDenominator.getDefiningOp()->getOperand(0);
+    }
+    denominator = currentDenominator.getDefiningOp<PoolingOp>();
+
+    // The denominator must have the Sum pooling method.
+    if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
+      return mlir::failure();
+    }
+
+    // Denominator pooling op must have the same number of inputs as numerator.
+    if (numerator.getInputs().size() != denominator.getInputs().size()) {
+      return mlir::failure();
+    }
+
+    // For now we will only fuse if the pooling op has a single activation input
+    if (numerator.getInputs().size() != 1) {
+      return mlir::failure();
+    }
+
+    // Denominator pooling op must have all inputs be either a FullOp or a
+    // ConstantOp.
+    if (!llvm::all_of(denominator.getInputs(), [](Value v) {
+          return isa<FullOp, ConstantOp>(v.getDefiningOp());
+        })) {
+      return mlir::failure();
+    }
+
+    // Besides the padding attribute, all attributes of the denominator must
+    // match the rightmost sublist of the numerator's attributes.
+    if (!matchRightMostSubList(numerator.getWindowDimensions(),
+                               denominator.getWindowDimensions())) {
+      return mlir::failure();
+    }
+
+    if (!matchRightMostSubList(numerator.getWindowStrides(),
+                               denominator.getWindowStrides())) {
+      return mlir::failure();
+    }
+
+    if (!matchRightMostSubList(numerator.getBaseDilations(),
+                               denominator.getBaseDilations())) {
+      return mlir::failure();
+    }
+
+    if (!matchRightMostSubList(numerator.getWindowDilations(),
+                               denominator.getWindowDilations())) {
+      return mlir::failure();
+    }
+
+    // The padding attribute of the denominator must
+    // be all zeros.
+    if (denominator.getPadding().empty()) {
+      return mlir::failure();
+    }
+
+    for (int64_t paddingValue : denominator.getPadding()) {
+      if (paddingValue != 0) {
+        return mlir::failure();
+      }
+    }
+
+    // At this point we have picked up the pattern:
+    //  activation               constant/full
+    //      |                          |
+    //  sum_pooling                sum_pooling
+    //      |                          |
+    //      |                 reshape and broadcast
+    //      |                          |
+    //      ----------> div <-----------
+    //
+    // We must analyze the contents of the constant/full to determine
+    // The value of ceil_mode, and count_include_pad.
+
+    // If ceil_mode = True, count_include_pad = True
+    //     If the ceil is actually applied (that is ceil(output_size) !=
+    //     output_size)
+
+    //         The constant tensor we will pool, then divide by will be:
+    //             A tensor which is full of ones, except for the bottommost row
+    //             and the rightmost column, which will be zeros
+    //     If the ceil is not applied (that is ceil(output_size) == output_size)
+    //         The constant tensor we will pool, then divide by will be:
+    //             Full of ones
+    //
+    // If ceil_mode = False, count_include_pad = True
+    //     The constant tensor we will pool, then divide by will be:
+    //         Full of ones
+    //
+    // NOTE: If the constant tensor is full of ones, then we know for certian
+    // that count_include_pad is TRUE and it does not matter if ceil_mode is
+    // TRUE or FALSE. We will set ceil_mode to true by default.
+    //
+    // If ceil_mode = True, count_include_pad = False
+    //     IF the ceil is actually applied (that is ceil(output_size) !=
+    //     output_size)
+    //         The constant tensor we will pool, then divide by will be:
+    //             A tensor of ones, padded with zeros around the padding ring
+    //             [top, bottom, left, right]
+    //     If the ceil is not applied (that is ceil(output_size) == output_size)
+    //         The constant tensor we will pool, then divide by will be:
+    //             A tensor of ones, padded with zeros around the padding ring
+    //             [top, bottom, left, right]
+    //
+    // If ceil_mode = False, count_include_pad = False
+    //     The constant tensor we will pool, then divide by will be:
+    //         A tensor of ones, padded with zeros around the padding ring [top,
+    //         bottom, left, right]
+    //
+    // NOTE: We know for certain that count_include_pad is FALSE when the
+    // constant tensor has a padding ring of all zeros according to [top,
+    // bottom, left, right].
+    //       In fact, it does not matter what ceil mode is so long as we keep
+    //       the padding attribute. However, if the padding is uneven along both
+    //       spatial dims, it would be wise to reduce bottom and right by 1 to
+    //       make the padding even, and set ceil_mode to true.
+
+    // We will gather some information that can be used to check multiple cases
+    bool isConstantOnesTensor =
+        checkConstantOnesTensor(denominator.getInputs()[0]);
+    bool isConstantOnesTensorWithExtraRowAndColumnOfZeros =
+        checkConstantOnesTensorWithExtraRowAndColumnOfZeros(
+            denominator.getInputs()[0]);
+
+    SmallVector<int64_t> padding(numerator.getPadding().take_back(
+        cast<RankedTensorType>(denominator.getInputs()[0].getType())
+            .getShape()
+            .size() *
+        2));
+    bool isConstantOnesTensorWithPaddingRingOfZeros =
+        checkConstantOnesTensorWithPaddingRingOfZeros(
+            denominator.getInputs()[0], padding);
+
+    bool isCeilMode;
+    bool isCountIncludePad;
+    if (isConstantOnesTensor ||
+        isConstantOnesTensorWithExtraRowAndColumnOfZeros) {
+      isCountIncludePad = true;
+    } else if (isConstantOnesTensorWithPaddingRingOfZeros) {
+      isCountIncludePad = false;
+
+    } else {
+      // The constant tensor matches none of the patterns we are looking for.
+      return mlir::failure();
+    }
+
+    if (padding[0] < padding[1] && padding[2] < padding[3]) {
+      isCeilMode = true;
+      padding[1] -= 1;
+      padding[3] -= 1;
+    } else {
+      isCeilMode = false;
+    }
+
+    // Need to permute input to channel last
+    RankedTensorType inputTy =
+        cast<RankedTensorType>(numerator.getInputs()[0].getType());
+    SmallVector<int64_t> inputPermuteShape =
+        ttmlir::utils::applyPermutation(inputTy.getShape(), {0, 3, 2, 1});
+    RankedTensorType inputPermuteTy = inputTy.clone(inputPermuteShape);
+    PermuteOp inputPermute = ttir::utils::createDPSOp<PermuteOp>(
+        rewriter, op.getLoc(), inputPermuteTy, numerator.getInputs()[0],
+        SmallVector<int64_t>({0, 3, 2, 1}));
+
+    SmallVector<int64_t> avgPool2dShape(ttmlir::utils::applyPermutation(
+        cast<RankedTensorType>(numerator.getResults()[0].getType()).getShape(),
+        {0, 3, 2, 1}));
+    RankedTensorType avgPool2dTy =
+        cast<RankedTensorType>(numerator.getResults()[0].getType())
+            .clone(avgPool2dShape);
+
+    auto kernelAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t>(
+        {static_cast<int32_t>(numerator.getWindowDimensions()[2]),
+         static_cast<int32_t>(numerator.getWindowDimensions()[3])}));
+    auto strideAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t>(
+        {static_cast<int32_t>(numerator.getWindowStrides()[2]),
+         static_cast<int32_t>(numerator.getWindowStrides()[3])}));
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t>(
+        {static_cast<int32_t>(numerator.getWindowDilations()[2]),
+         static_cast<int32_t>(numerator.getWindowDilations()[3])}));
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t>(
+        {static_cast<int32_t>(padding[0]), static_cast<int32_t>(padding[1]),
+         static_cast<int32_t>(padding[2]), static_cast<int32_t>(padding[3])}));
+    auto ceilModeAttr = rewriter.getBoolAttr(isCeilMode);
+    auto countIncludePadAttr = rewriter.getBoolAttr(isCountIncludePad);
+    AvgPool2dOp avgPool2d = ttir::utils::createDPSOp<AvgPool2dOp>(
+        rewriter, op.getLoc(), avgPool2dTy, inputPermute, kernelAttr,
+        strideAttr, dilationAttr, paddingAttr, ceilModeAttr,
+        countIncludePadAttr, nullptr);
+
+    // Permute output back to channel first
+    PermuteOp outputPermute = ttir::utils::createDPSOp<PermuteOp>(
+        rewriter, op.getLoc(),
+        cast<RankedTensorType>(numerator.getResults()[0].getType()), avgPool2d,
+        SmallVector<int64_t>({0, 3, 1, 2}));
+
+    rewriter.replaceOp(op, outputPermute);
+
+    return mlir::failure();
+  }
+
+private:
+  bool matchRightMostSubList(ArrayRef<int64_t> numeratorAttrs,
+                             ArrayRef<int64_t> denominatorAttrs) const {
+    if (denominatorAttrs.size() > numeratorAttrs.size()) {
+      return false;
+    }
+    ArrayRef<int64_t> subList =
+        numeratorAttrs.take_back(denominatorAttrs.size());
+    return llvm::equal(subList, denominatorAttrs);
+  }
+
+  inline SmallVector<int64_t>
+  getTensorIndexFromBufferIndex(int64_t bufferIndex,
+                                ArrayRef<int64_t> shape) const {
+    SmallVector<int64_t> index;
+    for (size_t i = 0; i < shape.size(); ++i) {
+      index.push_back(bufferIndex % shape[i]);
+      bufferIndex /= shape[i];
+    }
+    return index;
+  }
+
+  inline bool indexInPaddedRegion(ArrayRef<int64_t> index,
+                                  ArrayRef<int64_t> shape,
+                                  ArrayRef<int64_t> padding) const {
+    for (size_t i = 0; i < index.size(); ++i) {
+      int64_t lowPadding = padding[2 * i];
+      int64_t highPadding = padding[2 * i + 1];
+
+      if (index[i] < lowPadding || index[i] >= shape[i] - highPadding) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool checkConstantOnesTensorWithPaddingRingOfZeros(
+      Value input, ArrayRef<int64_t> padding) const {
+    if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      Type constantElementType = inputOp.getValue().getElementType();
+      if (isa<IntegerType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APInt>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (indexInPaddedRegion(tensorIndex, inputOp.getType().getShape(),
+                                  padding)) {
+            if (values[i] != APInt::getZero(values[0].getBitWidth())) {
+              return false;
+            }
+          } else if (values[i] !=
+                     APInt::getOneBitSet(values[0].getBitWidth(), 0)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if (isa<FloatType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APFloat>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (indexInPaddedRegion(tensorIndex, inputOp.getType().getShape(),
+                                  padding)) {
+            if (values[i] != APFloat::getZero(values[0].getSemantics())) {
+              return false;
+            }
+          } else if (values[i] != APFloat::getOne(values[0].getSemantics())) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool checkConstantOnesTensorWithExtraRowAndColumnOfZeros(Value input) const {
+    if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      Type constantElementType = inputOp.getValue().getElementType();
+      if (isa<IntegerType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APInt>();
+        APInt one = APInt::getOneBitSet(values[0].getBitWidth(), 0);
+        APInt zero = APInt::getZero(values[0].getBitWidth());
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[0] == inputOp.getType().getShape()[0] - 1 ||
+              tensorIndex[1] == inputOp.getType().getShape()[1] - 1) {
+            if (values[i] != zero) {
+              return false;
+            }
+          } else if (values[i] != one) {
+            return false;
+          }
+        }
+      }
+      if (isa<FloatType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APFloat>();
+        APFloat one = APFloat::getOne(values[0].getSemantics());
+        APFloat zero = APFloat::getZero(values[0].getSemantics());
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[0] == inputOp.getType().getShape()[0] - 1 ||
+              tensorIndex[1] == inputOp.getType().getShape()[1] - 1) {
+            if (values[i] != zero) {
+              return false;
+            }
+          } else if (values[i] != one) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  bool checkConstantOnesTensor(Value input) const {
+    if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      Type constantElementType = inputOp.getValue().getElementType();
+      if (isa<IntegerType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APInt>();
+        for (auto value : values) {
+          if (value != APInt::getOneBitSet(values[0].getBitWidth(), 0)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if (isa<FloatType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APFloat>();
+        for (auto value : values) {
+          if (value != APFloat::getOne(value.getSemantics())) {
+            return false;
+          }
+        }
+        return true;
+      }
+    } else if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
+      if (isa<IntegerAttr>(inputOp.getFillValue())) {
+        int64_t value = dyn_cast<IntegerAttr>(inputOp.getFillValue())
+                            .getValue()
+                            .getSExtValue();
+        if (value != 1) {
+          return false;
+        }
+        return true;
+      }
+      if (isa<FloatAttr>(inputOp.getFillValue())) {
+        float value = dyn_cast<FloatAttr>(inputOp.getFillValue())
+                          .getValue()
+                          .convertToFloat();
+        if (value != 1.0) {
+          return false;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1191,8 +1586,9 @@ public:
       patterns.add<CacheFillUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
-      patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
-          &getContext());
+      // patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
+      //     &getContext());
+      patterns.add<FuseAveragePooling>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
