@@ -55,6 +55,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -254,6 +255,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::RandOp: {
+    return operations::rand::run(op->type_as_RandOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),

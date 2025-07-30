@@ -63,6 +63,22 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RandOp::verify() {
+  ttcore::DataType dtype = getDtype();
+  ttcore::DataType outputType = mlir::tt::ttcore::elementTypeToDataType(
+      getResult().getType().getElementType());
+
+  if (dtype != outputType) {
+    return emitOpError() << "dtype does not match with output tensor type.";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
