@@ -169,16 +169,7 @@ if enable_runtime:
         paths = []
         for path, directories, filenames in os.walk(directory):
             for filename in filenames:
-                # Current (broken):
-                # paths.append(os.path.join("..", path, filename))
-
-                # Should be:
-                # paths.append(os.path.join(path, filename))
-                # Or more specifically, relative to 'ttrt/runtime/':
-                rel_path = os.path.relpath(
-                    os.path.join(path, filename), "ttrt/runtime/"
-                )
-                paths.append(rel_path)
+                paths.append(os.path.join("..", path, filename))
         return paths
 
     extra_files_tt_metal = package_files(
