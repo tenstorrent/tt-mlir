@@ -3619,6 +3619,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                        BoolAttr:$ceil_mode,
+                       BoolAttr:$count_include_pad,
                        DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
   let results = (outs AnyRankedTensor:$result);
