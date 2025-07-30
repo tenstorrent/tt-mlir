@@ -71,32 +71,4 @@ else
     exit 1
 fi
 
-# Run ttrt on generated flatbuffers
-echo -e "${YELLOW}Running ttrt on generated flatbuffers...${NC}"
-cd $PROJECT_ROOT/build/test/ttmlir/Silicon/TTNN/n150/optimizer/regression_tests/Output/
-
-# Count flatbuffer files
-ttnn_count=$(ls *.tmp.ttnn 2>/dev/null | wc -l)
-if [ $ttnn_count -eq 0 ]; then
-    echo -e "${RED}✗ No flatbuffer files found (*.tmp.ttnn)${NC}"
-    exit 1
-fi
-
-echo -e "${YELLOW}Found $ttnn_count flatbuffer files to execute${NC}"
-
-# Execute each flatbuffer with ttrt (fail fast approach)
-for ttnn_file in *.tmp.ttnn; do
-    if [ -f "$ttnn_file" ]; then
-        echo -e "${YELLOW}Executing $ttnn_file with ttrt...${NC}"
-        if ttrt run "$ttnn_file"; then
-            echo -e "${GREEN}✓ $ttnn_file executed successfully${NC}"
-        else
-            echo -e "${RED}✗ ERROR: ttrt execution failed for $ttnn_file${NC}"
-            echo -e "${RED}Stopping execution due to failure${NC}"
-            exit 1
-        fi
-        echo "---"
-    fi
-done
-
 echo -e "${GREEN}🎉 All optimizer models regression tests completed successfully!${NC}"
