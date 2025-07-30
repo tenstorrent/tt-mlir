@@ -3558,6 +3558,8 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
   let results = (outs Variadic<AnyRankedTensor>);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {

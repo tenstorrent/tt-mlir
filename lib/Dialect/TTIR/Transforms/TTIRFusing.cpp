@@ -1241,17 +1241,25 @@ public:
     //       make the padding even, and set ceil_mode to true.
 
     // We will gather some information that can be used to check multiple cases
-    bool isConstantOnesTensor =
-        checkConstantOnesTensor(denominator.getInputs()[0]);
-    bool isConstantOnesTensorWithExtraRowAndColumnOfZeros =
-        checkConstantOnesTensorWithExtraRowAndColumnOfZeros(
-            denominator.getInputs()[0]);
 
     SmallVector<int64_t> padding(numerator.getPadding().take_back(
         cast<RankedTensorType>(denominator.getInputs()[0].getType())
             .getShape()
             .size() *
         2));
+
+    bool isConstantOnesTensor =
+        checkConstantOnesTensor(denominator.getInputs()[0]);
+    bool isConstantOnesTensorWithExtraRowOfZeros =
+        checkConstantOnesTensorWithinPaddingWithExtraRowOfZeros(
+            denominator.getInputs()[0], padding);
+    bool isConstantOnesTensorWithExtraColumnOfZeros =
+        checkConstantOnesTensorWithinPaddingWithExtraColumnOfZeros(
+            denominator.getInputs()[0], padding);
+    bool isConstantOnesTensorWithExtraRowAndColumnOfZeros =
+        checkConstantOnesTensorWithExtraRowAndColumnOfZeros(
+            denominator.getInputs()[0]);
+
     bool isConstantOnesTensorWithPaddingRingOfZeros =
         checkConstantOnesTensorWithPaddingRingOfZeros(
             denominator.getInputs()[0], padding);
@@ -1259,7 +1267,9 @@ public:
     bool isCeilMode;
     bool isCountIncludePad;
     if (isConstantOnesTensor ||
-        isConstantOnesTensorWithExtraRowAndColumnOfZeros) {
+        isConstantOnesTensorWithExtraRowAndColumnOfZeros ||
+        isConstantOnesTensorWithExtraRowOfZeros ||
+        isConstantOnesTensorWithExtraColumnOfZeros) {
       isCountIncludePad = true;
     } else if (isConstantOnesTensorWithPaddingRingOfZeros) {
       isCountIncludePad = false;
@@ -1269,7 +1279,13 @@ public:
       return mlir::failure();
     }
 
-    if (padding[0] < padding[1] && padding[2] < padding[3]) {
+    if (isConstantOnesTensorWithExtraRowOfZeros) {
+      isCeilMode = true;
+      padding[1] -= 1;
+    } else if (isConstantOnesTensorWithExtraColumnOfZeros) {
+      isCeilMode = true;
+      padding[3] -= 1;
+    } else if (isConstantOnesTensorWithExtraRowAndColumnOfZeros) {
       isCeilMode = true;
       padding[1] -= 1;
       padding[3] -= 1;
@@ -1277,19 +1293,24 @@ public:
       isCeilMode = false;
     }
 
+    // padding is currently in [top, bottom, left, right]
+    // We need to permute it to [top, left, bottom, right]
+    padding =
+        SmallVector<int64_t>({padding[0], padding[2], padding[1], padding[3]});
+
     // Need to permute input to channel last
     RankedTensorType inputTy =
         cast<RankedTensorType>(numerator.getInputs()[0].getType());
     SmallVector<int64_t> inputPermuteShape =
-        ttmlir::utils::applyPermutation(inputTy.getShape(), {0, 3, 2, 1});
+        ttmlir::utils::applyPermutation(inputTy.getShape(), {0, 2, 3, 1});
     RankedTensorType inputPermuteTy = inputTy.clone(inputPermuteShape);
     PermuteOp inputPermute = ttir::utils::createDPSOp<PermuteOp>(
         rewriter, op.getLoc(), inputPermuteTy, numerator.getInputs()[0],
-        SmallVector<int64_t>({0, 3, 2, 1}));
+        SmallVector<int64_t>({0, 2, 3, 1}));
 
     SmallVector<int64_t> avgPool2dShape(ttmlir::utils::applyPermutation(
         cast<RankedTensorType>(numerator.getResults()[0].getType()).getShape(),
-        {0, 3, 2, 1}));
+        {0, 2, 3, 1}));
     RankedTensorType avgPool2dTy =
         cast<RankedTensorType>(numerator.getResults()[0].getType())
             .clone(avgPool2dShape);
@@ -1338,9 +1359,9 @@ private:
   inline SmallVector<int64_t>
   getTensorIndexFromBufferIndex(int64_t bufferIndex,
                                 ArrayRef<int64_t> shape) const {
-    SmallVector<int64_t> index;
-    for (size_t i = 0; i < shape.size(); ++i) {
-      index.push_back(bufferIndex % shape[i]);
+    SmallVector<int64_t> index(shape.size());
+    for (int64_t i = shape.size() - 1; i >= 0; i--) {
+      index[i] = (bufferIndex % shape[i]);
       bufferIndex /= shape[i];
     }
     return index;
@@ -1388,6 +1409,84 @@ private:
               getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
           if (indexInPaddedRegion(tensorIndex, inputOp.getType().getShape(),
                                   padding)) {
+            if (values[i] != APFloat::getZero(values[0].getSemantics())) {
+              return false;
+            }
+          } else if (values[i] != APFloat::getOne(values[0].getSemantics())) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool checkConstantOnesTensorWithinPaddingWithExtraRowOfZeros(
+      Value input, ArrayRef<int64_t> padding) const {
+    if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      Type constantElementType = inputOp.getValue().getElementType();
+      if (isa<IntegerType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APInt>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[0] == inputOp.getType().getShape()[0] - 1) {
+            if (values[i] != APInt::getZero(values[0].getBitWidth())) {
+              return false;
+            }
+          } else if (values[i] !=
+                     APInt::getOneBitSet(values[0].getBitWidth(), 0)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if (isa<FloatType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APFloat>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[0] == inputOp.getType().getShape()[0] - 1) {
+            if (values[i] != APFloat::getZero(values[0].getSemantics())) {
+              return false;
+            }
+          } else if (values[i] != APFloat::getOne(values[0].getSemantics())) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool checkConstantOnesTensorWithinPaddingWithExtraColumnOfZeros(
+      Value input, ArrayRef<int64_t> padding) const {
+    if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      Type constantElementType = inputOp.getValue().getElementType();
+      if (isa<IntegerType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APInt>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[1] == inputOp.getType().getShape()[1] - 1) {
+            if (values[i] != APInt::getZero(values[0].getBitWidth())) {
+              return false;
+            }
+          } else if (values[i] !=
+                     APInt::getOneBitSet(values[0].getBitWidth(), 0)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if (isa<FloatType>(constantElementType)) {
+        auto values = inputOp.getValue().getValues<APFloat>();
+        for (size_t i = 0; i < values.size(); ++i) {
+          SmallVector<int64_t> tensorIndex =
+              getTensorIndexFromBufferIndex(i, inputOp.getType().getShape());
+          if (tensorIndex[1] == inputOp.getType().getShape()[1] - 1) {
             if (values[i] != APFloat::getZero(values[0].getSemantics())) {
               return false;
             }
