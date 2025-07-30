@@ -1314,6 +1314,12 @@ private:
       ceilModeAttr = rewriter.getBoolAttr(true);
     }
 
+    // In PoolingOp padding is [..., high, low, ...] for every dimension.
+    // We've calculated padding in the form [top, bottom, left, right].
+    // We need to permute it to [top, left, bottom, right].
+    padding =
+        SmallVector<int32_t>({padding[0], padding[2], padding[1], padding[3]});
+
     auto paddingAttr = rewriter.getDenseI32ArrayAttr(padding);
 
     llvm::SmallVector<Value> outputs;

@@ -31,6 +31,7 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <numeric>
@@ -1191,6 +1192,72 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 // - `padding` contains 2 x input rank elements (low/high per dimension).
 // - Number of inputs equals number of outputs.
 //===----------------------------------------------------------------------===//
+
+template <typename numeric_type>
+numeric_type indexTensor(const std::unique_ptr<numeric_type[]> &tensor,
+                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
+  int64_t bufferIndex = 0;
+
+  for (size_t i = 0; i < shape.size(); i++) {
+    bufferIndex += index[i] * shape[i];
+  }
+
+  return tensor[bufferIndex];
+}
+
+// SmallVector<SmallVector<int64_t>> getWindow(ArrayRef<int64_t>
+// leastSignificantCorner, PoolingOp op) {
+//   SmallVector<SmallVector<int64_t>> window;
+//   for (int64_t dim : op.getWindowDimensions()) {
+
+//   }
+// }
+
+::mlir::LogicalResult
+mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
+                                SmallVectorImpl<OpFoldResult> &results) {
+  for (int64_t dilation : getBaseDilations()) {
+    if (dilation != 1) {
+      return mlir::failure();
+    }
+  }
+
+  for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
+    auto input = adaptor.getInputs()[i];
+    if (!isa<ElementsAttr>(input)) {
+      return mlir::failure();
+    }
+
+    ElementsAttr elements = cast<ElementsAttr>(input);
+    if (elements.isSplat()) {
+      return mlir::failure();
+    }
+
+    auto inputShape = elements.getShapedType().getShape();
+    auto outputShape =
+        cast<RankedTensorType>(getResult(i).getType()).getShape();
+
+    if (isa<FloatType>(elements.getElementType())) {
+      std::unique_ptr<float[]> tensor =
+          std::make_unique<float[]>(elements.getNumElements());
+      auto values = elements.getValues<llvm::APFloat>();
+      for (int64_t i = 0; i < elements.getNumElements(); i++) {
+        tensor[i] = values[i].convertToFloat();
+      }
+
+      std::unique_ptr<float[]> outputTensor = std::make_unique<float[]>(
+          std::accumulate(outputShape.begin(), outputShape.end(), 1,
+                          std::multiplies<int64_t>()));
+
+      for (int64_t i = 0; i < outputShape.size(); i++) {
+        for (int64_t j = 0; j < inputShape.size(); j++) {
+          outputTensor[i] = indexTensor(tensor, inputShape, {i, j});
+        }
+      }
+    }
+  }
+  return mlir::failure();
+}
 
 ::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
 
