@@ -14,7 +14,6 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <optional>
 #include <tuple>
