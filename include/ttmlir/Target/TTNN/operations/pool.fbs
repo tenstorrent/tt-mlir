@@ -23,6 +23,7 @@ table Pool2dOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
+  count_include_pad: bool = true;
   in_place_halo: bool = false;
 }
 
