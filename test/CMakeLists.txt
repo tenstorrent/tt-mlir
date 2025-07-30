@@ -55,14 +55,16 @@ set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
 # Add custom target to execute tests without compiling
 add_custom_target(run-ttmlir-tests COMMAND ${CMAKE_CTEST_COMMAND} -R check-ttmlir DEPENDS check-ttmlir)
 
-# Add custom target for optimizer models regression tests
-add_custom_target(check-optimizer-models-regression
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir/Silicon/TTNN/n150/optimizer/regression_tests/run_regression_tests.sh
-    DEPENDS ${TTMLIR_TEST_DEPENDS}
+# Add custom target for optimizer models performance tests
+add_custom_target(check-perf
+    COMMAND ${CMAKE_COMMAND} -E env SYSTEM_DESC_PATH=${CMAKE_SOURCE_DIR}/ttrt-artifacts/system_desc.ttsys
+            llvm-lit -v --param TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS=1
+            ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir/Silicon/TTNN/n150/optimizer/models_perf_tests
+    DEPENDS ${TTMLIR_TEST_DEPENDS} ttrt
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running optimizer models regression tests (resnet, yolo_v8, segformer)"
+    COMMENT "Running optimizer models performance tests (resnet, yolo_v8, segformer)"
 )
-set_target_properties(check-optimizer-models-regression PROPERTIES FOLDER "Tests")
+set_target_properties(check-perf PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(TTMLIRCompiler ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
 

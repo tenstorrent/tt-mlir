@@ -1,4 +1,4 @@
-// REQUIRES: opmodel, regression
+// REQUIRES: opmodel, perf
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false enable-fusing-pass=true" -o yolo_v8_ttnn.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer yolo_v8_ttnn.mlir > %t.ttnn
 // RUN: ttrt run %t.ttnn
@@ -970,7 +970,7 @@ module @YOLOv8 {
     %962 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc472)
     %963 = "ttir.transpose"(%961, %962) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc472)
     %964 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc473)
-    %965 = "ttir.max_pool2d"(%963, %964) <{ceil_mode = false, dilation_height = 1 : si32, dilation_width = 1 : si32, kernel_height = 5 : si32, kernel_width = 5 : si32, padding_bottom = 2 : si32, padding_left = 2 : si32, padding_right = 2 : si32, padding_top = 2 : si32, stride_height = 1 : si32, stride_width = 1 : si32}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc473)
+    %965 = "ttir.max_pool2d"(%963, %964) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc473)
     %966 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc474)
     %967 = "ttir.transpose"(%965, %966) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc474)
     %968 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc475)
@@ -980,7 +980,7 @@ module @YOLOv8 {
     %972 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc276)
     %973 = "ttir.transpose"(%971, %972) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc276)
     %974 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc277)
-    %975 = "ttir.max_pool2d"(%973, %974) <{ceil_mode = false, dilation_height = 1 : si32, dilation_width = 1 : si32, kernel_height = 5 : si32, kernel_width = 5 : si32, padding_bottom = 2 : si32, padding_left = 2 : si32, padding_right = 2 : si32, padding_top = 2 : si32, stride_height = 1 : si32, stride_width = 1 : si32}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc277)
+    %975 = "ttir.max_pool2d"(%973, %974) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc277)
     %976 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc278)
     %977 = "ttir.transpose"(%975, %976) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc278)
     %978 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc279)
@@ -990,7 +990,7 @@ module @YOLOv8 {
     %982 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc281)
     %983 = "ttir.transpose"(%981, %982) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc281)
     %984 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc282)
-    %985 = "ttir.max_pool2d"(%983, %984) <{ceil_mode = false, dilation_height = 1 : si32, dilation_width = 1 : si32, kernel_height = 5 : si32, kernel_width = 5 : si32, padding_bottom = 2 : si32, padding_left = 2 : si32, padding_right = 2 : si32, padding_top = 2 : si32, stride_height = 1 : si32, stride_width = 1 : si32}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc282)
+    %985 = "ttir.max_pool2d"(%983, %984) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc282)
     %986 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc283)
     %987 = "ttir.transpose"(%985, %986) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc283)
     %988 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc284)
