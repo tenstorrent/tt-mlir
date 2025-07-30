@@ -505,7 +505,7 @@ llvm::Expected<bool> parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
 }
 
 // Generate default ShardyMeshSharding.
-llvm::Expected<ShardyMeshSharding> generateDefault() {
+llvm::Expected<ShardyMeshSharding> ShardyMeshSharding::generateDefault() {
   return ShardyMeshSharding{
       mlir::tt::ttcore::MeshShardDirection::FullToShard,
       mlir::tt::ttcore::MeshShardType::Identity,
