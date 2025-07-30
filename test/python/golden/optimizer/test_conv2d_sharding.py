@@ -79,7 +79,7 @@ def test_conv2d_sharding(
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
-        system_desc_path=os.environ.get("SYSTEM_DESC_PATH"),
+        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",
             "memory-layout-analysis-enabled=true",
