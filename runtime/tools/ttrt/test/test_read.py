@@ -173,7 +173,7 @@ def test_section_read():
         "inputs",
         "outputs",
         "op_stats",
-        # "cpp",
+        "cpp",
     ]
     for section in sections:
         custom_args["--section"] = section

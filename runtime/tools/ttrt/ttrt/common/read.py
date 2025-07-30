@@ -226,9 +226,7 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                x = self.read_action_functions[self["--section"]](bin)
-                self.logging.info(type(x))
-                self.outputs.append(x[0, 10])
+                self.outputs.append(self.read_action_functions[self["--section"]](bin))
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -248,10 +246,7 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                x = self.read_action_functions[self["--section"]](bin)
-                self.logging.info(type(x))
-                print(type(x))
-                self.outputs.append(x)
+                self.outputs.append(self.read_action_functions[self["--section"]](bin))
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -455,8 +450,6 @@ class Read:
         return self._operate_on_binary(binaries, _get_mlir)
 
     def cpp(self, *binaries):
-        print("opening cpp")
-
         def _get_cpp(binary):
             results = []
             for index in range(binary.fbb.get_num_programs()):
