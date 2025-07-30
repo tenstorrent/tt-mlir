@@ -1987,7 +1987,7 @@ class TTIRBuilderOps:
             Input tensor
         keep_dim : bool, optional
             If True, retains reduced dimensions with length 1 (default: True)
-        dim_args : Optional[List], optional
+        dim_args : *Optional[List]*, optional
             Dimensions to reduce over (default: None, reduces over all dimensions)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
@@ -2028,7 +2028,7 @@ class TTIRBuilderOps:
             Input tensor
         keep_dim : bool, optional
             If True, retains reduced dimensions with length 1 (default: True)
-        dim_args : Optional[List], optional
+        dim_args : *Optional[List]*, optional
             Dimensions to reduce over (default: None, reduces over all dimensions)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
@@ -2752,7 +2752,7 @@ class TTIRBuilderOps:
             Input tensor of shape (batch, in_channels, height, width)
         weight : Operand
             Weight tensor of shape (in_channels, out_channels/groups, kernel_height, kernel_width)
-        bias : Optional[Operand]
+        bias : *Optional[Operand]*
             Optional bias tensor of shape (out_channels)
         in1 : Operand
             Output tensor shape reference
@@ -3240,7 +3240,7 @@ class TTIRBuilderOps:
         ----------
         in0 : Operand
             Input tensor
-        dim : Optional[int], optional
+        dim : *Optional[int]*, optional
             Dimension to squeeze (default: 0)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
@@ -3277,7 +3277,7 @@ class TTIRBuilderOps:
         ----------
         in0 : Operand
             Input tensor
-        dim : Optional[int], optional
+        dim : *Optional[int]*, optional
             Position to insert the new dimension (default: 0)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
@@ -4520,10 +4520,16 @@ class TTIRBuilderOps:
 
         Example:
             For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
-        %source_target_pairs: [[0, 1], [1, 0]]
+
+        .. code-block:: mlir
+
+            %source_target_pairs: [[0, 1], [1, 0]]
 
         In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
-        %source_target_pairs: [[0, 1]]
+
+        .. code-block:: mlir
+
+            %source_target_pairs: [[0, 1]]
 
         Parameters
         ----------

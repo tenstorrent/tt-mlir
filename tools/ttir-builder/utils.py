@@ -9,6 +9,7 @@ import torch
 import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 
+from ttmlir import optimizer_overrides
 from ttmlir.dialects import func
 from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
@@ -28,6 +29,13 @@ TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
 # Default output to the current directory from where this module is being invoked
 OUTPUT_PATH = ""
+
+OPTIMIZATION_POLICIES = {
+    "Optimizer Disabled": False,
+    "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
+    "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
+    "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
+}
 
 
 class Marks:
@@ -166,6 +174,60 @@ def create_custom_pipeline_fn(
     return wrapper
 
 
+def optimizations_to_str(optimization_policy, builder):
+    """
+    Converts optimization settings to a string representation for the pipeline.
+
+    Parameters
+    ----------
+    optimization_policy : str
+        The optimization policy to use. Valid values are:
+        - 'Optimizer Disabled': Disables the optimizer
+        - 'DF Sharding': Uses data flow sharding policy
+        - 'Greedy L1 Interleaved': Uses greedy L1 interleaved policy
+        - 'BF Interleaved': Uses breadth-first interleaved policy
+        If None or empty, enables optimizer but disables memory layout analysis.
+
+    builder : TTIRBuilder
+        The TTIRBuilder instance containing output layout and Conv2d config parameters
+
+    Returns
+    -------
+    str
+        String representation of the optimization settings for use in pipeline options
+
+    Raises
+    ------
+    ValueError
+        If an invalid optimization policy is provided
+    """
+    override_handler = optimizer_overrides.OptimizerOverridesHandler()
+    # Parse optimization policy from optimization_options.
+    if optimization_policy:
+        if optimization_policy not in OPTIMIZATION_POLICIES:
+            raise ValueError(
+                f"Invalid optimization policy selected: {optimization_policy}"
+            )
+        if optimization_policy == "Optimizer Disabled":
+            override_handler.set_enable_optimizer(False)
+        else:
+            override_handler.set_enable_optimizer(True)
+            override_handler.set_enable_memory_layout_analysis(True)
+            override_handler.set_memory_layout_analysis_policy(
+                OPTIMIZATION_POLICIES[optimization_policy]
+            )
+    else:
+        override_handler.set_enable_optimizer(True)
+        override_handler.set_enable_memory_layout_analysis(False)
+
+    # Add any op-level overrides to override_handler
+    for op_loc, param in builder._get_output_layout_params().items():
+        override_handler.add_output_layout_override(op_loc, param)
+    for op_loc, param in builder._get_conv2d_config_params().items():
+        override_handler.add_conv2d_config_override(op_loc, param)
+    return override_handler.to_string()
+
+
 def build_mlir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -302,14 +364,15 @@ def build_mlir_module(
 
         if module_dump:
             with open(filename, "w") as f:
-                f.write(str(module))
-                print(module)
+                f.write(module.operation.get_asm(enable_debug_info=True))
+            print(module.operation.get_asm(enable_debug_info=True))
 
         return module, builder
 
 
 def run_pipeline(
     module,
+    builder: TTIRBuilder,
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
@@ -317,6 +380,7 @@ def run_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     argument_types_string: Optional[str] = None,
+    optimization_policy: str = "",
 ):
     """
     Runs a pipeline over a module and optionally dumps to file.
@@ -349,12 +413,6 @@ def run_pipeline(
     MLIR module containing MLIR op graph defined by `module` and pipeline_fn.
     """
 
-    if pipeline_options is None:
-        pipeline_options = []
-
-    if argument_types_string:
-        tt_populate_argument_types(module, argument_types_string)
-
     # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
@@ -366,6 +424,14 @@ def run_pipeline(
         pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
     if argument_types_string:
         pipeline_options.append("enable-const-eval=true")
+        tt_populate_argument_types(module, argument_types_string)
+    if (
+        optimization_policy
+        or builder._get_output_layout_params()
+        or builder._get_conv2d_config_params()
+    ):
+        overrides = optimizations_to_str(optimization_policy, builder)
+        pipeline_options.append(overrides)
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
@@ -397,6 +463,7 @@ def compile_to_flatbuffer(
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
+    optimization_policy: str = "",
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -471,6 +538,8 @@ def compile_to_flatbuffer(
     if pipeline_options is None:
         pipeline_options = []
 
+    if optimization_policy is None:
+        optimization_policy = {}
     pipeline_fn: Callable
     to_target: Callable
     mlir_suffix: str
@@ -519,6 +588,7 @@ def compile_to_flatbuffer(
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = run_pipeline(
         module,
+        builder,
         pipeline_fn,
         pipeline_options=pipeline_options,
         dump_to_file=module_dump,
@@ -526,6 +596,7 @@ def compile_to_flatbuffer(
         system_desc_path=system_desc_path,
         mesh_shape=mesh_shape,
         argument_types_string=argument_types_string,
+        optimization_policy=optimization_policy,
     )
     print(f"{target} pipeline ran successfully.")
 

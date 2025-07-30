@@ -4,8 +4,9 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Dict, Tuple
 
+from ttmlir import optimizer_overrides
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 
@@ -913,6 +914,86 @@ def test_concat(shapes: List[Shape], dim: int, request):
     )
 
 
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize(
+    "optimization_policy",
+    [None, "Optimizer Disabled", "Greedy L1 Interleaved"],
+)
+def test_optimization_policies(
+    shape: Shape,
+    dtype: torch.dtype,
+    optimization_policy: str,
+    request,
+):
+    compile_to_flatbuffer(
+        matmul,
+        [shape, shape],
+        [dtype, dtype],
+        optimization_policy=optimization_policy,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+output_layout_overrides = {
+    "data_type": "f32",
+    "memory_layout": "tile",
+    "buffer_type": "l1",
+    "tensor_memory_layout": "interleaved",
+    "grid_shape": "[1x1]",
+}
+
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32])
+def test_output_layout_overrides(
+    shape: Shape,
+    dtype: torch.dtype,
+    request,
+):
+    def matmul_overrides(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        matmul_0 = builder.matmul(in0, in1, unit_attrs=unit_attrs)
+        builder.set_output_layout_override(output_layout_overrides, matmul_0)
+        return matmul_0
+
+    compile_to_flatbuffer(
+        matmul_overrides,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+conv2d_config = {
+    "dtype": "f32",
+    "weights_dtype": "f32",
+    "activation": "none",
+    "deallocate_activation": "false",
+    "reallocate_halo_output": "false",
+    "act_block_h_override": "0",
+    "act_block_w_div": "1",
+    "reshard_if_not_optimal": "false",
+    "override_sharding_config": "false",
+    "shard_layout": "height_sharded",
+    "core_grid": "#ttnn.core_range_set<>",
+    "transpose_shards": "true",
+    "output_layout": "tile",
+    "enable_act_double_buffer": "false",
+    "enable_weights_double_buffer": "false",
+    "enable_split_reader": "false",
+    "enable_subblock_padding": "false",
+}
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -928,6 +1009,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
+@pytest.mark.parametrize("config", [None, conv2d_config])
 def test_conv2d(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -935,6 +1017,7 @@ def test_conv2d(
     padding: List[int],
     dilation: List[int],
     groups: int,
+    config: Dict[str, str],
     request,
 ):
     def conv2d(
@@ -945,7 +1028,7 @@ def test_conv2d(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.conv2d(
+        conv2d_0 = builder.conv2d(
             in0,
             weight,
             bias,
@@ -956,6 +1039,9 @@ def test_conv2d(
             groups=groups,
             unit_attrs=unit_attrs,
         )
+        if config:
+            builder.set_conv2d_config_override(config, conv2d_0)
+        return conv2d_0
 
     compile_to_flatbuffer(
         conv2d,
