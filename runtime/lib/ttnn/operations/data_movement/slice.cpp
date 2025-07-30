@@ -20,7 +20,11 @@ void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context) {
   ::ttsl::SmallVector<int32_t> ends(op->ends()->begin(), op->ends()->end());
   ::ttsl::SmallVector<int32_t> step(op->step()->begin(), op->step()->end());
 
-  ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step);
+  ::ttsl::Span<const int32_t> beginsSpan = ::ttsl::make_const_span(begins);
+  ::ttsl::Span<const int32_t> endsSpan = ::ttsl::make_const_span(ends);
+  ::ttsl::Span<const int32_t> stepSpan = ::ttsl::make_const_span(step);
+
+  ::ttnn::Tensor out = ::ttnn::slice(in, beginsSpan, endsSpan, stepSpan);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
