@@ -746,84 +746,48 @@ private:
 
     int cacheUpdateSize = updateShape[2];
 
-    // XLA case single device unsharded
-    if(scatterIdxShape.size() == 2){
-      if (scatterIdxShape[0] != cacheUpdateSize) {
-        return std::nullopt;
+    bool isEffectively1D = false;
+    int64_t effectiveSize = 1;
+    int64_t nonUnaryDims = 0;
+    for (int64_t dim : scatterIdxShape) {
+      if (dim != 1) {
+        nonUnaryDims++;
+        effectiveSize *= dim;
       }
-      //    %138 = "ttir.reshape"(%136, %137) <{shape = [7 : i32, 1 : i32]}> : (tensor<7xi64>, tensor<7x1xi64>) -> tensor<7x1xi64>
-      auto reshapeOp = scatterIndices.getDefiningOp<ttir::ReshapeOp>();
-      if (!reshapeOp) {
-        return std::nullopt;
-      }
-      
-      //     %136 = "ttir.where"(%128, %134, %arg117, %135) : (tensor<7xi1>, tensor<7xi64>, tensor<7xi64>, tensor<7xi64>) -> tensor<7xi64>
-      auto whereOp = reshapeOp.getInput().getDefiningOp<ttir::WhereOp>();
-      mlir::Value input = whereOp.getThird();
-      // check if the input comes from a block argument, which it does not - it comes from a ttir.where ...
-
-      auto blockArg = mlir::cast<BlockArgument>(input);
-      if (!blockArg) {
-        return std::nullopt;
-      }
-
-      // check for shape of the opresult argument is 1D and is == cacheUpdateSize
-      auto inputShape =
-          mlir::cast<RankedTensorType>(input.getType()).getShape();
-      if (inputShape.size() != 1 || inputShape[0] != cacheUpdateSize) {
-        return std::nullopt;
-      }
-      return input;
     }
-
-    if (scatterIdxShape.size() == 1) {
-      if (scatterIdxShape[0] != cacheUpdateSize) {
-        return std::nullopt;
-      }
-      auto op = scatterIndices.getDefiningOp<ttir::MeshShardOp>();
-      if (!op) {
-        return std::nullopt;
-      }
-      mlir::Value input = op.getInput();
-      auto blockArg = mlir::cast<BlockArgument>(input);
-      if (!blockArg) {
-        return std::nullopt;
-      }
-      // check for shape of the block argument is 1D and is == cacheUpdateSize
-      auto inputShape =
-          mlir::cast<RankedTensorType>(input.getType()).getShape();
-      if (inputShape.size() != 1 || inputShape[0] != cacheUpdateSize) {
-        return std::nullopt;
-      }
-      return input;
-    }
-
-    // in the singledevice case - scatter indices comes from a reshape 
-
-    // Check that the scatter indices input is a concat op that produces the
-    // scatter indices for a cache update/fill:
-    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
-    //    tensor
-    //    2. Check that the 3rd input comes from the cachePositions func input
-    ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
-    if (!concatOp) {
+    isEffectively1D = (nonUnaryDims <= 1);
+    if (isEffectively1D && effectiveSize != cacheUpdateSize) {
       return std::nullopt;
     }
 
-    mlir::OperandRange inputs = concatOp.getInputs();
-    int32_t dim = concatOp.getDim();
-    if (inputs.size() != 4 || dim != 4) {
+    bool isIndexGrid =
+        (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
+         scatterIdxShape[1] == inputShape[1] &&
+         scatterIdxShape[2] == cacheUpdateSize &&
+         scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
+
+    // Check that is either a 1D cache update or a 4D index grid.
+    if (!isEffectively1D && !isIndexGrid) {
       return std::nullopt;
     }
 
-    if (!isBroadcastedDimIndices(inputs[0], 0) ||
-        !isBroadcastedDimIndices(inputs[1], 1) ||
-        !isBroadcastedDimIndices(inputs[3], 3)) {
-      return std::nullopt;
+    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+    auto blockArgs =
+        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+    for (auto blockArg : blockArgs) {
+      // Check if the block argument is a cachePositions input.
+      auto argTensorShape =
+          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
+      if (argTensorShape.size() != 1) {
+        continue;
+      }
+      if (argTensorShape[0] == cacheUpdateSize) {
+        // We found the cachePositions input tensor.
+        return blockArg;
+      }
     }
 
-    auto cachePositionInput = getCachePositionsInput(inputs[2]);
-    return cachePositionInput;
+    return std::nullopt;
   }
 
   // For the concat input that can be tracked to the cachePositions input,
