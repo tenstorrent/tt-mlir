@@ -73,7 +73,7 @@ areQuantizationParamsAligned(mlir::ArrayRef<mlir::Value> quantizedValues) {
 inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     quant::QuantizedType quantInputType, quant::QuantizedType quantWeightType,
     mlir::IntegerType storageType, mlir::Location loc) {
-  // find the min/max of the output storage type
+  // Find the min/max of the output storage type.
   mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
       getStorageTypeMinMax(storageType, loc);
   if (mlir::failed(storageTypeMinMax)) {
