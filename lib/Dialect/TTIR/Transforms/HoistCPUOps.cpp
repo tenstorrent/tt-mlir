@@ -15,6 +15,10 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/dialect/StablehloOps.h"
+#endif
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -291,9 +295,11 @@ class TTIRHoistAnalyze {
 public:
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
-  TTIRHoistAnalyze(mlir::ModuleOp moduleOp) {
+  TTIRHoistAnalyze(mlir::ModuleOp moduleOp,
+                   llvm::DenseSet<TypeID> dialectTypeIDs) {
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name)) {
+      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name) ||
+          dialectTypeIDs.contains(nestedOp->getDialect()->getTypeID())) {
         llvm::SmallSet<mlir::Operation *, 4> opSet;
         opSet.insert(nestedOp);
         hoistedOps.push_back(opSet);
@@ -345,7 +351,7 @@ public:
 
     auto loc = rootModule->getLoc();
 
-    TTIRHoistAnalyze analysisPass(deviceInnerModule);
+    TTIRHoistAnalyze analysisPass(deviceInnerModule, dialectTypeIDs);
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
@@ -381,7 +387,24 @@ public:
                                cpuInnerModule);
     }
   }
+
+  // TypeIDs for dialects we want to always fallback.
+  llvm::DenseSet<TypeID> dialectTypeIDs;
 };
 } // namespace
+
+template <typename... Dialects>
+std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
+  auto pass = std::make_unique<TTIRHoistTransform>();
+  (pass->dialectTypeIDs.insert(TypeID::get<Dialects>()), ...);
+  return pass;
+}
+
+// Must explicitly instantiate any dialects we want this pass to potentially
+// fallback elsewhere due to template in .cpp file constraints.
+template std::unique_ptr<mlir::Pass>
+createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+template std::unique_ptr<mlir::Pass>
+createTTIRHoistTransformForDialects<TTIRDialect>();
 
 } // namespace mlir::tt::ttir
