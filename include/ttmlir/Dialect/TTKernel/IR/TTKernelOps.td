@@ -18,6 +18,8 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
 def IndexLike: AnyTypeOf<[Index, I32]>;
 
+def ExpInitState : Resource<"ExpInitState">;
+
 //===----------------------------------------------------------------------===//
 // TTKernel Compute Kernel Hardware Startup operation
 //===----------------------------------------------------------------------===//
@@ -649,7 +651,8 @@ def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_B
     }];
 }
 
-def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
+
+def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init", [MemoryEffects<[MemWrite<ExpInitState>]>]> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
@@ -662,7 +665,7 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     }];
 }
 
-def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
+def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait, MemoryEffects<[MemRead<ExpInitState>]>]> {
     let summary = "Exp operation";
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
