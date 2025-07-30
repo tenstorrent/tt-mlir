@@ -1921,6 +1921,49 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   }
 }
 
+TEST_F(OpModelBase, EmbeddingBackwardOp) {
+  llvm::SmallVector<int64_t> inputShape = {2, 1024};
+  llvm::SmallVector<int64_t> weightShape = {3200, 4096};
+  llvm::SmallVector<int64_t> inGradientShape = {1, 1, 2048, 4096};
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(inputShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(weightShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto inGradient = createEmptyTensor(inGradientShape);
+  auto outputType = createRankedTensorType(
+      inGradientShape, builder.getBF16Type(),
+      CreateTiledLayout(inGradientShape, BufferType::L1,
+                        TensorMemoryLayout::Interleaved));
+
+  auto embeddingBackward = builder.create<EmbeddingBackwardOp>(
+      builder.getUnknownLoc(), outputType,
+      ::mlir::ValueRange{input, weight, inGradient});
+
+  auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12400);
+    EXPECT_EQ(peakSize, 409600);
+    EXPECT_EQ(outputSize, 409600);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(embeddingBackward.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, CacheOpConstraintsTest) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
