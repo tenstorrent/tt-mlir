@@ -1314,7 +1314,6 @@ llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
         ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
         detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
-    // conversion::getShape(outputShape), std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
