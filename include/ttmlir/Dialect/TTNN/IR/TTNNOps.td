@@ -1218,7 +1218,9 @@ def TTNN_RepeatOp : TTNN_Op<"repeat",
     let hasVerifier = 1;
 }
 
-def TTNN_PadOp: TTNN_Op<"pad"> {
+def TTNN_PadOp: TTNN_Op<"pad",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Pad op.";
   let description = [{
     Pad input tensor by padding the input_shape to output_shape using the provided value.
