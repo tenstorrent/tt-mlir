@@ -1194,6 +1194,7 @@ public:
       patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
+      patterns.add<ReluFusionPattern>(&getContext());
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
