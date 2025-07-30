@@ -611,7 +611,7 @@ def TTIRQuantDequantConversion : Pass<"ttir-quant-dequant-conversion", "::mlir::
 {
   let summary = "Convert floating-point ops surrounded by quantize/dequantize into TTIR quantized operations.";
   let description = [{
-    This pass detects and fuses the (dequantize → floating-point operation → quantize)
+    This pass detects and fuses the (x -> dequantize → floating-point operation)
     pattern into a single TTIR operation that consumes quantized inputs and produces
     quantized outputs. If the target operation implements the QuantizableOpInterface,
     it is rewritten directly into its quantized form. Otherwise, a fallback transformation

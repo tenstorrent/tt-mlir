@@ -41,10 +41,10 @@ areQuantizationParamsAligned(mlir::ArrayRef<mlir::Value> quantizedValues) {
 
   mlir::quant::QuantizedType referenceQType = nullptr;
   return llvm::all_of(quantizedValues, [&](mlir::Value val) {
-    auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
-    if (!rankedType) {
+    if (!val) {
       return true;
     }
+    auto rankedType = mlir::cast<mlir::RankedTensorType>(val.getType());
 
     auto qType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(rankedType.getElementType());
@@ -82,7 +82,7 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
   }
   const auto [storageTypeMin, storageTypeMax] = *storageTypeMinMax;
 
-  // now determine the output scales/zero points
+  // Now determine the output scales/zero points.
   std::pair<SmallVector<double>, SmallVector<int64_t>> scalesAndZeroPoints;
   SmallVector<double> scales;
   SmallVector<int64_t> zeroPoints;
@@ -98,7 +98,7 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
               "Per-axis quantization is not supported for quantized input.");
     return nullptr;
   }
-  // per tensor weights (inputScale * weightScale for output scale)
+  // Per-tensor weights (inputScale * weightScale for output scale).
   if (quant::UniformQuantizedType uniformType =
           dyn_cast<quant::UniformQuantizedType>(quantWeightType)) {
     if (uniformType.getZeroPoint() != inputZeroPoint) {
@@ -112,7 +112,8 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     zeroPoints.push_back(inputZeroPoint);
     scalesAndZeroPoints = std::make_pair(scales, zeroPoints);
   }
-  // per axis weights (find the right axis and perform inputScale * weightScale)
+  // Per-axis weights (find the right axis and perform inputScale *
+  // weightScale).
   else if (quant::UniformQuantizedPerAxisType perAxisType =
                dyn_cast<quant::UniformQuantizedPerAxisType>(quantWeightType)) {
     ArrayRef<int64_t> weightZeroPoints = perAxisType.getZeroPoints();
@@ -130,12 +131,12 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     }
     scalesAndZeroPoints = std::make_pair(scales, zeroPoints);
   }
-  // some unrecognized type.
+  // Some unrecognized type.
   else {
     emitError(loc, "Invalid quantized input and weight types.");
     return nullptr;
   }
-  // construct the new output type (scales/zero points/storage type min & max)
+  // Construct the new output type (scales/zero points/storage type min & max).
   mlir::quant::QuantizedType quantOutputType;
   if (scalesAndZeroPoints.first.size() == 1) {
     quantOutputType = quant::UniformQuantizedType::get(
@@ -143,7 +144,7 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
         quantInputType.getExpressedType(), scalesAndZeroPoints.first[0],
         scalesAndZeroPoints.second[0], storageTypeMin, storageTypeMax);
   } else {
-    // per-axis output type (same as the axis for the weight)
+    // Per-axis output type (same as the axis for the weight).
     quant::UniformQuantizedPerAxisType perAxisWeightType =
         dyn_cast<quant::UniformQuantizedPerAxisType>(quantWeightType);
     quantOutputType = quant::UniformQuantizedPerAxisType::get(

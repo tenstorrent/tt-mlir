@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Dialect/Quant/IR/Quant.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
@@ -11,6 +9,11 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
+
+#include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_TTIRQUANTDEQUANTCONVERSION
@@ -37,14 +40,13 @@ public:
       CommuteDirection::DOWNWARDS>::TTIRCommuteOpInterfaceRewritePattern;
 
 private:
-  mutable RankedTensorType oldOpType;
   mutable llvm::SmallVector<Value> quantOperands;
 
   bool isCommuteDownwardsViable(QuantizableOpInterface op,
                                 ttir::DequantizeOp dequantOp) const override {
     // Require that this operand is one of the inputs to the op
     // and that its result has only one user (to avoid duplicating work).
-    if (op->hasAttr("ttir.skip_qdq_commute")) {
+    if (op->hasAttr(ttmlir::utils::g_skipQdqCommuteAttrName)) {
       return false;
     }
     return dequantOp->hasOneUse();
@@ -57,7 +59,6 @@ private:
     // isQuantizedRewriteFavorable will check the basic constraints for
     // the quantized version of the op based on the operands.
     quantOperands.clear();
-    oldOpType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     DestinationStyleOpInterface dps =
         mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
     for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
@@ -120,11 +121,12 @@ private:
       // For every output of the old op, replace it with
       // Dequantize(Quantize(Orig_Output))
       Operation *fallbackOp = rewriter.clone(*op.getOperation());
-      fallbackOp->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
+      fallbackOp->setAttr(ttmlir::utils::g_skipQdqCommuteAttrName,
+                          rewriter.getUnitAttr());
       for (auto result : fallbackOp->getResults()) {
         // The quantize's output type is the same shape as the op output type,
         // just quantized (type taken from dequantOp).
-        // TODO(anuhsing): enable multiple dequant types.
+        // TODO(anuragsingh): enable multiple dequant types.
         RankedTensorType originalType =
             mlir::cast<RankedTensorType>(result.getType());
         quant::QuantizedType quantType = mlir::dyn_cast<quant::QuantizedType>(
@@ -188,8 +190,9 @@ public:
       return;
     }
     // Clean up attribute.
-    getOperation()->walk(
-        [](Operation *op) { op->removeAttr("ttir.skip_qdq_commute"); });
+    getOperation()->walk([](Operation *op) {
+      op->removeAttr(ttmlir::utils::g_skipQdqCommuteAttrName);
+    });
   }
 };
 

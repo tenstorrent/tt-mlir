@@ -85,10 +85,10 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> transformedOperands,
     mlir::ValueRange outputOperands) {
-  // two cases:
-  // one operand is quantized and the other is not : apply quantization and
-  // proceed to case two: both operands are quantized : supported, return
-  // quantized add.
+  // Two cases:
+  // 1. One operand is quantized and the other is not: apply quantization and
+  //    proceed to case two.
+  // 2. Both operands are quantized: supported, return quantized add.
   assert(transformedOperands.size() == 2 && "AddOp should have two operands.");
   auto lhs = transformedOperands[0];
   auto rhs = transformedOperands[1];
@@ -101,7 +101,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   auto rhsElemQ =
       mlir::dyn_cast<mlir::quant::QuantizedType>(rhsType.getElementType());
 
-  // one operand is dequantized, one is quantized — try to quantize the
+  // One operand is dequantized, one is quantized — try to quantize the
   // dequantized one.
   if ((lhsElemQ && !rhsElemQ) || (!lhsElemQ && rhsElemQ)) {
     Value quantVal = lhsElemQ ? lhs : rhs;
@@ -123,7 +123,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
                        quantElemQ)) {
       newElemType = perAxis.castFromExpressedType(expressedType);
     } else {
-      return nullptr; // Unsupported quantized type
+      // Unsupported quantized type.
+      return nullptr;
     }
     if (!newElemType) {
       return nullptr;
@@ -143,7 +144,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
       lhsElemQ = quantElemQ;
     }
   }
-  // now both values are quantized (and are equivalent).
+  // Now both values are quantized (and are equivalent).
   Value output = outputOperands.front();
   RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
   RankedTensorType newResultType = RankedTensorType::get(
