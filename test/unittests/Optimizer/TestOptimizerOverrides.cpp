@@ -33,7 +33,6 @@ llvm::cl::opt<std::string> OutputLayoutOverrideTest::OverrideOutputLayoutOption{
 
 TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   std::string arg = "op0="
-                    "dtype#bf16:"
                     "weights_dtype#bf16:"
                     "activation#relu:"
                     "deallocate_activation#false:"
@@ -57,8 +56,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(parsedOverride.count("op0"));
 
   const auto &params = parsedOverride["op0"];
-  ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.weightsDtype.has_value());
   ASSERT_EQ(params.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.activation.has_value());
@@ -93,7 +90,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
 
 TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   std::string arg = "op0="
-                    "dtype#f32:"
                     "activation#none";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
@@ -103,8 +99,6 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   ASSERT_TRUE(parsedOverride.count("op0"));
 
   const auto &params = parsedOverride["op0"];
-  ASSERT_TRUE(params.dtype.has_value());
-  ASSERT_EQ(params.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "");
   ASSERT_FALSE(params.weightsDtype.has_value());
@@ -125,11 +119,9 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
 
 TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
   std::string arg = "op0="
-                    "dtype#f32:"
                     "activation#none"
                     ","
-                    "op1=dtype#bf16:"
-                    "weights_dtype#bf16:"
+                    "op1=weights_dtype#bf16:"
                     "activation#relu";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
@@ -140,14 +132,10 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(parsedOverride.count("op1"));
 
   const auto &params0 = parsedOverride["op0"];
-  ASSERT_TRUE(params0.dtype.has_value());
-  ASSERT_EQ(params0.dtype.value(), mlir::tt::ttcore::DataType::Float32);
   ASSERT_TRUE(params0.activation.has_value());
   ASSERT_EQ(params0.activation.value(), "");
 
   const auto &params1 = parsedOverride["op1"];
-  ASSERT_TRUE(params1.dtype.has_value());
-  ASSERT_EQ(params1.dtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.weightsDtype.has_value());
   ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.activation.has_value());

@@ -176,25 +176,18 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding,
+             BoolAttr inPlace) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
-                context, dtype, weightsDtype, activation, deallocateActivation,
+                context, weightsDtype, activation, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
                 enableWeightsDoubleBuffer, enableSplitReader,
-                enableSubblockPadding));
+                enableSubblockPadding, inPlace));
           })
-      .def_prop_ro("dtype_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, uint32_t> {
-                     if (!self.getDtype()) {
-                       return nb::none();
-                     }
-                     return static_cast<uint32_t>(*self.getDtype());
-                   })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
                        -> std::variant<nb::object, uint32_t> {
@@ -317,6 +310,14 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableSubblockPadding().getValue();
+                   })
+      .def_prop_ro("in_place",
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getInPlace()) {
+                       return nb::none();
+                     }
+                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

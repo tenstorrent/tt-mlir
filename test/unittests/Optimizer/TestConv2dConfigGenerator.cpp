@@ -32,16 +32,16 @@ TEST_F(Conv2dConfigGeneratorTest, ConstructionMinimal) {
 TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
-                 mlir::tt::ttcore::DataType::Float32,
-                 mlir::tt::ttcore::DataType::UInt32};
+  space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
+                        mlir::tt::ttcore::DataType::Float32,
+                        mlir::tt::ttcore::DataType::UInt32};
   Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
   std::vector<mlir::tt::ttcore::DataType> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
     ASSERT_TRUE(config);
-    ASSERT_TRUE(config.getDtype().has_value());
-    seen.push_back(config.getDtype().value());
+    ASSERT_TRUE(config.getWeightsDtype().has_value());
+    seen.push_back(config.getWeightsDtype().value());
   }
   std::vector<mlir::tt::ttcore::DataType> expected = {
       mlir::tt::ttcore::DataType::BFloat16, mlir::tt::ttcore::DataType::Float32,
@@ -52,16 +52,17 @@ TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
 TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
-                 mlir::tt::ttcore::DataType::Float32};
+  space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
+                        mlir::tt::ttcore::DataType::Float32};
   space.activation = {"relu", "gelu"};
   Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
   std::set<std::pair<mlir::tt::ttcore::DataType, std::string>> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
     ASSERT_TRUE(config);
-    ASSERT_TRUE(config.getDtype().has_value());
-    seen.insert({config.getDtype().value(), config.getActivation().str()});
+    ASSERT_TRUE(config.getWeightsDtype().has_value());
+    seen.insert(
+        {config.getWeightsDtype().value(), config.getActivation().str()});
   }
   EXPECT_EQ(seen.size(), 4u);
   EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::BFloat16, "relu"}));
@@ -73,8 +74,8 @@ TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
 TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::BFloat16,
-                 mlir::tt::ttcore::DataType::UInt32};
+  space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
+                        mlir::tt::ttcore::DataType::UInt32};
   space.reshardIfNotOptimal = {true, false};
 
   // Filter everything out.
@@ -98,11 +99,11 @@ TEST_F(Conv2dConfigGeneratorTest, EdgeCaseEmptySearchSpace) {
 TEST_F(Conv2dConfigGeneratorTest, EdgeCaseSingleConfig) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::Float32};
+  space.weightsDtype = {mlir::tt::ttcore::DataType::Float32};
   Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
   auto config = gen.getNextConfig();
   ASSERT_TRUE(config);
-  EXPECT_EQ(config.getDtype(), mlir::tt::ttcore::DataType::Float32);
+  EXPECT_EQ(config.getWeightsDtype(), mlir::tt::ttcore::DataType::Float32);
   EXPECT_TRUE(gen.searchDone());
   auto config2 = gen.getNextConfig();
   EXPECT_FALSE(config2);
@@ -110,33 +111,26 @@ TEST_F(Conv2dConfigGeneratorTest, EdgeCaseSingleConfig) {
 
 TEST_F(Conv2dConfigGeneratorTest, NonEmptyBaseConfig) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
-  baseConfig = baseConfig.withDtype(mlir::tt::ttcore::DataType::Float32);
+  baseConfig = baseConfig.withWeightsDtype(mlir::tt::ttcore::DataType::Float32);
 
   Conv2dConfigSearchSpace space;
-  space.dtype = {mlir::tt::ttcore::DataType::Float32,
-                 mlir::tt::ttcore::DataType::UInt32};
   space.activation = {"relu", "gelu"};
   space.weightsDtype = {mlir::tt::ttcore::DataType::Float32,
                         mlir::tt::ttcore::DataType::UInt32};
+  space.reshardIfNotOptimal = {true, false};
 
   Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
-  std::set<std::tuple<mlir::tt::ttcore::DataType, std::string,
-                      mlir::tt::ttcore::DataType>>
-      seen;
+  std::set<std::tuple<std::string, mlir::tt::ttcore::DataType, bool>> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
     ASSERT_TRUE(config);
-    seen.insert({config.getDtype().value(), config.getActivation().str(),
-                 config.getWeightsDtype().value()});
+    seen.insert({config.getActivation().str(), config.getWeightsDtype().value(),
+                 config.getReshardIfNotOptimal().getValue()});
   }
 
   EXPECT_EQ(seen.size(), 4u);
-  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "relu",
-                          mlir::tt::ttcore::DataType::UInt32}));
-  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "gelu",
-                          mlir::tt::ttcore::DataType::UInt32}));
-  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "relu",
-                          mlir::tt::ttcore::DataType::Float32}));
-  EXPECT_TRUE(seen.count({mlir::tt::ttcore::DataType::Float32, "gelu",
-                          mlir::tt::ttcore::DataType::Float32}));
+  EXPECT_TRUE(seen.count({"relu", mlir::tt::ttcore::DataType::Float32, true}));
+  EXPECT_TRUE(seen.count({"relu", mlir::tt::ttcore::DataType::Float32, false}));
+  EXPECT_TRUE(seen.count({"gelu", mlir::tt::ttcore::DataType::Float32, true}));
+  EXPECT_TRUE(seen.count({"gelu", mlir::tt::ttcore::DataType::Float32, false}));
 }
