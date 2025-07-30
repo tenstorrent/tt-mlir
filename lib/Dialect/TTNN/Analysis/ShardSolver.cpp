@@ -300,8 +300,8 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
   if (rowMajorInput) {
-    Type inputElementType = inputLayout.getScalarElementType();
-    inputLayout = inputLayout.withElementType(inputElementType, tensorShape);
+    inputLayout = utils::convertTTNNLayoutToRowMajor(op->getContext(),
+                                                     inputLayout, tensorShape);
   }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =

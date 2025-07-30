@@ -17,7 +17,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 

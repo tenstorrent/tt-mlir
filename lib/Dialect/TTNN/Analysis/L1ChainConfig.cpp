@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 
 #include "llvm/ADT/DenseSet.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
