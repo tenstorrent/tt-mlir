@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(TestOpModelLib
 TestOpModelLib.cpp
+YamlParamLoader.cpp
 )
 
 target_compile_options(TestOpModelLib
@@ -26,6 +27,7 @@ target_link_libraries(TestOpModelLib
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    yaml-cpp
 )
 
 endif()

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+#include "YamlParamLoader.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -33,21 +34,6 @@ void EXPECT_EQ_OR_GE(const T1 &actual, const T2 &expected,
 class OpModelTest : public OpModelFixture {};
 
 namespace detail {
-namespace {
-struct TestTensor {
-  llvm::SmallVector<int64_t> shape;
-  TensorMemoryLayout layout;
-  BufferType bufferType;
-  std::optional<llvm::SmallVector<int64_t>> virtualGrid = std::nullopt;
-};
-
-struct ExpectedResult {
-  bool expectedLegal = false;
-  size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
-  size_t expectedOutputSize = 0;
-};
-} // namespace
 
 const TestTensor interleavedN300X1024Dram = {
     {OpModelFixture::workerCoresN300, 1024},
@@ -68,6 +54,9 @@ const TestTensor inerleaved2048X2048L1 = {{2048, 2048},
                                           BufferType::L1,
                                           llvm::SmallVector<int64_t>{8, 8}};
 } // namespace detail
+
+const YAML::Node allParams =
+    yaml_utils::parseYamlFile("test/unittests/OpModel/TTNN/Lib/params.yaml");
 
 // ==== Unary Eltwise Ops Starts ====
 
@@ -2169,23 +2158,8 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int64_t>{7, 8},
                         detail::ExpectedResult{true, 114688, 114688, 114688})));
 
-class OpModelConv2dParam
-    : public OpModelTest,
-      public testing::WithParamInterface<
-          std::tuple<detail::TestTensor,         // input
-                     detail::TestTensor,         // weight
-                     detail::TestTensor,         // output
-                     uint32_t,                   // in_channels
-                     uint32_t,                   // out_channels
-                     uint32_t,                   // batch_size
-                     uint32_t,                   // input_height
-                     uint32_t,                   // input_width
-                     llvm::SmallVector<int32_t>, // kernel_size
-                     llvm::SmallVector<int32_t>, // stride
-                     llvm::SmallVector<int32_t>, // padding
-                     llvm::SmallVector<int32_t>, // dilation
-                     uint32_t,                   // groups
-                     detail::ExpectedResult>> {};
+class OpModelConv2dParam : public OpModelTest,
+                           public testing::WithParamInterface<Conv2dParams> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
   auto params = GetParam();
@@ -2272,34 +2246,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::Values(
-        std::make_tuple(detail::TestTensor{{1, 1, 50176, 3},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{64, 3, 7, 7},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::SystemMemory},
-                        detail::TestTensor{{1, 1, 12544, 64},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{true, 229440, 190568, 0}),
-        std::make_tuple(detail::TestTensor{{1, 1, 50176, 3},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{64, 3, 9, 7},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::SystemMemory},
-                        detail::TestTensor{{1, 1, 12544, 64},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{true, 0, 0, 0})));
+        yaml_utils::parseConv2dParams(allParams["conv2d_params_1"]),
+        yaml_utils::parseConv2dParams(allParams["conv2d_params_2"])));
 
 class OpModelConvTranspose2dParam
     : public OpModelTest,
