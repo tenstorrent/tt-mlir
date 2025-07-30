@@ -480,6 +480,15 @@ jobs:
       with:
         job_name: "test-tt-alchemist"
 
+    # Once boost is removed from public header APIs, this step should be removed
+    # ticket: https://github.com/tenstorrent/tt-metal/issues/25354
+    - name: Install non-standard boost lib
+      shell: bash
+      run: |
+        sudo add-apt-repository ppa:mhier/libboost-latest
+        sudo apt update
+        sudo apt install libboost1.83-dev
+
     - name: Download tt-alchemist wheel
       uses: actions/download-artifact@v4
       with:
