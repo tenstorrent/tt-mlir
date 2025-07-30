@@ -2192,13 +2192,20 @@ public:
     Value operand = adaptor.getInputs().front();
     auto *operandDefiningOp = operand.getDefiningOp();
 
+    // Propagate the tt.role attribute to the source of the operand.
     if (operandDefiningOp) {
+      // If operand comes from another operation set the role attribute directly
+      // on the defining operation.
       operandDefiningOp->setAttr("tt.role", roleAttr);
     } else if (auto blockArg = mlir::dyn_cast<BlockArgument>(operand)) {
+      // If operand is a function argument (BlockArgument), we need to set the
+      // role attribute on the function argument itself.
       auto *parentOp = blockArg.getOwner()->getParentOp();
       auto argIndex = blockArg.getArgNumber();
 
       if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(parentOp)) {
+        // Set the tt.role attribute on the function argument at the given
+        // index.
         funcOp.setArgAttr(argIndex, "tt.role", roleAttr);
       }
     }
