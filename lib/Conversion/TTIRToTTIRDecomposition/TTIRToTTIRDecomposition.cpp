@@ -1309,8 +1309,8 @@ private:
     // with ceil_mode= true.
     auto ceilModeAttr = rewriter.getBoolAttr(false);
     if (padding[1] == padding[0] + 1 && padding[3] == padding[2] + 1) {
-      padding[0] = padding[1];
-      padding[2] = padding[3];
+      padding[1] = padding[0];
+      padding[3] = padding[2];
       ceilModeAttr = rewriter.getBoolAttr(true);
     }
 
