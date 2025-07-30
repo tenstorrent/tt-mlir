@@ -293,13 +293,11 @@ class Read:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
 
-        if self["--read-file"]:
-            read_file_path = os.path.join(
-                self.artifacts.artifacts_folder_path, self["--read-file"]
-            )
-            with open(read_file_path, "w") as read_file:
+        if not self["--read-file"] == "":
+            with open(self["--read-file"], "w") as read_file:
                 json.dump(self.outputs, read_file, indent=2)
-            self.logging.info(f"Saved read sections to {read_file_path}")
+
+            self.logging.info(f"Saved read sections to {self['--read-file']}")
 
         for bin in self.system_desc_binaries:
             if bin.test_result == "pass":
