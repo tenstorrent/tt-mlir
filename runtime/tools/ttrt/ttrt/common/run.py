@@ -314,7 +314,7 @@ class Run:
             type=int,
             default=1,
             choices=None,
-            help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
+            help="Random ones vs zeroes density, 1 = 100%% ones, 2 = 50%% ones, 3 = 33%% ones, etc.",
         )
         Run.register_arg(
             name="--fabric-config",
