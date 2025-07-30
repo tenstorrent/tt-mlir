@@ -1114,11 +1114,20 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // padding=[0,0,0,0]
 template <typename Pool2dOp>
 static bool isIdentityPool2d(Pool2dOp op) {
-  return op.getKernelHeight() == 1 && op.getKernelWidth() == 1 &&
-         op.getStrideHeight() == 1 && op.getStrideWidth() == 1 &&
-         op.getDilationHeight() == 1 && op.getDilationWidth() == 1 &&
-         op.getPaddingLeft() == 0 && op.getPaddingRight() == 0 &&
-         op.getPaddingTop() == 0 && op.getPaddingBottom() == 0;
+  auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op.getKernel());
+  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(op.getStride());
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op.getDilation());
+  auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPadding());
+
+  auto tupleToArray = [](const auto& t) {
+    return std::apply([](auto... args) { return std::array{args...}; }, t);
+  };
+
+  return kernel && stride && dilation && padding &&
+         llvm::all_of(tupleToArray(*kernel), [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*stride), [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*dilation), [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
 // Check if a PoolingOp is identity
