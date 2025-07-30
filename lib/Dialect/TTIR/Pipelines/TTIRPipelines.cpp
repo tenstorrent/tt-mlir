@@ -22,6 +22,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 
@@ -61,6 +62,10 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
   }
   pm.addPass(createConvertStableHLOToTTIRPass());
+  // Fallback any remaining SHLO ops to CPU.
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  pm.addPass(
+      ttir::createTTIRHoistTransformForDialects<stablehlo::StablehloDialect>());
 }
 #endif
 
