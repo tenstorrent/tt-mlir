@@ -1192,40 +1192,67 @@ public:
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!adaptor.getFlattenedCompatInfo()) {
-      return rewriter.notifyMatchFailure(
-          op, "TTNN only supports flattened input tensors for " +
-                  op.getOperationName() +
-                  ". Please "
-                  "run the FlattenSlidingWindow pass before lowering to TTNN.");
+      return op.emitOpError()
+             << "only supports lowering to TTNN for flattened input tensors."
+             << " Please run the FlattenSlidingWindow pass before lowering to "
+                "TTNN";
     }
-    if (adaptor.getPaddingBottom() != adaptor.getPaddingTop()) {
-      return rewriter.notifyMatchFailure(
-          op, op.getOperationName() +
-                  "does not support asymmetric padding for top/bottom.");
+
+    // Extract kernel dimensions.
+    auto kernelPairOrError =
+        ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getKernel());
+    assert(kernelPairOrError && "Expected valid kernel attribute");
+    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {kernelPairOrError->first, kernelPairOrError->second});
+
+    // Extract stride dimensions.
+    auto stridePairOrError =
+        ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getStride());
+    assert(stridePairOrError && "Expected valid stride attribute");
+    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
+        {stridePairOrError->first, stridePairOrError->second});
+
+    // Extract dilation dimensions.
+    auto dilationPairOrError =
+        ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getDilation());
+    assert(dilationPairOrError && "Expected valid dilation attribute");
+    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
+        {dilationPairOrError->first, dilationPairOrError->second});
+
+    // TTNN only supports lowering of AvgPool2dOp with dilation of (1, 1).
+    if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
+      if (dilationPairOrError->first != 1 || dilationPairOrError->second != 1) {
+        return op.emitOpError()
+               << "only supports lowering to TTNN for dilation of (1, 1)";
+      }
     }
-    if (adaptor.getPaddingLeft() != adaptor.getPaddingRight()) {
-      return rewriter.notifyMatchFailure(
-          op, op.getOperationName() +
-                  "does not support asymmetric padding for left/right.");
+
+    // Extract padding values.
+    auto paddingQuad =
+        ttmlir::utils::getQuadrupleOfInteger<int32_t>(adaptor.getPadding());
+    assert(paddingQuad && "Expected valid padding attribute");
+    int32_t paddingTop = std::get<0>(*paddingQuad);
+    int32_t paddingLeft = std::get<1>(*paddingQuad);
+    int32_t paddingBottom = std::get<2>(*paddingQuad);
+    int32_t paddingRight = std::get<3>(*paddingQuad);
+
+    // Check for asymmetric padding.
+    if (paddingBottom != paddingTop) {
+      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
+                                 "padding for top/bottom";
     }
+
+    if (paddingLeft != paddingRight) {
+      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
+                                 "padding for left/right";
+    }
+
+    DenseI32ArrayAttr paddingAttr =
+        rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
     auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
-
-    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
-
-    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
-
-    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
-    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
-
-    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
