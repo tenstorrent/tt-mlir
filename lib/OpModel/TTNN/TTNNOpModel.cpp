@@ -1986,6 +1986,71 @@ OpModel<mlir::tt::ttnn::RepeatInterleaveOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RepeatOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<mlir::tt::ttnn::RepeatOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> repeats,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Convert repeats to ttnn::Shape
+  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+
+  // Create query closure
+  auto repeatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(::ttnn::repeat, device,
+                                               inputSpec, repeatShape);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     repeatOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<mlir::tt::ttnn::RepeatOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> repeats,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Convert repeats to ttnn::Shape
+  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+
+  // Create query closure
+  auto repeatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::repeat, device, inputSpec,
+                                           repeatShape);
+  };
+
+  return operation::getOpRuntime(repeatOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(

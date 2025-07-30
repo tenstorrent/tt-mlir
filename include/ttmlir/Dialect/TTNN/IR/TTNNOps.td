@@ -1198,7 +1198,9 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
     let hasFolder = 1;
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_Op<"repeat",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.

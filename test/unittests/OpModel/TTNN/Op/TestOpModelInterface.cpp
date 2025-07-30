@@ -1458,6 +1458,42 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   }
 }
 
+TEST_F(OpModelBase, repeatOp) {
+  // create RepeatOp
+  llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
+  llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  std::vector<int64_t> repeatDimsVec = {2, 1};
+  llvm::ArrayRef<int64_t> repeatDims(repeatDimsVec);
+  auto repeatDimsAttr = ::mlir::tt::ttnn::ShapeAttr::get(&context, repeatDims);
+
+  auto repeat = builder.create<RepeatOp>(
+      builder.getUnknownLoc(), output.getType(), input, repeatDimsAttr);
+
+  // test repeat Op interface
+  auto constraintsExp = getOpConstraints(repeat.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 3072);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(repeat.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
