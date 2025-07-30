@@ -300,7 +300,8 @@ def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKer
                          I32:$transpose,
                          I32:$ct_dim,
                          I32:$rt_dim,
-                         I32:$kt_dim);
+                         I32:$kt_dim,
+                         I32:$nt_dim);
 }
 
 
