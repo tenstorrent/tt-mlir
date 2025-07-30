@@ -14,13 +14,21 @@ from .enums import ExecutionType
 from .registry import Registry
 
 # Import golden mappings from ttir_golden.py
-sys.path.insert(
-    0,
-    os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "..", "..", "tools", "ttir-builder"
-    ),
+sys.path.append(
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "tools",
+            "ttir-builder",
+        )
+    )
 )
-from ttir_golden import GOLDEN_MAPPINGS
+from ttir_golden import get_golden_function
 
 
 def _create_op_name_to_class_mapping():
@@ -195,11 +203,7 @@ class GoldenExecutor:
 
         op_class = self.op_name_to_class[op_name]
 
-        # Get the golden function for this operation class
-        if op_class not in GOLDEN_MAPPINGS:
-            raise ValueError(f"No golden mapping found for operation class: {op_class}")
-
-        golden_function = GOLDEN_MAPPINGS[op_class]
+        golden_function = get_golden_function(op_class)
 
         # Get operation outputs
         outputs = get_op_outputs(op)
