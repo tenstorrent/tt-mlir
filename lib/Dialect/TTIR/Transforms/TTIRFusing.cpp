@@ -219,6 +219,80 @@ public:
     return mlir::success();
   }
 };
+class ReluFusionPattern : public mlir::OpRewritePattern<MaximumOp> {
+  using mlir::OpRewritePattern<MaximumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MaximumOp maxOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    mlir::Value lhs = maxOp.getLhs();
+    mlir::Value rhs = maxOp.getRhs();
+        auto isZeroConstBroadcast = [](mlir::Value val) -> bool {
+      // Case 1: val is a broadcast of a constant zero or full zero.
+      if (auto bcast = val.getDefiningOp<BroadcastOp>()) {
+        auto input = bcast.getInput();
+        // ConstantOp case
+        if (auto constOp = input.getDefiningOp<ConstantOp>()) {
+          if (auto denseAttr = constOp.getValue().dyn_cast_or_null<ElementsAttr>()) {
+            if (denseAttr.getNumElements() != 1)
+              return false;
+            auto elem = denseAttr.getValues<APFloat>()[0];
+            return elem.isZero();
+          }
+          return false;
+        }
+        // FullOp case
+        if (auto fullOp = input.getDefiningOp<FullOp>()) {
+          auto fillAttr = fullOp.getFillValue();
+          if (auto floatAttr = fillAttr.dyn_cast<FloatAttr>()) {
+            return floatAttr.getValue().isZero();
+          }
+          if (auto intAttr = fillAttr.dyn_cast<IntegerAttr>()) {
+            return intAttr.getValue().isZero();
+          }
+          return false;
+        }
+        return false;
+      }
+      // Case 2: val is a constant zero directly.
+      if (auto constOp = val.getDefiningOp<ConstantOp>()) {
+        if (auto denseAttr = constOp.getValue().dyn_cast_or_null<ElementsAttr>()) {
+          if (denseAttr.getNumElements() != 1)
+            return false;
+          auto elem = denseAttr.getValues<APFloat>()[0];
+          return elem.isZero();
+        }
+        return false;
+      }
+      // Case 3: val is a FullOp with fill value zero directly.
+      if (auto fullOp = val.getDefiningOp<FullOp>()) {
+        auto fillAttr = fullOp.getFillValue();
+        if (auto floatAttr = fillAttr.dyn_cast<FloatAttr>()) {
+          return floatAttr.getValue().isZero();
+        }
+        if (auto intAttr = fillAttr.dyn_cast<IntegerAttr>()) {
+          return intAttr.getValue().isZero();
+        }
+        return false;
+      }
+      return false;
+    };
+    mlir::Value input;
+    if (isZeroConstBroadcast(rhs)) {
+      input = lhs;
+    } else if (isZeroConstBroadcast(lhs)) {
+      input = rhs;
+    } else {
+      return mlir::failure();
+    }
+
+    // All checks passed — fuse into TTIR ReluOp
+    utils::replaceOpWithNewDPSOp<ReluOp>(rewriter, maxOp,
+                                         maxOp.getResult().getType(), input);
+    return mlir::success();
+  }
+};
 
 class Conv2dWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
