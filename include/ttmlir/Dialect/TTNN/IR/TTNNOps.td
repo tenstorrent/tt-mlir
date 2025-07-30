@@ -1750,7 +1750,9 @@ class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
+def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.

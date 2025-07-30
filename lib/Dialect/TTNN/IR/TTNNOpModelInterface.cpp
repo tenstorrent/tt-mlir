@@ -14,10 +14,10 @@
 
 #include "mlir/IR/Operation.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include <cassert>
 #include <cstdint>
 #include <iostream>
-#include "mlir/IR/BuiltinAttributes.h"
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -1458,5 +1458,48 @@ ArangeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpRuntime, *this,
       startAttr, endAttr, stepAttr, dtype, memConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// ZerosOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ZerosOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const mlir::tt::ttnn::ShapeAttr shape = getShape();
+  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
+  const std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      getMemoryConfig();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints, *this,
+      deviceGrid, shape, dtype, layout, memoryConfig, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ZerosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  const mlir::tt::ttnn::ShapeAttr shape = getShape();
+  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
+  const std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      getMemoryConfig();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ZerosOp>::getOpRuntime, *this,
+      shape, dtype, layout, memoryConfig);
 }
 } // namespace mlir::tt::ttnn

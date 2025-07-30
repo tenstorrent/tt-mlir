@@ -2101,4 +2101,53 @@ TEST_F(OpModelBase, ArangeOpInterfaceNullOutput) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 }
+
+TEST_F(OpModelBase, ZerosOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  // auto rankedTensorType = createRankedTensorType(tensorShape);
+
+  llvm::SmallVector<int64_t> tensorShapeO = {workerCoresN300, 2048};
+  auto layout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                  TensorMemoryLayout::BlockSharded);
+
+  auto outputType =
+      createRankedTensorType(tensorShapeO, builder.getBF16Type(), layout);
+
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded)
+                          .withIgnorePhysicalLayout(true);
+
+  auto zeros =
+      builder.create<ZerosOp>(builder.getUnknownLoc(), outputType,
+                              ttnn::ShapeAttr::get(&context, tensorShape),
+                              /*dtype=*/nullptr, /*layout=*/nullptr,
+                              /*device=*/nullptr, /*memoryConfig=*/
+                              nullptr);
+
+  // test ZerosOp interface
+  auto backend = dyn_cast<OpModel>(zeros.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(zeros), OpConfig(outputLayout));
+  // auto constraintsExp =
+  //     backend.getOpConstraints(getInputLayouts(zeros),
+  //     getOutputLayout(zeros));
+
+  // auto constraintsExp = getOpConstraints(zeros.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  auto runtimeExp = getOpRuntime(zeros.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
 } // namespace mlir::tt::ttnn

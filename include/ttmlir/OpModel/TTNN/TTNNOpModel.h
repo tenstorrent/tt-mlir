@@ -685,5 +685,24 @@ struct OpModel<mlir::tt::ttnn::ArangeOp> {
                std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig);
 };
 
+//===----------------------------------------------------------------------===//
+// ZerosOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<mlir::tt::ttnn::ZerosOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr shape,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::Layout> layout,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(mlir::tt::ttnn::ShapeAttr shape,
+               std::optional<mlir::tt::ttcore::DataType> dtype,
+               std::optional<mlir::tt::ttnn::Layout> layout,
+               std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig);
+};
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

@@ -2257,4 +2257,22 @@ TEST_F(OpModelTest, ArangeOp) {
   EXPECT_EQ(outputSize, 0);
 }
 
+TEST_F(OpModelTest, ZerosOp) {
+  const llvm::SmallVector<int64_t> tensorShape = {1024, 256};
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+  auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, tensorShape);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints(
+          CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt,
+          std::nullopt, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+}
+
 } // namespace mlir::tt::op_model::ttnn
