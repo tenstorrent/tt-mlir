@@ -235,9 +235,19 @@ std::string getProgramMlirAsJson(Flatbuffer binary,
 }
 
 std::string getProgramCpp(Flatbuffer binary, std::uint32_t programIndex) {
+  std::cout << "opening cpp binary1" << std::endl;
   const auto *programs = getBinary(binary)->programs();
+  std::cout << " cpp binary" << std::endl;
   LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  return programs->Get(programIndex)->debug_info()->cpp()->c_str();
+  std::cout << " cpp binary2" << std::endl;
+  try {
+    std::string x = programs->Get(programIndex)->debug_info()->cpp()->c_str();
+    std::cout << " cpp binary3" << x << std::endl;
+    return x;
+  } catch (...) {
+    LOG_WARNING("CPP not found");
+  }
+  return "";
 }
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
@@ -724,6 +734,7 @@ std::string Binary::getProgramMlirAsJson(std::uint32_t programIndex) const {
 }
 
 std::string Binary::getProgramCpp(std::uint32_t programIndex) const {
+  std::cout << "opening cpp binary" << std::endl;
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getProgramCpp(*this, programIndex);
@@ -733,7 +744,7 @@ std::string Binary::getProgramCpp(std::uint32_t programIndex) const {
           handle.get())) {
     return metal::getProgramCpp(*this, programIndex);
   }
-
+  std::cout << "closing cpp binary" << std::endl;
   LOG_FATAL("Unsupported binary format");
 }
 
