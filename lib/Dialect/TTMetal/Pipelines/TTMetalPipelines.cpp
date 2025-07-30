@@ -114,10 +114,10 @@ void createTTIRToTTMetalMiddleendPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createLoopInvariantSubsetHoistingPass());
   pm.addPass(mlir::createCSEPass());
-  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());

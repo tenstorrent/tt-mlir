@@ -652,16 +652,19 @@ def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_B
 }
 
 
-def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init", [MemoryEffects<[MemWrite<ExpInitState>]>]> {
+def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init", [SameOperandsAndResultType, MemoryEffects<[MemWrite<ExpInitState>]>, Idempotent]> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
     }];
-
-    let arguments = (ins);
+  
+    // idempotent trait requires an output
+    // for some reason something requires that we have SameOperandsAndResultType
+    let arguments = (ins I32:$dummy_in);
+    let results = (outs I32:$dummy_out);
 
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` $dummy_in `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -677,7 +680,7 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait, Mem
     let arguments = (ins IndexLike:$tile_index);
 
     let assemblyFormat = [{
-      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $tile_index `,` $dummy_in `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

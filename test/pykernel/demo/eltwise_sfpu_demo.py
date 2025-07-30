@@ -29,7 +29,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
                 copy_tile(cb_in, 0, 0)
 
-                exp_tile_init()
+                exp_tile_init(0)
                 exp_tile(0)
 
                 tile_regs_commit()
