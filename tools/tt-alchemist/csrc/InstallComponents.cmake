@@ -1,6 +1,9 @@
 # InstallComponents.cmake
 # Handles installation of required TT-NN components for cpp standalone builds
 
+# Print one message per install command instead of per file
+set(CMAKE_INSTALL_MESSAGE LAZY)
+
 # Install directory for TT-NN components
 if(NOT DEFINED TTNN_INSTALL_DIR)
   set(TTNN_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/../ttnn-install" CACHE PATH "Directory to install TT-NN components")
