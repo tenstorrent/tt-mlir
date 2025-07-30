@@ -78,6 +78,30 @@ template <>
 struct OpModel<SignOp> : UnaryEltwiseOpModel<SignOp> {};
 
 template <>
+struct OpModel<FloorOp> : UnaryEltwiseOpModel<FloorOp> {};
+
+template <>
+struct OpModel<IsFiniteOp> : UnaryEltwiseOpModel<IsFiniteOp> {};
+
+template <>
+struct OpModel<LogicalNotOp> : UnaryEltwiseOpModel<LogicalNotOp> {};
+
+template <>
+struct OpModel<NegOp> : UnaryEltwiseOpModel<NegOp> {};
+
+template <>
+struct OpModel<TanOp> : UnaryEltwiseOpModel<TanOp> {};
+
+template <>
+struct OpModel<AtanOp> : UnaryEltwiseOpModel<AtanOp> {};
+
+template <>
+struct OpModel<Log1pOp> : UnaryEltwiseOpModel<Log1pOp> {};
+
+template <>
+struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
+
+template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
 //===----------------------------------------------------------------------===//
@@ -143,6 +167,7 @@ struct OpModel<ErfcOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
 };
+
 //===----------------------------------------------------------------------===//
 // Binary Eltwise Ops
 //===----------------------------------------------------------------------===//

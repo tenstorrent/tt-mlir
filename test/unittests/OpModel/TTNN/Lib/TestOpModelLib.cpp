@@ -125,6 +125,18 @@ using OpModelCeilParam = OpModelUnaryEltwiseParam<CeilOp>;
 using OpModelSignParam = OpModelUnaryEltwiseParam<SignOp>;
 using OpModelErfParam = OpModelUnaryEltwiseParam<ErfOp>;
 using OpModelErfcParam = OpModelUnaryEltwiseParam<ErfcOp>;
+using OpModelFloorParam = OpModelUnaryEltwiseParam<FloorOp>;
+using OpModelGeluParam = OpModelUnaryEltwiseParam<GeluOp>;
+using OpModelIsFiniteParam =
+    OpModelUnaryEltwiseParam<IsFiniteOp>;
+using OpModelLogicalNotParam =
+    OpModelUnaryEltwiseParam<LogicalNotOp>;
+using OpModelNegParam = OpModelUnaryEltwiseParam<NegOp>;
+using OpModelTanParam = OpModelUnaryEltwiseParam<TanOp>;
+using OpModelAtanParam = OpModelUnaryEltwiseParam<AtanOp>;
+using OpModelRsqrtParam = OpModelUnaryEltwiseParam<RsqrtOp>;
+using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
+using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
 using OpModelReciprocalParam =
     OpModelUnaryEltwiseParam<ReciprocalOp>;
 
@@ -141,7 +153,17 @@ TEST_P(OpModelCeilParam, CeilOp) { RunTest(); }
 TEST_P(OpModelSignParam, SignOp) { RunTest(); }
 TEST_P(OpModelErfParam, ErfOp) { RunTest(); }
 TEST_P(OpModelErfcParam, ErfcOp) { RunTest(); }
+TEST_P(OpModelFloorParam, FloorOp) { RunTest(); }
 TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
+TEST_P(OpModelGeluParam, GeluOp) { RunTest(); }
+TEST_P(OpModelIsFiniteParam, IsFiniteOp) { RunTest(); }
+TEST_P(OpModelLogicalNotParam, LogicalNotOp) { RunTest(); }
+TEST_P(OpModelNegParam, NegOp) { RunTest(); }
+TEST_P(OpModelTanParam, TanOp) { RunTest(); }
+TEST_P(OpModelAtanParam, AtanOp) { RunTest(); }
+TEST_P(OpModelRsqrtParam, RsqrtOp) { RunTest(); }
+TEST_P(OpModelLog1pParam, Log1pOp) { RunTest(); }
+TEST_P(OpModelExpm1Param, Expm1Op) { RunTest(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -221,6 +243,36 @@ INSTANTIATE_TEST_SUITE_P(ErfTests, OpModelErfParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelFloorParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelGeluParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(IsFiniteTests, OpModelIsFiniteParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(LogicalNotTests, OpModelLogicalNotParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(NegTests, OpModelNegParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(TanTests, OpModelTanParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(AtanTests, OpModelAtanParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(RsqrtTests, OpModelRsqrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(Log1pTests, OpModelLog1pParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
@@ -1718,36 +1770,104 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
     ::testing::Values(
-        std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 64 * 64, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(detail::TestTensor{{1, 1, 256 * 256, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 64 * 128, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{4, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 5 * 11, 22},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{4, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, false)));
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 128 * 128, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 64 * 64, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 256 * 256, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 64 * 128, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 17 * 21, 22},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 5 * 11, 22},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, false)));
+
+class OpModelLeakyReluParam : public OpModelTest,
+                              public testing::WithParamInterface<
+                                  std::tuple<detail::TestTensor, // input
+                                             detail::TestTensor, // output
+                                             float,              // slope
+                                             bool // expected legal
+                                             >> {};
+
+TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto slope = llvm::APFloat(std::get<2>(params));
+  const auto expectedLegal = std::get<3>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, slope, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpRuntime(
+          inputShape, inputLayout, slope, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    LeakyReluTests, OpModelLeakyReluParam,
+    ::testing::Values(std::make_tuple(
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::L1},
+        1.0, true)));
 
 class OpModelClampScalarParam : public OpModelTest,
                                 public testing::WithParamInterface<
