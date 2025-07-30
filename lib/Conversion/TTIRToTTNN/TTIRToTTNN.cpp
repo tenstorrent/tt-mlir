@@ -1254,16 +1254,28 @@ public:
     constexpr unsigned int CHANNEL_DIM = 3;
     auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
 
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), batchSize,
-        adaptor.getFlattenedCompatInfo().getInputHeight(),
-        adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        /*memory_config=*/nullptr,
-        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-        /* in_place_halo=*/false);
-
+    if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          adaptor.getCountIncludePad(),
+          /* in_place_halo=*/false);
+    } else {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false);
+    }
     return success();
   }
 };

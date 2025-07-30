@@ -100,12 +100,20 @@ public:
     auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         inputType.getContext(), inputType.getDimSize(0),
         inputType.getDimSize(1), inputType.getDimSize(2));
-
-    auto newPool = ttir::utils::createDPSOp<Pooling2dOp>(
-        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-        adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-        adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
-
+    Pooling2dOp newPool;
+    if constexpr (std::is_same_v<Pooling2dOp, ttir::MaxPool2dOp>) {
+      newPool = ttir::utils::createDPSOp<ttir::MaxPool2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          flattenedCompatInfoAttr);
+    } else {
+      newPool = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
+    }
     Value output = generateReshape(newPool, outputType, rewriter);
 
     rewriter.replaceOp(op, output);
