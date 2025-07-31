@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_maxpool2d() -> tensor<1x32x64x64xbf16> {
@@ -50,8 +50,8 @@ module attributes {} {
   }
 
   func.func @test_pool_multiple_inputs() -> (tensor<1x32x64x64xbf16>, tensor<1x32x10x10x10xbf16>) {
-    // CHECK: %[[FULL0:.*]] = "ttir.full"() <{fill_value = 4.000000e+00 : f32, shape = array<i32: 1, 32, 64, 64>}> : () -> tensor<1x32x64x64xbf16>
     // CHECK: %[[FULL1:.*]] = "ttir.full"() <{fill_value = 8.000000e+00 : f32, shape = array<i32: 1, 32, 10, 10, 10>}> : () -> tensor<1x32x10x10x10xbf16>
+    // CHECK: %[[FULL0:.*]] = "ttir.full"() <{fill_value = 4.000000e+00 : f32, shape = array<i32: 1, 32, 64, 64>}> : () -> tensor<1x32x64x64xbf16>
     // CHECK return %[[FULL0]], %[[FULL1]]
     %cst0 = "ttir.full"() <{fill_value = 1.0 : f32, shape = array<i32: 1, 32, 128, 128>}> : () -> tensor<1x32x128x128xbf16>
     %cst1 = "ttir.full"() <{fill_value = 2.0 : f32, shape = array<i32: 1, 32, 20, 20>}> : () -> tensor<1x32x20x20xbf16>
