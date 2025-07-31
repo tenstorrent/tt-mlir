@@ -1439,7 +1439,13 @@ bool hasPadding(PoolingOp op) {
   if (op.getPoolingMethod() == PoolingMethod::Max) {
     return DenseElementsAttr::get(resultType, floatValue);
   } else if (op.getPoolingMethod() == PoolingMethod::Sum) {
-    return DenseElementsAttr::get(resultType, floatValue * windowVolume);
+    float result = floatValue * windowVolume;
+    APFloat resultAPFloat = APFloat(result);
+    bool losesInfo = false;
+    resultAPFloat.convert(
+        cast<FloatType>(resultType.getElementType()).getFloatSemantics(),
+        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    return DenseElementsAttr::get(resultType, resultAPFloat);
   } else if (op.getPoolingMethod() == PoolingMethod::Average) {
     return DenseElementsAttr::get(resultType, floatValue);
   } else {
@@ -4365,6 +4371,30 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 // FullOp
 //===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
+  // return nullptr;
+  // Only fold if the fill value is a constant attribute.
+  auto fillAttr = adaptor.getFillValue();
+  if (!fillAttr) {
+    return nullptr;
+  }
+
+  auto type = getType();
+  auto elemType = type.getElementType();
+
+  // Handle float types
+  if (auto floatType = dyn_cast<mlir::FloatType>(elemType)) {
+    bool losesInfo = false;
+    llvm::APFloat value = cast<FloatAttr>(fillAttr).getValue();
+    value.convert(floatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    return mlir::DenseElementsAttr::get(type, value);
+  }
+
+  // Could not fold
+  return nullptr;
+}
 
 // FullOp verification
 mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {

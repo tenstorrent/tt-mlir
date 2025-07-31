@@ -1649,6 +1649,64 @@ private:
   }
 };
 
+class FuseAveragePoolingWithConstantDenominator
+    : public mlir::OpRewritePattern<DivOp> {
+public:
+  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
+
+    auto numerator = op.getLhs();
+    auto denominator = op.getRhs();
+    if (!isa<PoolingOp>(numerator.getDefiningOp())) {
+      return mlir::failure();
+    }
+
+    auto poolingOp = dyn_cast<PoolingOp>(numerator.getDefiningOp());
+    if (poolingOp.getPoolingMethod() != PoolingMethod::Sum) {
+      return mlir::failure();
+    }
+
+    if (!isa<BroadcastOp>(denominator.getDefiningOp())) {
+      return mlir::failure();
+    }
+
+    denominator = denominator.getDefiningOp<BroadcastOp>().getInput();
+
+    if (!isa<ReshapeOp>(denominator.getDefiningOp())) {
+      return mlir::failure();
+    }
+
+    denominator = denominator.getDefiningOp<ReshapeOp>().getInput();
+
+    if (!isa<FullOp>(denominator.getDefiningOp())) {
+      return mlir::failure();
+    }
+
+    float denominatorValue =
+        cast<FloatAttr>(denominator.getDefiningOp<FullOp>().getFillValue())
+            .getValue()
+            .convertToFloat();
+
+    float kernelVolume = std::accumulate(
+        poolingOp.getWindowDimensions().begin(),
+        poolingOp.getWindowDimensions().end(), 1, std::multiplies<int64_t>());
+
+    if (kernelVolume >= denominatorValue - 0.00001 &&
+        kernelVolume <= denominatorValue + 0.00001) {
+      rewriter.modifyOpInPlace(poolingOp, [&]() {
+        poolingOp.setPoolingMethod(PoolingMethod::Average);
+      });
+      rewriter.replaceOp(op, numerator);
+    } else {
+      return mlir::failure();
+    }
+
+    return mlir::success();
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1688,6 +1746,7 @@ public:
       // patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
       //     &getContext());
       // patterns.add<FuseAveragePooling>(&getContext());
+      patterns.add<FuseAveragePoolingWithConstantDenominator>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
