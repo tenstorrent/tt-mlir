@@ -1120,6 +1120,41 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return success();
 }
 
+// ConcatOp canonicalization
+void mlir::tt::ttir::ConcatOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::ConcatOp op,
+                   mlir::PatternRewriter &rewriter) {
+    // Canonicalize away empty tensors in ConcatOp operands as they are neutral
+    // elements.
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op->getResults().front().getType());
+    mlir::ValueRange inputs = op.getInputs();
+    int32_t dim = op.getDim();
+    int32_t rank = outputType.getRank();
+    int32_t adjustedDim = dim < 0 ? (dim + rank) : dim;
+    llvm::SmallVector<mlir::Value> nonEmptyInputs;
+
+    for (auto input : inputs) {
+      auto shape = mlir::cast<RankedTensorType>(input.getType()).getShape();
+      if (shape[adjustedDim] == 0) {
+        continue;
+      }
+      nonEmptyInputs.push_back(input);
+    }
+
+    // No empty tensors to remove; canonicalization not applicable.
+    if (inputs.size() == nonEmptyInputs.size()) {
+      return failure();
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(rewriter, op, outputType,
+                                                       nonEmptyInputs, dim);
+
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
