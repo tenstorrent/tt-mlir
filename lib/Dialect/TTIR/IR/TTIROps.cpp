@@ -1399,21 +1399,85 @@ std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
   return outputTensor;
 }
 
+bool hasDilations(PoolingOp op) {
+  for (int64_t dilation : op.getBaseDilations()) {
+    if (dilation != 1) {
+      return true;
+    }
+  }
+
+  for (int64_t dilation : op.getWindowDilations()) {
+    if (dilation != 1) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool hasPadding(PoolingOp op) {
+  for (int64_t padding : op.getPadding()) {
+    if (padding != 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+::mlir::OpFoldResult foldSplatPooling(ElementsAttr elements, PoolingOp op,
+                                      RankedTensorType resultType) {
+
+  assert(elements.isSplat() && "Expected splat elements");
+  int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
+                                         op.getWindowDimensions().end(), 1,
+                                         std::multiplies<int64_t>());
+
+  APFloat value = elements.getSplatValue<APFloat>();
+  float floatValue = value.convertToFloat();
+
+  if (op.getPoolingMethod() == PoolingMethod::Max) {
+    return DenseElementsAttr::get(resultType, floatValue);
+  } else if (op.getPoolingMethod() == PoolingMethod::Sum) {
+    return DenseElementsAttr::get(resultType, floatValue * windowVolume);
+  } else if (op.getPoolingMethod() == PoolingMethod::Average) {
+    return DenseElementsAttr::get(resultType, floatValue);
+  } else {
+    llvm_unreachable("Pooling method must be one of Max, Sum, or Average");
+  }
+}
+
+template <typename numeric_type>
+std::unique_ptr<std::vector<numeric_type>>
+castOutputTensor(std::vector<float> outputTensor) {
+  std::vector<numeric_type> outputCasted(outputTensor.size());
+  for (int64_t i = 0; i < static_cast<int64_t>(outputTensor.size()); i++) {
+    if constexpr (std::is_same_v<numeric_type, int16_t>) {
+      int32_t value_bits = *reinterpret_cast<int32_t *>(&outputTensor[i]);
+      outputCasted[i] = static_cast<numeric_type>(value_bits >> 16);
+    } else if constexpr (std::is_floating_point_v<numeric_type>) {
+      outputCasted[i] = static_cast<numeric_type>(outputTensor[i]);
+    } else {
+      llvm_unreachable("Unsupported numeric type");
+    }
+  }
+  return std::make_unique<std::vector<numeric_type>>(outputCasted);
+}
+
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
 
-  for (int64_t dilation : getBaseDilations()) {
-    if (dilation != 1) {
-      return mlir::failure();
-    }
+  // Cannot yet fold if there are dilations in the base or window.
+  if (hasDilations(*this)) {
+    return mlir::failure();
   }
 
-  for (int64_t dilation : getWindowDilations()) {
-    if (dilation != 1) {
-      return mlir::failure();
-    }
+  // Cannot yet fold if there is padding.
+  if (hasPadding(*this)) {
+    return mlir::failure();
   }
+
   std::vector<std::vector<float>> outputTensors;
   for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
     auto input = adaptor.getInputs()[i];
@@ -1424,25 +1488,23 @@ mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
       return mlir::failure();
     }
 
+    RankedTensorType resultType =
+        cast<RankedTensorType>(getResult(i).getType());
+
     ElementsAttr elements = cast<ElementsAttr>(input);
-    if (elements.isSplat()) {
+
+    // Cannot fold if the input is not a float type.
+    if (!isa<FloatType>(elements.getElementType())) {
       return mlir::failure();
     }
 
-    auto inputShape = elements.getShapedType().getShape();
-    auto outputShape =
-        cast<RankedTensorType>(getResult(i).getType()).getShape();
-
-    SmallVector<int64_t> inputShapeWithPadding(inputShape);
-    for (int64_t dimension = 0;
-         dimension < static_cast<int64_t>(inputShape.size()); dimension++) {
-      inputShapeWithPadding[dimension] += getPadding()[2 * dimension];
-      inputShapeWithPadding[dimension] += getPadding()[2 * dimension + 1];
+    if (elements.isSplat()) {
+      results.push_back(foldSplatPooling(elements, *this, resultType));
+      continue;
     }
 
-    int64_t inputVolumeWithPadding = std::accumulate(
-        inputShapeWithPadding.begin(), inputShapeWithPadding.end(), 1,
-        std::multiplies<int64_t>());
+    auto inputShape = elements.getShapedType().getShape();
+    auto outputShape = resultType.getShape();
 
     if (isa<FloatType>(elements.getElementType())) {
       std::vector<float> tensor(elements.getNumElements(), 0);
@@ -1451,37 +1513,36 @@ mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
         tensor[i] = values[i].convertToFloat();
       }
 
-      std::vector<float> paddedTensor(inputVolumeWithPadding, 0);
-      int64_t realIndex = 0;
-      for (int64_t i = 0; i < inputVolumeWithPadding; i++) {
-        SmallVector<int64_t> index =
-            getTensorIndexFromBufferIndex(i, inputShapeWithPadding);
-        if (indexWithinShape(index, inputShapeWithPadding)) {
-          paddedTensor[i] = tensor[realIndex];
-          realIndex++;
-        } else {
-          paddedTensor[i] = 0;
-        }
-      }
-
-      auto outputTensor = calculatePooling(*this, paddedTensor,
-                                           inputShapeWithPadding, outputShape);
+      auto outputTensor =
+          calculatePooling(*this, tensor, inputShape, outputShape);
       outputTensors.push_back(outputTensor);
     }
 
-    std::vector<int16_t> outputCasted(outputTensors[0].size());
-    for (int64_t i = 0; i < static_cast<int64_t>(outputTensors[0].size());
-         i++) {
-      int32_t value_bits = *reinterpret_cast<int32_t *>(&outputTensors[0][i]);
-      outputCasted[i] = static_cast<int16_t>(value_bits >> 16);
+    if (resultType.getElementType().isF64()) {
+      auto outputCasted = castOutputTensor<double>(outputTensors[0]);
+      ArrayRef<char> outputCastedRef(
+          reinterpret_cast<char *>(outputCasted->data()),
+          outputCasted->size() * sizeof(double));
+      results.push_back(DenseElementsAttr::getFromRawBuffer(
+          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
+    } else if (resultType.getElementType().isF32()) {
+      auto outputCasted = castOutputTensor<float>(outputTensors[0]);
+      ArrayRef<char> outputCastedRef(
+          reinterpret_cast<char *>(outputCasted->data()),
+          outputCasted->size() * sizeof(float));
+      results.push_back(DenseElementsAttr::getFromRawBuffer(
+          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
+    } else if (resultType.getElementType().isF16() ||
+               resultType.getElementType().isBF16()) {
+      auto outputCasted = castOutputTensor<int16_t>(outputTensors[0]);
+      ArrayRef<char> outputCastedRef(
+          reinterpret_cast<char *>(outputCasted->data()),
+          outputCasted->size() * sizeof(int16_t));
+      results.push_back(DenseElementsAttr::getFromRawBuffer(
+          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
+    } else {
+      llvm_unreachable("Unsupported numeric type");
     }
-
-    ArrayRef<char> outputCastedRef(
-        reinterpret_cast<char *>(outputCasted.data()),
-        outputCasted.size() * sizeof(int16_t));
-
-    results.push_back(DenseElementsAttr::getFromRawBuffer(
-        cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
   }
   return mlir::success();
 }
