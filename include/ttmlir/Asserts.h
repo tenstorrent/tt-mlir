@@ -204,6 +204,7 @@ struct BinaryExpr {
 
   // Intercept chained expressions.
 
+  // clang-format off
 #define TT_IMPL_ASSERT_CHAINED_OP_HANDLER(op)                                  \
   template <typename T>                                                        \
   auto operator op(T) -> BinaryExpr<LHS, RHS, Op> const {                      \
@@ -225,6 +226,7 @@ struct BinaryExpr {
   TT_IMPL_ASSERT_CHAINED_OP_HANDLER(||)
 
 #undef TT_IMPL_ASSERT_CHAINED_OP_HANDLER
+  // clang-format on
 };
 // ............................................................................
 
@@ -234,6 +236,7 @@ struct ExprLHS {
 
   // Intercept binary expr cases.
 
+  // clang-format off
 #define TT_IMPL_ASSERT_BINARY_OP_HANDLER(op, bop)                              \
   template <typename RHS>                                                      \
   constexpr friend auto operator op(ExprLHS &&lhs, RHS &&rhs)                  \
@@ -266,6 +269,7 @@ struct ExprLHS {
   TT_IMPL_ASSERT_BINARY_OP_HANDLER(&&)
 
 #undef TT_IMPL_ASSERT_BINARY_OP_HANDLER
+  // clang-format on
 
   // Intercept unary expr cases.
 
@@ -299,11 +303,12 @@ struct ExprLHS {
 
 struct ExprDecomposer {
 
+  // clang-format off
   template <typename T>
-  constexpr friend auto operator<=(ExprDecomposer &&, T &&lhs)
-      -> ExprLHS<const T &> {
+  constexpr friend auto operator<=(ExprDecomposer &&, T &&lhs) -> ExprLHS<const T &> {
     return ExprLHS<const T &>{lhs};
   }
+  // clang-format on
 
 }; // end of class
 // ............................................................................
@@ -312,6 +317,8 @@ template <typename T>
 decltype(auto) unsigned_cast(T x) {
   return impl::UnsignedCast<T>::evaluate(x);
 }
+// ............................................................................
+// clang-format off
 
 // These macro names spellings are intentional, they are intended to show up
 // in assert failure messages.
@@ -323,8 +330,8 @@ decltype(auto) unsigned_cast(T x) {
 
 // Single-branch `a < x < b` check.
 #define in_exclusive_range(x, a, b)                                            \
-  (::ttmlir::utils::asserts::unsigned_cast((x) - (a)-1) <                      \
-   ::ttmlir::utils::asserts::unsigned_cast((b) - (a)-1))
+  (::ttmlir::utils::asserts::unsigned_cast((x) - (a) - 1) <                    \
+   ::ttmlir::utils::asserts::unsigned_cast((b) - (a) - 1))
 
 // Single-branch `a <= x <= b` check.
 #define in_inclusive_range(x, a, b)                                            \
@@ -332,7 +339,6 @@ decltype(auto) unsigned_cast(T x) {
    ::ttmlir::utils::asserts::unsigned_cast((b) - (a)))
 
 // ............................................................................
-// clang-format off
 
 #define TT_assert(condition)                                                  \
   do {                                                                        \
