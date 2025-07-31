@@ -2256,22 +2256,52 @@ TEST_F(OpModelTest, ArangeOp) {
   EXPECT_EQ(outputSize, 0);
 }
 
-TEST_F(OpModelTest, ZerosOp) {
-  const llvm::SmallVector<int64_t> tensorShape = {1024, 256};
-  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-  auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, tensorShape);
-  auto constraintsExp =
-      op_model::ttnn::OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints(
-          CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt,
-          std::nullopt, outputLayout);
-  EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 8192);
-  EXPECT_EQ(outputSize, 8192);
-}
+// ==== Creation Ops ====
+
+template <typename OpTy>
+class OpModelCreationParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<llvm::SmallVector<int64_t>, detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [tensorShape, expectedResult] = params;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = expectedResult;
+
+    const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                          mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+    auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, tensorShape);
+
+    auto constraintsExp = op_model::ttnn::OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt, std::nullopt,
+        outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    }
+  }
+};
+
+using OpModelZerosParam = OpModelCreationParam<mlir::tt::ttnn::ZerosOp>;
+using OpModelOnesParam = OpModelCreationParam<mlir::tt::ttnn::OnesOp>;
+
+TEST_P(OpModelZerosParam, ZerosOpParameterized) { RunTest(); }
+TEST_P(OpModelOnesParam, OnesOpParameterized) { RunTest(); }
+
+// Test data for creation operations
+const auto creationOpTestData = testing::Values(
+    std::make_tuple(llvm::SmallVector<int64_t>{1024, 256},
+                    detail::ExpectedResult{true, 0, 8192, 8192}));
+
+INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelZerosParam, creationOpTestData);
+INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelOnesParam, creationOpTestData);
 
 } // namespace mlir::tt::op_model::ttnn

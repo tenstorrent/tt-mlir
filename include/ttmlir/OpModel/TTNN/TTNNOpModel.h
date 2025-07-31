@@ -262,6 +262,29 @@ struct OpModel<mlir::tt::ttnn::SumOp>
     : ReductionOpModel<mlir::tt::ttnn::SumOp> {};
 
 //===----------------------------------------------------------------------===//
+// Named Full Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpT>
+struct NamedFullOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr shape,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::Layout> layout,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+template <>
+struct OpModel<mlir::tt::ttnn::ZerosOp>
+    : NamedFullOpModel<mlir::tt::ttnn::ZerosOp> {};
+
+template <>
+struct OpModel<mlir::tt::ttnn::OnesOp>
+    : NamedFullOpModel<mlir::tt::ttnn::OnesOp> {};
+
+//===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
 
@@ -675,18 +698,5 @@ struct OpModel<mlir::tt::ttnn::ArangeOp> {
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
-//===----------------------------------------------------------------------===//
-// ZerosOp
-//===----------------------------------------------------------------------===//
-template <>
-struct OpModel<mlir::tt::ttnn::ZerosOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
-                   mlir::tt::ttnn::ShapeAttr shape,
-                   std::optional<mlir::tt::ttcore::DataType> dtype,
-                   std::optional<mlir::tt::ttnn::Layout> layout,
-                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
-                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-};
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

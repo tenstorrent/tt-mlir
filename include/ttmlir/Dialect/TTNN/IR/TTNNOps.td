@@ -1738,7 +1738,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange",
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1750,9 +1750,7 @@ class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.

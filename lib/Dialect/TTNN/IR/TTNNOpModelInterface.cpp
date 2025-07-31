@@ -185,6 +185,30 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
       op.getKeepDim(), opConfig.outputLayout);
 }
+
+template <typename OpT>
+llvm::Expected<op_model::ttnn::OpConstraints>
+getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+
+  const mlir::tt::ttnn::ShapeAttr shape = op.getShape();
+  const std::optional<mlir::tt::ttcore::DataType> dtype = op.getDtype();
+  const std::optional<mlir::tt::ttnn::Layout> layout = op.getLayout();
+  const std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::ttnn::OpModel<OpT>::getOpConstraints, op, deviceGrid, shape,
+      dtype, layout, memoryConfig, opConfig.outputLayout);
+}
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -1465,24 +1489,7 @@ ArangeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 ZerosOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert(inputs.size() == 0);
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  const mlir::tt::ttnn::ShapeAttr shape = getShape();
-  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
-  const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
-  const std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      getMemoryConfig();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints, *this,
-      deviceGrid, shape, dtype, layout, memoryConfig, opConfig.outputLayout);
+  return detail::getNamedFullOpConstraints(*this, inputs, opConfig);
 }
 
 // Similar to ArangeOp, we disable the runtime measurement for ZerosOp.
@@ -1491,4 +1498,21 @@ ZerosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                       const OpConfig &opConfig) {
   return issueRuntimeError(getOperation());
 }
+
+//===----------------------------------------------------------------------===//
+// OnesOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+OnesOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return detail::getNamedFullOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+OnesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  return issueRuntimeError(getOperation());
+}
+
 } // namespace mlir::tt::ttnn

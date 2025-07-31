@@ -2035,33 +2035,74 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   }
 }
 
-TEST_F(OpModelBase, ZerosOpInterface) {
+struct NamedFullOpTestParams {
+  std::string testName;
+  std::function<Operation *(OpBuilder &, Location, Type, ttnn::ShapeAttr)>
+      createOp;
+  ExpectedResult expectedResult;
+};
+
+class NamedFullOpModelTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<NamedFullOpTestParams> {
+protected:
+  void SetUp() override {
+    OpModelBase::SetUp();
+    params = GetParam();
+  }
+
+  NamedFullOpTestParams params;
+};
+
+// Test case for namedFull operations
+TEST_P(NamedFullOpModelTest, TestOpInterface) {
   llvm::SmallVector<int64_t> tensorShapeO = {workerCoresN300, 2048};
   auto layout = CreateTiledLayout(tensorShapeO, BufferType::L1,
                                   TensorMemoryLayout::BlockSharded);
   auto outputType =
       createRankedTensorType(tensorShapeO, builder.getBF16Type(), layout);
-
-  auto zeros =
-      builder.create<ZerosOp>(builder.getUnknownLoc(), outputType,
-                              ttnn::ShapeAttr::get(&context, tensorShapeO),
-                              /*dtype=*/nullptr, /*layout=*/nullptr,
-                              /*device=*/nullptr, /*memoryConfig=*/
-                              nullptr);
-
-  // test ZerosOp interface
-  auto backend = dyn_cast<OpModel>(zeros.getOperation());
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  ttnn::ShapeAttr::get(&context, tensorShapeO));
+  auto backend = dyn_cast<OpModel>(op);
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(zeros), OpConfig(nullptr));
+      backend.getOpConstraints(getInputLayouts(op), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
-    EXPECT_EQ(outputSize, 0);
+    EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
+    FAIL() << "Missing L1 constraints for " << params.testName
+           << "; Error=" << llvm::toString(constraintsExp.takeError());
   }
 }
+
+const auto createZeros = [](OpBuilder &b, Location loc, Type type,
+                            ttnn::ShapeAttr shape) {
+  return b
+      .create<ZerosOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
+                       /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .getOperation();
+};
+const auto createOnes = [](OpBuilder &b, Location loc, Type type,
+                           ttnn::ShapeAttr shape) {
+  return b
+      .create<OnesOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
+                      /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .getOperation();
+};
+
+const ExpectedResult namedFullExpected{true, 0, 0, 0};
+
+const std::vector<NamedFullOpTestParams> namedFullOpTestParams = {
+    {"Zeros", createZeros, namedFullExpected},
+    {"Ones", createOnes, namedFullExpected}};
+
+INSTANTIATE_TEST_SUITE_P(
+    NamedFullOpModelTests, NamedFullOpModelTest,
+    ::testing::ValuesIn(namedFullOpTestParams),
+    [](const testing::TestParamInfo<NamedFullOpTestParams> &info) {
+      return info.param.testName;
+    });
 } // namespace mlir::tt::ttnn

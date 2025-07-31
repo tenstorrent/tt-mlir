@@ -261,8 +261,10 @@ auto getOpSymbol() {
     return ::ttnn::mean;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::SumOp>) {
     return ::ttnn::sum;
-  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::EmptyOp>) {
-    return ::ttnn::empty;
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
+    return ::ttnn::zeros;
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::OnesOp>) {
+    return ::ttnn::ones;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -1077,6 +1079,54 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for ReductionOpModel.
 template struct ReductionOpModel<mlir::tt::ttnn::MeanOp>;
 template struct ReductionOpModel<mlir::tt::ttnn::SumOp>;
+
+//===----------------------------------------------------------------------===//
+// Named Full Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::Layout> layout,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  std::optional<::tt::tt_metal::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
+  if (layout.has_value()) {
+    metalLayout = conversion::getPageLayout(layout.value());
+  }
+  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
+  if (outputLayout) {
+    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig.has_value()) {
+    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
+  auto namedFullOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        detail::getOpSymbol<OpTy>(), device,
+        conversion::getShape(shape.getShape()), metalDtype, metalLayout,
+        deviceRef, metalMemoryConfig);
+  };
+  return operation::getOpConstraints(shape.getContext(), deviceGrid,
+                                     namedFullOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+// Explicit template instantiation for NamedFullOpModel.
+template struct NamedFullOpModel<mlir::tt::ttnn::ZerosOp>;
+template struct NamedFullOpModel<mlir::tt::ttnn::OnesOp>;
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
@@ -2695,49 +2745,6 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
 
   return operation::getOpConstraints(start.getContext(), deviceGrid,
                                      arangeOpQuery);
-#else
-  return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-//===----------------------------------------------------------------------===//
-// ZerosOp
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<OpConstraints>
-OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints(
-    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
-    std::optional<mlir::tt::ttcore::DataType> dtype,
-    std::optional<mlir::tt::ttnn::Layout> layout,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-  std::optional<::tt::tt_metal::DataType> metalDtype = std::nullopt;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
-  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
-  if (layout.has_value()) {
-    metalLayout = conversion::getPageLayout(layout.value());
-  }
-  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
-  } else if (memoryConfig.has_value()) {
-    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
-  }
-  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
-      deviceRef = *device;
-
-  auto zerosOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::zeros, device, conversion::getShape(shape.getShape()),
-        metalDtype, metalLayout, deviceRef, metalMemoryConfig);
-  };
-  return operation::getOpConstraints(shape.getContext(), deviceGrid,
-                                     zerosOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
