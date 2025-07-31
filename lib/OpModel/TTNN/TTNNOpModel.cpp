@@ -2069,13 +2069,21 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::PadOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // Convert padding to PadSpecDim format
+  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
+      paddingSpec;
+  for (size_t i = 0; i < padding.size(); i += 2) {
+    uint32_t before = static_cast<uint32_t>(padding[i]);
+    uint32_t after =
+        (i + 1 < padding.size()) ? static_cast<uint32_t>(padding[i + 1]) : 0;
+    paddingSpec.emplace_back(before, after);
+  }
+
   // Create query closure
   auto padOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::pad, device, inputSpec,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
-        padValue.convertToFloat(), multicore,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::pad, device, inputSpec, paddingSpec, padValue.convertToFloat(),
+        multicore, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2101,13 +2109,21 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::PadOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // Convert padding to PadSpecDim format
+  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
+      paddingSpec;
+  for (size_t i = 0; i < padding.size(); i += 2) {
+    uint32_t before = static_cast<uint32_t>(padding[i]);
+    uint32_t after =
+        (i + 1 < padding.size()) ? static_cast<uint32_t>(padding[i + 1]) : 0;
+    paddingSpec.emplace_back(before, after);
+  }
+
   // Create query closure
   auto padOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::pad, device, inputSpec,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
-        padValue.convertToFloat(), multicore,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::pad, device, inputSpec, paddingSpec, padValue.convertToFloat(),
+        multicore, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(padOpQuery);

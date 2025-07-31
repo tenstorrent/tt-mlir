@@ -1494,6 +1494,42 @@ TEST_F(OpModelBase, repeatOp) {
   }
 }
 
+TEST_F(OpModelBase, padOp) {
+  // create PadOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+  llvm::SmallVector<int64_t> tensorShapeO = {66, 66};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  std::vector<int32_t> paddingVec = {0, 2, 0, 2};
+  llvm::ArrayRef<int32_t> padding(paddingVec);
+
+  auto pad =
+      builder.create<PadOp>(builder.getUnknownLoc(), output.getType(), input,
+                            padding, llvm::APFloat(0.0f), false, nullptr);
+
+  // test pad Op interface
+  auto constraintsExp = getOpConstraints(pad.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 6144);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(pad.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};

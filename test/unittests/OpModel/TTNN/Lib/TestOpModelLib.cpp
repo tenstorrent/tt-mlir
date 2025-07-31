@@ -914,8 +914,6 @@ TEST_F(OpModelTest, Repeat) {
 
   std::vector<int64_t> repeatDimsVec = {2, 1};
   llvm::ArrayRef<int64_t> repeatDims(repeatDimsVec);
-  /*auto repeatDimsAttr = ::mlir::tt::ttnn::ShapeAttr::get(&context,
-   * repeatDims);*/
 
   auto constraintsExp =
       op_model::ttnn::OpModel<mlir::tt::ttnn::RepeatOp>::getOpConstraints(
@@ -961,6 +959,71 @@ TEST_F(OpModelTest, Repeat) {
       tensorShape, layoutL1Interleaved, repeatDims, layoutL1WSharded);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Pad) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1Interleaved =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1WSharded =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  std::vector<int32_t> paddingVec = {0, 2, 0, 2};
+  llvm::ArrayRef<int32_t> padding(paddingVec);
+  llvm::APFloat padValue = llvm::APFloat(1.0f);
+
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, padding, padValue, false,
+          layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpRuntime(
+          tensorShape, layoutDRAM, padding, padValue, false, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutDRAM, padding, padValue, false,
+          layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 4096);
+
+  runtimeExp = op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpRuntime(
+      tensorShape, layoutDRAM, padding, padValue, false, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpConstraints(
+          CreateWorkerGrid(), tensorShape, layoutL1Interleaved, padding,
+          padValue, false, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, padding, padValue, false,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
 }
 
 TEST_F(OpModelTest, SoftmaxSharded) {
