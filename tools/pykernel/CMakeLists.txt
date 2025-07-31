@@ -8,6 +8,7 @@ declare_mlir_python_sources(TTPykernelSources
         ast.py
         op.py
         types.py
+        kernel_types.py
 )
 
 add_mlir_python_modules(TTPykernelModules
