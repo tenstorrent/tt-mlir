@@ -2163,7 +2163,6 @@ private:
 };
 } // namespace
 
-
 namespace {
 class StableHLOToTTIRSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SliceOp> {
@@ -2608,7 +2607,6 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
-
 
 static void
 addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
