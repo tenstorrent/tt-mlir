@@ -122,7 +122,7 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
-            local: Whether to generate for local execution (True) or standalone deployment (False). 
+            local: Whether to generate for local execution (True) or standalone deployment (False).
                    Local mode uses development environment libraries, standalone bundles all dependencies.
 
         Returns:
@@ -144,7 +144,7 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
-            local: Whether to generate for local execution (True) or standalone deployment (False). 
+            local: Whether to generate for local execution (True) or standalone deployment (False).
                    Local mode uses development environment libraries, standalone bundles all dependencies.
 
         Returns:
@@ -194,7 +194,7 @@ def generate_cpp(input_file, output_dir, local=True):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
-        local: Whether to generate for local execution (True) or standalone deployment (False). 
+        local: Whether to generate for local execution (True) or standalone deployment (False).
                Local mode uses development environment libraries, standalone bundles all dependencies.
 
     Returns:
@@ -213,7 +213,7 @@ def generate_python(input_file, output_dir, local=True):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
-        local: Whether to generate for local execution (True) or standalone deployment (False). 
+        local: Whether to generate for local execution (True) or standalone deployment (False).
                Local mode uses development environment libraries, standalone bundles all dependencies.
 
     Returns:
