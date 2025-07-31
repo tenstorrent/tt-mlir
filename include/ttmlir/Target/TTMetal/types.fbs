@@ -13,10 +13,9 @@ table ShardSpecBuffer {
   tensor_shape_in_pages: Dim2d;
 }
 
-table ShardedBufferConfig {
+table InterleavedBufferConfig {
   size: uint64;
   page_size: uint64;
-  shard_spec_buffer: ShardSpecBuffer;
 }
 
 table CircularBufferConfig {
@@ -25,14 +24,21 @@ table CircularBufferConfig {
   page_size: uint64;
   num_buffers: uint64;
 }
+table ShardedBufferConfig {
+  size: uint64;
+  page_size: uint64;
+  shard_spec_buffer: ShardSpecBuffer;
+  circular_buffer_config: CircularBufferConfig;
+}
+
+union BufferConfig {InterleavedBufferConfig, ShardedBufferConfig}
 
 table BufferDesc {
   shape: [int];
   tile_shape: Dim2d;
   data_type: DataType;
   memory_space: MemorySpace;
-  sharded_buffer_config: ShardedBufferConfig;
-  circular_buffer_config: CircularBufferConfig;
+  buffer_config: BufferConfig;
 }
 
 table BufferRef {

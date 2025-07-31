@@ -416,6 +416,11 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       // Returns the memref size bytes divided by the circular buffer page size.
       size_t getMemrefCBNumPages(MemRefType memrefType) const;
 
+      // Returns the page size in bytes for a memref as an interleaved buffer
+      //   - for deviceDRAM buffers, return a size based on shard dimensions
+      //   - for deviceL1   buffers, return getMemrefCBPageSizeBytes()
+      size_t getMemrefInterleavedPageSize(MemRefType memrefType) const;
+
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
       // The resulting size is a function of the memory space, roughly speaking this ends up being:
       // - DeviceL1: This ends up being exactly the shard size
