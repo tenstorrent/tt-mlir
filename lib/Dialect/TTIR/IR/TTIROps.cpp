@@ -1164,11 +1164,6 @@ void setElementAtIndex(std::vector<numeric_type> &tensor,
                        ArrayRef<int64_t> shape, ArrayRef<int64_t> strides,
                        ArrayRef<int64_t> index, numeric_type value) {
   int64_t bufferIndex = getBufferIndexFromTensorIndex(index, strides);
-  llvm::errs() << "setting element at index: ()";
-  for (int64_t i = 0; i < static_cast<int64_t>(index.size()); i++) {
-    llvm::errs() << index[i] << " ";
-  }
-  llvm::errs() << ") with value: " << value << "\n";
   tensor[bufferIndex] = value;
 }
 
@@ -1328,11 +1323,6 @@ std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
     for (auto index : window) {
       sum += indexTensor<float>(input, inputShape, index);
     }
-
-    if (-0.1 < sum && sum < 0.1) {
-      llvm::errs() << "sum: " << sum << "\n";
-    }
-    // llvm::errs() << "sum: " << sum << "\n";
 
     setElementAtIndex(outputTensor, outputShape, outputStrides,
                       currentOutputIndex.value(), sum);
