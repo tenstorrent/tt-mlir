@@ -114,24 +114,17 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
 
     // Insert quantize op for the dequantized value (the types must be
     // compatible).
-    mlir::Type newElemType = nullptr;
-    if (auto perTensor =
-            llvm::dyn_cast<mlir::quant::UniformQuantizedType>(quantElemQ)) {
-      newElemType = perTensor.castFromExpressedType(expressedType);
-    } else if (auto perAxis =
-                   llvm::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-                       quantElemQ)) {
-      newElemType = perAxis.castFromExpressedType(expressedType);
-    } else {
-      // Unsupported quantized type.
+    if (!isa<mlir::quant::UniformQuantizedType,
+             mlir::quant::UniformQuantizedPerAxisType>(quantElemQ)) {
       return nullptr;
     }
-    if (!newElemType) {
+    if (expressedType != quantElemQ.getExpressedType()) {
       return nullptr;
     }
 
     RankedTensorType newType = RankedTensorType::get(
-        quantType.getShape(), newElemType, quantType.getEncoding());
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType()).getShape(),
+        quantElemQ, quantType.getEncoding());
 
     auto quantizedInput = ttir::utils::createDPSOp<ttir::QuantizeOp>(
         rewriter, getLoc(), newType, dequantVal);
@@ -1191,15 +1184,12 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     auto newResultType = RankedTensorType::get(
         outType.getShape(), inType.getElementType(), outType.getEncoding());
     resultTypes.push_back(newResultType);
-    if (auto empty = out.getDefiningOp<ttir::EmptyOp>()) {
-      auto newEmpty = rewriter.create<ttir::EmptyOp>(
-          empty.getLoc(), newResultType.getShape(),
-          newResultType.getElementType(), newResultType.getEncoding());
-      updatedOutputs.push_back(newEmpty);
-    } else {
-      // Fallback: preserve existing output
-      updatedOutputs.push_back(out);
-    }
+    auto empty = out.getDefiningOp<ttir::EmptyOp>();
+    assert(empty && "Output must be an EmptyOp");
+    auto newEmpty = rewriter.create<ttir::EmptyOp>(
+        empty.getLoc(), newResultType.getShape(),
+        newResultType.getElementType(), newResultType.getEncoding());
+    updatedOutputs.push_back(newEmpty);
   }
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
       getLoc(), resultTypes, transformedOperands, updatedOutputs,
