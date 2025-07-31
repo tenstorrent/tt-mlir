@@ -1687,7 +1687,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       // patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
       //     &getContext());
-      patterns.add<FuseAveragePooling>(&getContext());
+      // patterns.add<FuseAveragePooling>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

@@ -1194,36 +1194,232 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 //===----------------------------------------------------------------------===//
 
 template <typename numeric_type>
-numeric_type indexTensor(const std::unique_ptr<numeric_type[]> &tensor,
+numeric_type indexTensor(const std::vector<numeric_type> &tensor,
                          ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
   int64_t bufferIndex = 0;
 
-  for (size_t i = 0; i < shape.size(); i++) {
+  for (size_t i = 0; i < shape.size() - 1; i++) {
     bufferIndex += index[i] * shape[i];
   }
+
+  bufferIndex += index[shape.size() - 1];
 
   return tensor[bufferIndex];
 }
 
-// SmallVector<SmallVector<int64_t>> getWindow(ArrayRef<int64_t>
-// leastSignificantCorner, PoolingOp op) {
-//   SmallVector<SmallVector<int64_t>> window;
-//   for (int64_t dim : op.getWindowDimensions()) {
+SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> strides(shape.size());
+  strides.back() = 1;
 
-//   }
-// }
+  for (int i = shape.size() - 2; i >= 0; --i) {
+    strides[i] = strides[i + 1] * shape[i + 1];
+  }
+
+  return strides;
+}
+
+template <typename numeric_type>
+void setElementAtIndex(std::vector<numeric_type> &tensor,
+                       ArrayRef<int64_t> shape, ArrayRef<int64_t> strides,
+                       ArrayRef<int64_t> index, numeric_type value) {
+  int64_t bufferIndex = 0;
+
+  for (size_t i = 0; i < shape.size(); i++) {
+    bufferIndex += index[i] * strides[i];
+  }
+  tensor[bufferIndex] = value;
+}
+
+inline SmallVector<int64_t>
+getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> index(shape.size());
+  for (int64_t i = shape.size() - 1; i >= 0; i--) {
+    index[i] = (bufferIndex % shape[i]);
+    bufferIndex /= shape[i];
+  }
+  return index;
+}
+
+SmallVector<SmallVector<int64_t>>
+getWindow(ArrayRef<int64_t> leastSignificantCorner, PoolingOp op) {
+  SmallVector<SmallVector<int64_t>> window;
+  int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
+                                         op.getWindowDimensions().end(), 1,
+                                         std::multiplies<int64_t>());
+  for (int64_t i = 0; i < windowVolume; i++) {
+    window.push_back(
+        getTensorIndexFromBufferIndex(i, op.getWindowDimensions()));
+  }
+  return window;
+}
+
+bool indexWithinShape(ArrayRef<int64_t> index, ArrayRef<int64_t> shape) {
+  for (size_t i = 0; i < index.size(); i++) {
+    if (index[i] < 0 || index[i] >= shape[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool windowWithinShape(SmallVector<SmallVector<int64_t>> window,
+                       ArrayRef<int64_t> shape) {
+  for (auto index : window) {
+    if (!indexWithinShape(index, shape)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void printTensor(const float *data, const std::vector<int64_t> &shape) {
+  if (shape.empty()) {
+    llvm::outs() << llvm::format("%.3f", data[0]) << "\n";
+    return;
+  }
+
+  // Calculate strides for each dimension
+  std::vector<int64_t> strides(shape.size());
+  strides.back() = 1;
+  for (int i = shape.size() - 2; i >= 0; --i) {
+    strides[i] = strides[i + 1] * shape[i + 1];
+  }
+
+  // Helper function to print recursively
+  std::function<void(int64_t, int, int64_t)> printDimension =
+      [&](int64_t offset, int dimension, int64_t totalDims) {
+        if (dimension == totalDims - 1) {
+          // Innermost dimension - print elements separated by spaces
+          for (int64_t i = 0; i < shape[dimension]; ++i) {
+            if (i > 0) {
+              llvm::outs() << " ";
+            }
+            llvm::outs() << llvm::format("%.3f", data[offset + i]);
+          }
+        } else {
+          // Outer dimensions - recurse
+          for (int64_t i = 0; i < shape[dimension]; ++i) {
+            if (i > 0) {
+              // Add newlines based on dimension level
+              int numNewlines = totalDims - dimension;
+              for (int j = 0; j < numNewlines; ++j) {
+                llvm::outs() << "\n";
+              }
+            }
+            printDimension(offset + i * strides[dimension], dimension + 1,
+                           totalDims);
+          }
+        }
+      };
+
+  printDimension(0, 0, shape.size());
+  llvm::outs() << "\n";
+}
+
+// Alternative version with C-style array for shape
+void printTensor(const float *data, const int64_t *shape, int numDims) {
+  std::vector<int64_t> shapeVec(shape, shape + numDims);
+  printTensor(data, shapeVec);
+}
+
+std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
+                                                 ArrayRef<int64_t> shape,
+                                                 ArrayRef<int64_t> stride) {
+  SmallVector<int64_t> nextIndex(index);
+  bool foundNextIndex = false;
+  int64_t currentDim = shape.size() - 1;
+
+  if (index[0] == 0 && index[1] == 33) {
+    int x = 2;
+    (void)x;
+  }
+
+  while (!foundNextIndex) {
+    if (nextIndex[currentDim] + stride[currentDim] < shape[currentDim]) {
+      nextIndex[currentDim] += stride[currentDim];
+      foundNextIndex = true;
+    } else {
+      nextIndex[currentDim] = 0;
+      currentDim--;
+    }
+
+    if (currentDim < 0) {
+      return std::nullopt;
+    }
+
+    if (currentDim == static_cast<int64_t>(shape.size())) {
+      foundNextIndex = true;
+    }
+  }
+  return std::make_optional(nextIndex);
+}
+
+std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
+                                    ArrayRef<int64_t> inputShape,
+                                    ArrayRef<int64_t> outputShape) {
+
+  std::vector<float> outputTensor(std::accumulate(outputShape.begin(),
+                                                  outputShape.end(), 1,
+                                                  std::multiplies<int64_t>()),
+                                  0.0f);
+
+  SmallVector<int64_t> currentInputIndex_(inputShape.size(), 0);
+  SmallVector<int64_t> currentOutputIndex_(outputShape.size(), 0);
+
+  std::optional<SmallVector<int64_t>> currentInputIndex =
+      std::make_optional(currentInputIndex_);
+  std::optional<SmallVector<int64_t>> currentOutputIndex =
+      std::make_optional(currentOutputIndex_);
+
+  SmallVector<int64_t> outputStrides = calculateStrides(outputShape);
+
+  do {
+    auto window = getWindow(currentInputIndex.value(), op);
+    if (!windowWithinShape(window, inputShape)) {
+      currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
+                                       op.getWindowStrides());
+      currentOutputIndex =
+          getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
+      continue;
+    }
+
+    float sum = 0;
+    for (auto index : window) {
+      sum += indexTensor<float>(input, inputShape, index);
+    }
+
+    setElementAtIndex(outputTensor, outputShape, outputStrides,
+                      currentOutputIndex.value(), sum);
+    currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
+                                     op.getWindowStrides());
+    currentOutputIndex =
+        getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
+  } while (currentInputIndex && currentOutputIndex);
+
+  return outputTensor;
+}
 
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
+
   for (int64_t dilation : getBaseDilations()) {
     if (dilation != 1) {
       return mlir::failure();
     }
   }
 
+  for (int64_t dilation : getWindowDilations()) {
+    if (dilation != 1) {
+      return mlir::failure();
+    }
+  }
+  std::vector<std::vector<float>> outputTensors;
   for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
     auto input = adaptor.getInputs()[i];
+    if (!input) {
+      return mlir::failure();
+    }
     if (!isa<ElementsAttr>(input)) {
       return mlir::failure();
     }
@@ -1237,26 +1433,57 @@ mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
     auto outputShape =
         cast<RankedTensorType>(getResult(i).getType()).getShape();
 
+    SmallVector<int64_t> inputShapeWithPadding(inputShape);
+    for (int64_t dimension = 0;
+         dimension < static_cast<int64_t>(inputShape.size()); dimension++) {
+      inputShapeWithPadding[dimension] += getPadding()[2 * dimension];
+      inputShapeWithPadding[dimension] += getPadding()[2 * dimension + 1];
+    }
+
+    int64_t inputVolumeWithPadding = std::accumulate(
+        inputShapeWithPadding.begin(), inputShapeWithPadding.end(), 1,
+        std::multiplies<int64_t>());
+
     if (isa<FloatType>(elements.getElementType())) {
-      std::unique_ptr<float[]> tensor =
-          std::make_unique<float[]>(elements.getNumElements());
+      std::vector<float> tensor(elements.getNumElements(), 0);
       auto values = elements.getValues<llvm::APFloat>();
       for (int64_t i = 0; i < elements.getNumElements(); i++) {
         tensor[i] = values[i].convertToFloat();
       }
 
-      std::unique_ptr<float[]> outputTensor = std::make_unique<float[]>(
-          std::accumulate(outputShape.begin(), outputShape.end(), 1,
-                          std::multiplies<int64_t>()));
-
-      for (int64_t i = 0; i < outputShape.size(); i++) {
-        for (int64_t j = 0; j < inputShape.size(); j++) {
-          outputTensor[i] = indexTensor(tensor, inputShape, {i, j});
+      std::vector<float> paddedTensor(inputVolumeWithPadding, 0);
+      int64_t realIndex = 0;
+      for (int64_t i = 0; i < inputVolumeWithPadding; i++) {
+        SmallVector<int64_t> index =
+            getTensorIndexFromBufferIndex(i, inputShapeWithPadding);
+        if (indexWithinShape(index, inputShapeWithPadding)) {
+          paddedTensor[i] = tensor[realIndex];
+          realIndex++;
+        } else {
+          paddedTensor[i] = 0;
         }
       }
+
+      auto outputTensor = calculatePooling(*this, paddedTensor,
+                                           inputShapeWithPadding, outputShape);
+      outputTensors.push_back(outputTensor);
     }
+
+    std::vector<int16_t> outputCasted(outputTensors[0].size());
+    for (int64_t i = 0; i < static_cast<int64_t>(outputTensors[0].size());
+         i++) {
+      int32_t value_bits = *reinterpret_cast<int32_t *>(&outputTensors[0][i]);
+      outputCasted[i] = static_cast<int16_t>(value_bits >> 16);
+    }
+
+    ArrayRef<char> outputCastedRef(
+        reinterpret_cast<char *>(outputCasted.data()),
+        outputCasted.size() * sizeof(int16_t));
+
+    results.push_back(DenseElementsAttr::getFromRawBuffer(
+        cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
   }
-  return mlir::failure();
+  return mlir::success();
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
