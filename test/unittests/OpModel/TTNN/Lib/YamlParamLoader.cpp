@@ -9,7 +9,7 @@
 #include <yaml-cpp/node/node.h>
 #include <yaml-cpp/yaml.h>
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 namespace yaml_utils {
 
 mlir::tt::ttnn::TensorMemoryLayout
@@ -132,4 +132,4 @@ Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams) {
 
 } // namespace yaml_utils
 
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
