@@ -491,25 +491,62 @@ def mesh_shard_golden(
     shard_dims: List[int],
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing mesh_shard on the input.
+    @brief Perform actual mesh sharding operation on the input tensor.
     @param input Input tensor to be sharded
-    @param mesh_shape Shape of the device mesh
+    @param mesh_shape Shape of the device mesh (rows, cols)
     @param shard_type Type of sharding operation
-    @param shard_direction Direction of sharding
+    @param shard_direction Direction of sharding (full_to_shard or shard_to_full)
     @param shard_shape Shape of the shard
     @param shard_dims Dimensions to shard along
-    @return Random tensor with correct output shape and type
+    @return Tensor after applying mesh sharding operation
     """
-    out_shape = list(input.shape)
-    if "devices" in str(shard_type).lower():
-        for shard_dim in shard_dims:
-            if shard_dim == -1:
-                continue
-            if "shard_to_full" in str(shard_direction).lower():
-                out_shape[shard_dim] *= shard_shape[shard_dim]
-            elif "full_to_shard" in str(shard_direction).lower():
-                out_shape[shard_dim] //= shard_shape[shard_dim]
-    return torch.randn(out_shape, dtype=input.dtype)
+    shard_type_str = str(shard_type).lower()
+    shard_direction_str = str(shard_direction).lower()
+
+    # Handle non-device sharding types - return input unchanged
+    if "devices" not in shard_type_str:
+        return input.clone()
+
+    result = input.clone()
+
+    for shard_dim in shard_dims:
+        if shard_dim == -1:
+            continue
+
+        current_size = result.shape[shard_dim]
+
+        if "shard_to_full" in shard_direction_str:
+            # Reconstructing full tensor from shard - replicate along shard dimension
+            if shard_dim < len(shard_shape):
+                replication_factor = shard_shape[shard_dim]
+            else:
+                # Use mesh dimension as fallback
+                replication_factor = mesh_shape[0] if shard_dim == 0 else mesh_shape[1]
+
+            # Repeat the tensor along the shard dimension
+            repeat_shape = [1] * result.dim()
+            repeat_shape[shard_dim] = replication_factor
+            result = result.repeat(repeat_shape)
+
+        elif "full_to_shard" in shard_direction_str:
+            # Splitting full tensor into shard - take a slice
+            if shard_dim < len(shard_shape):
+                shard_factor = shard_shape[shard_dim]
+            else:
+                # Use mesh dimension as fallback
+                shard_factor = mesh_shape[0] if shard_dim == 0 else mesh_shape[1]
+
+            # Calculate shard size
+            shard_size = current_size // shard_factor
+
+            # Take the first shard (device 0's portion)
+            # In a real distributed scenario, different devices would take different slices
+            indices = torch.arange(
+                0, shard_size, dtype=torch.long, device=result.device
+            )
+            result = torch.index_select(result, dim=shard_dim, index=indices)
+
+    return result
 
 
 def all_gather_golden(
