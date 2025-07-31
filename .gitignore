@@ -1,6 +1,10 @@
 .local
 **/build
+
+# Third party dirs generatd/fetched by CMake
 third_party/tt-metal
+third_party/ttnn-python
+
 .DS_STORE
 .vscode/*
 .cache
