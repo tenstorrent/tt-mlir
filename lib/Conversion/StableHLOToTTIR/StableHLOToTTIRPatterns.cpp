@@ -2163,59 +2163,6 @@ private:
 };
 } // namespace
 
-namespace {
-class StableHLOToTTIRTTMarkCustomCallOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
-
-  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
-                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    auto callTargetName = adaptor.getCallTargetNameAttr();
-    if (callTargetName.getValue() != "tt.mark") {
-      return failure();
-    }
-
-    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
-      return failure();
-    }
-
-    auto roleAttr = srcOp->getAttrOfType<StringAttr>("tt.role");
-    if (!roleAttr) {
-      return failure();
-    }
-
-    Value operand = adaptor.getInputs().front();
-    auto *operandDefiningOp = operand.getDefiningOp();
-
-    // Propagate the tt.role attribute to the source of the operand.
-    if (operandDefiningOp) {
-      // If operand comes from another operation set the role attribute directly
-      // on the defining operation.
-      operandDefiningOp->setAttr("tt.role", roleAttr);
-    } else if (auto blockArg = mlir::dyn_cast<BlockArgument>(operand)) {
-      // If operand is a function argument (BlockArgument), we need to set the
-      // role attribute on the function argument itself.
-      auto *parentOp = blockArg.getOwner()->getParentOp();
-      auto argIndex = blockArg.getArgNumber();
-
-      if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(parentOp)) {
-        // Set the tt.role attribute on the function argument at the given
-        // index.
-        funcOp.setArgAttr(argIndex, "tt.role", roleAttr);
-      }
-    }
-
-    rewriter.replaceOp(srcOp, operand);
-
-    return success();
-  }
-};
-} // namespace
 
 namespace {
 class StableHLOToTTIRSliceOpConversionPattern
@@ -2662,12 +2609,6 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                                              ctx);
 }
 
-static void addTTMarkCustomCallConversionPattern(MLIRContext *ctx,
-                                                 RewritePatternSet &patterns,
-                                                 TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRTTMarkCustomCallOpConversionPattern>(
-      typeConverter, ctx);
-}
 
 static void
 addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
@@ -2758,7 +2699,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTransposeOpConversionPattern(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addCCLOpsConversionPattern(ctx, patterns, typeConverter);
-  addTTMarkCustomCallConversionPattern(ctx, patterns, typeConverter);
   addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
