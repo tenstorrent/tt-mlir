@@ -40,7 +40,21 @@ public:
       CommuteDirection::DOWNWARDS>::TTIRCommuteOpInterfaceRewritePattern;
 
 private:
-  mutable llvm::SmallVector<Value> quantOperands;
+  // Helper function to collect quantized operands for the given operation.
+  llvm::SmallVector<Value> getSourceOperands(QuantizableOpInterface op) const {
+    DestinationStyleOpInterface dps =
+        mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
+    return llvm::to_vector(llvm::map_range(
+        dps.getDpsInputOperands(), [&](OpOperand *operand) -> Value {
+          Value input = operand->get();
+          // Push back the input -> dequantize -> op.
+          if (auto dq = input.getDefiningOp<ttir::DequantizeOp>()) {
+            return dq.getOperand(0);
+          }
+          // Or push back the input -> op.
+          return input;
+        }));
+  }
 
   bool isCommuteDownwardsViable(QuantizableOpInterface op,
                                 ttir::DequantizeOp dequantOp) const override {
@@ -58,22 +72,9 @@ private:
     // Collects all the operands and calls op.isQuantizedRewriteFavorable.
     // isQuantizedRewriteFavorable will check the basic constraints for
     // the quantized version of the op based on the operands.
-    quantOperands.clear();
-    DestinationStyleOpInterface dps =
-        mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto dq = op->getOperand(operand->getOperandNumber())
-                    .getDefiningOp<ttir::DequantizeOp>();
-      if (dq) {
-        // Push back the input -> dequantize -> op.
-        quantOperands.push_back(dq.getOperand(0));
-      } else {
-        // Push back the input -> op.
-        quantOperands.push_back(op->getOperand(operand->getOperandNumber()));
-      }
-    }
+    llvm::SmallVector<Value> sourceOperands = getSourceOperands(op);
     // This checks the basic legality of an attempt to commute DQs past the op.
-    return op.isQuantizedRewriteFavorable(quantOperands);
+    return op.isQuantizedRewriteFavorable(sourceOperands);
   }
 
   void
@@ -83,7 +84,7 @@ private:
     // Call rewriteWithQuantizedInputs which returns the new operation.
     // If the op is successfully rewritten in quantized form, dequantize the
     // output and rewrite. We expect rewriteWithQuantizedInputs to identify
-    // whether the quantOperands set is sufficient to rewrite the op in
+    // whether the sourceOperands set is sufficient to rewrite the op in
     // quantized form.
     //
     // If the op is not successfully rewritten in quantized form, we fall back
@@ -91,7 +92,8 @@ private:
     //   Dequantize(Quantize(op(Dequantize(...))))
     DestinationStyleOpInterface dps =
         mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, quantOperands,
+    llvm::SmallVector<Value> sourceOperands = getSourceOperands(op);
+    Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, sourceOperands,
                                                      dps.getDpsInits());
     llvm::SmallVector<mlir::Value> newResults;
     if (newOp) {
