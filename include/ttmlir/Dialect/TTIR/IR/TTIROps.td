@@ -2921,7 +2921,7 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
