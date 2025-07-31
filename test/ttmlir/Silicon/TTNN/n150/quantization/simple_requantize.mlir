@@ -27,10 +27,6 @@ module {
     %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32:1, {2.000000e-01,4.000000e-01,6.000000e-01}>>
     // CHECK: "ttnn.constant"()
     // CHECK-SAME: value = dense<
-    // CHECK-SAME: 1.000000e-01, 2.000000e-01, 3.000000e-01
-    // CHECK-SAME: -> tensor<3xf32,
-    // CHECK: "ttnn.constant"()
-    // CHECK-SAME: value = dense<
     // CHECK-SAME: 2.000000e-01, 4.000000e-01, 6.000000e-01
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"

@@ -1599,7 +1599,7 @@ class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
     let hasVerifier = 1;
 }
 
-def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [HasMemoryConfigTrait]> {
+def TTNN_AvgPool2dOp : TTNN_PoolingOp<"avg_pool2d"> {
   let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
   let description = [{
     It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
@@ -1618,64 +1618,15 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [HasMemoryConfigTrait]> {
       output: [[3, 4],
                [6, 7]]
   }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr:$batch_size,
-                         SI32Attr:$input_height,
-                         SI32Attr:$input_width,
-                         SI32Attr:$channels,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
-                         BoolAttr:$ceil_mode,
-                         BoolAttr:$count_include_pad,
-                         BoolAttr:$in_place_halo);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
-      }
-    }];
-
-  let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasMemoryConfigTrait]
+def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr:$batch_size,
-                         SI32Attr:$input_height,
-                         SI32Attr:$input_width,
-                         SI32Attr:$channels,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
-                         BoolAttr:$ceil_mode,
-                         BoolAttr:$in_place_halo);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
-      }
-    }];
-
-  let hasVerifier = 1;
 }
 
 def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
