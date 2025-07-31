@@ -104,68 +104,71 @@ struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
 template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
+template <typename OpT>
+struct UnaryEltwiseWithFastApproxModeOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+template <>
+struct OpModel<mlir::tt::ttnn::RsqrtOp>
+    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::RsqrtOp> {};
+
+template <>
+struct OpModel<mlir::tt::ttnn::GeluOp>
+    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::GeluOp> {};
+
+template <>
+struct OpModel<mlir::tt::ttnn::ExpOp>
+    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ExpOp> {};
+
+template <>
+struct OpModel<mlir::tt::ttnn::ErfOp>
+    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ErfOp> {};
+
+template <>
+struct OpModel<mlir::tt::ttnn::ErfcOp>
+    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ErfcOp> {};
+
 //===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<SigmoidOp> {
+struct OpModel<mlir::tt::ttnn::SigmoidOp> {
   static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout);
-};
-
-//===----------------------------------------------------------------------===//
-// ExpOp
-//===----------------------------------------------------------------------===//
-
-template <>
-struct OpModel<ExpOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout);
-};
-
-//===----------------------------------------------------------------------===//
-// ErfOp
-//===----------------------------------------------------------------------===//
-
-template <>
-struct OpModel<ErfOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-               TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
-// ErfcOp
+// LeakyReluOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<ErfcOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+struct OpModel<mlir::tt::ttnn::LeakyReluOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat slope,
+      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-               TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat slope,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
