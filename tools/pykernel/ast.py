@@ -619,7 +619,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
-        def _load_func_arg(func_arg): 
+        def _load_func_arg(func_arg):
             if not func_arg:
                 raise ValueError(f"Function argument not found for {node.func.id}")
             if hasattr(func_arg, "type") and isinstance(
@@ -652,7 +652,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             for arg in node.args:
                 func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
-            self.visit(node.func, func_args=func_args) # visit_Attribute
+            self.visit(node.func, func_args=func_args)  # visit_Attribute
 
     # Expressions
     def visit_Expr(self, node):
@@ -917,7 +917,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     def visit_Attribute(self, node, func_args=[]):
         # regex match for ttkernel.* and check if it has a PyKernelAttrBase subclass
-        pattern = r'ttkernel\.[a-zA-Z_][a-zA-Z0-9_]*'
+        pattern = r"ttkernel\.[a-zA-Z_][a-zA-Z0-9_]*"
         mlir_value = self.var_exists(node.value.id)[node.value.id]
         match = re.search(pattern, str(mlir_value.type)).group()
         if match and ClassRegistry.exists(match):
@@ -926,7 +926,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             attr_class = ClassRegistry.get(match)()
             attr_class.emit_mlir(node.attr, func_args)
         else:
-            raise ValueError(f"{node.value.id} has no attributes. Did you define a PyKernelAttributesBase subclass?")
+            raise ValueError(
+                f"{node.value.id} has no attributes. Did you define a PyKernelAttributesBase subclass?"
+            )
         return
 
     def visit_List(self, node):
@@ -1036,11 +1038,11 @@ class TTKernelCompiler(ast.NodeVisitor):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code, [])
-            
+
             # Figure out which node to visit. Not using super().visit() in order to pass kwargs.
-            method_name = 'visit_' + node.__class__.__name__
+            method_name = "visit_" + node.__class__.__name__
             visitor = getattr(self, method_name, self.generic_visit)
-            
+
             return visitor(node, **kwargs)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
