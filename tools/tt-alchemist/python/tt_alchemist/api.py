@@ -114,7 +114,7 @@ class TTAlchemistAPI:
         )
 
     def generate_cpp(self, input_file, output_dir, local=True):
-        """Generate a standalone solution with the generated C++ code.
+        """Generate a solution with the generated C++ code.
 
         This generates a directory with all necessary files to build and run the generated code,
         including CMakeLists.txt, precompiled headers, and a main C++ file.
@@ -122,7 +122,8 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
-            local: Whether to generate for local execution (True) or standalone (False). Default is True.
+            local: Whether to generate for local execution (True) or standalone deployment (False). 
+                   Local mode uses development environment libraries, standalone bundles all dependencies.
 
         Returns:
             bool: True if successful, False otherwise.
@@ -135,7 +136,7 @@ class TTAlchemistAPI:
         )
 
     def generate_python(self, input_file, output_dir, local=True):
-        """Generate a standalone solution with the generated Python code.
+        """Generate a solution with the generated Python code.
 
         This generates a directory with all necessary files to build and run the generated code,
         including CMakeLists.txt, precompiled headers, and a main Python file.
@@ -143,7 +144,8 @@ class TTAlchemistAPI:
         Args:
             input_file: Path to the input MLIR file.
             output_dir: Path to the output directory where the solution will be generated.
-            local: Whether to generate for local execution (True) or standalone (False). Default is True.
+            local: Whether to generate for local execution (True) or standalone deployment (False). 
+                   Local mode uses development environment libraries, standalone bundles all dependencies.
 
         Returns:
             bool: True if successful, False otherwise.
@@ -184,7 +186,7 @@ def model_to_python(input_file):
 
 
 def generate_cpp(input_file, output_dir, local=True):
-    """Generate a standalone solution with the generated C++ code.
+    """Generate a solution with the generated C++ code.
 
     This generates a directory with all necessary files to build and run the generated code,
     including CMakeLists.txt, precompiled headers, and a main C++ file.
@@ -192,7 +194,8 @@ def generate_cpp(input_file, output_dir, local=True):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
-        local: Whether to generate for local execution (True) or standalone (False). Default is True.
+        local: Whether to generate for local execution (True) or standalone deployment (False). 
+               Local mode uses development environment libraries, standalone bundles all dependencies.
 
     Returns:
         bool: True if successful, False otherwise.
@@ -202,7 +205,7 @@ def generate_cpp(input_file, output_dir, local=True):
 
 
 def generate_python(input_file, output_dir, local=True):
-    """Generate a standalone solution with the generated Python code.
+    """Generate a solution with the generated Python code.
 
     This generates a directory with all necessary files to build and run the generated code,
     including CMakeLists.txt, precompiled headers, and a main Python file.
@@ -210,7 +213,8 @@ def generate_python(input_file, output_dir, local=True):
     Args:
         input_file: Path to the input MLIR file.
         output_dir: Path to the output directory where the solution will be generated.
-        local: Whether to generate for local execution (True) or standalone (False). Default is True.
+        local: Whether to generate for local execution (True) or standalone deployment (False). 
+               Local mode uses development environment libraries, standalone bundles all dependencies.
 
     Returns:
         bool: True if successful, False otherwise.

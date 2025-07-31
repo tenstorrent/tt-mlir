@@ -1,7 +1,7 @@
 # InstallComponents.cmake
 # Handles installation of required TT-NN components for cpp standalone builds
 
-# Print one message per install command instead of per file
+# Print only "install" logs, but ignore "up-to-date" logs
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Install directory for TT-NN components
@@ -63,16 +63,16 @@ add_custom_command(
   COMMENT "Installing ttnn-dev component"
 )
 
-# Debug: Install all available components to see what's available
+# Workaround: Install all available components to cover stuff that's currently missing
 add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}/.all-components-installed
-  DEPENDS ${TTNN_INSTALL_DIR}
+  DEPENDS ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
   COMMAND cmake --install ${TT_METAL_BUILD_HOME} --prefix ${TTNN_INSTALL_DIR}
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.all-components-installed
   COMMENT "DEBUG: Installing all available components"
 )
 
-# Set of workarounds to copy around missing cpp/hpp files until ttnn/metalium install scripts are fixed
+# Workaround: copy around missing cpp/hpp files until ttnn/metalium install scripts are fixed
 add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}/.missing-headers-installed
   DEPENDS ${TTNN_INSTALL_DIR}/.ttnn-dev-installed

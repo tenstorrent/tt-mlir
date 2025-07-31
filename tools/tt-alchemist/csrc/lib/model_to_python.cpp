@@ -30,10 +30,6 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
     return false;
   }
 
-  // TODO (svuckovic): remove when argument types are fixed in conversion
-  //
-  context.allowUnregisteredDialects();
-
   // Read input file into MLIR
   //
   mlir::OwningOpRef<mlir::ModuleOp> module =

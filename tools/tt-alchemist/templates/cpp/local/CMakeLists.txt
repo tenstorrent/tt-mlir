@@ -117,11 +117,11 @@ set(COMPILE_DEFS
     FMT_HEADER_ONLY  # needed for fmt lib
 )
 
-#       _                     _         _
-#  ___ | |_  __ _  _ __    __| |  __ _ | |  ___   _ __    ___
-# / __|| __|/ _` || '_ \  / _` | / _` || | / _ \ | '_ \  / _ \
-# \__ \| |_| (_| || | | || (_| || (_| || || (_) || | | ||  __/
-# |___/ \__|\__,_||_| |_| \__,_| \__,_||_| \___/ |_| |_| \___|
+#  _                 _
+# | | ___   ___ __ _| |
+# | |/ _ \ / __/ _` | |
+# | | (_) | (_| (_| | |
+# |_|\___/ \___\__,_|_|
 
 add_executable(ttnn-local ttnn-local.cpp)
 set_property(TARGET ttnn-local PROPERTY CXX_STANDARD 20)

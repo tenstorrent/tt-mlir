@@ -5,7 +5,6 @@
 #ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
-// ANCHOR: standalone_includes
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
@@ -43,7 +42,6 @@
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "workarounds.hpp"
-// ANCHOR_END: standalone_includes
 
 #include <cassert>
 #include <cstddef>

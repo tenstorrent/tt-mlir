@@ -10,7 +10,7 @@ if [ "$(pwd)" != "$script_dir" ]; then
   exit 1
 fi
 
-# Set TT_METAL_HOME to the installed metalium directory (portable method)
+# Set TT_METAL_HOME to the installed metalium directory
 export TT_METAL_HOME="$script_dir/ttnn-install/libexec/tt-metalium"
 
 # Build

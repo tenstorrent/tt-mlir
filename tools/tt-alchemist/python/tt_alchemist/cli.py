@@ -57,7 +57,7 @@ def model_to_python_cmd(input_file, verbose):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
-@click.argument("output_dir", type=click.Path())
+@click.option("--output", "-o", "output_dir", type=click.Path(), required=True, help="Output directory path")
 @click.option(
     "--local",
     "mode",
@@ -100,7 +100,7 @@ def generate_cpp_cmd(input_file, output_dir, mode, verbose):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
-@click.argument("output_dir", type=click.Path())
+@click.option("--output", "-o", "output_dir", type=click.Path(), required=True, help="Output directory path")
 @click.option(
     "--local",
     "mode",

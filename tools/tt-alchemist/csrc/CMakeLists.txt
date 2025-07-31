@@ -32,7 +32,9 @@ add_library(${ALCHEMIST_LIBRARY_NAME}
 
 # Add dependencies
 #
-add_dependencies(${ALCHEMIST_LIBRARY_NAME} TTMLIRCompiler)
+add_dependencies(${ALCHEMIST_LIBRARY_NAME}
+  TTMLIRCompiler
+)
 
 # Include dirs
 target_include_directories(${ALCHEMIST_LIBRARY_NAME}
@@ -84,21 +86,15 @@ install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
   INCLUDES DESTINATION include
 )
 
-
-# ======================================
-
 # Include component installation utilities
 include(${CMAKE_CURRENT_SOURCE_DIR}/InstallComponents.cmake)
-
-# ======================================
-
 
 # Python wheel building and installation
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Copy Python files to build directory
 set(PYTHON_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python)
-set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/python)
+set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/../python)
 
 # Create Python build directory
 add_custom_command(
@@ -111,7 +107,6 @@ add_custom_command(
 file(GLOB_RECURSE PYTHON_SOURCE_FILES
   ${PYTHON_SRC_DIR}/*.py
   ${PYTHON_SRC_DIR}/pyproject.toml
-  ${PYTHON_SRC_DIR}/setup.py
 )
 
 # Copy Python files
@@ -131,6 +126,7 @@ add_custom_command(
 )
 
 # Copy all required shared libraries to the Python package
+# TODO: Eventually leverage these libs from ttnn-install for smaller footprint
 add_custom_command(
   OUTPUT
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
@@ -157,7 +153,7 @@ add_custom_target(tt_alchemist_copy_templates
   COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/local
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/standalone
-  #
+  # Copy cpp standalone libs
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
   COMMENT "Copying templates and TT-NN components into Python package"
 )
