@@ -74,6 +74,7 @@ union OpType {
   ReduceScatterOp,
   RepeatInterleaveOp,
   RepeatOp,
+  RMSNormOp,
   ReshapeOp,
   SliceOp,
   SoftmaxOp,

@@ -4932,6 +4932,124 @@ class TTIRBuilderOps:
             kwargs=kwargs,
         )
 
+    def rms_norm(
+        self,
+        in0: Operand,
+        normalized_shape: List[int],
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.rms_norm``.
+
+        *RMS normalization operation.*
+
+        Performs RMS (Root Mean Square) normalization on the input tensor. This operation
+        normalizes the input tensor by computing the root mean square of elements across
+        the specified dimensions and dividing by that value, optionally scaling and
+        shifting the result.
+
+        Mathematical definition: rms_norm(x, weight, bias, epsilon) =
+          (x / sqrt(mean(x^2, dims=normalized_dims) + epsilon)) * weight + bias
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be normalized
+        normalized_shape : List[int]
+            Shape over which to normalize (typically the last few dimensions)
+        weight : Optional[Operand], optional
+            Scale parameter (gamma) tensor with shape matching normalized_shape
+        bias : Optional[Operand], optional
+            Shift parameter (beta) tensor with shape matching normalized_shape
+        epsilon : float, optional
+            Small constant for numerical stability (default: 1e-5)
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        # Prepare operands list
+        operands = [in0]
+        if weight is not None:
+            operands.append(weight)
+        if bias is not None:
+            operands.append(bias)
+
+        # Prepare operand segment sizes
+        operand_segment_sizes = [1, 1]  # input, output
+        operand_segment_sizes.append(1 if weight is not None else 0)  # weight
+        operand_segment_sizes.append(1 if bias is not None else 0)  # bias
+
+        # Prepare kwargs for TTIR operation (only keyword-only arguments)
+        kwargs = {
+            "weight": operands[1] if len(operands) > 1 else None,
+            "bias": operands[2] if len(operands) > 2 else None,
+            "epsilon": epsilon,
+        }
+
+        return self.op_proxy(
+            lambda *args, **kwargs: self._rms_norm_golden(*args, **kwargs),
+            ttir.rms_norm,
+            operands,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+                normalized_shape,
+            ),
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]) if len(i) > 1 else None,
+                self._get_golden_tensor(i[2]) if len(i) > 2 else None,
+                normalized_shape,
+                epsilon,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def _rms_norm_golden(
+        self,
+        input_tensor: torch.Tensor,
+        weight_tensor: Optional[torch.Tensor] = None,
+        bias_tensor: Optional[torch.Tensor] = None,
+        normalized_shape: List[int] = None,
+        epsilon: float = 1e-5,
+    ) -> torch.Tensor:
+        """Golden reference implementation for RMS normalization."""
+        # Convert to float for computation
+        input_float = input_tensor.float()
+
+        # Compute dimensions to normalize over (last len(normalized_shape) dimensions)
+        dims = tuple(
+            range(
+                len(input_tensor.shape) - len(normalized_shape), len(input_tensor.shape)
+            )
+        )
+
+        # Compute RMS: sqrt(mean(x^2) + epsilon)
+        variance = torch.mean(input_float.pow(2), dim=dims, keepdim=True)
+        rms = torch.sqrt(variance + epsilon)
+
+        # Normalize
+        normalized = input_float / rms
+
+        # Apply weight (scale) if provided
+        if weight_tensor is not None:
+            normalized = normalized * weight_tensor.float()
+
+        # Apply bias (shift) if provided
+        if bias_tensor is not None:
+            normalized = normalized + bias_tensor.float()
+
+        # Convert back to original dtype
+        return normalized.to(input_tensor.dtype)
+
 
 # Remove autodoc_skip from Sphinx documentation
 del autodoc_skip

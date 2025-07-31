@@ -4467,6 +4467,66 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::RMSNormOp::verify() {
+  const RankedTensorType inputType = getInput().getType();
+  const RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify normalized_shape is valid for the input tensor.
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> normalizedShape = getNormalizedShape();
+
+  // Check that normalized_shape is not empty.
+  if (normalizedShape.empty()) {
+    return emitOpError("normalized_shape cannot be empty");
+  }
+
+  // Check that normalized_shape is not larger than input tensor shape.
+  if (normalizedShape.size() > inputShape.size()) {
+    return emitOpError(
+        "normalized_shape has more dimensions than input tensor");
+  }
+
+  // Check that the trailing dimensions of input match normalized_shape.
+  // For example, if input shape is [2, 3, 4, 5] and normalized_shape is [4, 5],
+  // then we check that input shape's last two dimensions (4, 5) match
+  // normalized_shape.
+  size_t offset = inputShape.size() - normalizedShape.size();
+  for (size_t i = 0; i < normalizedShape.size(); ++i) {
+    if (inputShape[offset + i] != normalizedShape[i]) {
+      return emitOpError("normalized_shape dimensions must match trailing "
+                         "dimensions of input tensor");
+    }
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    const RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(getWeight().getType());
+    if (weightType.getShape() != ArrayRef<int64_t>(normalizedShape)) {
+      return emitOpError("weight tensor shape must match normalized_shape");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    const RankedTensorType biasType =
+        mlir::cast<RankedTensorType>(getBias().getType());
+    if (biasType.getShape() != ArrayRef<int64_t>(normalizedShape)) {
+      return emitOpError("bias tensor shape must match normalized_shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 

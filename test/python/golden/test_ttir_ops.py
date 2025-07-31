@@ -2534,3 +2534,122 @@ def test_hoisted_dot_general(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+def rms_norm(
+    in0: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    normalized_shape: List[int],
+    weight: Optional[Operand] = None,
+    bias: Optional[Operand] = None,
+    epsilon: float = 1e-5,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """RMS normalization with golden reference implementation."""
+    # Create input tensor
+    input_tensor = torch.randn(shape, dtype=dtype)
+
+    # Create weight and bias tensors if needed
+    weight_tensor = None
+    bias_tensor = None
+
+    if weight is not None:
+        weight_tensor = torch.ones(normalized_shape, dtype=dtype)
+
+    if bias is not None:
+        bias_tensor = torch.zeros(normalized_shape, dtype=dtype)
+
+    # Manual RMS norm computation for golden reference
+    # RMS = sqrt(mean(x^2) + epsilon)
+    input_float = input_tensor.float()
+    dims = tuple(
+        range(len(input_tensor.shape) - len(normalized_shape), len(input_tensor.shape))
+    )
+    variance = torch.mean(input_float.pow(2), dim=dims, keepdim=True)
+    rms = torch.sqrt(variance + epsilon)
+    normalized = input_float / rms
+
+    if weight_tensor is not None:
+        normalized = normalized * weight_tensor.float()
+    if bias_tensor is not None:
+        normalized = normalized + bias_tensor.float()
+
+    golden_output_tensor = normalized.to(dtype)
+
+    # Set the golden input/output
+    inputs = [input_tensor]
+    if weight_tensor is not None:
+        inputs.append(weight_tensor)
+    if bias_tensor is not None:
+        inputs.append(bias_tensor)
+
+    builder.set_graph_input_output(inputs, [golden_output_tensor], override=True)
+
+    # Create the RMS norm operation using builder
+    return builder.rms_norm(
+        in0,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        bias=bias,
+        epsilon=epsilon,
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+def test_rms_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    request,
+):
+    def rms_norm_wrapper(
+        *args, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        in0 = args[0]
+        weight = args[1] if has_weight and len(args) > 1 else None
+        bias = args[2] if has_bias and len(args) > 2 else None
+        if not has_weight and has_bias and len(args) > 1:
+            bias = args[1]
+
+        return rms_norm(
+            in0,
+            builder,
+            shape,
+            torch.float32,
+            normalized_shape,
+            weight=weight,
+            bias=bias,
+            epsilon=1e-5,
+            unit_attrs=unit_attrs,
+        )
+
+    # Skip cases where has_weight=True and has_bias=False
+    if not has_weight and has_bias:
+        pytest.skip("Skipping has_weight=False and has_bias=True combination")
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    compile_to_flatbuffer(
+        rms_norm_wrapper,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
