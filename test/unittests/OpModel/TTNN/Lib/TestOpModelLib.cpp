@@ -1008,6 +1008,17 @@ INSTANTIATE_TEST_SUITE_P(
     generateBinaryEltwiseParams(BinaryEltwiseOpType::Maximum,
                                 binaryEltwiseParams));
 
+INSTANTIATE_TEST_SUITE_P(LogicalAndTests, OpModelLogicalAndParam,
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
 INSTANTIATE_TEST_SUITE_P(
     MinimumTests, OpModelBinaryEltwiseParam,
     generateBinaryEltwiseParams(BinaryEltwiseOpType::Minimum,
