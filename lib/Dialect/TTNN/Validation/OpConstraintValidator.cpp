@@ -33,20 +33,14 @@ OpConstraintValidator::validateSingleConfig(
     Operation *op, const std::vector<TTNNLayoutAttr> &inputLayouts,
     const OpConfig &config) {
 
-  // Extract the input operand for constraint checking
-  Value inputOperand = extractInputOperand(op);
-  if (!inputOperand) {
-    return ValidationResult(false, 0, {}, "No valid input operand found");
-  }
-
   // Use the first input layout for validation
   if (inputLayouts.empty()) {
     return ValidationResult(false, 0, {}, "No input layouts provided");
   }
 
-  // Call core constraint validation
+  // Call core constraint validation with all input layouts
   auto constraintResult =
-      validateConstraints(inputOperand, inputLayouts[0], op, config);
+      validateConstraintsWithAllLayouts(op, inputLayouts, config);
 
   if (constraintResult) {
     TTNNLayoutAttr actualOutput = constraintResult.get();
@@ -112,71 +106,13 @@ OpConstraintValidator::validateWithMultipleAttributes(
   return results;
 }
 
-std::vector<OpConstraintValidator::ValidationResult>
-OpConstraintValidator::testFallbackTransforms(
-    Operation *op, const TTNNLayoutAttr &originalInputLayout,
-    const OpConfig &originalConfig,
-    const std::vector<std::function<TTNNLayoutAttr(TTNNLayoutAttr)>>
-        &transforms) {
-
-  std::vector<ValidationResult> results;
-
-  for (size_t i = 0; i < transforms.size(); ++i) {
-    const auto &transform = transforms[i];
-    TTNNLayoutAttr testInputLayout = transform(originalInputLayout);
-
-    // For all fallbacks, don't constrain output layout - let backend decide
-    OpConfig testConfig = originalConfig;
-    testConfig.outputLayout =
-        TTNNLayoutAttr{}; // Let backend choose output layout
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Fallback {}: allowing backend to choose output layout", i);
-
-    auto result = validateSingleConfig(op, {testInputLayout}, testConfig);
-    results.push_back(result);
-
-    if (result.success) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Fallback {} succeeded with output layout: {}", i,
-                   result.actualOutputLayout);
-      break; // Early exit on first working configuration
-    }
-  }
-
-  return results;
-}
-
 llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
     Value producerOperand, const TTNNLayoutAttr &producerLayout,
     Operation *consumerOp, const OpConfig &consumerConfig) {
 
-  // This is the same constraint checking logic as ShardSolver's
-  // checkShardCompatible Figure out this const based on exec data, but will be
-  // replaced with API.
-  constexpr float tensorL1UsageCap = 0.8;
-
-  auto backend = mlir::dyn_cast<OpModel>(consumerOp);
-  if (!backend) {
-    std::string errorMsg = "Backend constraints are not implemented for op " +
-                           consumerOp->getName().getStringRef().str();
-
-    if (options_.fatalErrorOnUnsupportedOp) {
-      llvm::report_fatal_error(llvm::Twine(errorMsg));
-    }
-
-    return llvm::createStringError(errorMsg);
-  }
-
-  // Constraints are implemented for this op.
-  auto deviceAttr = ttcore::lookupDevice(consumerOp);
-  if (!deviceAttr) {
-    return llvm::createStringError("No device attribute found for operation");
-  }
-
-  // Map consumer operands to DRAM interleave or provided producerLayout
+  // Map consumer operands to DRAM interleaved or provided producerLayout
   // only one operand can be mapped to producerLayout, it's picked as first
   // operand matching producerOp output shape.
-
   uint32_t numOperands = consumerOp->getNumOperands();
   // Discard DPS operand since it's not used in runtime.
   if (llvm::isa<DestinationStyleOpInterface>(consumerOp)) {
@@ -219,78 +155,9 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
       "About to call getOpConstraints with inputLayouts[0]: {}, getLayout()={}",
       inputLayouts[0], static_cast<int>(inputLayouts[0].getLayout()));
 
-  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
-      backend.getOpConstraints(inputLayouts, consumerConfig);
-
-  if (!l1UsageExp) {
-    llvm::Error error = l1UsageExp.takeError();
-
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints failed: {0}->{1} :: {2}, \nproducerLayout: {3}, "
-        "\nconsumerLayout: {4}",
-        producerOperand.getLoc(), consumerOp->getName(),
-        llvm::toStringWithoutConsuming(error), producerLayout,
-        consumerConfig.outputLayout);
-
-    return llvm::Expected<TTNNLayoutAttr>(std::move(error));
-  }
-
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
-
-  if (consumerConfig.outputLayout &&
-      outputLayout != consumerConfig.outputLayout) {
-    std::string message = "Output layout mismatch: backend returned layout "
-                          "doesn't match requested consumer layout";
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
-    return llvm::createStringError("[Optimizer] " + message);
-  }
-
-  // Get usable L1 cache size from device
-  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-      consumerOp->getParentOfType<ModuleOp>()->getAttr(
-          ttcore::SystemDescAttr::name));
-  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-  uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
-
-  // Only include producer L1 output usage if producer is actually in L1, not
-  // DRAM
-  uint64_t producerL1OutputUsage = 0;
-  if (producerLayout.getBufferType() == BufferType::L1 ||
-      producerLayout.getBufferType() == BufferType::L1Small) {
-    producerL1OutputUsage = producerLayout.getShardSizeInBytes();
-  }
-
-  bool l1UsageValid = (producerL1OutputUsage + tensorUsage + cBUsagePeak) <
-                      tensorL1UsageCap * usableL1CacheSize;
-
-  if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
-                 "\n producerLayout: {2}, outputLayout: {3}, l1Usage: {4}, "
-                 "producerL1OutputUsage: {5} (bufferType: {6}), "
-                 "tensorUsage: {7}, cBUsagePeak: {8}",
-                 producerOperand.getLoc(), consumerOp->getName(),
-                 producerLayout, outputLayout,
-                 cBUsagePeak + tensorUsage + producerL1OutputUsage,
-                 producerL1OutputUsage, producerLayout.getBufferType(),
-                 tensorUsage, cBUsagePeak);
-    return llvm::createStringError("Not enough L1 memory");
-  }
-
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "OpModel constraints valid. Producer: {0} -> Consumer: {1}\n"
-      "ProducerLayout: {2}\nOutputLayout: {3}\n"
-      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}, "
-      "producerL1OutputUsage: {7} (bufferType: {8}), totalL1Usage: {9}",
-      producerOperand.getLoc(), consumerOp->getName(), producerLayout,
-      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
-      producerL1OutputUsage, producerLayout.getBufferType(),
-      cBUsagePeak + tensorUsage + producerL1OutputUsage);
-
-  return outputLayout;
+  // Call the new function that handles all input layouts
+  return validateConstraintsWithAllLayouts(consumerOp, inputLayouts,
+                                           consumerConfig);
 }
 
 Value OpConstraintValidator::extractInputOperand(Operation *op,
@@ -323,6 +190,120 @@ Value OpConstraintValidator::extractInputOperand(Operation *op,
   }
 
   return nullptr;
+}
+
+llvm::Expected<TTNNLayoutAttr>
+OpConstraintValidator::validateConstraintsWithAllLayouts(
+    Operation *consumerOp, const std::vector<TTNNLayoutAttr> &inputLayouts,
+    const OpConfig &consumerConfig) {
+
+  // Check that operation supports OpModel interface
+  auto backend = mlir::dyn_cast<OpModel>(consumerOp);
+  if (!backend) {
+    std::string errorMsg = "Backend constraints are not implemented for op " +
+                           consumerOp->getName().getStringRef().str();
+
+    if (options_.fatalErrorOnUnsupportedOp) {
+      llvm::report_fatal_error(llvm::Twine(errorMsg));
+    }
+
+    return llvm::createStringError(errorMsg);
+  }
+
+  // Constraints are implemented for this op.
+  auto deviceAttr = ttcore::lookupDevice(consumerOp);
+  if (!deviceAttr) {
+    return llvm::createStringError("No device attribute found for operation");
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "About to call getOpConstraints with {} input layouts",
+               inputLayouts.size());
+
+  for (size_t i = 0; i < inputLayouts.size(); ++i) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Input layout {}: {}, getLayout()={}, dtype={}", i, inputLayouts[i],
+                 static_cast<int>(inputLayouts[i].getLayout()),
+                 static_cast<int>(inputLayouts[i].getDataType()));
+  }
+
+  llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
+      backend.getOpConstraints(inputLayouts, consumerConfig);
+
+  if (!l1UsageExp) {
+    llvm::Error error = l1UsageExp.takeError();
+
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "OpModel constraints failed: {} :: {}, consumerConfig.outputLayout: {}",
+        consumerOp->getName(), llvm::toStringWithoutConsuming(error),
+        consumerConfig.outputLayout);
+
+    return llvm::Expected<TTNNLayoutAttr>(std::move(error));
+  }
+
+  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
+      l1UsageExp.get();
+
+  TTMLIR_DEBUG(
+      ttmlir::LogComponent::Optimizer,
+      "Backend returned output layout: {}, layout={}, dtype={}",
+      outputLayout, static_cast<int>(outputLayout.getLayout()),
+      static_cast<int>(outputLayout.getDataType()));
+
+  if (consumerConfig.outputLayout &&
+      outputLayout != consumerConfig.outputLayout) {
+    std::string message = "Output layout mismatch: backend returned layout "
+                          "doesn't match requested consumer layout";
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
+    return llvm::createStringError("[Optimizer] " + message);
+  }
+
+  // Get usable L1 cache size from device
+  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      consumerOp->getParentOfType<ModuleOp>()->getAttr(
+          ttcore::SystemDescAttr::name));
+  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+  uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
+
+  // This is the same constraint checking logic as ShardSolver's
+  // checkShardCompatible Figure out this const based on exec data, but will be
+  // replaced with API.
+  constexpr float tensorL1UsageCap = 0.8;
+
+  // Calculate total L1 usage from all input layouts
+  uint64_t totalInputL1Usage = 0;
+  for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
+    if (inputLayout.getBufferType() == BufferType::L1 ||
+        inputLayout.getBufferType() == BufferType::L1Small) {
+      totalInputL1Usage += inputLayout.getShardSizeInBytes();
+    }
+  }
+
+  bool l1UsageValid = (totalInputL1Usage + tensorUsage + cBUsagePeak) <
+                      tensorL1UsageCap * usableL1CacheSize;
+
+  if (!l1UsageValid) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Not enough L1 memory. OpModel constraints failed: {} "
+                 "totalInputL1Usage: {}, tensorUsage: {}, cBUsagePeak: {}, "
+                 "total: {}, limit: {}",
+                 consumerOp->getName(), totalInputL1Usage, tensorUsage,
+                 cBUsagePeak, totalInputL1Usage + tensorUsage + cBUsagePeak,
+                 static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
+    return llvm::createStringError("Not enough L1 memory");
+  }
+
+  TTMLIR_DEBUG(
+      ttmlir::LogComponent::Optimizer,
+      "OpModel constraints valid. Consumer: {}\nOutputLayout: {}\n"
+      "L1 usage: cBUsagePeak: {}, tensorUsage: {}, outputTensorUsage: {}, "
+      "totalInputL1Usage: {}, totalL1Usage: {}",
+      consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+      outputTensorUsage, totalInputL1Usage,
+      cBUsagePeak + tensorUsage + totalInputL1Usage);
+
+  return outputLayout;
 }
 
 } // namespace mlir::tt::ttnn

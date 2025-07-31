@@ -1125,10 +1125,22 @@ private:
           newLayoutAttr.withBufferType(change.targetBufferType.value());
     }
 
+    // Handle data type changes
+    if (change.targetDataType.has_value()) {
+      auto targetElementType = ttnn::utils::getElementType(
+          newLayoutAttr.getContext(), newLayoutAttr.getLayout(),
+          change.targetDataType.value());
+      newLayoutAttr = newLayoutAttr.withElementType(targetElementType,
+                                                    currentTensorType.getShape());
+    }
+
     // Create new tensor type with updated layout
+    // Use scalar element type for RankedTensorType, not tile type
+    Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
+        operation->getContext(), newLayoutAttr.getDataType());
     RankedTensorType newTensorType = RankedTensorType::get(
         currentTensorType.getShape(),
-        newLayoutAttr.getElementType(), // Use new layout's element type
+        scalarElementType,
         newLayoutAttr);
 
     // Determine which layout to use for ToLayoutOp
@@ -1145,10 +1157,17 @@ private:
                             newLayoutAttr.getBufferType()),
         /*shardSpec=*/std::nullopt);
 
+    // Prepare dtype attribute if data type changed
+    ttcore::DataTypeAttr dtypeAttr = nullptr;
+    if (change.targetDataType.has_value()) {
+      dtypeAttr = ttcore::DataTypeAttr::get(operation->getContext(),
+                                            change.targetDataType.value());
+    }
+
     auto toLayoutOp = builder.create<ToLayoutOp>(
         operation->getLoc(), newTensorType, operand,
         LayoutAttr::get(operation->getContext(), targetLayoutValue),
-        /*dtype=*/nullptr, memoryConfigAttr);
+        dtypeAttr, memoryConfigAttr);
 
     // Replace the operand with the result of ToLayout
     operation->setOperand(change.operandIndex, toLayoutOp.getResult());
@@ -1156,7 +1175,7 @@ private:
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
         "Applied input operand change for operation {} operand {}: "
-        "layout {} -> {}, memory layout {} -> {}, buffer type {} -> {}",
+        "layout {} -> {}, memory layout {} -> {}, buffer type {} -> {}, data type {} -> {}",
         operation->getName(), change.operandIndex,
         change.originalLayout.getLayout(),
         change.targetLayout.value_or(change.originalLayout.getLayout()),
@@ -1165,7 +1184,10 @@ private:
             change.originalLayout.getMemLayout().getValue()),
         change.originalLayout.getBufferType(),
         change.targetBufferType.value_or(
-            change.originalLayout.getBufferType()));
+            change.originalLayout.getBufferType()),
+        static_cast<int>(change.originalLayout.getDataType()),
+        static_cast<int>(change.targetDataType.value_or(
+            change.originalLayout.getDataType())));
   }
 
   // Insert a revert ToLayoutOp to convert from backend's actual output layout
@@ -1211,8 +1233,10 @@ private:
     builder.setInsertionPointAfter(operation);
 
     // Create the expected result type for the revert operation
+    Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
+        operation->getContext(), expectedOutputLayout.getDataType());
     RankedTensorType expectedResultType = RankedTensorType::get(
-        currentResultType.getShape(), currentResultType.getElementType(),
+        currentResultType.getShape(), scalarElementType,
         expectedOutputLayout);
 
     // Create proper MemoryConfigAttr for the expected layout
