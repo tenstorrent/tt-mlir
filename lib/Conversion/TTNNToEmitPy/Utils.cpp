@@ -20,14 +20,14 @@ emitpy::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   return builder.getType<emitpy::OpaqueAttr>("ttnn.Shape([" + rso.str() + "])");
 }
 
-emitpy::CallOpaqueOp createShapeOp(ConversionPatternRewriter &rewriter,
+/* emitpy::CallOpaqueOp createShapeOp(ConversionPatternRewriter &rewriter,
                                    ttnn::ShapeAttr shapeAttr, Location loc) {
   llvm::StringRef shapeNameStr = "ttnn.Shape";
   return rewriter.create<emitpy::CallOpaqueOp>(
       loc, emitpy::OpaqueType::get(rewriter.getContext(), shapeNameStr),
       shapeNameStr, rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)),
       ValueRange());
-}
+} */
 
 emitpy::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
   switch (attr.getValue()) {
