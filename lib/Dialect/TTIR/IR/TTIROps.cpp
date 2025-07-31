@@ -74,24 +74,22 @@ MemRefType getBufferType(Type type, bool isView) {
 //===----------------------------------------------------------------------===//
 
 bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
-    mlir::ArrayRef<mlir::Value> transformedOperands) {
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // If the operands are both quantized but the types do not align, return
   // false.
-  return mlir::tt::ttir::utils::areQuantizationParamsAligned(
-      transformedOperands);
+  return mlir::tt::ttir::utils::areQuantizationParamsAligned(sourceOperands);
 }
 
 mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> transformedOperands,
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
     mlir::ValueRange outputOperands) {
   // Two cases:
   // 1. One operand is quantized and the other is not: apply quantization and
   //    proceed to case two.
   // 2. Both operands are quantized: supported, return quantized add.
-  assert(transformedOperands.size() == 2 && "AddOp should have two operands.");
-  auto lhs = transformedOperands[0];
-  auto rhs = transformedOperands[1];
+  assert(sourceOperands.size() == 2 && "AddOp should have two operands.");
+  auto lhs = sourceOperands[0];
+  auto rhs = sourceOperands[1];
 
   RankedTensorType lhsType = mlir::cast<RankedTensorType>(lhs.getType());
   RankedTensorType rhsType = mlir::cast<RankedTensorType>(rhs.getType());
@@ -1004,13 +1002,13 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 //===----------------------------------------------------------------------===//
 
 bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
-    mlir::ArrayRef<mlir::Value> transformedOperands) {
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // convolution op currently requires both input and weight to be quantized
   // TODO(anuragsingh): enable float bias support
-  assert(transformedOperands.size() == 2 &&
+  assert(sourceOperands.size() == 2 &&
          "Quantized ConvolutionOp should have two operands (only input and "
          "weight).");
-  return llvm::all_of(transformedOperands, [](mlir::Value val) {
+  return llvm::all_of(sourceOperands, [](mlir::Value val) {
     auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
     if (!type) {
       return false;
@@ -1022,7 +1020,7 @@ bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
 }
 
 mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> transformedOperands,
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands,
     mlir::ValueRange outputOperands) {
   // rewrite the convolution op to be quantized.
   // create the output quantized type, whose scale is input * weight and
@@ -1030,10 +1028,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto storageType =
       IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
   auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
-      mlir::cast<RankedTensorType>(transformedOperands[0].getType())
+      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
           .getElementType());
   auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
-      mlir::cast<RankedTensorType>(transformedOperands[1].getType())
+      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
           .getElementType());
   mlir::quant::QuantizedType quantOutputType =
       mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
@@ -1052,11 +1050,11 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
                             oldConvOutputType.getEncoding());
   auto quantConv =
       mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
-          rewriter, getLoc(), newType, transformedOperands[0],
-          transformedOperands[1], getBias(), getInputDilationAttr(),
-          getWeightDilationAttr(), getWindowStridesAttr(), getPaddingAttr(),
-          getWindowReversalAttr(), getConvolutionLayoutAttr(),
-          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
+          rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
+          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
+          getBatchGroupCountAttr());
   return quantConv.getOperation();
 }
 
@@ -1164,8 +1162,7 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> transformedOperands,
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
     mlir::ValueRange outputOperands) {
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
@@ -1173,7 +1170,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   }
   SmallVector<Value> updatedOutputs;
   SmallVector<Type> resultTypes;
-  for (auto [in, out] : llvm::zip(transformedOperands, outputOperands)) {
+  for (auto [in, out] : llvm::zip(sourceOperands, outputOperands)) {
     // Can only commute in the per tensor quantized case.
     if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
             in.getType())) {
@@ -1192,9 +1189,9 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     updatedOutputs.push_back(newEmpty);
   }
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), resultTypes, transformedOperands, updatedOutputs,
-      getPoolingMethod(), getWindowDimensions(), getWindowStrides(),
-      getBaseDilations(), getWindowDilations(), getPadding());
+      getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
+      getWindowDimensions(), getWindowStrides(), getBaseDilations(),
+      getWindowDilations(), getPadding());
   return newOp.getOperation();
 }
 //===----------------------------------------------------------------------===//
