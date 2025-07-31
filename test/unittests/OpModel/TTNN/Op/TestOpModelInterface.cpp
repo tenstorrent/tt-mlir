@@ -386,7 +386,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"GreaterThan", createGT, binaryExpected},
     {"LessEqual", createLE, binaryExpected},
     {"LessThan", createLT, binaryExpected},
-    {"LogicalAnd", createAnd, binaryExpected},
+    {"LogicalAnd", createAnd, binaryExpected_extraCb4096},
     {"LogicalOr", createOr, binaryExpected_extraCb4096},
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},

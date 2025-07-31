@@ -915,7 +915,8 @@ INSTANTIATE_TEST_SUITE_P(LessThanTests, OpModelLessThanParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalAndTests, OpModelLogicalAndParam,
-                         generateBinaryEltwiseParams(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
 
 INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
                          generateBinaryEltwiseParams(
