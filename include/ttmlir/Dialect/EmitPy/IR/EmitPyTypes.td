@@ -29,9 +29,8 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
     Example:
 
     ```mlir
-    !emitpy.opaque<"tuple">
     !emitpy.opaque<"ttnn.Tensor">
-    !emitpy.opaque<"list<ttnn.Tensor>">
+    !emitpy.opaque<"[ttnn.Tensor]">
     ```
   }];
 

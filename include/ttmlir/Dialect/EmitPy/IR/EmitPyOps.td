@@ -118,7 +118,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [PyExpressionInterface]> {
 
     ```mlir
     %0 = emitpy.literal "0" : index
-    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"list<ttnn.Tensor>">, index) -> !emitpy.opaque<"ttnn.Tensor">
+    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"[ttnn.Tensor]">, index) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
