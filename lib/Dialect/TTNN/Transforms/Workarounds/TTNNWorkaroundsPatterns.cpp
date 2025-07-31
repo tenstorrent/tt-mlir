@@ -374,10 +374,9 @@ public:
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     llvm::SmallVector<int64_t> outputTypeShape(op.getType().getShape());
 
-    // If the input to the allGather is from a ReduceScatterOp (likely from
-    // allReduce workaround), we skip this workaround, as it will produce
-    // incorrect results.
-    if (auto reduceScatterOp = input.getDefiningOp<ttnn::ReduceScatterOp>()) {
+    // If the input to the allGather is from a allReduce workaround, we skip
+    // this workaround, as it will produce incorrect results.
+    if (op->hasAttr("decomposed_from_all_reduce")) {
       return failure();
     }
 
@@ -541,11 +540,14 @@ public:
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             Type(scatteredInputType), op.getInput(), deviceValue,
             op.getReduceType(), dimension, clusterAxis);
+    reduceScatterOp->setAttr("decomposed_from_all_reduce",
+                             rewriter.getUnitAttr());
 
     // Replace all_reduce op with all_gather op.
-    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+    auto allGatherOp = rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
         clusterAxis);
+    allGatherOp->setAttr("decomposed_from_all_reduce", rewriter.getUnitAttr());
     return success();
   }
 
