@@ -859,22 +859,52 @@ class Binary(Flatbuffer):
             return len(self.outputs)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
+            def as_strided(golden_tensor, stride):
+                shape = golden_tensor.shape
+                non_strided_shape = [0] * len(shape)
+                non_strided_shape[0] = shape[0]
+
+                for i in range(len(stride) - 1, 0, -1):
+                    non_strided_shape[i] = stride[i - 1] // stride[i]
+
+                non_strided_shape[len(non_strided_shape) - 1] *= stride[len(stride) - 1]
+                non_strided_shape = tuple(non_strided_shape)
+                non_strided_tensor = torch.zeros(non_strided_shape)
+                strided_tensor_view = torch.as_strided(
+                    non_strided_tensor, shape, stride
+                )
+
+                strided_tensor_view[:] = golden_tensor
+
+                return strided_tensor_view
+
             if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.inputs)
                 for index, input_fb in enumerate(self.inputs):
-                    reshaped = torch.reshape(
-                        golden_inputs[index], input_fb["desc"]["shape"]
-                    )
-                    self.input_tensors.append(reshaped)
+                    golden_tensor = golden_inputs[index]
+                    desc = input_fb["desc"]
+                    golden_tensor = torch.reshape(golden_tensor, desc["shape"])
+                    if "stride" in desc:
+                        self.input_tensors.append(
+                            as_strided(golden_tensor, desc["stride"])
+                        )
+                    else:
+                        self.input_tensors.append(golden_tensor)
             else:
                 for i in self.inputs:
-                    torch_tensor = init_fn(
-                        i["desc"]["shape"],
+                    desc = i["desc"]
+                    golden_tensor = init_fn(
+                        desc["shape"],
                         dtype=Binary.Program.from_data_type(
-                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                            desc["layout"]["memory_desc"]["data_type"]
                         ),
                     )
-                    self.input_tensors.append(torch_tensor)
+                    if "stride" in desc:
+                        self.input_tensors.append(
+                            as_strided(golden_tensor, desc["stride"])
+                        )
+                    else:
+                        self.input_tensors.append(golden_tensor)
 
         def populate_outputs(self, init_fn):
             for i in self.outputs:
