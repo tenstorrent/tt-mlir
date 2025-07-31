@@ -1115,18 +1115,23 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // - Number of inputs equals number of outputs.
 //===----------------------------------------------------------------------===//
 
-template <typename numeric_type>
-numeric_type indexTensor(const std::vector<numeric_type> &tensor,
-                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
-  int64_t bufferIndex = 0;
-
-  for (size_t i = 0; i < shape.size() - 1; i++) {
-    bufferIndex += index[i] * shape[i];
+inline SmallVector<int64_t>
+getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> index(shape.size());
+  for (int64_t i = shape.size() - 1; i >= 0; i--) {
+    index[i] = (bufferIndex % shape[i]);
+    bufferIndex /= shape[i];
   }
+  return index;
+}
 
-  bufferIndex += index[shape.size() - 1];
-
-  return tensor[bufferIndex];
+inline int64_t getBufferIndexFromTensorIndex(ArrayRef<int64_t> index,
+                                             ArrayRef<int64_t> strides) {
+  int64_t bufferIndex = 0;
+  for (size_t i = 0; i < index.size(); i++) {
+    bufferIndex += index[i] * strides[i];
+  }
+  return bufferIndex;
 }
 
 SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
@@ -1141,25 +1146,25 @@ SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
 }
 
 template <typename numeric_type>
+numeric_type indexTensor(const std::vector<numeric_type> &tensor,
+                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
+  // int64_t bufferIndex = 0;
+
+  // for (size_t i = 0; i < shape.size() - 1; i++) {
+  //   bufferIndex += index[i] * shape[i];
+  // }
+
+  // bufferIndex += index[shape.size() - 1];
+
+  return tensor[getBufferIndexFromTensorIndex(index, calculateStrides(shape))];
+}
+
+template <typename numeric_type>
 void setElementAtIndex(std::vector<numeric_type> &tensor,
                        ArrayRef<int64_t> shape, ArrayRef<int64_t> strides,
                        ArrayRef<int64_t> index, numeric_type value) {
-  int64_t bufferIndex = 0;
-
-  for (size_t i = 0; i < shape.size(); i++) {
-    bufferIndex += index[i] * strides[i];
-  }
+  int64_t bufferIndex = getBufferIndexFromTensorIndex(index, strides);
   tensor[bufferIndex] = value;
-}
-
-inline SmallVector<int64_t>
-getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> index(shape.size());
-  for (int64_t i = shape.size() - 1; i >= 0; i--) {
-    index[i] = (bufferIndex % shape[i]);
-    bufferIndex /= shape[i];
-  }
-  return index;
 }
 
 SmallVector<SmallVector<int64_t>>
@@ -1168,10 +1173,23 @@ getWindow(ArrayRef<int64_t> leastSignificantCorner, PoolingOp op) {
   int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
                                          op.getWindowDimensions().end(), 1,
                                          std::multiplies<int64_t>());
-  for (int64_t i = 0; i < windowVolume; i++) {
-    window.push_back(
-        getTensorIndexFromBufferIndex(i, op.getWindowDimensions()));
+
+  SmallVector<SmallVector<int64_t>> offsets;
+
+  for (int64_t windowIndex = 0; windowIndex < windowVolume; windowIndex++) {
+    auto offset =
+        getTensorIndexFromBufferIndex(windowIndex, op.getWindowDimensions());
+    offsets.push_back(offset);
   }
+
+  for (auto offset : offsets) {
+    SmallVector<int64_t> index(leastSignificantCorner);
+    for (int64_t i = 0; i < static_cast<int64_t>(offset.size()); i++) {
+      index[i] += offset[i];
+    }
+    window.push_back(index);
+  }
+
   return window;
 }
 
@@ -1251,7 +1269,7 @@ std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
   bool foundNextIndex = false;
   int64_t currentDim = shape.size() - 1;
 
-  if (index[0] == 0 && index[1] == 33) {
+  if (index[0] == 0 && index[1] == 28) {
     int x = 2;
     (void)x;
   }
@@ -1267,10 +1285,6 @@ std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
 
     if (currentDim < 0) {
       return std::nullopt;
-    }
-
-    if (currentDim == static_cast<int64_t>(shape.size())) {
-      foundNextIndex = true;
     }
   }
   return std::make_optional(nextIndex);
@@ -1300,8 +1314,8 @@ std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
     if (!windowWithinShape(window, inputShape)) {
       currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
                                        op.getWindowStrides());
-      currentOutputIndex =
-          getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
+      // currentOutputIndex =
+      //     getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
       continue;
     }
 
@@ -1358,8 +1372,14 @@ bool hasPadding(PoolingOp op) {
   APFloat value = elements.getSplatValue<APFloat>();
   float floatValue = value.convertToFloat();
 
-  if (op.getPoolingMethod() == PoolingMethod::Max) {
-    return DenseElementsAttr::get(resultType, floatValue);
+  if (op.getPoolingMethod() == PoolingMethod::Max ||
+      op.getPoolingMethod() == PoolingMethod::Average) {
+    APFloat resultAPFloat = APFloat(floatValue);
+    bool losesInfo = false;
+    resultAPFloat.convert(
+        cast<FloatType>(resultType.getElementType()).getFloatSemantics(),
+        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    return DenseElementsAttr::get(resultType, resultAPFloat);
   } else if (op.getPoolingMethod() == PoolingMethod::Sum) {
     float result = floatValue * windowVolume;
     APFloat resultAPFloat = APFloat(result);
@@ -1368,8 +1388,6 @@ bool hasPadding(PoolingOp op) {
         cast<FloatType>(resultType.getElementType()).getFloatSemantics(),
         llvm::APFloat::rmNearestTiesToEven, &losesInfo);
     return DenseElementsAttr::get(resultType, resultAPFloat);
-  } else if (op.getPoolingMethod() == PoolingMethod::Average) {
-    return DenseElementsAttr::get(resultType, floatValue);
   } else {
     llvm_unreachable("Pooling method must be one of Max, Sum, or Average");
   }
@@ -4263,24 +4281,68 @@ mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
   // return nullptr;
   // Only fold if the fill value is a constant attribute.
   auto fillAttr = adaptor.getFillValue();
-  if (!fillAttr) {
-    return nullptr;
-  }
 
   auto type = getType();
-  auto elemType = type.getElementType();
+  auto outputElementType = type.getElementType();
 
-  // Handle float types
-  if (auto floatType = dyn_cast<mlir::FloatType>(elemType)) {
+  // fill_value type and output tensor type might be different
+  if (isa<FloatAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
+    FloatType outputElementFloatType = cast<FloatType>(outputElementType);
     bool losesInfo = false;
     llvm::APFloat value = cast<FloatAttr>(fillAttr).getValue();
-    value.convert(floatType.getFloatSemantics(),
+    // Convert float type of fill value to float type of output tensor
+    value.convert(outputElementFloatType.getFloatSemantics(),
                   llvm::APFloat::rmNearestTiesToEven, &losesInfo);
     return mlir::DenseElementsAttr::get(type, value);
+  } else if (isa<IntegerAttr>(fillAttr) &&
+             isa<IntegerType>(outputElementType)) {
+    IntegerType outputElementIntegerType = cast<IntegerType>(outputElementType);
+    llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
+    llvm::APInt convertedValue =
+        llvm::APInt(outputElementIntegerType.getWidth(), value.getZExtValue(),
+                    outputElementIntegerType.isSigned());
+    return mlir::DenseElementsAttr::get(type, convertedValue);
+  } else if (isa<IntegerAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
+    FloatType outputElementFloatType = cast<FloatType>(outputElementType);
+    // If the fill value is an integer, and the output tensor is a float, this
+    // must be because we represent boolean as Bfloat16. Assert that the output
+    // type is Bfloat16, and that the fill value is 0 or 1.
+    assert(outputElementFloatType.isBF16() &&
+           "Bfloat16 is the only supported float type for boolean");
+    llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
+    assert(value.getZExtValue() == 0 ||
+           value.getZExtValue() == 1 && "Fill value must be 0 or 1");
+    llvm::APFloat floatValue(0.0f);
+    if (value.getZExtValue() == 0) {
+      floatValue =
+          llvm::APFloat::getZero(outputElementFloatType.getFloatSemantics());
+    } else {
+      floatValue =
+          llvm::APFloat::getOne(outputElementFloatType.getFloatSemantics());
+    }
+    return mlir::DenseElementsAttr::get(type, floatValue);
+  } else if (isa<FloatAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
+    llvm_unreachable(
+        "Fill value is a float, but the result type is an integer.");
+  } else {
+    llvm_unreachable("unhandled element type");
   }
 
-  // Could not fold
-  return nullptr;
+  // // Handle float types
+  // if (auto floatType = dyn_cast_or_null<mlir::FloatType>(elemType)) {
+  //   bool losesInfo = false;
+  //   llvm::APFloat value = cast<FloatAttr>(fillAttr).getValue();
+  //   value.convert(floatType.getFloatSemantics(),
+  //                 llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+  //   return mlir::DenseElementsAttr::get(type, value);
+  // } else if (auto intType = dyn_cast_or_null<mlir::IntegerType>(elemType)) {
+  //   llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
+  //   llvm::APInt convertedValue = llvm::APInt(intType.getWidth(),
+  //   value.getZExtValue(), intType.isSigned()); return
+  //   mlir::DenseElementsAttr::get(type, convertedValue);
+  // } else {
+  //   llvm_unreachable("unhandled element type");
+  // }
 }
 
 // FullOp verification
@@ -4289,6 +4351,26 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   if (!llvm::equal(getShape(), getType().getShape())) {
     return emitOpError() << "expected shape (" << getType().getShape()
                          << "), got (" << getShape() << ")";
+  }
+
+  if (isa<IntegerAttr>(getFillValueAttr())) {
+    if (isa<FloatType>(getType().getElementType())) {
+      if (!cast<FloatType>(getType().getElementType()).isBF16()) {
+        return emitOpError() << "fill value is an integer and the result type "
+                                "is a float which is not BFloat16. This is "
+                                "only allowed if the result type is BFloat16.";
+      }
+    } else if (!isa<IntegerType>(getType().getElementType())) {
+      return emitOpError() << "fill value is an integer and the result type is "
+                              "not an integer or BFloat16.";
+    }
+  } else if (isa<FloatAttr>(getFillValueAttr())) {
+    if (!isa<FloatType>(getType().getElementType())) {
+      return emitOpError()
+             << "fill value is a float, but result type is not a float.";
+    }
+  } else {
+    return emitOpError() << "fill value is not a float or integer.";
   }
 
   return mlir::success();

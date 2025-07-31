@@ -1684,10 +1684,8 @@ template <typename Pool2dOp>
 ::flatbuffers::Offset<::tt::target::ttnn::Pool2dOp>
 createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   ::tt::target::ttnn::Pool2dOpType type;
-  bool countIncludePad = true;
   if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
     type = ::tt::target::ttnn::Pool2dOpType::AvgPool2d;
-    countIncludePad = op.getCountIncludePad();
   } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
     type = ::tt::target::ttnn::Pool2dOpType::MaxPool2d;
   } else {
@@ -1713,7 +1711,7 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), countIncludePad, op.getInPlaceHalo());
+      op.getCeilMode(), op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
