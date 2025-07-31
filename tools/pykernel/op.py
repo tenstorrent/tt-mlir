@@ -307,18 +307,3 @@ class PyKernelOp:
         program = cached_info["program_descriptor"]
 
         return self.ttnn.generic_op(tensors, program)
-
-class PyKernelAttributesBase:
-    def __init__(self):
-        self.member_functions = {}
-        self.member_variables = {}
-
-    def _emit_member_function_mlir(self, member_function):
-        raise NotImplementedError("emit_mlir must be implemented in subclass")
-
-    def _emit_member_variable_mlir(self, member_variable):
-        raise NotImplementedError("emit_mlir must be implemented in subclass")
-
-    def emit_mlir(self, member):
-        # call emit_member_function_mlir or emit_member_variable_mlir based on type
-        raise NotImplementedError("emit_mlir must be implemented in subclass")
