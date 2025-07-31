@@ -1,5 +1,6 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer="post-optimizer-validation-enabled=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer="post-optimizer-validation-enabled=true" %s -o %t.mlir
+// RUN: FileCheck %s --input-file %t.mlir
 
 // Test that the post-optimizer validation analysis automatically detects
 // that upsample2d requires row-major input and inserts the necessary ToLayoutOp

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -16,9 +17,6 @@
 #include <vector>
 
 namespace mlir::tt::ttnn {
-
-// Forward declarations
-class OpConstraintValidator;
 
 // Input for post-optimizer validation analysis
 struct PostOptimizerValidationAnalysisInput {
@@ -134,15 +132,45 @@ private:
   void analysisImplementation() override;
   bool applyOverrides() override;
 
-  // Helper method to create fallback transform functions
-  std::vector<std::function<TTNNLayoutAttr(TTNNLayoutAttr)>>
+  // Helper method to create fallback layouts directly
+  std::vector<TTNNLayoutAttr>
   createFallbackTransforms(TTNNLayoutAttr originalLayout,
                            llvm::ArrayRef<int64_t> tensorShape);
+
+  // Test provided fallback layouts for an operation
+  // validator: Validator instance to use for testing
+  // op: Operation to validate
+  // originalConfig: Original configuration that failed
+  // fallbackLayouts: List of layouts to test directly
+  // Returns: Vector of validation results with early exit on first success
+  std::vector<OpConstraintValidator::ValidationResult> testFallbackLayouts(
+      OpConstraintValidator &validator, Operation *op,
+      const OpConfig &originalConfig,
+      const std::vector<TTNNLayoutAttr> &fallbackLayouts);
+
+  // Test a specific combination of fallback layouts for an operation
+  // validator: Validator instance to use for testing
+  // op: Operation to validate
+  // originalConfig: Original configuration that failed
+  // inputLayouts: Combination of layouts to test
+  // Returns: Single validation result
+  OpConstraintValidator::ValidationResult testFallbackCombination(
+      OpConstraintValidator &validator, Operation *op,
+      const OpConfig &originalConfig,
+      const std::vector<TTNNLayoutAttr> &inputLayouts);
+
+  // Record a successful fallback combination
+  void recordSuccessfulCombination(
+      const std::vector<TTNNLayoutAttr> &originalLayouts,
+      const std::vector<TTNNLayoutAttr> &workingLayouts,
+      const OpConstraintValidator::ValidationResult &result,
+      const OpConfig &originalConfig,
+      OperationValidationResult &opResult);
 
   // Process fallback configurations for a failed operation
   void processFallbackConfigurations(OpConstraintValidator &validator,
                                      Operation *operation,
-                                     TTNNLayoutAttr originalInputLayout,
+                                     const std::vector<TTNNLayoutAttr> &originalInputLayouts,
                                      const OpConfig &config,
                                      OperationValidationResult &opResult);
 

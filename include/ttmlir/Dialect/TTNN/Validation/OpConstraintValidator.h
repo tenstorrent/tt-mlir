@@ -75,18 +75,6 @@ public:
       const std::vector<OpConfig::OpSpecificAttrs> &opSpecificAttrs,
       const std::vector<OpConfig> &referenceConfigs);
 
-  // Test provided fallback transforms for an operation
-  // op: Operation to validate
-  // originalInputLayout: Original input layout that failed
-  // originalConfig: Original configuration that failed
-  // transforms: List of transform functions to apply to the original layout
-  // Returns: Vector of validation results with early exit on first success
-  std::vector<ValidationResult> testFallbackTransforms(
-      Operation *op, const TTNNLayoutAttr &originalInputLayout,
-      const OpConfig &originalConfig,
-      const std::vector<std::function<TTNNLayoutAttr(TTNNLayoutAttr)>>
-          &transforms);
-
 private:
   // Private constructor - use factory method create()
   explicit OpConstraintValidator(const ValidationOptions &options);
@@ -106,17 +94,22 @@ private:
                       const TTNNLayoutAttr &producerLayout,
                       Operation *consumerOp, const OpConfig &consumerConfig);
 
+  // Core constraint validation using OpModel interface with all input layouts
+  // consumerOp: The operation to validate
+  // inputLayouts: All input layouts for the operation
+  // consumerConfig: Configuration for the consumer operation
+  // Returns: Expected output layout if valid, error otherwise
+  llvm::Expected<TTNNLayoutAttr>
+  validateConstraintsWithAllLayouts(Operation *consumerOp,
+                                    const std::vector<TTNNLayoutAttr> &inputLayouts,
+                                    const OpConfig &consumerConfig);
+
   // Extract input operand for constraint checking
   // op: Operation to extract from
   // operandIndex: Index of operand to extract (default: 0)
   // Returns: Value representing the input operand
   static Value extractInputOperand(Operation *op, size_t operandIndex = 0);
 
-  // Create fallback layout transformations in priority order
-  // originalLayout: Original layout to transform
-  // Returns: Vector of layout transform functions
-  static std::vector<std::function<TTNNLayoutAttr(TTNNLayoutAttr)>>
-  createFallbackTransforms();
 };
 
 } // namespace mlir::tt::ttnn
