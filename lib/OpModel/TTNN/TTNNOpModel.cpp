@@ -2620,17 +2620,22 @@ llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
+
+  // Use the output layout if possible:
+  ::tt::tt_metal::MemoryConfig memConfig =
+      outputLayout ? conversion::getMemoryConfig(outputLayout)
+                   : conversion::getMemoryConfig(memoryConfig);
 
   auto emptyOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::empty, device, conversion::getShape(inputShape),
         conversion::getDataType(dtype.getValue()),
-        conversion::getPageLayout(inputLayout), device,
-        conversion::getMemoryConfig(memoryConfig));
+        conversion::getPageLayout(inputLayout), device, memConfig);
   };
 
   return operation::getOpConstraints(dtype.getContext(), deviceGrid,
@@ -2640,47 +2645,24 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 #endif //
 }
 
-llvm::Expected<size_t> OpModel<mlir::tt::ttnn::EmptyOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, mlir::tt::ttcore::DataTypeAttr dtype,
-    mlir::tt::ttnn::Layout inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-  auto emptyOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::empty, device, conversion::getShape(inputShape),
-        conversion::getDataType(dtype.getValue()),
-        conversion::getPageLayout(inputLayout), device,
-        conversion::getMemoryConfig(memoryConfig));
-  };
-
-  return operation::getOpRuntime(emptyOpQuery);
-#else
-  return llvm::createStringError("Not Implemented");
-#endif //
-}
-
 //===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
-struct ArrangeOpArgs {
-  int64_t start;
-  int64_t end;
-  int64_t step;
-  ::tt::tt_metal::DataType dtype;
-  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
-      device;
-  ::ttnn::MemoryConfig memoryConfig;
-  ::ttnn::Layout layout;
-};
-
-ArrangeOpArgs
-getArrangeOpArgs(::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
-                 ::mlir::IntegerAttr step,
-                 std::optional<mlir::tt::ttcore::DataType> dtype,
-                 std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
-                 ::tt::tt_metal::distributed::MeshDevice *device) {
+// sgholamiTT: There are two reasons why receiving the start, end, and step as
+// attributes is better than as integers:
+//   1. That is the only valid way to aquire a pointer to MLIRContext.
+//   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
+//      mlir idiomatic than static_cast<int64_t>(start).
+llvm::Expected<OpConstraints>
+OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, ::mlir::IntegerAttr start,
+    ::mlir::IntegerAttr end, ::mlir::IntegerAttr step,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
   // ~~~~~~~~~~~~~~~~~~~~~ Note ~~~~~~~~~~~~~~~~~~~~~
   // The following default values are taken from Arrange's invoke function in
   // tt-metal/ttnn/cpp/ttnn/operations/creation.hpp
@@ -2696,38 +2678,19 @@ getArrangeOpArgs(::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
     dataType = conversion::getDataType(dtype.value());
   }
   ::ttnn::MemoryConfig memoryConfig = defaultMemoryConfigInMetal;
-  if (memConfig.has_value()) {
+  // Prefer the output layout if possible:
+  if (outputLayout) {
+    memoryConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memConfig.has_value()) {
     memoryConfig = conversion::getMemoryConfig(memConfig.value());
   }
   std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
       deviceRef = *device;
 
-  return ArrangeOpArgs{
-      start.getInt(), end.getInt(), step.getInt(),       dataType,
-      deviceRef,      memoryConfig, defaultLayoutInMetal};
-}
-
-// sgholamiTT: There are two reasons why receiving the start, end, and step as
-// attributes is better than as integers:
-//   1. That is the only valid way to aquire a pointer to MLIRContext.
-//   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
-//      mlir idiomatic than static_cast<int64_t>(start).
-llvm::Expected<OpConstraints>
-OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
-    mlir::tt::ttcore::GridAttr deviceGrid, ::mlir::IntegerAttr start,
-    ::mlir::IntegerAttr end, ::mlir::IntegerAttr step,
-    std::optional<mlir::tt::ttcore::DataType> dtype,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-  ArrangeOpArgs args =
-      getArrangeOpArgs(start, end, step, dtype, memConfig, device);
-
   auto arangeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::arange, device, args.start, args.end, args.step, args.dtype,
-        args.device, args.memoryConfig, args.layout);
+        ::ttnn::arange, device, start.getInt(), end.getInt(), step.getInt(),
+        dataType, deviceRef, memoryConfig, defaultLayoutInMetal);
   };
 
   return operation::getOpConstraints(start.getContext(), deviceGrid,
@@ -2737,63 +2700,9 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<mlir::tt::ttnn::ArangeOp>::getOpRuntime(
-    ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
-    ::mlir::IntegerAttr step, std::optional<mlir::tt::ttcore::DataType> dtype,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-  ArrangeOpArgs args =
-      getArrangeOpArgs(start, end, step, dtype, memConfig, device);
-  auto arangeOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::arange, device, args.start, args.end, args.step, args.dtype,
-        args.device, args.memoryConfig, args.layout);
-  };
-  return operation::getOpRuntime(arangeOpQuery);
-#else
-  return llvm::createStringError("Not Implemented");
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
 //===----------------------------------------------------------------------===//
 // ZerosOp
 //===----------------------------------------------------------------------===//
-
-struct ZerosOpArgs {
-  ::ttnn::Shape shape;
-  std::optional<::tt::tt_metal::DataType> dtype;
-  std::optional<::ttnn::Layout> layout;
-  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
-      device;
-  std::optional<::ttnn::MemoryConfig> memoryConfig;
-};
-
-ZerosOpArgs
-getZerosOpArgs(mlir::tt::ttnn::ShapeAttr shape,
-               std::optional<mlir::tt::ttcore::DataType> dtype,
-               std::optional<mlir::tt::ttnn::Layout> layout,
-               std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
-               ::tt::tt_metal::distributed::MeshDevice *device) {
-  std::optional<::tt::tt_metal::DataType> metalDtype = std::nullopt;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
-  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
-  if (layout.has_value()) {
-    metalLayout = conversion::getPageLayout(layout.value());
-  }
-  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
-  if (memoryConfig.has_value()) {
-    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
-  }
-  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
-      deviceRef = *device;
-
-  return ZerosOpArgs{conversion::getShape(shape.getShape()), metalDtype,
-                     metalLayout, deviceRef, metalMemoryConfig};
-}
 
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints(
@@ -2805,36 +2714,32 @@ OpModel<mlir::tt::ttnn::ZerosOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  ZerosOpArgs args = getZerosOpArgs(shape, dtype, layout, memoryConfig, device);
+  std::optional<::tt::tt_metal::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
+  if (layout.has_value()) {
+    metalLayout = conversion::getPageLayout(layout.value());
+  }
+  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
+  if (outputLayout) {
+    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig.has_value()) {
+    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
   auto zerosOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::zeros, device, args.shape, args.dtype, args.layout, args.device,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::zeros, device, conversion::getShape(shape.getShape()),
+        metalDtype, metalLayout, deviceRef, metalMemoryConfig);
   };
   return operation::getOpConstraints(shape.getContext(), deviceGrid,
                                      zerosOpQuery);
 #else
   return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-llvm::Expected<size_t> OpModel<mlir::tt::ttnn::ZerosOp>::getOpRuntime(
-    mlir::tt::ttnn::ShapeAttr shape,
-    std::optional<mlir::tt::ttcore::DataType> dtype,
-    std::optional<mlir::tt::ttnn::Layout> layout,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-  ZerosOpArgs args = getZerosOpArgs(shape, dtype, layout, memoryConfig, device);
-  auto zerosOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::zeros, device, args.shape,
-                                           args.dtype, args.layout, args.device,
-                                           args.memoryConfig);
-  };
-  return operation::getOpRuntime(zerosOpQuery);
-#else
-  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

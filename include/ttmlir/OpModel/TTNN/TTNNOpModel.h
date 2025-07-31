@@ -657,13 +657,8 @@ struct OpModel<mlir::tt::ttnn::EmptyOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
-      mlir::tt::ttnn::MemoryConfigAttr memoryConfig);
-
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-               mlir::tt::ttcore::DataTypeAttr dtype,
-               mlir::tt::ttnn::Layout inputLayout,
-               mlir::tt::ttnn::MemoryConfigAttr memoryConfig);
+      mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -676,13 +671,8 @@ struct OpModel<mlir::tt::ttnn::ArangeOp> {
                    ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
                    ::mlir::IntegerAttr step,
                    std::optional<mlir::tt::ttcore::DataType> dtype,
-                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig);
-
-  static llvm::Expected<size_t>
-  getOpRuntime(::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
-               ::mlir::IntegerAttr step,
-               std::optional<mlir::tt::ttcore::DataType> dtype,
-               std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig);
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -697,12 +687,6 @@ struct OpModel<mlir::tt::ttnn::ZerosOp> {
                    std::optional<mlir::tt::ttnn::Layout> layout,
                    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t>
-  getOpRuntime(mlir::tt::ttnn::ShapeAttr shape,
-               std::optional<mlir::tt::ttcore::DataType> dtype,
-               std::optional<mlir::tt::ttnn::Layout> layout,
-               std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig);
 };
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

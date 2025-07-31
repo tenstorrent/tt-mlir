@@ -2206,21 +2206,19 @@ TEST_F(OpModelTest, EmptyOp) {
   mlir::tt::ttcore::DataTypeAttr dtype =
       mlir::tt::ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32);
   mlir::tt::ttnn::Layout layout = mlir::tt::ttnn::Layout::Tile;
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
   auto constraintsExp =
       op_model::ttnn::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
-          CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig);
+          CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig,
+          outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
   EXPECT_EQ(peakSize, 4096);
   EXPECT_EQ(outputSize, 4096);
-
-  auto runtimeExp =
-      op_model::ttnn::OpModel<mlir::tt::ttnn::EmptyOp>::getOpRuntime(
-          inputTensorShape, dtype, layout, memoryConfig);
-  EXPECT_TRUE(static_cast<bool>(runtimeExp));
-  EXPECT_GT(runtimeExp.get(), 0);
 }
 
 TEST_F(OpModelTest, ArangeOp) {
@@ -2247,7 +2245,8 @@ TEST_F(OpModelTest, ArangeOp) {
 
   auto constraintsExp =
       op_model::ttnn::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
-          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig);
+          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig,
+          nullptr);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
@@ -2271,8 +2270,8 @@ TEST_F(OpModelTest, ZerosOp) {
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 2048);
-  EXPECT_EQ(outputSize, 2048);
+  EXPECT_EQ(peakSize, 8192);
+  EXPECT_EQ(outputSize, 8192);
 }
 
 } // namespace mlir::tt::op_model::ttnn

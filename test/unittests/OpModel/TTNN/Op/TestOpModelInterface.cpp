@@ -2000,77 +2000,10 @@ TEST_F(OpModelBase, EmptyOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-
-  // Test EmptyOp runtime
-  auto runtimeExp = getOpRuntime(empty.getOperation());
-  if (runtimeExp) {
-    EXPECT_GT(runtimeExp.get(), 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
-  }
 }
 
 TEST_F(OpModelBase, ArangeOpInterface) {
-  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-
-  // Create the result tensor type with row-major layout (appropriate for arange
-  // sequence)
-  auto layout = CreateRowMajorLayout(tensorShape, ttnn::BufferType::DRAM,
-                                     ttnn::TensorMemoryLayout::Interleaved);
-  auto resultType =
-      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
-
-  // Create device
-  auto device = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
-      ttnn::MeshShapeAttr::get(&context, 1, 1),
-      ttnn::MeshOffsetAttr::get(&context, 0, 0));
-
-  // Create dtype attribute
-  auto dtype = ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16);
-
-  // Create memory config attribute
-  auto memoryConfig = ttnn::MemoryConfigAttr::get(
-      &context, layout.getMemLayout(),
-      ttnn::BufferTypeAttr::get(&context, layout.getBufferType()),
-      std::nullopt);
-
-  // Create ArangeOp with IntegerAttr parameters
-  auto startAttr = builder.getI64IntegerAttr(0);
-  auto endAttr = builder.getI64IntegerAttr(1024);
-  auto stepAttr = builder.getI64IntegerAttr(1);
-
-  auto arange =
-      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
-                               endAttr, stepAttr, dtype, device, memoryConfig);
-
-  // test ArangeOp interface
-  auto constraintsExp = getOpConstraints(arange.getOperation());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
-    EXPECT_EQ(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-  // The following call produces this error: 'Writes are not supported during
-  // trace capture'. That's why I have disabled it for now:
-  // auto runtimeExp = getOpRuntime(arange.getOperation());
-  // if (runtimeExp) {
-  //   EXPECT_GT(runtimeExp.get(), 0);
-  // } else {
-  //   FAIL() << llvm::toString(runtimeExp.takeError());
-  // }
-}
-
-TEST_F(OpModelBase, ArangeOpInterfaceNullOutput) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 5};
-
-  // Create the result tensor type with row-major layout (appropriate for arange
-  // sequence)
   auto layout = CreateRowMajorLayout(tensorShape, ttnn::BufferType::DRAM,
                                      ttnn::TensorMemoryLayout::Interleaved);
   auto resultType =
@@ -2103,23 +2036,15 @@ TEST_F(OpModelBase, ArangeOpInterfaceNullOutput) {
 }
 
 TEST_F(OpModelBase, ZerosOpInterface) {
-  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-  // auto rankedTensorType = createRankedTensorType(tensorShape);
-
   llvm::SmallVector<int64_t> tensorShapeO = {workerCoresN300, 2048};
   auto layout = CreateTiledLayout(tensorShapeO, BufferType::L1,
                                   TensorMemoryLayout::BlockSharded);
-
   auto outputType =
       createRankedTensorType(tensorShapeO, builder.getBF16Type(), layout);
 
-  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded)
-                          .withIgnorePhysicalLayout(true);
-
   auto zeros =
       builder.create<ZerosOp>(builder.getUnknownLoc(), outputType,
-                              ttnn::ShapeAttr::get(&context, tensorShape),
+                              ttnn::ShapeAttr::get(&context, tensorShapeO),
                               /*dtype=*/nullptr, /*layout=*/nullptr,
                               /*device=*/nullptr, /*memoryConfig=*/
                               nullptr);
@@ -2127,12 +2052,7 @@ TEST_F(OpModelBase, ZerosOpInterface) {
   // test ZerosOp interface
   auto backend = dyn_cast<OpModel>(zeros.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(zeros), OpConfig(outputLayout));
-  // auto constraintsExp =
-  //     backend.getOpConstraints(getInputLayouts(zeros),
-  //     getOutputLayout(zeros));
-
-  // auto constraintsExp = getOpConstraints(zeros.getOperation());
+      backend.getOpConstraints(getInputLayouts(zeros), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
@@ -2142,12 +2062,6 @@ TEST_F(OpModelBase, ZerosOpInterface) {
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-  auto runtimeExp = getOpRuntime(zeros.getOperation());
-  if (runtimeExp) {
-    EXPECT_GT(runtimeExp.get(), 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 } // namespace mlir::tt::ttnn
