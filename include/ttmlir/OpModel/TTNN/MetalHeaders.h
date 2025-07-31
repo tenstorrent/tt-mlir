@@ -36,6 +36,7 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "ttnn/operations/data_movement/reshape_view/reshape.hpp"
 #include "ttnn/operations/data_movement/slice/slice.hpp"
+#include "ttnn/operations/data_movement/sort/sort.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"

@@ -1530,6 +1530,43 @@ TEST_F(OpModelBase, padOp) {
   }
 }
 
+TEST_F(OpModelBase, sortOp) {
+  // create SortOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto sortedValues = createEmptyTensor(tensorShapeA); // Same shape as input
+  auto indices = createEmptyTensor(tensorShapeA);      // Same shape as input
+
+  // SortOp returns 2 tensors: sorted values and indices
+  auto sort = builder.create<SortOp>(
+      builder.getUnknownLoc(),
+      mlir::TypeRange{sortedValues.getType(),
+                      indices.getType()}, // 2 result types
+      input, 0, false, false, nullptr);
+
+  // test sort Op interface
+  auto constraintsExp = getOpConstraints(sort.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    // SortOp uses stub implementation, so all values are 0
+    EXPECT_EQ(cbSize, 33792);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sort.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};

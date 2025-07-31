@@ -560,6 +560,24 @@ struct OpModel<mlir::tt::ttnn::PadOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SortOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::SortOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int dim, bool descending,
+      bool stable, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int dim,
+               bool descending, bool stable,
+               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 

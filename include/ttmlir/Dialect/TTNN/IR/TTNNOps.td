@@ -1072,7 +1072,9 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
-def TTNN_SortOp : TTNN_Op<"sort"> {
+def TTNN_SortOp : TTNN_Op<"sort",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Sort op.";
   let description = [{
     Sorts elements of a tensor along a given dimension.
