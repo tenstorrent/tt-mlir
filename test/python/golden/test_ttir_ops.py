@@ -2786,3 +2786,59 @@ def test_hoisted_dot_general(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+def test_rms_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    request,
+):
+    def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+        builder = inputs[-1]
+        # Extract inputs based on test configuration
+        in0 = inputs[0]
+        weight = None
+        bias = None
+
+        if has_weight and len(inputs) > 1:
+            weight = inputs[1]
+        if has_bias:
+            if has_weight and len(inputs) > 2:
+                bias = inputs[2]
+            elif not has_weight and len(inputs) > 1:
+                bias = inputs[1]
+
+        return builder.rms_norm(
+            in0,
+            normalized_shape=normalized_shape,
+            weight=weight,
+            bias=bias,
+            unit_attrs=unit_attrs,
+        )
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    compile_ttir_to_flatbuffer(
+        rms_norm,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )

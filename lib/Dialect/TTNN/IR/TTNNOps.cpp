@@ -2137,6 +2137,60 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // For 0D tensors, weight and bias validation is different.
+  if (inputType.getRank() == 0) {
+    // For 0D tensors, weight and bias should also be 0D if present.
+    if (getWeight()) {
+      RankedTensorType weightType = getWeight().getType();
+      if (weightType.getRank() != 0) {
+        return emitOpError("weight tensor must be 0D for 0D input tensor");
+      }
+    }
+    if (getBias()) {
+      RankedTensorType biasType = getBias().getType();
+      if (biasType.getRank() != 0) {
+        return emitOpError("bias tensor must be 0D for 0D input tensor");
+      }
+    }
+    return success();
+  }
+
+  // For non-0D tensors, get the last dimension size for weight/bias validation.
+  int64_t lastDimSize = inputType.getShape().back();
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 

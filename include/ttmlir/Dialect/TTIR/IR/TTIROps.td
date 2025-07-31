@@ -2067,6 +2067,58 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
   let hasVerifier = 1;
 }
 
+def TTIR_RMSNormOp : TTIR_DPSOp<"rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "RMS normalization operation";
+  let description = [{
+    Performs RMS (Root Mean Square) normalization on the input tensor. This operation
+    normalizes the input tensor by computing the root mean square of elements across
+    the specified dimensions and dividing by that value, optionally scaling and
+    shifting the result.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the normalized
+      result is element-wise multiplied by this weight.
+    - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias is
+      added to the scaled result.
+
+    Attributes:
+    - `normalized_shape` specifies the dimensions over which to normalize. Typically
+      the last few dimensions of the input tensor.
+    - `epsilon` is a small constant added for numerical stability (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The RMS normalized output tensor.
+
+    Example:
+    ```mlir
+      // RMS normalization over last dimension (shape: [2, 4, 8] -> normalize over [8])
+      %result = ttir.rms_norm(%input, %weight, %bias, %output,
+                             normalized_shape = [8], epsilon = 1e-05) :
+            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+
+      // RMS normalization over last two dimensions (shape: [2, 4, 8] -> normalize over [4, 8])
+      %result = ttir.rms_norm(%input, %weight, %bias, %output,
+                             normalized_shape = [4, 8], epsilon = 1e-05) :
+            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<4x8xf32>) -> tensor<2x4x8xf32>
+    ```
+
+    Mathematical definition: rms_norm(x, weight, bias, epsilon) =
+      (x / sqrt(mean(x^2, dims=normalized_dims) + epsilon)) * weight + bias
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$normalized_shape,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, traits> {
 
