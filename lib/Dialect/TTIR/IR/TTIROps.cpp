@@ -1115,18 +1115,23 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // - Number of inputs equals number of outputs.
 //===----------------------------------------------------------------------===//
 
-template <typename numeric_type>
-numeric_type indexTensor(const std::vector<numeric_type> &tensor,
-                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
-  int64_t bufferIndex = 0;
-
-  for (size_t i = 0; i < shape.size() - 1; i++) {
-    bufferIndex += index[i] * shape[i];
+inline SmallVector<int64_t>
+getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> index(shape.size());
+  for (int64_t i = shape.size() - 1; i >= 0; i--) {
+    index[i] = (bufferIndex % shape[i]);
+    bufferIndex /= shape[i];
   }
+  return index;
+}
 
-  bufferIndex += index[shape.size() - 1];
-
-  return tensor[bufferIndex];
+inline int64_t getBufferIndexFromTensorIndex(ArrayRef<int64_t> index,
+                                             ArrayRef<int64_t> strides) {
+  int64_t bufferIndex = 0;
+  for (size_t i = 0; i < index.size(); i++) {
+    bufferIndex += index[i] * strides[i];
+  }
+  return bufferIndex;
 }
 
 SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
@@ -1141,25 +1146,30 @@ SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
 }
 
 template <typename numeric_type>
+numeric_type indexTensor(const std::vector<numeric_type> &tensor,
+                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
+  // int64_t bufferIndex = 0;
+
+  // for (size_t i = 0; i < shape.size() - 1; i++) {
+  //   bufferIndex += index[i] * shape[i];
+  // }
+
+  // bufferIndex += index[shape.size() - 1];
+
+  return tensor[getBufferIndexFromTensorIndex(index, calculateStrides(shape))];
+}
+
+template <typename numeric_type>
 void setElementAtIndex(std::vector<numeric_type> &tensor,
                        ArrayRef<int64_t> shape, ArrayRef<int64_t> strides,
                        ArrayRef<int64_t> index, numeric_type value) {
-  int64_t bufferIndex = 0;
-
-  for (size_t i = 0; i < shape.size(); i++) {
-    bufferIndex += index[i] * strides[i];
+  int64_t bufferIndex = getBufferIndexFromTensorIndex(index, strides);
+  llvm::errs() << "setting element at index: ()";
+  for (int64_t i = 0; i < static_cast<int64_t>(index.size()); i++) {
+    llvm::errs() << index[i] << " ";
   }
+  llvm::errs() << ") with value: " << value << "\n";
   tensor[bufferIndex] = value;
-}
-
-inline SmallVector<int64_t>
-getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> index(shape.size());
-  for (int64_t i = shape.size() - 1; i >= 0; i--) {
-    index[i] = (bufferIndex % shape[i]);
-    bufferIndex /= shape[i];
-  }
-  return index;
 }
 
 SmallVector<SmallVector<int64_t>>
@@ -1168,10 +1178,23 @@ getWindow(ArrayRef<int64_t> leastSignificantCorner, PoolingOp op) {
   int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
                                          op.getWindowDimensions().end(), 1,
                                          std::multiplies<int64_t>());
-  for (int64_t i = 0; i < windowVolume; i++) {
-    window.push_back(
-        getTensorIndexFromBufferIndex(i, op.getWindowDimensions()));
+
+  SmallVector<SmallVector<int64_t>> offsets;
+
+  for (int64_t windowIndex = 0; windowIndex < windowVolume; windowIndex++) {
+    auto offset =
+        getTensorIndexFromBufferIndex(windowIndex, op.getWindowDimensions());
+    offsets.push_back(offset);
   }
+
+  for (auto offset : offsets) {
+    SmallVector<int64_t> index(leastSignificantCorner);
+    for (int64_t i = 0; i < static_cast<int64_t>(offset.size()); i++) {
+      index[i] += offset[i];
+    }
+    window.push_back(index);
+  }
+
   return window;
 }
 
@@ -1251,7 +1274,7 @@ std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
   bool foundNextIndex = false;
   int64_t currentDim = shape.size() - 1;
 
-  if (index[0] == 0 && index[1] == 33) {
+  if (index[0] == 0 && index[1] == 28) {
     int x = 2;
     (void)x;
   }
@@ -1267,10 +1290,6 @@ std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
 
     if (currentDim < 0) {
       return std::nullopt;
-    }
-
-    if (currentDim == static_cast<int64_t>(shape.size())) {
-      foundNextIndex = true;
     }
   }
   return std::make_optional(nextIndex);
@@ -1300,8 +1319,8 @@ std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
     if (!windowWithinShape(window, inputShape)) {
       currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
                                        op.getWindowStrides());
-      currentOutputIndex =
-          getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
+      // currentOutputIndex =
+      //     getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
       continue;
     }
 
@@ -1309,6 +1328,11 @@ std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
     for (auto index : window) {
       sum += indexTensor<float>(input, inputShape, index);
     }
+
+    if (-0.1 < sum && sum < 0.1) {
+      llvm::errs() << "sum: " << sum << "\n";
+    }
+    // llvm::errs() << "sum: " << sum << "\n";
 
     setElementAtIndex(outputTensor, outputShape, outputStrides,
                       currentOutputIndex.value(), sum);
