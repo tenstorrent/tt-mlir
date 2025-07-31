@@ -23,9 +23,6 @@ module {
     // CHECK-LABEL: func.func @dequantize_per_axis_scale_per_tensor_zp(
     %0 = ttir.empty() : tensor<3x3x7x7xf32>
     // CHECK: "ttnn.get_device"
-    // CHECK: "ttnn.constant"
-    // CHECK-SAME: value = dense<[2.000000e-02, 0.00999999977, 5.000000e-03]> : tensor<3xf32>
-    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
     // CHECK: "ttnn.dequantize"

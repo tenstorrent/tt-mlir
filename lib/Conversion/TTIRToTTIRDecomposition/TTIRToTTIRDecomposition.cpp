@@ -1297,30 +1297,19 @@ private:
         static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
     });
 
-    SmallVector<int32_t> padding({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
-    });
-
-    // Padding is top, bottom, left, right. If bottom == top + 1, and right ==
-    // left + 1. The padding should be set to top == bottom and left == right
-    // with ceil_mode= true.
-    auto ceilModeAttr = rewriter.getBoolAttr(false);
-    if (padding[1] == padding[0] + 1 && padding[3] == padding[2] + 1) {
-      padding[1] = padding[0];
-      padding[3] = padding[2];
-      ceilModeAttr = rewriter.getBoolAttr(true);
-    }
-
     // In PoolingOp padding is [..., high, low, ...] for every dimension.
     // We've calculated padding in the form [top, bottom, left, right].
     // We need to permute it to [top, left, bottom, right].
-    padding =
-        SmallVector<int32_t>({padding[0], padding[2], padding[1], padding[3]});
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
+    });
 
-    auto paddingAttr = rewriter.getDenseI32ArrayAttr(padding);
+    auto ceilModeAttr = rewriter.getBoolAttr(false);
 
     llvm::SmallVector<Value> outputs;
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
@@ -1341,22 +1330,11 @@ private:
       // Apply output permutation.
       auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
           originalOutputTy.getShape(), permutation);
-
-      PoolOpType newPool;
-      if constexpr (std::is_same_v<PoolOpType, ttir::MaxPool2dOp>) {
-        newPool = ttir::utils::createDPSOp<ttir::MaxPool2dOp>(
-            rewriter, op.getLoc(), resultPermuteShape,
-            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
-            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-            ceilModeAttr);
-      } else {
-        newPool = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
-            rewriter, op.getLoc(), resultPermuteShape,
-            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
-            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-            ceilModeAttr, rewriter.getBoolAttr(true));
-      }
-
+      auto newPool = ttir::utils::createDPSOp<PoolOpType>(
+          rewriter, op.getLoc(), resultPermuteShape,
+          originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+          input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+          ceilModeAttr);
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
       auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
