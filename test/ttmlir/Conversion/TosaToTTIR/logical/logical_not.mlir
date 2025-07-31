@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_logical_not(%arg0: tensor<13x21x3xi1>) -> tensor<13x21x3xi1> {
     %0 = tosa.logical_not %arg0 : (tensor<13x21x3xi1>) -> tensor<13x21x3xi1>

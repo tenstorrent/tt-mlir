@@ -159,7 +159,8 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -244,7 +245,9 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait,
+       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.
@@ -302,7 +305,9 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
     }];
 }
 
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
@@ -397,7 +402,9 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
     }];
 }
 
-def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise tanh op.";
 
     let extraClassDeclaration = [{
@@ -464,7 +471,9 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
     }];
 }
 
-def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
+def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
@@ -541,9 +550,7 @@ def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
     }];
 }
 
-def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
 
     let summary = "Eltwise add.";
     let description = [{
@@ -555,6 +562,21 @@ def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
+    }];
+}
+
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
     }];
 }
 
@@ -692,24 +714,6 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
     }];
 }
 
-def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
-
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
-    let summary = "Eltwise subtract.";
-    let description = [{
-      Eltwise subtract operation.
-    }];
-}
 
 def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
     let summary = "Eltwise remainder.";

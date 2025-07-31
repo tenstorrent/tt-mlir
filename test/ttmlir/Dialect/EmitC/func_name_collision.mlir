@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -ttir-to-emitc-pipeline="system-desc-path=%system_desc_path%" %s | FileCheck %s
+// RUN: ttmlir-opt -ttir-to-emitc-pipeline="system-desc-path=%system_desc_path%" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // This test asserts that the function names in the TTIR module don't
 // conflict with the function names that are introduced as a part of the pipeline.

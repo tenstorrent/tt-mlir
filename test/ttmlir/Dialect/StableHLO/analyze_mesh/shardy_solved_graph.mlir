@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 module @jit_neg_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {

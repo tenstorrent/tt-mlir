@@ -861,7 +861,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   assert(inputUnderCheckFound && "Input under check not found");
 
-  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
+  llvm::Expected<op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, consumerConfig);
 
   if (!l1UsageExp) {

@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // These test are written in TTNN dialect because TTIR is not flexible enough to represent all the patterns we want to test.
 
@@ -23,7 +24,7 @@ module {
     %2 = "ttnn.conv2d"(%1, %arg1, %arg2, %0)
           <{
             batch_size = 1 : i32,
-            conv2d_config = #ttnn.conv2d_config<dtype = bf16, weights_dtype = bf16, activation = "relu", deallocate_activation = false, reallocate_halo_output = false, act_block_h_override = 0, act_block_w_div = 1, reshard_if_not_optimal = false, override_sharding_config = false, shard_layout = height_sharded, transpose_shards = false, output_layout = tile, enable_act_double_buffer = false, enable_weights_double_buffer = false, enable_split_reader = false, enable_subblock_padding = false>,
+            conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, activation = "relu", deallocate_activation = false, reallocate_halo_output = false, act_block_h_override = 0, act_block_w_div = 1, reshard_if_not_optimal = false, override_sharding_config = false, shard_layout = height_sharded, transpose_shards = false, output_layout = tile, enable_act_double_buffer = false, enable_weights_double_buffer = false, enable_split_reader = false, enable_subblock_padding = false>,
             dilation = array<i32: 1, 1>,
             groups = 1 : i32,
             in_channels = 64 : i32,

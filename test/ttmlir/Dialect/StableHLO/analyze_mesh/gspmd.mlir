@@ -1,6 +1,6 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: module {
@@ -29,5 +29,15 @@ module {
     %3 = stablehlo.custom_call @Sharding(%1) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1x2048x64xf32>) -> tensor<1x1x2048x64xf32>
     %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,1,4,8]<=[8,4]T(1,0)}"} : (tensor<1x1x2048x64xf32>) -> tensor<1x1x8192x512xf32>
     return %4 : tensor<1x1x8192x512xf32>
+  }
+}
+
+// -----
+
+// CHECK-LABEL: module {
+module {
+  // CHECK: sdy.mesh @mesh = <["x"=1, "y"=1]>
+  func.func public @main(%arg0: tensor<ui8> {mhlo.sharding = "{replicated}"}) -> (tensor<ui8> {jax.result_info = "result"}) {
+    return %arg0 : tensor<ui8>
   }
 }

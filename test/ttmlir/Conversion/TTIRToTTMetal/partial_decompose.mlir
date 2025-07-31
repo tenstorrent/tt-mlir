@@ -1,6 +1,9 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition="config=ttnn" %s | FileCheck %s --check-prefix=TTNN
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition="config=cpu-fallback" %s | FileCheck %s --check-prefix=CPU
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s --check-prefix=DEFAULT
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition="config=ttnn" -o %t %s
+// RUN: FileCheck %s --input-file=%t --check-prefix=TTNN
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition="config=cpu-fallback" -o %t %s
+// RUN: FileCheck %s --input-file=%t --check-prefix=CPU
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t --check-prefix=DEFAULT
 
 module {
   func.func @test_decomposition_configs(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xf32>, %arg2: tensor<4x32xi32>) -> (tensor<32x1xbf16>, tensor<64x128xf32>, tensor<4x32x32xf32>, tensor<32x1xbf16>) {

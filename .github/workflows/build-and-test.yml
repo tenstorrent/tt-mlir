@@ -377,6 +377,18 @@ jobs:
           cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
         fi
 
+    # Optimizer models perf tests
+    - name: Run Optimizer Models Perf Tests
+      if: matrix.build.type == 'ttrt' && matrix.build.image == 'speedy' && matrix.build.runs-on == 'n150' && matrix.build.suite == 'op_model'
+      shell: bash
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+
+        llvm-lit -v --param TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS=1 ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/models_perf_tests
+
     - name: Prepare tt-explorer Test
       if: matrix.build.suite == 'explorer'
       shell: bash

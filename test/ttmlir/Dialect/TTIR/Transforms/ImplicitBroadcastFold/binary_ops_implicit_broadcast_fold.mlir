@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-implicit-broadcast-fold %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-implicit-broadcast-fold -o %t %s
+// RUN: FileCheck --input-file=%t %s
 
 module {
   func.func @binary_implicit_broadcast(%arg0: tensor<1x128xf32>, %arg1: tensor<64x1xf32>) -> tensor<64x128xf32> {

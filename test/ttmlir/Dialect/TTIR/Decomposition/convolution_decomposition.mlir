@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @test_convolution {
     func.func @test_conv_output_order_not_nchw() -> tensor<3x3x32x64xbf16> {

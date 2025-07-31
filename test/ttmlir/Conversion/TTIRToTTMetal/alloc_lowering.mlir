@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --convert-ttir-to-ttmetal -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #ttcore.memory_space<l1>

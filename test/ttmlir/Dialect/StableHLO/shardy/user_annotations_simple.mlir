@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
@@ -20,7 +20,6 @@ func.func public @partial_arg_annotation(%arg0: tensor<32x48x24x32xf32> {sdy.sha
 // CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"batch"}, {"model"}, {}, {}]>, <@mesh, [{"batch"}, {"model"}, {}, {}]>] out_shardings=[<@mesh, [{"batch"}, {"model"}, {}, {}]>]
 // CHECK: stablehlo.subtract %arg2, %arg3 : tensor<16x48x24x32xf32>
 // CHECK: sdy.return %1 : tensor<16x48x24x32xf32>
-
 
 func.func public @partial_arg_annotation_two(%arg0: tensor<32x48x24x32xf32>, %arg1: tensor<32x48x24x32xf32>{sdy.sharding = #sdy.sharding<@mesh, [{}, {"model"}, {"batch"}, {}]>}) -> tensor<32x48x24x32xf32> {
   %0 = stablehlo.multiply %arg0, %arg1 : tensor<32x48x24x32xf32>

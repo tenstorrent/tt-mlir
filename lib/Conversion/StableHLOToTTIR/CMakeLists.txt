@@ -8,7 +8,6 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   ArithToStableHLOPass.cpp
   EmptyOpTypeConversion.cpp
-  ShardingUtils.cpp
   StableHLOToTTIRPass.cpp
   StableHLOToTTIRPatterns.cpp
   StableHLOLegalizeCompositePass.cpp
@@ -16,6 +15,7 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/StableHLOToTTIR
+  ${PROJECT_SOURCE_DIR}/include/ttmlir/Dialect/StableHLO
 
   DEPENDS
   TTMLIRConversionPassIncGen
@@ -24,5 +24,6 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   MLIRIR
   MLIRPass
   StablehloPasses
+  TTMLIRSTABLEHLOUtils
   TTMLIRTTIRUtils
 )

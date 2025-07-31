@@ -545,6 +545,39 @@ filterOperations(llvm::ArrayRef<mlir::Value> values) {
 
   return ops;
 }
+
+using Coord = llvm::SmallVector<int64_t, 4>;
+// Converts a linear device ID into its row-major N-D mesh coordinates.
+inline Coord linearIdToCoord(size_t id, llvm::ArrayRef<int64_t> shape) {
+  Coord coord(shape.size(), 0);
+  for (size_t i = shape.size(); i-- > 0;) {
+    coord[i] = id % shape[i];
+    id /= shape[i];
+  }
+  return coord;
+}
+
+template <typename T>
+llvm::SmallVector<llvm::SmallVector<T>>
+denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
+  auto shape = attr.getType().getShape();
+  assert((shape.size() == 2) && "DenseElementsAttr must be 2D");
+  size_t rows = shape[0];
+  size_t columns = shape[1];
+  assert((static_cast<size_t>(attr.getNumElements()) == rows * columns) &&
+         "DenseElementsAttr size mismatch");
+  auto values = attr.getValues<T>();
+  auto it = values.begin();
+  llvm::SmallVector<llvm::SmallVector<T>> result(rows,
+                                                 llvm::SmallVector<T>(columns));
+  for (size_t r = 0; r < rows; ++r) {
+    for (size_t c = 0; c < columns; ++c) {
+      result[r][c] = *it++;
+    }
+  }
+  return result;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

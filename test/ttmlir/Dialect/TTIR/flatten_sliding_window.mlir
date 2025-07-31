@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-flatten-sliding-window %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-flatten-sliding-window -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
   func.func @conv2d_simple(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
@@ -25,20 +26,7 @@ module {
     // CHECK: %[[POOL:[0-9]+]] = "ttir.max_pool2d"(%[[RESHAPE1]]
     // CHECK: #ttir<flattened_compat batch_size = 1, input_height = 32, input_width = 32>
     // CHECK: %[[RESHAPE2:[0-9]+]] = "ttir.reshape"(%[[POOL]]
-    %1 = "ttir.max_pool2d"(%arg0, %0)
-            <{
-              stride_height = 1: si32,
-              stride_width = 1: si32,
-              padding_top = 0: si32,
-              padding_bottom = 0: si32,
-              padding_left = 0: si32,
-              padding_right = 0: si32,
-              dilation_height = 1: si32,
-              dilation_width = 1: si32,
-              kernel_height = 3: si32,
-              kernel_width = 3: si32,
-              ceil_mode = false
-            }> : (tensor<1x32x32x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %1 = "ttir.max_pool2d"(%arg0, %0) <{kernel = array<i32: 3, 3>, stride = array<i32: 1, 1>, dilation = array<i32: 1, 1>, padding = array<i32: 0, 0, 0, 0>, ceil_mode = false}> : (tensor<1x32x32x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %1 : tensor<1x30x30x64xbf16>
   }
 }
@@ -50,20 +38,7 @@ module {
     // CHECK: %[[POOL:[0-9]+]] = "ttir.avg_pool2d"(%[[RESHAPE1]]
     // CHECK: #ttir<flattened_compat batch_size = 1, input_height = 32, input_width = 32>
     // CHECK: %[[RESHAPE2:[0-9]+]] = "ttir.reshape"(%[[POOL]]
-    %1 = "ttir.avg_pool2d"(%arg0, %0)
-            <{
-              stride_height = 1: si32,
-              stride_width = 1: si32,
-              padding_top = 0: si32,
-              padding_bottom = 0: si32,
-              padding_left = 0: si32,
-              padding_right = 0: si32,
-              dilation_height = 1: si32,
-              dilation_width = 1: si32,
-              kernel_height = 3: si32,
-              kernel_width = 3: si32,
-              ceil_mode = false
-            }> : (tensor<1x32x32x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %1 = "ttir.avg_pool2d"(%arg0, %0) <{kernel = array<i32: 3, 3>, stride = array<i32: 1, 1>, dilation = array<i32: 1, 1>, padding = array<i32: 0, 0, 0, 0>, ceil_mode = false}> : (tensor<1x32x32x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %1 : tensor<1x30x30x64xbf16>
   }
 }

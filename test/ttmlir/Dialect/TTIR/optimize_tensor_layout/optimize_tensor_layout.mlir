@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-optimize-tensor-layout --split-input-file %s 2>&1 | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-optimize-tensor-layout --split-input-file 2>&1 -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1) -> (d0, 0)>

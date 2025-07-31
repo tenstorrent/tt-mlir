@@ -27,6 +27,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
@@ -74,7 +75,7 @@ add_library(TTRuntimeTTNNOps
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
-  target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+  target_compile_options(TTRuntimeTTNNOps PUBLIC -march=x86-64-v3)
 endif()
 target_include_directories(TTRuntimeTTNNOps PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn

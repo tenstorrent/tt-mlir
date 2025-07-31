@@ -1,6 +1,6 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline %s > %t.mlir
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: module {
@@ -58,4 +58,16 @@ module {
 }
 
 // CHECK: ttcore.shard_status = #ttcore.shard_status<unsharded>
+// CHECK: ttcore.shard_status = #ttcore.shard_status<unsharded>
+
+// -----
+
+// CHECK-LABEL: module {
+module {
+  func.func public @main(%arg0: tensor<ui8> {mhlo.sharding = "{replicated}"}) -> (tensor<ui8> {jax.result_info = "result"}) {
+    return %arg0 : tensor<ui8>
+  }
+}
+
+// CHECK: ttcore.shard_status = #ttcore.shard_status<presharded>
 // CHECK: ttcore.shard_status = #ttcore.shard_status<unsharded>

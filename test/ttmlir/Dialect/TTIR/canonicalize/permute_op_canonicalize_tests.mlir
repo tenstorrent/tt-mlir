@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @permute_composition(%arg0: tensor<1x2x3x4x5xbf16>) -> tensor<3x2x1x5x4xbf16> {
     // CHECK: "ttir.permute"

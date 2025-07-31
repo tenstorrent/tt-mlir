@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @test_concat(%arg0: tensor<13x17x1xf32>, %arg1: tensor<13x17x1xf32>, %arg2: tensor<13x17x1xf32>) -> tensor<13x51x1xf32> {
     %0 = tosa.concat %arg0, %arg1, %arg2 {axis = 1 : i32} : (tensor<13x17x1xf32>, tensor<13x17x1xf32>, tensor<13x17x1xf32>) -> tensor<13x51x1xf32>

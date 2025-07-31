@@ -25,13 +25,13 @@ static ::mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
   constexpr size_t bitWidth = 32;
   const BufferType bufferType = BufferType::SystemMemory;
   const TensorMemoryLayoutAttr memoryLayoutAttr;
-  const ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
+  const ttcore::TensorMeshAttr tensorMeshAttr;
 
   TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
       ctx, /*shape=*/{},
       ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-      bufferType, ttcore::GridAttr::get(ctx), memoryLayoutAttr,
-      tensorMeshShardingAttr, collapseDimsRef);
+      bufferType, ttcore::GridAttr::get(ctx), memoryLayoutAttr, tensorMeshAttr,
+      collapseDimsRef);
 
   return ::mlir::RankedTensorType::get(
       /*shape=*/{},

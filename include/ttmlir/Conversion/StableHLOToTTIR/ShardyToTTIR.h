@@ -15,8 +15,6 @@ namespace mlir::tt {
 void populateShardyToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter);
 
-std::unique_ptr<mlir::Pass> createTTIRTensorAnnotationCleanupPass();
-
 #endif
 
 } // namespace mlir::tt

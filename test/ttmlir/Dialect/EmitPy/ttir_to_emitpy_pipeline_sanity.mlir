@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="system-desc-path=%system_desc_path%" %s > %t_direct.mlir
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttcore-unwrap-device-module --ttnn-tuplify-tensors --ttnn-create-input-gens --convert-ttnn-to-emitpy %s > %t_indirect.mlir
+// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="system-desc-path=%system_desc_path%" -o %t_direct.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttcore-unwrap-device-module --ttnn-tuplify-tensors --ttnn-create-input-gens --convert-ttnn-to-emitpy -o %t_indirect.mlir %s
 // RUN: diff %t_direct.mlir %t_indirect.mlir
 // RUN: FileCheck %s --input-file=%t_direct.mlir
 //

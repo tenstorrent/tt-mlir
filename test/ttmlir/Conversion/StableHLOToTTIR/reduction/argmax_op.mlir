@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module @module_argmax attributes {} {
   func.func public @argmax_torch_2d(%arg0: tensor<1x32128xf32>) -> tensor<1xi64> {

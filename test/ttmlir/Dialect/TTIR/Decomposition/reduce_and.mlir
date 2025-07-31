@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func public @test_reduce_and_4to3dim(%arg0: tensor<128x10x32x4xbf16>, %arg1: tensor<1xbf16>) -> tensor<128x10x32xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_and_4to3dim

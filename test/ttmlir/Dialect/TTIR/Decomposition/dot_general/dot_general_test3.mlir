@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_loss {
   func.func public @main(%arg0: tensor<2x1xf32>, %arg1: tensor<1xf32>, %arg2: tensor<127x2xf32>, %arg3: tensor<127x1xf32>) -> (tensor<2x1xf32>, tensor<f32>) {
     %0 = "ttir.dot_general"(%arg2, %arg0) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<127x2xf32>, tensor<2x1xf32>) -> tensor<127x1xf32>

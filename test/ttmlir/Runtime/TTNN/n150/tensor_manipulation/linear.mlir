@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module @Model attributes {} {
   func.func @forward(%arg0: tensor<10x10xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "input"}, %arg1: tensor<10x10xf32> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "l.weight"}, %arg2: tensor<10xf32> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "l.bias"}) -> (tensor<10x10xf32> {ttir.name = "Model.output_add_2"}) {

@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
@@ -10,7 +10,6 @@
 #ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 8 + d2, d3), <1x1>, memref<192x256xbf16, #dram>, <interleaved>>
 
 #conv2d_config = #ttnn.conv2d_config<
-  dtype = bf16,
   weights_dtype = bf16,
   activation = "",
   deallocate_activation = false,
@@ -26,7 +25,8 @@
   enable_act_double_buffer = false,
   enable_weights_double_buffer = false,
   enable_split_reader = false,
-  enable_subblock_padding = false
+  enable_subblock_padding = false,
+  in_place = false
 >
 
 module attributes {} {

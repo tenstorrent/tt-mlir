@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s --mlir-print-ir-after-all --debug
-// | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck --input-file=%t %s
 
 module attributes {} {
   func.func @test_sort(%arg0: tensor<64x128xbf16>) -> (tensor<64x128xbf16>, tensor<64x128xi16>) {

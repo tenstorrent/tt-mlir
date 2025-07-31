@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --const-eval-hoist-transform %s | FileCheck %s
+// RUN: ttmlir-opt --const-eval-hoist-transform -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module {
 
