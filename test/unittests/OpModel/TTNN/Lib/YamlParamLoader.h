@@ -14,7 +14,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 namespace detail {
 
 struct TestTensor {
@@ -83,4 +83,4 @@ Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams);
 
 } // namespace yaml_utils
 
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
