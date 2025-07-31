@@ -80,7 +80,7 @@ template <typename T>
 inline constexpr bool is_int_type_v = is_int_type<T>::value;
 
 template <typename T>
-struct TypeName<T, std::enable_if_t<is_int_type_v<T>, void>> {
+struct TypeName<T, std::enable_if_t<is_int_type_v<T>>> {
   inline static const std::string value = "int";
 };
 
@@ -119,13 +119,12 @@ inline constexpr bool is_list_type_v = is_list_type<T>::value;
 template <typename T>
 struct TypeName<T, std::enable_if_t<is_list_type_v<T>, void>> {
   using value_type = typename T::value_type;
-  inline static const std::string value = "list<" + TypeNameV<value_type> + ">";
+  inline static const std::string value = "[" + TypeNameV<value_type> + "]";
 };
 
 template <typename T, size_t k>
 struct TypeName<std::array<T, k>> {
-  inline static const std::string value =
-      "list<" + TypeNameV<T> + ", " + std::to_string(k) + ">";
+  inline static const std::string value = "[" + TypeNameV<T> + "]";
 };
 
 template <>
@@ -142,7 +141,7 @@ struct TypeName<std::nullopt_t> {
 
 template <typename T>
 struct TypeName<std::set<T>> {
-  inline static const std::string value = "set<" + TypeNameV<T> + ">";
+  inline static const std::string value = "{" + TypeNameV<T> + "}";
 };
 
 template <>
@@ -333,10 +332,10 @@ struct EmitPyTypeConverter<::ttnn::CoreCoord> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreCoord>;
-    rso << "[";
+    rso << "([";
     rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", ";
     rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
-    rso << "]";
+    rso << "])";
 
     return buf;
   }
@@ -360,11 +359,11 @@ struct EmitPyTypeConverter<::ttnn::CoreRange> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreRange>;
-    rso << "[";
+    rso << "([";
     rso << EmitPyTypeConverter<::ttnn::CoreCoord>::convert(attr.getStartCoord())
         << ", ";
     rso << EmitPyTypeConverter<::ttnn::CoreCoord>::convert(attr.getEndCoord());
-    rso << "]";
+    rso << "])";
 
     return buf;
   }
@@ -494,6 +493,10 @@ struct EmitPyTypeConverter<::ttnn::TensorMemoryLayout> {
   }
 
   static std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
+    // TODO (azecevic): There is a dissonance between the way we model
+    // TensorMemoryLayout in TTNN dialect and TTNN library. This should be fixed
+    // with https://github.com/tenstorrent/tt-mlir/issues/2521. For now, we
+    // default to Interleaved, which is default value in TTNN library.
     if (!attr) {
       return convert(ttnn::TensorMemoryLayout::Interleaved);
     }
@@ -862,7 +865,7 @@ private:
   static std::string convert(const std::array<std::string, k> &values) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
-    rso << TypeNameV<std::array<T, k>> << "[";
+    rso << "[";
     llvm::interleaveComma(values, rso);
     rso << "]";
     return buf;
@@ -887,10 +890,10 @@ struct EmitPyTypeConverter<::ttnn::CoreRangeSet> {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::CoreRangeSet>;
-    rso << "[";
+    rso << "([";
     rso << EmitPyTypeConverter<std::set<::ttnn::CoreRange>>::convert(
         attr.getCoreRanges());
-    rso << "]";
+    rso << "])";
     return buf;
   }
 };
@@ -1164,6 +1167,10 @@ struct IsMLIRType {
 template <typename T>
 static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 
+// Name for the function that creates a list from a variadic number of
+// `ttnn::Tensor`s.
+inline constexpr char kCreateListFunctionName[] = "util_create_list";
+
 template <typename TTNNOp>
 class EmitPyTTNNEmitter {
 public:
@@ -1221,7 +1228,7 @@ public:
       llvm::SmallVector<mlir::Value> values(
           adaptor.getOperands().begin() + index,
           adaptor.getOperands().begin() + index + operands.size());
-      this->operands.push_back(createVector(values));
+      this->operands.push_back(createList(values));
       return rewriter.getIndexAttr(index);
     }
     llvm_unreachable("Invalid operand range");
@@ -1377,13 +1384,13 @@ public:
   }
 
 private:
-  mlir::Value createVector(ValueRange operands) {
+  mlir::Value createList(ValueRange operands) {
     return rewriter
         .create<emitpy::CallOpaqueOp>(
             op.getLoc(),
             emitpy::OpaqueType::get(rewriter.getContext(),
                                     TypeNameV<std::vector<::ttnn::Tensor>>),
-            "util_create_list", nullptr, nullptr, operands)
+            kCreateListFunctionName, nullptr, nullptr, operands)
         ->getResult(0);
   }
 
