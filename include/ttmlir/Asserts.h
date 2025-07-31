@@ -166,11 +166,12 @@ static inline constexpr const char * kBinaryOpName[] { "==", "!=", "<", "<=", ">
 // clang-format on
 // ............................................................................
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <typename LHS, typename RHS, BinaryOp Op>
 struct BinaryExpr {
-  LHS m_lhs;
-  RHS m_rhs;
-  bool m_result;
+  LHS lhs;
+  RHS rhs;
+  bool result;
 
   template <typename Stream>
   void prefix(Stream &os, const char *file, int line, const char *func,
@@ -179,9 +180,9 @@ struct BinaryExpr {
        << "` failed";
     if constexpr (is_printable_v<LHS, Stream> && is_printable_v<RHS, Stream>) {
       os << ", was `";
-      print(os, m_lhs);
+      print(os, lhs);
       os << ' ' << kBinaryOpName[llvm::to_underlying(Op)] << ' ';
-      print(os, m_rhs);
+      print(os, rhs);
       os << '`';
     }
   }
@@ -228,20 +229,22 @@ struct BinaryExpr {
 #undef TT_IMPL_ASSERT_CHAINED_OP_HANDLER
   // clang-format on
 };
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 // ............................................................................
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <typename LHS>
 struct ExprLHS {
-  explicit constexpr ExprLHS(LHS lhs) : m_lhs{lhs} {}
+  explicit constexpr ExprLHS(LHS lhs) : lhs{lhs} {}
 
   // Intercept binary expr cases.
 
   // clang-format off
 #define TT_IMPL_ASSERT_BINARY_OP_HANDLER(op, bop)                              \
   template <typename RHS>                                                      \
-  constexpr friend auto operator op(ExprLHS &&lhs, RHS &&rhs)                  \
+  constexpr friend auto operator op(ExprLHS &&exprLHS, RHS &&rhs)              \
       -> BinaryExpr<LHS, RHS, BinaryOp::bop> {                                 \
-    return {lhs.m_lhs, rhs, static_cast<bool>(lhs.m_lhs op rhs)};              \
+    return {exprLHS.lhs, rhs, static_cast<bool>(exprLHS.lhs op rhs)};          \
   }
 
   TT_IMPL_ASSERT_BINARY_OP_HANDLER(==, eq)
@@ -296,9 +299,10 @@ struct ExprLHS {
     os << ", " << message << '\n';
   }
 
-  LHS m_lhs;
+  LHS lhs;
 
 }; // end of class
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 // ............................................................................
 
 struct ExprDecomposer {
