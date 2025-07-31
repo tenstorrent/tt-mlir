@@ -489,7 +489,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDimension());
+        adaptor.getInput(), adaptor.getDimension(), adaptor.getNumericStable());
     return success();
   }
 };
