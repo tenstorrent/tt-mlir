@@ -1687,7 +1687,7 @@ TEST_F(OpModelBase, LeakyReluOp) {
       builder.getUnknownLoc(), outputType, input, slopeAPF);
   leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::ttnn::SingletonDeviceContext::resetInstance();
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
   if (!constraintsExp) {
@@ -1700,7 +1700,7 @@ TEST_F(OpModelBase, LeakyReluOp) {
   EXPECT_EQ(peakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
-  op_model::ttnn::SingletonDeviceContext::resetInstance();
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
   if (runtimeExp) {

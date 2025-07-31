@@ -127,18 +127,15 @@ using OpModelErfParam = OpModelUnaryEltwiseParam<ErfOp>;
 using OpModelErfcParam = OpModelUnaryEltwiseParam<ErfcOp>;
 using OpModelFloorParam = OpModelUnaryEltwiseParam<FloorOp>;
 using OpModelGeluParam = OpModelUnaryEltwiseParam<GeluOp>;
-using OpModelIsFiniteParam =
-    OpModelUnaryEltwiseParam<IsFiniteOp>;
-using OpModelLogicalNotParam =
-    OpModelUnaryEltwiseParam<LogicalNotOp>;
+using OpModelIsFiniteParam = OpModelUnaryEltwiseParam<IsFiniteOp>;
+using OpModelLogicalNotParam = OpModelUnaryEltwiseParam<LogicalNotOp>;
 using OpModelNegParam = OpModelUnaryEltwiseParam<NegOp>;
 using OpModelTanParam = OpModelUnaryEltwiseParam<TanOp>;
 using OpModelAtanParam = OpModelUnaryEltwiseParam<AtanOp>;
 using OpModelRsqrtParam = OpModelUnaryEltwiseParam<RsqrtOp>;
 using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
 using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
-using OpModelReciprocalParam =
-    OpModelUnaryEltwiseParam<ReciprocalOp>;
+using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -1825,9 +1822,8 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp =
-      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpConstraints(
-          CreateWorkerGrid(), inputShape, inputLayout, slope, outputLayout);
+  auto constraintsExp = op_model::OpModel<LeakyReluOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, slope, outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -1847,9 +1843,8 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp =
-      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpRuntime(
-          inputShape, inputLayout, slope, outputLayout);
+  auto runtimeExp = op_model::OpModel<LeakyReluOp>::getOpRuntime(
+      inputShape, inputLayout, slope, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);

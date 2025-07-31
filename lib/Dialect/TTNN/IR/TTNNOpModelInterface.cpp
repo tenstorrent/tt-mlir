@@ -235,7 +235,7 @@ SinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // AbsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 AbsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -251,7 +251,7 @@ AbsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // CeilOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 CeilOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -267,7 +267,7 @@ CeilOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SignOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 SignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -283,7 +283,7 @@ SignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ErfOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 ErfOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -299,7 +299,7 @@ ErfOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ErfcOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 ErfcOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -315,7 +315,7 @@ ErfcOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // FloorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 FloorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -331,7 +331,7 @@ FloorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // GeluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 GeluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -347,7 +347,7 @@ GeluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // IsFiniteOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 IsFiniteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -363,7 +363,7 @@ IsFiniteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // LogicalNotOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 LogicalNotOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -379,7 +379,7 @@ LogicalNotOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // NegOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 NegOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -395,7 +395,7 @@ NegOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 TanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -411,7 +411,7 @@ TanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // AtanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 AtanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -427,7 +427,7 @@ AtanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RsqrtOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 RsqrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -443,7 +443,7 @@ RsqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Log1pOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 Log1pOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -459,7 +459,7 @@ Log1pOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Expm1Op - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 Expm1Op::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
@@ -571,7 +571,7 @@ ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // LeakyReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 LeakyReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -586,9 +586,8 @@ LeakyReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpConstraints,
-      *this, deviceGrid, inputShape, inputs[0], getParameter(),
-      opConfig.outputLayout);
+      op_model::OpModel<LeakyReluOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getParameter(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -599,8 +598,8 @@ LeakyReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::LeakyReluOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getParameter(), opConfig.outputLayout);
+      op_model::OpModel<LeakyReluOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getParameter(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
