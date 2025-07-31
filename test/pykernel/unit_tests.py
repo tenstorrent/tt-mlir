@@ -411,7 +411,7 @@ def test_attributes():
     # TEST: Define variables
     # CHECK: %[[BANK_ID:.*]] = arith.constant
     bank_id = 1
-    args = TensorAccessorArgs(2,0)
+    args = TensorAccessorArgs(2, 0)
 
     # TEST: Check member function is called correctly
     # CHECK: %[[TA:.*]] = ttkernel.TensorAccessor({{.*}})
@@ -420,6 +420,7 @@ def test_attributes():
     # CHECK: ttkernel.tensor_accessor_get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
     noc_addr = ta.get_noc_addr(bank_id, 0)
     return
+
 
 test_assign()
 test_ifstmt()

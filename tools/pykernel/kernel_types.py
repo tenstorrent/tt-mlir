@@ -4,23 +4,26 @@
 
 from ttmlir.dialects import ttkernel
 
+
 class ClassRegistry:
     _registry = {}
-    
+
     @classmethod
     def register(cls, mlir_type):
         def decorator(attr_class):
             cls._registry[mlir_type] = attr_class
             return attr_class
+
         return decorator
-    
+
     @classmethod
     def get(cls, mlir_type):
         return cls._registry.get(mlir_type)
-    
+
     @classmethod
     def exists(cls, mlir_type):
         return mlir_type in cls._registry
+
 
 class PyKernelClassBase:
     def __init__(self):
@@ -41,6 +44,7 @@ class PyKernelClassBase:
         else:
             raise ValueError(f"Member {member} not found in {self.__class__.__name__}")
 
+
 @ClassRegistry.register("ttkernel.TensorAccessor")
 class TensorAccessor(PyKernelClassBase):
     def __init__(self):
@@ -60,4 +64,6 @@ class TensorAccessor(PyKernelClassBase):
         return func(*args)
 
     def _emit_member_variable_mlir(self, member_variable):
-        raise NotImplementedError("TensorAccessorAttributes does not have member variables")
+        raise NotImplementedError(
+            "TensorAccessorAttributes does not have member variables"
+        )
