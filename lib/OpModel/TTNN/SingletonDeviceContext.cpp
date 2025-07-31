@@ -8,7 +8,7 @@
 #include "Constants.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 
 // todo(arminaleTT): look into dynamically adjusting this
 // getOpRuntime() uses trace capture to run and measure the runtime of an op.
@@ -68,5 +68,5 @@ void SingletonDeviceContext::closeDevice() {
   }
 }
 
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -7,7 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 
 /*
  * OpConstraints struct is used to store the constraints of an operation.
@@ -36,6 +36,6 @@ struct OpConstraints {
         outputLayout(nullptr) {}
 };
 
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H

@@ -32,8 +32,7 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout,
-                                                   maxGrid)) {
+  if (!op_model::isLayoutLegalForTensorShape(tensorShape, layout, maxGrid)) {
     return false;
   }
 
