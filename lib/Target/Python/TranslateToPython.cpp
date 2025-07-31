@@ -68,9 +68,9 @@ inline LogicalResult interleaveCommaWithError(const Container container,
 /// imply higher precedence.
 static FailureOr<int> getOperatorPrecedence(Operation *operation) {
   return llvm::TypeSwitch<Operation *, FailureOr<int>>(operation)
-      .Case<CallOpaqueOp>([&](auto op) { return 3; })
-      .Case<SubscriptOp>([&](auto op) { return 2; })
-      .Case<LiteralOp>([&](auto op) { return 4; })
+      .Case<CallOpaqueOp>([&](auto op) { return 2; })
+      .Case<SubscriptOp>([&](auto op) { return 1; })
+      .Case<LiteralOp>([&](auto op) { return 3; })
       .Default([](auto op) { return op->emitError("unsupported operation"); });
 }
 

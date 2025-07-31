@@ -168,21 +168,6 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression",
     its body must form a single Def-Use tree of emitpy ops whose result is
     yielded by a terminating `emitpy.yield`.
 
-    Example:
-    ```mlir
-    %0 = emitpy.expression : !emitpy.opaque<"int"> {
-      %a = emitpy.literal "5" : !emitpy.opaque<"int">
-      %b = emitpy.literal "3" : !emitpy.opaque<"int">
-      %c = emitpy.binary_op "+" %a, %b : (!emitpy.opaque<"int">, !emitpy.opaque<"int">) -> !emitpy.opaque<"int">
-      emitpy.yield %c : !emitpy.opaque<"int">
-    }
-    ```
-
-    The above operation emits the following Python expression:
-    ```Python
-    (5 + 3)
-    ```
-
     The operations allowed within expression body are EmitPy operations with the
     PyExpressionInterface interface.
 
@@ -199,25 +184,6 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression",
   let hasVerifier = 1;
   let assemblyFormat = "attr-dict (`noinline` $do_not_inline^)? `:` type($result) $region";
 
-  let extraClassDeclaration = [{
-    bool hasSideEffects() {
-      auto predicate = [](Operation &op) {
-        assert(isa<emitpy::PyExpressionInterface>(op) && "Expected a Py expression");
-        return cast<emitpy::PyExpressionInterface>(op).hasSideEffects();
-      };
-      return llvm::any_of(getRegion().front().without_terminator(), predicate);
-    };
-    Operation *getRootOp();
-
-    //===------------------------------------------------------------------===//
-    // OpAsmOpInterface Methods
-    //===------------------------------------------------------------------===//
-
-    /// EmitPy ops in the body can omit their 'emitpy.' prefix in the assembly.
-    static ::llvm::StringRef getDefaultDialect() {
-      return "emitpy";
-    }
-  }];
 }
 
 def EmitPy_YieldOp : EmitPy_Op<"yield",
@@ -227,6 +193,7 @@ def EmitPy_YieldOp : EmitPy_Op<"yield",
     The `emitpy.yield` terminates its parent EmitPy op's region, optionally yielding
     an SSA value. The semantics of how the values are yielded is defined by the
     parent operation.
+
     If `emitpy.yield` has an operand, the operand must match the parent operation's
     result. If the parent operation defines no values, then the `emitpy.yield`
     may be left out in the custom syntax and the builders will insert one

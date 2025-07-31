@@ -1323,45 +1323,6 @@ public:
   template <typename OpConversionPatternTy>
   mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
                         llvm::ArrayRef<mlir::Attribute> args) {
-    // Special handling for Conv2dOp. These ops have a
-    // different return type than the other TTNN ops. They return
-    // `std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
-    // std::optional<::ttnn::Tensor>>`, but we want to return only the first
-    // element of the tuple.
-    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp>) {
-
-      using ReturnTy = ::ttnn::Tensor;
-
-      emitpy::ExpressionOp conv2dExpr = rewriter.create<emitpy::ExpressionOp>(
-          op.getLoc(),
-          rewriter.getType<emitpy::OpaqueType>(TypeNameV<::ttnn::Tensor>));
-
-      mlir::Block &bodyBlock = conv2dExpr.getBodyRegion().emplaceBlock();
-      rewriter.setInsertionPointToStart(&bodyBlock);
-
-      auto conv2dOp = rewriter.create<emitpy::CallOpaqueOp>(
-          op.getLoc(),
-          rewriter.getType<emitpy::OpaqueType>(TypeNameV<ReturnTy>),
-          op.getOperationName(), adaptor.getOperands(),
-          rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
-
-      Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-          op.getLoc(), rewriter.getIndexType(), "0");
-
-      Value subscript = rewriter.create<emitpy::SubscriptOp>(
-          op.getLoc(),
-          rewriter.getType<emitpy::OpaqueType>(TypeNameV<::ttnn::Tensor>),
-          conv2dOp.getResult(0), indexAsVal);
-
-      rewriter.create<emitpy::YieldOp>(op.getLoc(), subscript);
-
-      rewriter.replaceOp(op, conv2dExpr);
-
-      rewriter.setInsertionPointAfter(conv2dExpr);
-
-      return conv2dExpr;
-    }
-
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
