@@ -15,50 +15,50 @@ pytestmark = [pytest.mark.llmbox, pytest.mark.frontend("ttir")]
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "test_shape",
     [
-        (1, 32, 256, 512),
-        (1, 1, 64, 128),
-        (1, 1, 66, 128),
-        (1, 1, 62, 128),
-        (1, 1, 64, 132),
-        (1, 1, 66, 132),
-        (1, 1, 64, 124),
-        (1, 1, 62, 124),
-        (1, 32, 258, 516),
-        (1, 32, 260, 520),
-        (1, 32, 254, 508),
-        (1, 32, 252, 504),
-        (1, 32, 32, 64),
-        (1, 1, 2, 4),
+        (1, 32, 32, 32),
+        (1, 32, 32),
+        (32, 32),
+        (1, 32, 32, 34),
+        (1, 32, 32, 30),
+        (1, 32, 34),
+        (1, 32, 32),
+        (32, 34),
+        (32, 32),
+        (1, 32, 32, 1),
+        (32, 32, 1, 1),
+        (128, 256),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def all_gather(in0: Operand, builder: TTIRBuilder):
-        sharded = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 2, 4),
-            shard_dims=(2, 3),
-        )
-        gathered = builder.all_gather(
-            sharded,
-            all_gather_dim=3,
-            cluster_axis=1,
-        )
-        return builder.mesh_shard(
-            gathered,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 2, 1),
-            shard_dims=(2, -1),
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize("all_gather_dim", [0, 1, 2, 3])
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    request,
+    shard_wrap_factory,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    def all_gather(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.all_gather(
+            sharded_in,
+            all_gather_dim=all_gather_dim,
+            cluster_axis=cluster_axis,
         )
 
+    input_shape, test_fn = shard_wrap_factory(all_gather)
+
     compile_ttir_to_flatbuffer(
-        all_gather,
-        [shape],
+        test_fn,
+        [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
