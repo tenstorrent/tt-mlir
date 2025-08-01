@@ -1312,12 +1312,11 @@ private:
     };
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
-    // If bottom == 1 + top and right == 1 + left, then we can set ceil_mode to
+    // If bottom > top and right > left, then we can set ceil_mode to
     // true and set bottom = top and right = left.
-    if (newPadding[2] == 1 + newPadding[0] &&
-        newPadding[3] == 1 + newPadding[1]) {
-      newPadding[2] = newPadding[0];
-      newPadding[3] = newPadding[1];
+    if (newPadding[2] > newPadding[0] && newPadding[3] > newPadding[1]) {
+      newPadding[2] -= 1;
+      newPadding[3] -= 1;
       ceilModeAttr = rewriter.getBoolAttr(true);
     }
     auto paddingAttr = rewriter.getDenseI32ArrayAttr(newPadding);
