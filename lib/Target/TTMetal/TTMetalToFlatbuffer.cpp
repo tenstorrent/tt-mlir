@@ -181,7 +181,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
     coreRangeSet = {
         target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(numBanks, 1))};
 
-    uint64_t pageSize = device.getMemrefInterleavedPageSize(memref);
+    uint64_t pageSize = device.getMemrefSizeBytes(memref);
     uint64_t shardSize = pageSize;
     uint64_t size = pageSize * numBanks;
 
