@@ -653,6 +653,7 @@ class TTIRBuilder(TTIRBuilderOps):
         tiled=False,
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
+        grid=None,
     ):
         """
         Creates a metal tensor layout with attributes including grid,
@@ -688,9 +689,12 @@ class TTIRBuilder(TTIRBuilderOps):
         # Create layout with original logical shape.
         layout = ttcore.ir.MetalLayoutAttr.get(ctx, shape, oobVal, memorySpace)
 
-        # Then shard the new shape by adding 1-filled grid dims.
-        original_rank = len(shape)
-        extended_shape = [1] * original_rank + list(shape)
+        if grid is not None:
+            extended_shape = list(grid) + list(shape)
+        else:
+            # if grid not set, shard the new shape by adding 1-filled grid dims.
+            original_rank = len(shape)
+            extended_shape = [1] * original_rank + list(shape)
 
         elemType = F32Type.get(ctx)
 
