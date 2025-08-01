@@ -46,7 +46,7 @@ void createStableHLOToTTIRPipeline(
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(::mlir::stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
-  // Propagate tt.role attributes before inlining
+  // Propagate tt.input_role attributes before inlining
   pm.addPass(mlir::tt::stablehlo::createPropagateRoleAttributesPass());
   pm.addPass(mlir::createInlinerPass());
   if (options.enableAggressiveSimplification) {

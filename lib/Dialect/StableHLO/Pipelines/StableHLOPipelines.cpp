@@ -14,7 +14,7 @@ namespace mlir::tt::stablehlo {
 
 void createStableHLOPipeline(OpPassManager &pm,
                              const StableHLOPipelineOptions &options) {
-  // Propagate tt.role attributes before inlining.
+  // Propagate tt.input_role attributes before inlining.
   pm.addPass(createPropagateRoleAttributesPass());
 
   // Inline all operations to make analysis easier.

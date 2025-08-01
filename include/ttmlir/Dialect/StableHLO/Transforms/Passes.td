@@ -168,9 +168,9 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
 
 def PropagateRoleAttributesPass : Pass<"propagate-role-attributes", "::mlir::ModuleOp">
 {
-  let summary = "Propagate tt.role attributes from func.call operations to arguments";
+  let summary = "Propagate tt.input_role attributes from func.call operations to arguments";
   let description = [{
-    This pass propagates tt.role attributes from func.call operations up through the call chain to function arguments, ultimately reaching the main function arguments.
+    This pass propagates tt.input_role attributes from func.call operations up through the call chain to function arguments, ultimately reaching the main function arguments.
 
     Example, this pass will convert the following code:
     ```mlir
@@ -178,10 +178,10 @@ def PropagateRoleAttributesPass : Pass<"propagate-role-attributes", "::mlir::Mod
       return %arg0 : tensor<128xf32>
     }
     func.func private @"<lambda>"(%arg0: tensor<128xf32>, %arg1: tensor<784x128xf32>, %arg2: tensor<10xf32>, %arg3: tensor<128x10xf32>, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
-      %0 = call @tt.mark_128_f32(%arg0) {tt.role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
-      %1 = call @tt.mark_784x128_f32(%arg1) {tt.role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
-      %2 = call @tt.mark_10_f32(%arg2) {tt.role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
-      %3 = call @tt.mark_128x10_f32(%arg3) {tt.role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
+      %0 = call @tt.mark_128_f32(%arg0) {tt.input_role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
+      %1 = call @tt.mark_784x128_f32(%arg1) {tt.input_role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
+      %2 = call @tt.mark_10_f32(%arg2) {tt.input_role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
+      %3 = call @tt.mark_128x10_f32(%arg3) {tt.input_role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
       // ... rest of computation using %arg4 and marked weights
       return %result : tensor<32x10xf32>
     }
@@ -196,15 +196,15 @@ def PropagateRoleAttributesPass : Pass<"propagate-role-attributes", "::mlir::Mod
     func.func private @tt.mark_128_f32(%arg0: tensor<128xf32>) -> tensor<128xf32> {
       return %arg0 : tensor<128xf32>
     }
-    func.func private @"<lambda>"(%arg0: tensor<128xf32> {tt.role = "weight"}, %arg1: tensor<784x128xf32> {tt.role = "weight"}, %arg2: tensor<10xf32> {tt.role = "weight"}, %arg3: tensor<128x10xf32> {tt.role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
-      %0 = call @tt.mark_128_f32(%arg0) {tt.role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
-      %1 = call @tt.mark_784x128_f32(%arg1) {tt.role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
-      %2 = call @tt.mark_10_f32(%arg2) {tt.role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
-      %3 = call @tt.mark_128x10_f32(%arg3) {tt.role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
+    func.func private @"<lambda>"(%arg0: tensor<128xf32> {tt.input_role = "weight"}, %arg1: tensor<784x128xf32> {tt.input_role = "weight"}, %arg2: tensor<10xf32> {tt.input_role = "weight"}, %arg3: tensor<128x10xf32> {tt.input_role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
+      %0 = call @tt.mark_128_f32(%arg0) {tt.input_role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
+      %1 = call @tt.mark_784x128_f32(%arg1) {tt.input_role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
+      %2 = call @tt.mark_10_f32(%arg2) {tt.input_role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
+      %3 = call @tt.mark_128x10_f32(%arg3) {tt.input_role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
       // ... rest of computation using %arg4 and marked weights
       return %result : tensor<32x10xf32>
     }
-    func.func public @main(%arg0: tensor<128xf32> {tt.role = "weight"}, %arg1: tensor<784x128xf32> {tt.role = "weight"}, %arg2: tensor<10xf32> {tt.role = "weight"}, %arg3: tensor<128x10xf32> {tt.role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
+    func.func public @main(%arg0: tensor<128xf32> {tt.input_role = "weight"}, %arg1: tensor<784x128xf32> {tt.input_role = "weight"}, %arg2: tensor<10xf32> {tt.input_role = "weight"}, %arg3: tensor<128x10xf32> {tt.input_role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
       %0 = call @"<lambda>"(%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<128xf32>, tensor<784x128xf32>, tensor<10xf32>, tensor<128x10xf32>, tensor<32x28x28x1xf32>) -> tensor<32x10xf32>
       return %0 : tensor<32x10xf32>
     }

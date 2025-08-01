@@ -20,13 +20,13 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    // Helper function to recursively propagate tt.role attribute upward through
-    // call chain
+    // Helper function to recursively propagate tt.input_role attribute upward
+    // through call chain
     std::function<void(Value, StringAttr)> propagateRoleAttribute =
         [&](Value value, StringAttr roleAttr) -> void {
       if (auto *definingOp = value.getDefiningOp()) {
         // Set the attribute on the defining operation
-        definingOp->setAttr("tt.role", roleAttr);
+        definingOp->setAttr("tt.input_role", roleAttr);
 
         // If this is a call operation, propagate to its arguments
         if (auto callOp = mlir::dyn_cast<func::CallOp>(definingOp)) {
@@ -40,7 +40,7 @@ public:
         auto argIndex = blockArg.getArgNumber();
 
         if (auto parentFuncOp = mlir::dyn_cast<mlir::func::FuncOp>(parentOp)) {
-          parentFuncOp.setArgAttr(argIndex, "tt.role", roleAttr);
+          parentFuncOp.setArgAttr(argIndex, "tt.input_role", roleAttr);
 
           // Find all call sites of this function and propagate upward
           auto funcName = parentFuncOp.getSymName();
@@ -55,11 +55,12 @@ public:
       }
     };
 
-    // Walk through all func.call operations and propagate tt.role attributes
+    // Walk through all func.call operations and propagate tt.input_role
+    // attributes
     module.walk([&](func::CallOp callOp) {
-      auto roleAttr = callOp->getAttrOfType<StringAttr>("tt.role");
+      auto roleAttr = callOp->getAttrOfType<StringAttr>("tt.input_role");
       if (roleAttr) {
-        // Propagate tt.role attribute from call site to each of its call
+        // Propagate tt.input_role attribute from call site to each of its call
         // arguments
         for (Value operand : callOp.getOperands()) {
           propagateRoleAttribute(operand, roleAttr);

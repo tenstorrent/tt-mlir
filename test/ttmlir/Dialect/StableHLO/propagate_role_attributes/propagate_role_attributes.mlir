@@ -15,19 +15,19 @@ module @jit__lambda_ attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replica
   func.func private @tt.mark_128_f32(%arg0: tensor<128xf32>) -> tensor<128xf32> {
     return %arg0 : tensor<128xf32>
   }
-  // CHECK: func.func public @main(%arg0: tensor<128xf32> {mhlo.sharding = "{replicated}", tt.role = "weight"}, %arg1: tensor<784x128xf32> {mhlo.sharding = "{replicated}", tt.role = "weight"}, %arg2: tensor<10xf32> {mhlo.sharding = "{replicated}", tt.role = "weight"}, %arg3: tensor<128x10xf32> {mhlo.sharding = "{replicated}", tt.role = "weight"}, %arg4: tensor<32x28x28x1xf32> {mhlo.sharding = "{replicated}"}) -> (tensor<32x10xf32> {jax.result_info = "result"}) {
+  // CHECK: func.func public @main(%arg0: tensor<128xf32> {mhlo.sharding = "{replicated}", tt.input_role = "weight"}, %arg1: tensor<784x128xf32> {mhlo.sharding = "{replicated}", tt.input_role = "weight"}, %arg2: tensor<10xf32> {mhlo.sharding = "{replicated}", tt.input_role = "weight"}, %arg3: tensor<128x10xf32> {mhlo.sharding = "{replicated}", tt.input_role = "weight"}, %arg4: tensor<32x28x28x1xf32> {mhlo.sharding = "{replicated}"}) -> (tensor<32x10xf32> {jax.result_info = "result"}) {
   func.func public @main(%arg0: tensor<128xf32> {mhlo.sharding = "{replicated}"}, %arg1: tensor<784x128xf32> {mhlo.sharding = "{replicated}"}, %arg2: tensor<10xf32> {mhlo.sharding = "{replicated}"}, %arg3: tensor<128x10xf32> {mhlo.sharding = "{replicated}"}, %arg4: tensor<32x28x28x1xf32> {mhlo.sharding = "{replicated}"}) -> (tensor<32x10xf32> {jax.result_info = "result"}) {
     %0 = call @"<lambda>"(%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<128xf32>, tensor<784x128xf32>, tensor<10xf32>, tensor<128x10xf32>, tensor<32x28x28x1xf32>) -> tensor<32x10xf32>
     return %0 : tensor<32x10xf32>
   }
-  // CHECK: func.func private @"<lambda>"(%arg0: tensor<128xf32> {tt.role = "weight"}, %arg1: tensor<784x128xf32> {tt.role = "weight"}, %arg2: tensor<10xf32> {tt.role = "weight"}, %arg3: tensor<128x10xf32> {tt.role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
+  // CHECK: func.func private @"<lambda>"(%arg0: tensor<128xf32> {tt.input_role = "weight"}, %arg1: tensor<784x128xf32> {tt.input_role = "weight"}, %arg2: tensor<10xf32> {tt.input_role = "weight"}, %arg3: tensor<128x10xf32> {tt.input_role = "weight"}, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
   func.func private @"<lambda>"(%arg0: tensor<128xf32>, %arg1: tensor<784x128xf32>, %arg2: tensor<10xf32>, %arg3: tensor<128x10xf32>, %arg4: tensor<32x28x28x1xf32>) -> tensor<32x10xf32> {
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
     %cst_0 = stablehlo.constant dense<0xFF800000> : tensor<f32>
-    %0 = call @tt.mark_128_f32(%arg0) {tt.role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
-    %1 = call @tt.mark_784x128_f32(%arg1) {tt.role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
-    %2 = call @tt.mark_10_f32(%arg2) {tt.role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
-    %3 = call @tt.mark_128x10_f32(%arg3) {tt.role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
+    %0 = call @tt.mark_128_f32(%arg0) {tt.input_role = "weight"} : (tensor<128xf32>) -> tensor<128xf32>
+    %1 = call @tt.mark_784x128_f32(%arg1) {tt.input_role = "weight"} : (tensor<784x128xf32>) -> tensor<784x128xf32>
+    %2 = call @tt.mark_10_f32(%arg2) {tt.input_role = "weight"} : (tensor<10xf32>) -> tensor<10xf32>
+    %3 = call @tt.mark_128x10_f32(%arg3) {tt.input_role = "weight"} : (tensor<128x10xf32>) -> tensor<128x10xf32>
     %4 = stablehlo.reshape %arg4 : (tensor<32x28x28x1xf32>) -> tensor<32x784xf32>
     %5 = stablehlo.dot_general %4, %1, contracting_dims = [1] x [0] : (tensor<32x784xf32>, tensor<784x128xf32>) -> tensor<32x128xf32>
     %6 = stablehlo.reshape %0 : (tensor<128xf32>) -> tensor<1x128xf32>
@@ -67,12 +67,12 @@ module @simple_case {
   func.func private @tt.mark_256_f32(%arg0: tensor<256xf32>) -> tensor<256xf32> {
     return %arg0 : tensor<256xf32>
   }
-  // CHECK: func.func private @lambda(%arg0: tensor<256xf32> {tt.role = "weight"}) -> tensor<256xf32> {
+  // CHECK: func.func private @lambda(%arg0: tensor<256xf32> {tt.input_role = "weight"}) -> tensor<256xf32> {
   func.func private @lambda(%arg0: tensor<256xf32>) -> tensor<256xf32> {
-    %0 = call @tt.mark_256_f32(%arg0) {tt.role = "weight"} : (tensor<256xf32>) -> tensor<256xf32>
+    %0 = call @tt.mark_256_f32(%arg0) {tt.input_role = "weight"} : (tensor<256xf32>) -> tensor<256xf32>
     return %0 : tensor<256xf32>
   }
-  // CHECK: func.func public @main(%arg0: tensor<256xf32> {tt.role = "weight"}) -> tensor<256xf32> {
+  // CHECK: func.func public @main(%arg0: tensor<256xf32> {tt.input_role = "weight"}) -> tensor<256xf32> {
   func.func public @main(%arg0: tensor<256xf32>) -> tensor<256xf32> {
     %0 = call @lambda(%arg0) : (tensor<256xf32>) -> tensor<256xf32>
     return %0 : tensor<256xf32>
@@ -88,12 +88,12 @@ module @mixed_roles {
     return %arg0 : tensor<64xf32>
   }
   func.func private @process_weights(%arg0: tensor<64xf32>, %arg1: tensor<64xf32>) -> tensor<64xf32> {
-    // CHECK: func.func private @process_weights(%arg0: tensor<64xf32> {tt.role = "weight"}, %arg1: tensor<64xf32>) -> tensor<64xf32>
-    %0 = call @tt.mark_tensor(%arg0) {tt.role = "weight"} : (tensor<64xf32>) -> tensor<64xf32>
+    // CHECK: func.func private @process_weights(%arg0: tensor<64xf32> {tt.input_role = "weight"}, %arg1: tensor<64xf32>) -> tensor<64xf32>
+    %0 = call @tt.mark_tensor(%arg0) {tt.input_role = "weight"} : (tensor<64xf32>) -> tensor<64xf32>
     %1 = stablehlo.add %0, %arg1 : tensor<64xf32>
     return %1 : tensor<64xf32>
   }
-  // CHECK: func.func public @main(%arg0: tensor<64xf32> {tt.role = "weight"}, %arg1: tensor<64xf32>) -> tensor<64xf32> {
+  // CHECK: func.func public @main(%arg0: tensor<64xf32> {tt.input_role = "weight"}, %arg1: tensor<64xf32>) -> tensor<64xf32> {
   func.func public @main(%arg0: tensor<64xf32>, %arg1: tensor<64xf32>) -> tensor<64xf32> {
     %0 = call @process_weights(%arg0, %arg1) : (tensor<64xf32>, tensor<64xf32>) -> tensor<64xf32>
     return %0 : tensor<64xf32>
