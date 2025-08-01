@@ -14,7 +14,7 @@ template <typename ConcreteType>
 class SFPIUnaryOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, SFPIUnaryOpTrait> {};
 
-// Trait for binary SFPI operations  
+// Trait for binary SFPI operations
 template <typename ConcreteType>
 class SFPIBinaryOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, SFPIBinaryOpTrait> {};

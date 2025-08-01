@@ -17,10 +17,10 @@ def SFPI_Dialect : Dialect {
     let description = [{
         This dialect provides a wrapper around Tenstorrent SFPI functionality,
         enabling direct access to SFPU hardware capabilities through MLIR operations.
-        
+
         The SFPI dialect provides a programming interface for the SFPU and
         provides vector-based operations on 4x8 tile-based floating-point vectors.
-        
+
         Operations in this dialect correspond directly to SFPU instructions as defined
         in the SFPI GCC backend (rvtt-insn.h), providing a 1:1 mapping between
         MLIR operations and hardware instructions.
@@ -36,7 +36,7 @@ def SFPI_Dialect : Dialect {
       "::mlir::arith::ArithDialect",
       "::mlir::vector::VectorDialect"
     ];
-    
+
     // Disable bytecode features to avoid compatibility issues
     let hasConstantMaterializer = 0;
 }
@@ -59,7 +59,7 @@ class SFPI_Trait<string name> : NativeOpTrait<name> {
 // Trait for unary SFPI operations
 def SFPI_UnaryOpTrait : SFPI_Trait<"SFPIUnaryOpTrait">;
 
-// Trait for binary SFPI operations  
+// Trait for binary SFPI operations
 def SFPI_BinaryOpTrait : SFPI_Trait<"SFPIBinaryOpTrait">;
 
 // Trait for ternary SFPI operations

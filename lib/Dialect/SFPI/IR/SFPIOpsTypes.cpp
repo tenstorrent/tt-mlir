@@ -18,23 +18,23 @@ bool isSFPIVectorType(mlir::Type type, llvm::StringRef elementType) {
   if (!vectorType) {
     return false;
   }
-  
+
   // Check if it's a 4x8 vector (shape should be [4, 8])
   auto shape = vectorType.getShape();
   if (shape.size() != 2 || shape[0] != 4 || shape[1] != 8) {
     return false;
   }
-  
+
   // Check element type
   auto elemType = vectorType.getElementType();
   if (elementType == "f32") {
     return elemType.isF32();
   } else if (elementType == "i32") {
-    return elemType.isInteger(32);  // Accept any 32-bit integer type
+    return elemType.isInteger(32); // Accept any 32-bit integer type
   } else if (elementType == "ui32") {
     return elemType.isInteger(32) && elemType.isUnsignedInteger();
   }
-  
+
   return false;
 }
 
@@ -46,7 +46,7 @@ bool isDstRegType(mlir::Type type) {
 
 bool isLRegType(mlir::Type type) {
   // Implementation for SFPI local register type checking
-  // This would be implemented based on the actual register type definitions  
+  // This would be implemented based on the actual register type definitions
   return false; // Placeholder
 }
 

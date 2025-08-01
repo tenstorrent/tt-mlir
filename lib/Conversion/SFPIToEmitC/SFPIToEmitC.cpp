@@ -36,10 +36,9 @@ public:
     // Convert SFPI 4x8 vectors to __rvtt_vec_t
     addConversion([](Type type) -> std::optional<Type> {
       if (auto vectorType = dyn_cast<VectorType>(type)) {
-        if (vectorType.getShape().size() == 2 && 
-            vectorType.getShape()[0] == 4 && 
-            vectorType.getShape()[1] == 8 &&
-            (vectorType.getElementType().isF32() || 
+        if (vectorType.getShape().size() == 2 &&
+            vectorType.getShape()[0] == 4 && vectorType.getShape()[1] == 8 &&
+            (vectorType.getElementType().isF32() ||
              vectorType.getElementType().isInteger(32))) {
           // Convert to __rvtt_vec_t (represented as opaque type)
           auto context = type.getContext();
@@ -86,11 +85,13 @@ struct ConvertSFPIAddOp : public SFPIToEmitCOpConversionPattern<AddOp> {
   matchAndRewrite(AddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpadd",
-                                  {adaptor.getLhs(), adaptor.getRhs()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpadd",
+                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -104,11 +105,13 @@ struct ConvertSFPIMulOp : public SFPIToEmitCOpConversionPattern<MulOp> {
   matchAndRewrite(MulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmul",
-                                  {adaptor.getLhs(), adaptor.getRhs()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmul",
+                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -122,11 +125,13 @@ struct ConvertSFPIMadOp : public SFPIToEmitCOpConversionPattern<MadOp> {
   matchAndRewrite(MadOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmad",
-                                  {adaptor.getA(), adaptor.getB(), adaptor.getC()}, resultType);
+    auto call = createBuiltinCall(
+        rewriter, op.getLoc(), "__builtin_rvtt_sfpmad",
+        {adaptor.getA(), adaptor.getB(), adaptor.getC()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -140,11 +145,13 @@ struct ConvertSFPIMovOp : public SFPIToEmitCOpConversionPattern<MovOp> {
   matchAndRewrite(MovOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmov",
-                                  {adaptor.getSrc()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmov",
+                          {adaptor.getSrc()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -158,11 +165,13 @@ struct ConvertSFPIAbsOp : public SFPIToEmitCOpConversionPattern<AbsOp> {
   matchAndRewrite(AbsOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpabs",
-                                  {adaptor.getSrc()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpabs",
+                          {adaptor.getSrc()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -176,11 +185,13 @@ struct ConvertSFPIAndOp : public SFPIToEmitCOpConversionPattern<AndOp> {
   matchAndRewrite(AndOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpand",
-                                  {adaptor.getLhs(), adaptor.getRhs()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpand",
+                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -194,11 +205,13 @@ struct ConvertSFPIOrOp : public SFPIToEmitCOpConversionPattern<OrOp> {
   matchAndRewrite(OrOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpor",
-                                  {adaptor.getLhs(), adaptor.getRhs()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpor",
+                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -212,11 +225,13 @@ struct ConvertSFPIXorOp : public SFPIToEmitCOpConversionPattern<XorOp> {
   matchAndRewrite(XorOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpxor",
-                                  {adaptor.getLhs(), adaptor.getRhs()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpxor",
+                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }
@@ -230,11 +245,13 @@ struct ConvertSFPINotOp : public SFPIToEmitCOpConversionPattern<NotOp> {
   matchAndRewrite(NotOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType)
+    if (!resultType) {
       return failure();
+    }
 
-    auto call = createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpnot",
-                                  {adaptor.getSrc()}, resultType);
+    auto call =
+        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpnot",
+                          {adaptor.getSrc()}, resultType);
     rewriter.replaceOp(op, call.getResult(0));
     return success();
   }

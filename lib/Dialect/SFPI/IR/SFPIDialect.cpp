@@ -8,8 +8,8 @@
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPIOps.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPIOpsTypes.h"
-#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #include "ttmlir/Dialect/SFPI/IR/SFPIOpsDialect.cpp.inc"
 
@@ -42,12 +42,13 @@ void SFPIDialect::registerTypes() {
 //===----------------------------------------------------------------------===//
 
 mlir::Attribute SFPIDialect::parseAttribute(mlir::DialectAsmParser &parser,
-                                             mlir::Type type) const {
+                                            mlir::Type type) const {
   // For now, delegate to generated parser
   StringRef attrTag;
-  if (parser.parseKeyword(&attrTag))
+  if (parser.parseKeyword(&attrTag)) {
     return {};
-  
+  }
+
   // Handle any SFPI-specific attributes here
   // Currently we don't have any custom attributes
   parser.emitError(parser.getNameLoc(), "unknown SFPI dialect attribute: ")
@@ -63,11 +64,12 @@ void SFPIDialect::printAttribute(mlir::Attribute attr,
 }
 
 mlir::Type SFPIDialect::parseType(mlir::DialectAsmParser &parser) const {
-  // For now, delegate to generated parser  
+  // For now, delegate to generated parser
   StringRef typeTag;
-  if (parser.parseKeyword(&typeTag))
+  if (parser.parseKeyword(&typeTag)) {
     return {};
-    
+  }
+
   // Handle any SFPI-specific types here
   // Currently we don't have any custom types
   parser.emitError(parser.getNameLoc(), "unknown SFPI dialect type: ")

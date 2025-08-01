@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/SFPI/IR/SFPI.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
@@ -16,8 +17,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
-#include "ttmlir/Dialect/SFPI/IR/SFPI.h"
-// #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we have passes
+// #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
+// have passes
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -51,15 +52,14 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
       mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
       mlir::tt::ttkernel::TTKernelDialect, mlir::tt::sfpi::SFPIDialect,
-      mlir::func::FuncDialect,
-      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::affine::AffineDialect, mlir::scf::SCFDialect,
-      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
-      mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect,
-      mlir::tt::emitpy::EmitPyDialect>();
+      mlir::func::FuncDialect, mlir::arith::ArithDialect,
+      mlir::ml_program::MLProgramDialect, mlir::tensor::TensorDialect,
+      mlir::linalg::LinalgDialect, mlir::affine::AffineDialect,
+      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::memref::MemRefDialect, mlir::emitc::EmitCDialect,
+      mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect,
+      mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
@@ -100,7 +100,8 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
   mlir::tt::ttkernel::registerPasses();
-  // mlir::tt::sfpi::registerSFPIPasses();  // Commented out until we have passes
+  // mlir::tt::sfpi::registerSFPIPasses();  // Commented out until we have
+  // passes
   mlir::tt::llvm_util::registerPasses();
   mlir::tt::transforms::registerPasses();
 

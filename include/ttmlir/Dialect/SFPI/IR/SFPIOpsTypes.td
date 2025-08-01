@@ -18,7 +18,7 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 def SFPI_VFloat : Type<CPred<"::mlir::tt::sfpi::isSFPIVectorType($_self, \"f32\")">,
                       "SFPI 4x8 float32 vector", "::mlir::VectorType">;
 
-// SFPI 4x8 int32 vector type (maps to SFPI vInt)                      
+// SFPI 4x8 int32 vector type (maps to SFPI vInt)
 def SFPI_VInt : Type<CPred<"::mlir::tt::sfpi::isSFPIVectorType($_self, \"i32\")">,
                     "SFPI 4x8 int32 vector", "::mlir::VectorType">;
 
@@ -36,7 +36,7 @@ def SFPI_VectorType : AnyTypeOf<[SFPI_VFloat, SFPI_VInt, SFPI_VUInt]>;
 // SFPI destination register type (maps to SFPI dst_reg)
 def SFPI_DstReg : Type<CPred<"::mlir::tt::sfpi::isDstRegType($_self)">,
                       "SFPI destination register">;
-                      
+
 // SFPI local register type (maps to SFPI l_reg)
 def SFPI_LReg : Type<CPred<"::mlir::tt::sfpi::isLRegType($_self)">,
                     "SFPI local register">;
@@ -49,7 +49,7 @@ def SFPI_LReg : Type<CPred<"::mlir::tt::sfpi::isLRegType($_self)">,
 def SFPI_CmpPredicateAttr : I32EnumAttr<"CmpPredicate", "SFPI comparison predicate",
   [
     I32EnumAttrCase<"eq", 0, "eq">,   // Equal
-    I32EnumAttrCase<"ne", 1, "ne">,   // Not equal  
+    I32EnumAttrCase<"ne", 1, "ne">,   // Not equal
     I32EnumAttrCase<"lt", 2, "lt">,   // Less than
     I32EnumAttrCase<"le", 3, "le">,   // Less than or equal
     I32EnumAttrCase<"gt", 4, "gt">,   // Greater than

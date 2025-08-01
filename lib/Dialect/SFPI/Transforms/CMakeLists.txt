@@ -3,13 +3,13 @@
 
 # add_mlir_dialect_library(MLIRSFPUTransforms
 #   # Transform source files will be added here
-#   
+#
 #   ADDITIONAL_HEADER_DIRS
 #   ${PROJECT_SOURCE_DIR}/include/ttmlir/Dialect/SFPU
-# 
+#
 #   DEPENDS
 #   MLIRSFPUPassIncGen
-# 
+#
 #   LINK_LIBS PUBLIC
 #   MLIRIR
 #   MLIRPass

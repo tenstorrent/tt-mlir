@@ -17,7 +17,7 @@ def SFPI_MovOp : SFPI_UnaryOp<"mov", [Pure]> {
   let summary = "SFPI vector move/copy operation";
   let description = [{
     Maps to sfpmov instruction. Copies vector data between registers.
-    
+
     Example:
     ```mlir
     %result = sfpi.mov %src : vector<4x8xf32>
@@ -46,7 +46,7 @@ def SFPI_AddOp : SFPI_BinaryOp<"add", [Pure, Commutative]> {
   let summary = "SFPI vector addition";
   let description = [{
     Maps to sfpadd instruction. Performs element-wise addition of two SFPI vectors.
-    
+
     Example:
     ```mlir
     %result = sfpi.add %lhs, %rhs : vector<4x8xf32>
@@ -71,7 +71,7 @@ def SFPI_MulOp : SFPI_BinaryOp<"mul", [Pure, Commutative]> {
   let summary = "SFPI vector multiplication";
   let description = [{
     Maps to sfpmul instruction. Performs element-wise multiplication of two SFPI vectors.
-    
+
     Example:
     ```mlir
     %result = sfpi.mul %lhs, %rhs : vector<4x8xf32>
@@ -96,7 +96,7 @@ def SFPI_MadOp : SFPI_TernaryOp<"mad"> {
   let summary = "SFPI multiply-accumulate";
   let description = [{
     Maps to sfpmad instruction. Computes a * b + c for SFPI vectors.
-    
+
     Example:
     ```mlir
     %result = sfpi.mad %a, %b, %c : vector<4x8xf32>
@@ -121,7 +121,7 @@ def SFPI_DivP2Op : SFPI_UnaryOp<"divp2"> {
   let summary = "SFPI divide by power of 2";
   let description = [{
     Maps to sfpdivp2 instruction. Divides SFPI vector by 2^exp.
-    
+
     Example:
     ```mlir
     %result = sfpi.divp2 %src, %exp : vector<4x8xf32>

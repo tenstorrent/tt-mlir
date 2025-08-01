@@ -5,8 +5,8 @@
 #ifndef TTMLIR_CONVERSION_SFPITOEMITC_SFPITOEMITC_H
 #define TTMLIR_CONVERSION_SFPITOEMITC_SFPITOEMITC_H
 
-#include "mlir/Pass/Pass.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {

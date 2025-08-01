@@ -11,8 +11,8 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
-#include "ttmlir/Dialect/SFPI/IR/SFPITraits.h" 
 #include "ttmlir/Dialect/SFPI/IR/SFPIOpsEnums.h.inc"
+#include "ttmlir/Dialect/SFPI/IR/SFPITraits.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/SFPI/IR/SFPIOps.h.inc"
