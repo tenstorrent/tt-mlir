@@ -99,6 +99,11 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
+// Layout utility functions
+bool outputsDRAMLayout(Operation *op);
+bool outputsL1Layout(Operation *op);
+bool outputsTensorWithSetLayout(Operation *op);
+bool isTiledTensorLayout(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

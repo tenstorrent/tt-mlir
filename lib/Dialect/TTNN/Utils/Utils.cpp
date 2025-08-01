@@ -262,4 +262,89 @@ std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   return opNames;
 }
 
+bool outputsDRAMLayout(Operation *op) {
+  // Check if the operation has a result type that is a tensor
+  if (op->getNumResults() == 0) {
+    return false;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return false;
+  }
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return false;
+  }
+
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return ttnnLayout.hasDRAMBufferType();
+  }
+
+  return false;
+}
+
+bool outputsL1Layout(Operation *op) {
+  // Check if the operation has a result type that is a tensor
+  if (op->getNumResults() == 0) {
+    return false;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return false;
+  }
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return false;
+  }
+
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return ttnnLayout.hasL1BufferType();
+  }
+
+  return false;
+}
+
+bool outputsTensorWithSetLayout(Operation *op) {
+  if (op->getNumResults() == 0) {
+    return false;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return false;
+  }
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return false;
+  }
+
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return true;
+  }
+
+  return false;
+}
+
+bool isTiledTensorLayout(Operation *op) {
+  auto resultType =
+      mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return false;
+  }
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return ttnnLayout.isTiled();
+  }
+  return false;
+}
+
 } // namespace mlir::tt::ttnn::utils
