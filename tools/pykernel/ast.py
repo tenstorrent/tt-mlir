@@ -676,7 +676,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                     f"Print argument {type(arg).__name__} not supported"
                 )
 
-        ttkernel.dprint(fmt, argv)
+        ttkernel.dprint(fmt.strip(), argv)
 
     # Expressions
     def visit_Expr(self, node):
@@ -1103,19 +1103,19 @@ def ttkernel_compile(
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
-            # # Check if generated IR is valid
+            # Check if generated IR is valid
             print(b.module)
-            # b.module.operation.verify()
+            b.module.operation.verify()
 
-            # # Run the PyKernel Compile Pipeline to fit model for Translation
-            # if optimize:
-            #     pykernel_compile_pipeline(b.module)
-            #     print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
+            # Run the PyKernel Compile Pipeline to fit model for Translation
+            if optimize:
+                pykernel_compile_pipeline(b.module)
+                print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
-            # if kernel_type:
-            #     print("---- Kernel String ----", b.module, sep="\n\n")
-            #     kernel_string = ttkernel_to_cpp(b.module)
-            #     return kernel_string
+            if kernel_type:
+                print("---- Kernel String ----", b.module, sep="\n\n")
+                kernel_string = ttkernel_to_cpp(b.module)
+                return kernel_string
 
         # Make the decorator apply staticmethod for class methods defined using op.py
         _wrapper._decorator_name = thread_type + "_thread"

@@ -419,6 +419,32 @@ def test_attributes():
 
     # CHECK: ttkernel.tensor_accessor_get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
     noc_addr = ta.get_noc_addr(bank_id, 0)
+
+@ttkernel_compile(optimize=False)
+def test_print():
+    # CHECK-LABEL: func.func @test_print
+
+    # TEST: Define variables
+    # CHECK: %[[X:.*]] = arith.constant
+    # CHECK: %[[Y:.*]] = arith.constant
+    x = 1
+    y = 2
+
+    # TEST: dprint with just var
+    # CHECK: ttkernel.dprint("{}", %[[X]])
+    print(x)
+
+    # TEST: dprint with no args
+    # CHECK: ttkernel.dprint("Hello world")
+    print("Hello world")
+
+    # TEST: dprint with args
+    # CHECK: ttkernel.dprint("Hello world {} {}", %[[X]], %[[Y]])
+    print("Hello world", x, y)
+
+    # TEST: dprint with string and format args
+    # CHECK: ttkernel.dprint("Hello {} world {}", %[[X]], %[[Y]])
+    print("Hello {}".format(x), "world {}".format(y))
     return
 
 
@@ -436,3 +462,4 @@ test_array_additional()
 test_multidim_arrays()
 test_array_with_expressions()
 test_attributes()
+test_print()
