@@ -4,6 +4,7 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+#include "llvm/ADT/APFloat.h"
 #include <ttnn/types.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -2767,6 +2768,71 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
 
   return operation::getOpConstraints(start.getContext(), deviceGrid,
                                      arangeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
+    mlir::Attribute fillValue, std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::Layout> layout,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prefer the output layout if possible:
+  std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
+  if (outputLayout) {
+    metalMemConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig.has_value()) {
+    metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+
+  std::optional<::ttnn::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  ::ttnn::Shape metalShape = conversion::getShape(shape.getShape());
+
+  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
+  if (layout.has_value()) {
+    metalLayout = conversion::getPageLayout(layout.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
+  // Helper lambda to create the query with any fill value type
+  auto createFullOpQuery = [=](auto convertedFillValue) {
+    return [=]() {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::full, device, metalShape, convertedFillValue, metalDtype,
+          metalLayout, deviceRef, metalMemConfig,
+          /*optional_output_tensor = */ std::nullopt);
+    };
+  };
+
+  // The invoke function of fullOp is templated over the fill value type. That's
+  // why the following code is aranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
+    int convertedFillValue = static_cast<int>(value.getInt());
+    auto query = createFullOpQuery(convertedFillValue);
+    return operation::getOpConstraints(fillValue.getContext(), deviceGrid,
+                                       query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(fillValue)) {
+    float convertedFillValue = value.getValue().convertToFloat();
+    auto query = createFullOpQuery(convertedFillValue);
+    return operation::getOpConstraints(fillValue.getContext(), deviceGrid,
+                                       query);
+  }
+  return llvm::createStringError("Invalid fillValue");
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL

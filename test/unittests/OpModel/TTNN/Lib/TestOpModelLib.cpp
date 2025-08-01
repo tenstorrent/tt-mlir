@@ -2303,4 +2303,23 @@ const auto creationOpTestData = testing::Values(
 INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelZerosParam, creationOpTestData);
 INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelOnesParam, creationOpTestData);
 
+// ==== FullOp Tests ====
+TEST_F(OpModelTest, FullOp) {
+  const llvm::SmallVector<int64_t> shape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(shape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, shape);
+  auto constraintsExp =
+      ttnn::op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
+          CreateWorkerGrid(), shapeAttr, builder.getI32IntegerAttr(0),
+          std::nullopt, std::nullopt, std::nullopt, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+}
+
 } // namespace mlir::tt::ttnn::op_model

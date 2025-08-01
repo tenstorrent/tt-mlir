@@ -671,5 +671,20 @@ struct OpModel<mlir::tt::ttnn::ArangeOp> {
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::FullOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr shape, mlir::Attribute fillValue,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::Layout> layout,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

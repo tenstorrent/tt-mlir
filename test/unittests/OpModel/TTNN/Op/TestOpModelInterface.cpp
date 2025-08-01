@@ -2199,4 +2199,53 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<NamedFullOpTestParams> &info) {
       return info.param.testName;
     });
+
+TEST_F(OpModelBase, FullOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+  auto fullInt =
+      builder.create<FullOp>(builder.getUnknownLoc(), outputType,
+                             ttnn::ShapeAttr::get(&context, tensorShape),
+                             builder.getI32IntegerAttr(42),
+                             /*dtype=*/nullptr, /*layout=*/nullptr,
+                             /*device=*/nullptr, /*memoryConfig=*/nullptr);
+
+  // test FullOp interface with int fill value:
+  auto backendI = dyn_cast<OpModel>(fullInt.getOperation());
+  auto constraintsExpI =
+      backendI.getOpConstraints(getInputLayouts(fullInt), OpConfig(nullptr));
+  if (constraintsExpI) {
+    auto l1 = constraintsExpI.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpI.takeError()) << std::endl;
+  }
+
+  // test FullOp interface with float fill value:
+  auto fullF = builder.create<FullOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
+      /*dtype=*/nullptr, /*layout=*/nullptr,
+      /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto backendF = dyn_cast<OpModel>(fullF.getOperation());
+  auto constraintsExpF =
+      backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
+  if (constraintsExpF) {
+    auto l1 = constraintsExpF.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpF.takeError()) << std::endl;
+  }
+}
 } // namespace mlir::tt::ttnn
