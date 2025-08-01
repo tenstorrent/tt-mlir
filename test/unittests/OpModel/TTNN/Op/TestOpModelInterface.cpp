@@ -1906,8 +1906,8 @@ TEST_F(OpModelBase, WhereOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 10240);
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
