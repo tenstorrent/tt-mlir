@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_SFPU_IR_SFPUOPS_H
-#define TTMLIR_DIALECT_SFPU_IR_SFPUOPS_H
+#ifndef TTMLIR_DIALECT_SFPI_IR_SFPIOPS_H
+#define TTMLIR_DIALECT_SFPI_IR_SFPIOPS_H
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
@@ -11,9 +11,10 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
-#include "ttmlir/Dialect/SFPU/IR/SFPUOpsEnums.h.inc"
+#include "ttmlir/Dialect/SFPI/IR/SFPITraits.h" 
+#include "ttmlir/Dialect/SFPI/IR/SFPIOpsEnums.h.inc"
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/SFPU/IR/SFPUOps.h.inc"
+#include "ttmlir/Dialect/SFPI/IR/SFPIOps.h.inc"
 
 #endif

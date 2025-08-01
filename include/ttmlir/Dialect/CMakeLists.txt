@@ -3,7 +3,7 @@ add_subdirectory(TTIR)
 add_subdirectory(TTNN)
 add_subdirectory(TTMetal)
 add_subdirectory(TTKernel)
-add_subdirectory(SFPU)
+add_subdirectory(SFPI)
 add_subdirectory(LLVM)
 add_subdirectory(EmitPy)
 

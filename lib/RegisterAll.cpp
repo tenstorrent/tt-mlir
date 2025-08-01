@@ -16,8 +16,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
-#include "ttmlir/Dialect/SFPU/IR/SFPU.h"
-// #include "ttmlir/Dialect/SFPU/Transforms/Passes.h"  // Commented out until we have passes
+#include "ttmlir/Dialect/SFPI/IR/SFPI.h"
+// #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we have passes
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -50,7 +50,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
       mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
       mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-      mlir::tt::ttkernel::TTKernelDialect, mlir::tt::sfpu::SFPUDialect,
+      mlir::tt::ttkernel::TTKernelDialect, mlir::tt::sfpi::SFPIDialect,
       mlir::func::FuncDialect,
       mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
       mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
@@ -100,7 +100,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
   mlir::tt::ttkernel::registerPasses();
-  // mlir::tt::sfpu::registerSFPUPasses();  // Commented out until we have passes
+  // mlir::tt::sfpi::registerSFPIPasses();  // Commented out until we have passes
   mlir::tt::llvm_util::registerPasses();
   mlir::tt::transforms::registerPasses();
 
