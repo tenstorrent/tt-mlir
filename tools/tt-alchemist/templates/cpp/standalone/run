@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# Exit on error
+set -e
+
+# Get absolute path of script directory (portable method)
+script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ "$(pwd)" != "$script_dir" ]; then
+  echo "Error: must run from $script_dir"
+  exit 1
+fi
+
+# Set TT_METAL_HOME to the installed metalium directory
+export TT_METAL_HOME="$script_dir/ttnn-install/libexec/tt-metalium"
+
+# Build
+echo "==================== BUILDING TTNN STANDALONE ==================="
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+cmake --build build -- ttnn-standalone
+echo "================ FINISH BUILDING TTNN STANDALONE ================"
+
+# Run
+echo "==================== RUNNING TTNN STANDALONE ===================="
+./build/ttnn-standalone
+echo "================= FINISH RUNNING TTNN STANDALONE ================"
