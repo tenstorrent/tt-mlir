@@ -10,7 +10,6 @@ All ops are created when their relevant information is run through the `op_proxy
 ```bash
 def op_proxy(
     self,
-    op_golden_function: Callable,
     op_ttir_function: Callable,
     inputs: List[Operand],
     unit_attrs: List[str] = None,
@@ -32,7 +31,7 @@ All input operands should be passed into a proxy function using the argument `in
 
 ## Golden functions
 
-Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/ttir-builder/ttir_golden.py` and must be mapped to their corresponding TTIR operations.
+Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/ttir-builder/ttir_golden.py` and must be mapped to their corresponding TTIR operations. The `op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
 
 ### Writing a golden function
 
@@ -65,71 +64,18 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 
 ### Using golden functions in ops.py
 
-In your operation implementation in `ops.py`, retrieve the golden function using `ttir_golden.get_golden_function()`:
+In your operation implementation in `ops.py`, simply pass the TTIR operation class to `op_proxy`. The golden function is automatically retrieved internally:
 
 ```python
 # In ops.py
 def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
     return self.op_proxy(
-        ttir_golden.get_golden_function(ttir.CbrtOp),  # Get golden function from mappings
-        ttir.CbrtOp,
+        ttir.CbrtOp,  # Golden function automatically retrieved from GOLDEN_MAPPINGS
         [in0],
         unit_attrs=unit_attrs,
     )
 ```
 
-This architecture centralizes all golden functions and makes them easily discoverable and maintainable.
-
-### Eltwise operations
-
-Element-wise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`. They still follow the same golden function pattern:
-
-```python
-def eltwise_proxy(
-    self,
-    op_golden_function: Callable,
-    op_ttir_function: Callable,
-    inputs: List[Operand],
-    unit_attrs: List[str] = None,
-)
-```
-
-Example eltwise operation:
-```python
-def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-    return self.eltwise_proxy(
-        ttir_golden.get_golden_function(ttir.AbsOp),  # Retrieved from GOLDEN_MAPPINGS
-        ttir.AbsOp,
-        [in0],
-        unit_attrs=unit_attrs,
-    )
-```
-
-### CCL operations
-
-CCL (Collective Communication Library) ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and use their own specialized proxy function. They also follow the golden function mapping pattern:
-
-```python
-def ccl_proxy(
-    self,
-    op_golden_function: Callable,
-    op_ttir_function: Callable,
-    inputs: List[Operand],
-    kwargs: dict = {},
-)
-```
-
-Example CCL operation:
-```python
-def all_gather(self, input: Operand, all_gather_dim: int = None, cluster_axis: int = None) -> OpView:
-    kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
-    return self.ccl_proxy(
-        ttir_golden.get_golden_function(ttir.AllGatherOp),  # Retrieved from GOLDEN_MAPPINGS
-        ttir.AllGatherOp,
-        [input],
-        kwargs,
-    )
-```
 
 ## Adding Silicon tests
 Silicon tests are created in the `test/python/golden` directory.
