@@ -1251,18 +1251,6 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return verifyPooling2dOp(this);
 }
 
-// AvgPool2dOp folding
-::mlir::OpFoldResult mlir::tt::ttir::AvgPool2dOp::fold(FoldAdaptor adaptor) {
-  if (!getCeilMode() && getPaddingTop() == getPaddingBottom() - 1 &&
-      getPaddingLeft() == getPaddingRight() - 1) {
-    setCeilMode(true);
-    setPaddingBottom(getPaddingTop());
-    setPaddingRight(getPaddingLeft());
-    return getResult();
-  }
-  return nullptr;
-}
-
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
@@ -1270,18 +1258,6 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   return verifyPooling2dOp(this);
-}
-
-// MaxPool2dOp folding
-::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
-  if (!getCeilMode() && getPaddingTop() == getPaddingBottom() - 1 &&
-      getPaddingLeft() == getPaddingRight() - 1) {
-    setCeilMode(true);
-    setPaddingBottom(getPaddingTop());
-    setPaddingRight(getPaddingLeft());
-    return getResult();
-  }
-  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
