@@ -1301,16 +1301,26 @@ private:
     // This means that newPadding is in the form [top, bottom, left, right]
     // MaxPool2dOp and AvgPool2dOp padding is in the for [top, left, bottom,
     // right] so we must insert the padding in the correct order.
-    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+
+    SmallVector<int32_t> newPadding = {
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
         static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
         static_cast<int32_t>(
             op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
         static_cast<int32_t>(
             op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
-    });
+    };
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
+    // If bottom == 1 + top and right == 1 + left, then we can set ceil_mode to
+    // true and set bottom = top and right = left.
+    if (newPadding[2] == 1 + newPadding[0] &&
+        newPadding[3] == 1 + newPadding[1]) {
+      newPadding[2] = newPadding[0];
+      newPadding[3] = newPadding[1];
+      ceilModeAttr = rewriter.getBoolAttr(true);
+    }
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr(newPadding);
 
     llvm::SmallVector<Value> outputs;
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
