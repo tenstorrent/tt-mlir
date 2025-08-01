@@ -231,10 +231,18 @@ public:
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
-          auto dmaOp = thenBuilder.create<ttir::DMAOp>(
-              dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
-              coalescingFactor);
-          thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
+
+          if (dma.isSrcRemote()) {
+            auto dmaOp = thenBuilder.create<ttir::DMAOp>(
+                dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
+                coalescingFactor);
+            thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
+          } else {
+            auto dmaOp = thenBuilder.create<ttir::DMAOp>(
+                dma.getLoc(), dma.getSrc(), iters, dma.getDst(), srcIndex,
+                coalescingFactor);
+            thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
+          }
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
           elseBuilder.create<scf::YieldOp>(dma.getLoc(), nulltx->getResult(0));
@@ -251,48 +259,69 @@ public:
       // Already lowered, skip.
       return failure();
     }
-    assert(!dma.getDstAffineMap() && "DMA dst affine map not supported yet");
-    assert(dma.getSrcAffineMap() && "DMA src affine map expected");
 
-    AffineMap dmaIndexingMap = *dma.getSrcAffineMap();
-    MemRefType memref = dma.getSrcMemRefType();
-    ttcore::DeviceLayoutInterface layout =
-        mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
-    ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
-    ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
+    // assert(dma.getSrcAffineMap() && "DMA src affine map expected");
 
-    GenericOp genericParent = dma->getParentOfType<ttir::GenericOp>();
-    unsigned outputOperandsIndex =
-        genericParent.getOutputs().getBeginOperandIndex();
-    // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
-        mlir::cast<AffineMapAttr>(
-            genericParent.getIndexingMaps()[outputOperandsIndex])
-            .getValue();
+    auto analyzeStream = [](PatternRewriter &rewriter, Location loc,
+                            AffineMap dmaIndexingMap, MemRefType memref,
+                            ViewOpInterface viewInterface,
+                            GenericOp genericParent) {
+      size_t elemSizeBytes = getElementSizeBytes(memref);
+      ttcore::DeviceLayoutInterface layout =
+          mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
+      ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
+      ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
-    auto [streamIndex, indexBounds] =
-        buildStreamIndex(rewriter, dma.getLoc(), memrefGridShape,
-                         genericParent.getBlockFactorsValue(), memrefShardShape,
-                         dmaIndexingMap, gridIndexingMap);
+      unsigned outputOperandsIndex =
+          genericParent.getOutputs().getBeginOperandIndex();
+      // The output and the grid indexing must always be aligned.
+      AffineMap gridIndexingMap =
+          mlir::cast<AffineMapAttr>(
+              genericParent.getIndexingMaps()[outputOperandsIndex])
+              .getValue();
 
-    ttcore::DeviceAttr device = genericParent.getDevice();
-    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-        mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
-            .applyViews();
-    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
-                                              0 /* use default page size*/);
-    size_t elemSizeBytes = getElementSizeBytes(memref);
-    size_t coalescingFactor =
-        calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
-                                  elemSizeBytes, indexBounds);
+      auto [streamIndex, indexBounds] = buildStreamIndex(
+          rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
+          memrefShardShape, dmaIndexingMap, gridIndexingMap);
+
+      ttcore::DeviceAttr device = genericParent.getDevice();
+      std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
+          viewInterface.applyViews();
+      AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
+                                                0 /* use default page size*/);
+      llvm::dbgs() << "memoryMap: " << memoryMap << "\n";
+      size_t coalescingFactor = calculateCoalescingFactor(
+          memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes,
+          indexBounds);
+      return std::make_tuple(streamIndex, memrefShardShape, coalescingFactor);
+    };
+
+    auto [streamIndex, memrefShardShape, coalescingFactor] =
+        dma.isSrcRemote()
+            ? analyzeStream(rewriter, dma.getLoc(), *dma.getSrcAffineMap(),
+                            dma.getSrcMemRefType(),
+                            mlir::cast<ttir::ViewOpInterface>(
+                                dma.getSrc().getDefiningOp()),
+                            dma->getParentOfType<ttir::GenericOp>())
+            : analyzeStream(rewriter, dma.getLoc(), *dma.getDstAffineMap(),
+                            dma.getDstMemRefType(),
+                            mlir::cast<ttir::ViewOpInterface>(
+                                dma.getDst().getDefiningOp()),
+                            dma->getParentOfType<ttir::GenericOp>());
 
     Operation *newDma;
     if (coalescingFactor ==
         static_cast<size_t>(ttmlir::utils::volume(memrefShardShape))) {
       // Fully coalesced, we can trivially lower.
-      newDma = rewriter.create<ttir::DMAOp>(
-          dma.getLoc(), dma.getSrc(), streamIndex, dma.getDst(),
-          dma.getMcastStartIndex(), dma.getMcastShape());
+      if (dma.isSrcRemote()) {
+        newDma = rewriter.create<ttir::DMAOp>(
+            dma.getLoc(), dma.getSrc(), streamIndex, dma.getDst(),
+            dma.getMcastStartIndex(), dma.getMcastShape());
+      } else {
+        newDma = rewriter.create<ttir::DMAOp>(
+            dma.getLoc(), dma.getSrc(), ValueRange(), dma.getDst(), streamIndex,
+            dma.getMcastStartIndex(), dma.getMcastShape());
+      }
     } else {
 
       scf::LoopNest loopNest =
