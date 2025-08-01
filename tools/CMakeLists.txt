@@ -16,3 +16,4 @@ endif()
 add_subdirectory(ttmlir-translate)
 
 add_subdirectory(ttnn-standalone)
+add_subdirectory(tt-alchemist)
