@@ -10,33 +10,39 @@ set(ENABLE_TRACY ${TT_RUNTIME_ENABLE_PERF_TRACE})
 set(ENABLE_DISTRIBUTED ${TT_RUNTIME_ENABLE_DISTRIBUTED})
 set(TT_INSTALL ON)
 
-FetchContent_Declare(
-  tt-metal
-  GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
-  GIT_TAG ${TT_METAL_VERSION}
-  SYSTEM
-)
+if (TTMLIR_ENABLE_RUNTIME)
+  FetchContent_Declare(
+    tt-metal
+    GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
+    GIT_TAG ${TT_METAL_VERSION}
+    SYSTEM
+  )
 
-message(STATUS "Downloading tt-metal...")
-FetchContent_MakeAvailable(tt-metal)
+  message(STATUS "Downloading tt-metal...")
+  FetchContent_MakeAvailable(tt-metal)
 
-install(CODE "
-set(CMAKE_BINARY_DIR \"${CMAKE_BINARY_DIR}\")
-message(STATUS \"Installing metalium dependencies for SharedLib component...\")
-execute_process(
-  COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component ttnn-runtime
-  COMMAND_ERROR_IS_FATAL ANY
-)
-execute_process(
-  COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component tracy
-  COMMAND_ERROR_IS_FATAL ANY
-)
-execute_process(
-  COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component metalium-runtime
-  COMMAND_ERROR_IS_FATAL ANY
-)
-execute_process(
-  COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component umd-runtime
-  COMMAND_ERROR_IS_FATAL ANY
-)
-" COMPONENT SharedLib)
+  install(CODE "
+  set(CMAKE_BINARY_DIR \"${CMAKE_BINARY_DIR}\")
+  message(STATUS \"Installing metalium dependencies for SharedLib component...\")
+  execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component ttnn-runtime
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component tracy
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component metalium-runtime
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component umd-runtime
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  " COMPONENT SharedLib)
+else()
+  add_library(TTNN::CPP INTERFACE)
+  add_library(TTNN::PYTHON INTERFACE)
+  add_library(TT::Metalium INTERFACE)
+endif()
