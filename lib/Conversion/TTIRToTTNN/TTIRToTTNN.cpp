@@ -1538,26 +1538,25 @@ public:
     auto meshDevice = ttcore::lookupDevice(op);
     llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
 
-    Value outputValue;
+    Value finalValue;
     auto replicaGroups = ttmlir::utils::denseElementsAttrTo2D<int64_t>(
         adaptor.getReplicaGroups());
 
     // For each replica group, broadcast the first device's tensor to all other.
     for (const auto &group : replicaGroups) {
-      int64_t sourceId = group[0];
+      auto sourceCoord = rewriter.getDenseI64ArrayAttr(
+          ttmlir::utils::linearIdToCoord(group[0], meshShape));
       for (const auto &targetId : group) {
-        outputValue = rewriter.create<ttnn::PointToPointOp>(
-            op.getLoc(), inputType, adaptor.getInput(),
-            rewriter.getDenseI64ArrayAttr(
-                ttmlir::utils::linearIdToCoord(sourceId, meshShape)),
+        finalValue = rewriter.create<ttnn::PointToPointOp>(
+            op.getLoc(), inputType, adaptor.getInput(), sourceCoord,
             rewriter.getDenseI64ArrayAttr(
                 ttmlir::utils::linearIdToCoord(targetId, meshShape)),
-            outputValue);
+            finalValue);
       }
     }
 
     // Replace the original collective_broadcast op with the final output value
-    rewriter.replaceOp(op, outputValue);
+    rewriter.replaceOp(op, finalValue);
 
     return success();
   }
