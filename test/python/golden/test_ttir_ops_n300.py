@@ -878,7 +878,7 @@ def test_all_to_all_4d(
     )
 
 
-def pseudo_golden_collective_broadcast(
+def golden_collective_broadcast(
     input_tensor: torch.Tensor,
     replica_groups: List[Tuple[int, int]],
 ):
@@ -906,7 +906,7 @@ def test_collective_broadcast(
 ):
     def collective_broadcast(in0: Operand, builder: TTIRBuilder):
         input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_collective_broadcast(input, replica_groups)
+        golden_output = golden_collective_broadcast(input, replica_groups)
         builder.set_graph_input_output([input], [golden_output])
 
         sharded = builder.mesh_shard(
