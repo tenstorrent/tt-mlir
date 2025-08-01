@@ -439,12 +439,12 @@ def test_print():
     print("Hello world")
 
     # TEST: dprint with args
-    # CHECK: ttkernel.dprint("Hello world {} {}", %[[X]], %[[Y]])
-    print("Hello world", x, y)
+    # CHECK: ttkernel.dprint("Hello world {} {} goodbye.", %[[X]], %[[Y]])
+    print("Hello world", x, y, "goodbye.")
 
     # TEST: dprint with string and format args
-    # CHECK: ttkernel.dprint("Hello {} world {}", %[[X]], %[[Y]])
-    print("Hello {}".format(x), "world {}".format(y))
+    # CHECK: ttkernel.dprint("Hello {} world Goodbye {} world", %[[X]], %[[Y]])
+    print("Hello {} world".format(x), "Goodbye {} world".format(y))
     return
 
 
