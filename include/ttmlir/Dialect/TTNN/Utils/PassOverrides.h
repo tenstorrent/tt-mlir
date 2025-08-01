@@ -23,8 +23,8 @@ struct OptionNames {
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
       "memory-layout-analysis-enabled";
-  static constexpr StringRef l1InterleavedAnalysisEnabled =
-      "l1-interleaved-analysis-enabled";
+  static constexpr StringRef l1InterleavedFallbackAnalysisEnabled =
+      "l1-interleaved-fallback-analysis-enabled";
   static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";

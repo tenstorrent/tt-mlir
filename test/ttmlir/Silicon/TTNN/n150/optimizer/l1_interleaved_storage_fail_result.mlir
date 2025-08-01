@@ -1,6 +1,6 @@
-// Test for L1InterleavedAnalysis: ops should NOT be upgraded to L1 due to L1 space constraints, neither result fits in L1 memory
+// Test for L1InterleavedFallbackAnalysis: ops should NOT be upgraded to L1 due to L1 space constraints, neither result fits in L1 memory
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedTestLargeTensorOutput attributes {} {

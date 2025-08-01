@@ -4,10 +4,10 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         DFShardingPolicy.cpp
         GreedyL1InterleavedPolicy.cpp
         L1ChainConfig.cpp
+        L1InterleavedFallbackAnalysis.cpp
         LegalOpConfigAnalysis.cpp
         LegalOpLayoutAnalysis.cpp
         LegalTensorLayoutAnalysis.cpp
-        L1InterleavedAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         ScalarDataTypeAnalysis.cpp

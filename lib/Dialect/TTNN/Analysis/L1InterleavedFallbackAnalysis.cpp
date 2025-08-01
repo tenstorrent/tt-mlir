@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedFallbackAnalysis.h"
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -21,7 +21,7 @@
 
 namespace mlir::tt::ttnn {
 
-void L1InterleavedAnalysis::analysisImplementation() {
+void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved
   analysisInput.funcOp->walk([&](Operation *op) {
@@ -48,10 +48,11 @@ void L1InterleavedAnalysis::analysisImplementation() {
     }
     // Skip if producer is not immediately consumed by consumer
     if (!hasImmediateConsumer(op)) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedAnalysis: Skipping {} - not singular user or "
-                   "not immediately consumed",
-                   op->getName());
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::Optimizer,
+          "L1InterleavedFallbackAnalysis: Skipping {} - not singular user or "
+          "not immediately consumed",
+          op->getName());
       return;
     }
     std::vector<OpConfig> opL1InterleavedConfigs =
@@ -77,9 +78,10 @@ void L1InterleavedAnalysis::analysisImplementation() {
       if (!possibleL1Layout) {
         llvm::Error error = possibleL1Layout.takeError();
         std::string errorStr = llvm::toString(std::move(error));
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "L1InterleavedAnalysis: Invalid upgrade, error: {}",
-                     errorStr);
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
+            errorStr);
         continue;
       }
       TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
@@ -89,24 +91,27 @@ void L1InterleavedAnalysis::analysisImplementation() {
       break;
     }
   });
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-               "L1InterleavedAnalysis: Completed - upgraded {} operations",
-               analysisResult.upgradedConfigs.size());
+  TTMLIR_TRACE(
+      ttmlir::LogComponent::Optimizer,
+      "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations",
+      analysisResult.upgradedConfigs.size());
 }
 
-bool L1InterleavedAnalysis::hasL1InterleavedLegalLayout(Operation *op) const {
+bool L1InterleavedFallbackAnalysis::hasL1InterleavedLegalLayout(
+    Operation *op) const {
   const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
   return it != analysisInput.legalL1InterleavedConfigs.end();
 }
 
 std::vector<OpConfig>
-L1InterleavedAnalysis::getL1InterleavedLayoutConfigs(Operation *op) const {
+L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
+    Operation *op) const {
   const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
   assert(it != analysisInput.legalL1InterleavedConfigs.end());
   return it->second;
 }
 
-bool L1InterleavedAnalysis::outputsDRAMLayout(Operation *op) const {
+bool L1InterleavedFallbackAnalysis::outputsDRAMLayout(Operation *op) const {
   // Check if the operation has a result type that is a tensor
   if (op->getNumResults() == 0) {
     return false;
@@ -130,7 +135,7 @@ bool L1InterleavedAnalysis::outputsDRAMLayout(Operation *op) const {
   return false;
 }
 
-bool L1InterleavedAnalysis::outputsL1Layout(Operation *op) const {
+bool L1InterleavedFallbackAnalysis::outputsL1Layout(Operation *op) const {
   // Check if the operation has a result type that is a tensor
   if (op->getNumResults() == 0) {
     return false;
@@ -154,7 +159,7 @@ bool L1InterleavedAnalysis::outputsL1Layout(Operation *op) const {
   return false;
 }
 
-bool L1InterleavedAnalysis::hasImmediateConsumer(Operation *op) const {
+bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
   // Check if operation has exactly one user
   if (!op->hasOneUse()) {
     return false;
@@ -171,7 +176,7 @@ bool L1InterleavedAnalysis::hasImmediateConsumer(Operation *op) const {
   return consumerOp == userOp;
 }
 
-bool L1InterleavedAnalysis::isTiledTensorLayout(Operation *op) const {
+bool L1InterleavedFallbackAnalysis::isTiledTensorLayout(Operation *op) const {
   auto resultType =
       mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
 
@@ -186,7 +191,7 @@ bool L1InterleavedAnalysis::isTiledTensorLayout(Operation *op) const {
 }
 
 llvm::Expected<TTNNLayoutAttr>
-L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
+L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     Operation *consumerOp, const OpConfig &consumerConfig,
     const Operation *upgradedProducerOp,
     const TTNNLayoutAttr upgradedProducerLayout) const {
@@ -315,10 +320,11 @@ L1InterleavedAnalysis::checkUpgradeToL1Interleaved(
       if (!nextConsumerOpL1Layout) {
         llvm::Error error = nextConsumerOpL1Layout.takeError();
         std::string errorStr = llvm::toString(std::move(error));
-        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                     "L1InterleavedAnalysis: Upgrade blocked - consumer {} "
-                     "would exceed L1 memory: {}",
-                     errorStr);
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::Optimizer,
+            "L1InterleavedFallbackAnalysis: Upgrade blocked - consumer {} "
+            "would exceed L1 memory: {}",
+            errorStr);
         return llvm::createStringError(
             llvm::inconvertibleErrorCode(),
             "L1 upgrade blocked: consumer %s would exceed memory limits",

@@ -5,10 +5,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedFallbackAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -107,8 +107,8 @@ public:
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
-    l1InterleavedAnalysisEnabled =
-        std::move(options.l1InterleavedAnalysisEnabled);
+    l1InterleavedFallbackAnalysisEnabled =
+        std::move(options.l1InterleavedFallbackAnalysisEnabled);
     memReconfigEnabled = std::move(options.memReconfigEnabled);
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
@@ -139,8 +139,8 @@ protected:
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       ::llvm::cl::desc("Enable memory layout optimization."),
       ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<bool> l1InterleavedAnalysisEnabled{
-      *this, OptionNames::l1InterleavedAnalysisEnabled,
+  ::mlir::Pass::Option<bool> l1InterleavedFallbackAnalysisEnabled{
+      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
       ::llvm::cl::desc("Enable L1 interleaved optimization."),
       ::llvm::cl::init(false)};
   ::mlir::Pass::Option<bool> memReconfigEnabled{
@@ -207,7 +207,8 @@ public:
         moduleOp->getAttr(ttcore::SystemDescAttr::name));
     ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
-    // Map to store only L1 Interleaved legal configs for L1InterleavedAnalysis
+    // Map to store only L1 Interleaved legal configs for
+    // L1InterleavedFallbackAnalysis
     llvm::DenseMap<Operation *, std::vector<OpConfig>>
         l1InterleavedLegalConfigs;
 
@@ -271,8 +272,8 @@ public:
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
 
         // Save only L1 Interleaved legal configs in a separate map for
-        // L1InterleavedAnalysis later
-        if (l1InterleavedAnalysisEnabled) {
+        // L1InterleavedFallbackAnalysis later
+        if (l1InterleavedFallbackAnalysisEnabled) {
           std::vector<OpConfig> l1InterleavedConfigs;
           for (const auto &config : legalConfigs[op]) {
             auto layoutAttr = config.outputLayout;
@@ -488,14 +489,14 @@ public:
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
-      if (l1InterleavedAnalysisEnabled) {
-        L1InterleavedAnalysis l1InterleavedAnalysis =
-            getAnalysis<L1InterleavedAnalysis>();
-        l1InterleavedAnalysis.init(L1InterleavedAnalysisInput(
+      if (l1InterleavedFallbackAnalysisEnabled) {
+        L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
+            getAnalysis<L1InterleavedFallbackAnalysis>();
+        l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
             l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
             chipDesc.getUsableL1Size()));
         auto l1InterleavedOpConfigs =
-            l1InterleavedAnalysis.getResult().upgradedConfigs;
+            l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
         // Apply L1 interleaved layout changes
         for (const auto &[op, config] : l1InterleavedOpConfigs) {
