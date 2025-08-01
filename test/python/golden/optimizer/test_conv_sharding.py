@@ -72,6 +72,7 @@ def test_conv2d_sharding(
             groups=groups,
             unit_attrs=unit_attrs,
         )
+
     output_file_mlir = compile_to_flatbuffer(
         conv2d,
         shapes,
