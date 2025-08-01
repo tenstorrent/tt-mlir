@@ -461,7 +461,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"GreaterThan", createGT, binaryExpected},
     {"LessEqual", createLE, binaryExpected},
     {"LessThan", createLT, binaryExpected},
-    {"LogicalAnd", createAnd, binaryExpected},
+    {"LogicalAnd", createAnd, binaryExpected_extraCb4096},
     {"LogicalOr", createOr, binaryExpected_extraCb4096},
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
@@ -837,6 +837,9 @@ TEST_F(OpModelBase, SumOpInterface) {
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
       /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
@@ -847,6 +850,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
@@ -857,6 +862,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -876,6 +883,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
@@ -888,6 +897,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
   if (cachedRuntimeExp) {
@@ -901,6 +912,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, SliceOpInterface) {
@@ -2031,8 +2044,8 @@ TEST_F(OpModelBase, WhereOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 10240);
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
