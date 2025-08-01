@@ -62,25 +62,7 @@ template <typename T>
 const std::string TypeNameV = TypeName<T>::value;
 
 template <typename T>
-struct is_int_type : public std::false_type {};
-
-template <>
-struct is_int_type<int32_t> : public std::true_type {};
-
-template <>
-struct is_int_type<int64_t> : public std::true_type {};
-
-template <>
-struct is_int_type<uint32_t> : public std::true_type {};
-
-template <>
-struct is_int_type<uint64_t> : public std::true_type {};
-
-template <typename T>
-inline constexpr bool is_int_type_v = is_int_type<T>::value;
-
-template <typename T>
-struct TypeName<T, std::enable_if_t<is_int_type_v<T>>> {
+struct TypeName<T, std::enable_if_t<std::is_integral_v<T>>> {
   inline static const std::string value = "int";
 };
 
@@ -122,11 +104,6 @@ struct TypeName<T, std::enable_if_t<is_list_type_v<T>, void>> {
   inline static const std::string value = "[" + TypeNameV<value_type> + "]";
 };
 
-template <typename T, size_t k>
-struct TypeName<std::array<T, k>> {
-  inline static const std::string value = "[" + TypeNameV<T> + "]";
-};
-
 template <>
 struct TypeName<std::string> {
   inline static const std::string value = "str";
@@ -134,8 +111,6 @@ struct TypeName<std::string> {
 
 template <>
 struct TypeName<std::nullopt_t> {
-  // This is a special case, as std::nullopt is not a type, but is the only
-  // value of type std::nullopt_t.
   inline static const std::string value = "None";
 };
 
@@ -332,10 +307,10 @@ struct EmitPyTypeConverter<::ttnn::CoreCoord> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreCoord>;
-    rso << "([";
+    rso << "(";
     rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", ";
     rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
-    rso << "])";
+    rso << ")";
 
     return buf;
   }
@@ -359,11 +334,11 @@ struct EmitPyTypeConverter<::ttnn::CoreRange> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreRange>;
-    rso << "([";
+    rso << "(";
     rso << EmitPyTypeConverter<::ttnn::CoreCoord>::convert(attr.getStartCoord())
         << ", ";
     rso << EmitPyTypeConverter<::ttnn::CoreCoord>::convert(attr.getEndCoord());
-    rso << "])";
+    rso << ")";
 
     return buf;
   }
@@ -721,11 +696,16 @@ struct EmitPyContainerTypeConverter {
 
 private:
   static std::string convert(const llvm::SmallVector<std::string> &values) {
+    constexpr char openingParen =
+        std::is_same_v<T, std::set<value_type>> ? '{' : '[';
+    constexpr char closingParen =
+        std::is_same_v<T, std::set<value_type>> ? '}' : ']';
+
     std::string buf;
     llvm::raw_string_ostream rso(buf);
-    rso << "[";
+    rso << openingParen;
     llvm::interleaveComma(values, rso);
-    rso << "]";
+    rso << closingParen;
     return buf;
   }
 };
@@ -920,7 +900,7 @@ struct EmitPyTypeConverter<::ttnn::ShardSpec> {
     rso << EmitPyTypeConverter<::ttnn::CoreRangeSet>::convert(
                attr.getCoreRangeSet())
         << ", ";
-    rso << EmitPyTypeConverter<std::array<uint32_t, 2>>::convert(
+    rso << EmitPyTypeConverter<std::vector<uint32_t>>::convert(
                attr.getShape().getShape())
         << ", ";
     rso << EmitPyTypeConverter<::ttnn::types::ShardOrientation>::convert(
@@ -1007,7 +987,7 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     llvm::raw_string_ostream rso(buf);
 
     bool firstElement = true;
-    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
+    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "(";
     if (attr.getWeightsDtype()) {
       rso << (firstElement ? "" : ", ") << ".weights_dtype = "
           << EmitPyTypeConverter<::ttnn::DataType>::convert(
@@ -1073,7 +1053,7 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitPyTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
     }
-    rso << "}";
+    rso << ")";
     return buf;
   }
 };
@@ -1169,7 +1149,7 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 
 // Name for the function that creates a list from a variadic number of
 // `ttnn::Tensor`s.
-inline constexpr char kCreateListFunctionName[] = "util_create_list";
+inline constexpr const char *kCreateListFunctionName = "util_create_list";
 
 template <typename TTNNOp>
 class EmitPyTTNNEmitter {
@@ -1198,8 +1178,7 @@ public:
   }
 
   mlir::Attribute emit(std::nullopt_t, std::string attrName = "") {
-    StringAttr keywordArg = rewriter.getStringAttr(attrName);
-    keywordArgs.push_back(keywordArg);
+    addKeywordArgument(attrName);
     return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
@@ -1210,8 +1189,7 @@ public:
 
     unsigned index = getOperandIndex(val);
     operands.push_back(adaptor.getOperands()[index]);
-    StringAttr keywordArg = rewriter.getStringAttr(attrName);
-    keywordArgs.push_back(keywordArg);
+    addKeywordArgument(attrName);
     return rewriter.getIndexAttr(index);
   }
 
@@ -1245,8 +1223,7 @@ public:
     auto convertedValue =
         EmitPyTypeConverter<TTNNTargetT<MLIRAttrTy>>::convert(attr);
 
-    StringAttr keywordArg = rewriter.getStringAttr(attrName);
-    keywordArgs.push_back(keywordArg);
+    addKeywordArgument(attrName);
     if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
       return rewriter.getType<emitpy::OpaqueAttr>(convertedValue);
     } else if (convertedValue) {
@@ -1257,19 +1234,18 @@ public:
     return emit(std::nullopt, attrName);
   }
 
-  // Handles the case when a source type is mlir::ArrayAttr.
+  // Handles the case when a source type is `mlir::ArrayAttr`.
   // This case needs special handling because of many-to-many relationship
   // between source and target type (i.e. {mlir::ArrayAttr,
   // mlir::DenseI32ArrayAttr} to {std::vector<uint32_t>,
   // ttnn::SmallVector<int32_t>}).
   template <typename TargetTy>
   mlir::Attribute emit(mlir::ArrayAttr attr, std::string attrName = "") {
-    using ActualTargetTy = typename TargetTy::value_type;
+    using value_type = typename TargetTy::value_type;
     auto convertedValue =
-        EmitPyTypeConverter<std::vector<ActualTargetTy>>::convert(attr);
+        EmitPyTypeConverter<std::vector<value_type>>::convert(attr);
 
-    StringAttr keywordArg = rewriter.getStringAttr(attrName);
-    keywordArgs.push_back(keywordArg);
+    addKeywordArgument(attrName);
     if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
       return rewriter.getType<emitpy::OpaqueAttr>(convertedValue);
     } else if (convertedValue) {
@@ -1290,8 +1266,7 @@ public:
     // It's assumed that the conversion will always succeed, if the result is
     // `std::optional<std::string>` we assume that it contains the converted
     // value.
-    StringAttr keywordArg = rewriter.getStringAttr(attrName);
-    keywordArgs.push_back(keywordArg);
+    addKeywordArgument(attrName);
     if constexpr (std::is_same_v<decltype(result),
                                  std::optional<std::string>>) {
       return rewriter.getType<emitpy::OpaqueAttr>(*result);
@@ -1324,7 +1299,7 @@ public:
   mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
                         llvm::ArrayRef<mlir::Attribute> args) {
     auto resultTypes = llvm::to_vector(
-        llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
+        llvm::map_to_vector(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
 
@@ -1345,6 +1320,11 @@ public:
   }
 
 private:
+  void addKeywordArgument(std::string attrName) {
+    StringAttr keywordArg = rewriter.getStringAttr(attrName);
+    keywordArgs.push_back(keywordArg);
+  }
+
   mlir::Value createList(ValueRange operands) {
     return rewriter
         .create<emitpy::CallOpaqueOp>(

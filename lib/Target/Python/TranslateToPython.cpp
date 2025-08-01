@@ -267,10 +267,8 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   auto emitArgs = [&](const auto &pair) -> LogicalResult {
     auto [attr, keywordArg] = pair;
     auto keywordArgStr = mlir::cast<StringAttr>(keywordArg).getValue();
-    os << keywordArgStr;
-    if (keywordArgStr != "") {
-      os << "=";
-    }
+    keywordArgStr != "" ? os << keywordArgStr << "=" : os << keywordArgStr;
+
     if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
       if (iAttr.getType().isIndex()) {
         int64_t idx = iAttr.getInt();

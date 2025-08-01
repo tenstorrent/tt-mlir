@@ -108,6 +108,11 @@ LogicalResult CallOpaqueOp::verify() {
     return emitOpError("callee must not be empty");
   }
 
+  if (getArgs() && getKeywordArgs() &&
+      getArgs()->size() != getKeywordArgs()->size()) {
+    return emitOpError("there must be a specified keyword argument string for "
+                       "every argument; empty strings are allowed");
+  }
   return success();
 }
 
@@ -305,7 +310,8 @@ LogicalResult ImportOp::verify() {
     if (hasMemberAliases) {
       if (membersToImport->size() != memberAliases->size()) {
         return emitOpError("the number of members' aliases must be equal to "
-                           "the number of members to import");
+                           "the number of members to import; empty string is "
+                           "considered valid member alias");
       }
     }
     return success();

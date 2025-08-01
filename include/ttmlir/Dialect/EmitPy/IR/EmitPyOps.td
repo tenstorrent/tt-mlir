@@ -184,6 +184,25 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression",
   let hasVerifier = 1;
   let assemblyFormat = "attr-dict (`noinline` $do_not_inline^)? `:` type($result) $region";
 
+  let extraClassDeclaration = [{
+    bool hasSideEffects() {
+      auto predicate = [](Operation &op) {
+        assert(isa<emitpy::PyExpressionInterface>(op) && "Expected a Py expression");
+        return cast<emitpy::PyExpressionInterface>(op).hasSideEffects();
+      };
+      return llvm::any_of(getRegion().front().without_terminator(), predicate);
+    };
+    Operation *getRootOp();
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// EmitPy ops in the body can omit their 'emitpy.' prefix in the assembly.
+    static ::llvm::StringRef getDefaultDialect() {
+      return "emitpy";
+    }
+  }];
 }
 
 def EmitPy_YieldOp : EmitPy_Op<"yield",
