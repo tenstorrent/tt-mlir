@@ -24,12 +24,16 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
   }
 
   assert(inputType.getRank() == 4 && "Input type must be 4D.");
+  int32_t paddingTop = padding[0];
+  int32_t paddingLeft = padding[1];
+  int32_t paddingBottom = padding[2];
+  int32_t paddingRight = padding[3];
 
-  if (padding[0] == padding[1] && padding[2] == padding[3]) {
+  if (paddingTop == paddingBottom && paddingLeft == paddingRight) {
     // If the padding is symmetric, we can use the 2D padding format.
     rewriter.modifyOpInPlace(srcOp, [&]() {
       srcOp.setPaddingAttr(
-          rewriter.getDenseI32ArrayAttr({padding[0], padding[2]}));
+          rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft}));
     });
     return success();
   }
@@ -65,8 +69,8 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
 
   // Input to pad is NHWC, so we need to add the upper and lower padding to both
   // height and width.
-  paddedShape[1] += padding[0] + padding[1];
-  paddedShape[2] += padding[2] + padding[3];
+  paddedShape[1] += paddingTop + paddingBottom;
+  paddedShape[2] += paddingLeft + paddingRight;
 
   RankedTensorType paddedType = RankedTensorType::get(
       paddedShape, unflattenReshapeType.getElementType(),
@@ -79,10 +83,10 @@ LogicalResult LegalizePoolPaddingRewritePattern<Pool2dOp>::matchAndRewrite(
   // the Pool2dOps are NHWC, we know that the middle four values of the padding
   // array are what must be populated.
 
-  padOpPadding[2] = padding[0];
-  padOpPadding[3] = padding[1];
-  padOpPadding[4] = padding[2];
-  padOpPadding[5] = padding[3];
+  padOpPadding[2] = paddingTop;
+  padOpPadding[3] = paddingBottom;
+  padOpPadding[4] = paddingLeft;
+  padOpPadding[5] = paddingRight;
   ttnn::PadOp padOp = rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(unflattenReshape.getLoc(), "pad"),
       paddedType, unflattenReshape, padOpPadding,
