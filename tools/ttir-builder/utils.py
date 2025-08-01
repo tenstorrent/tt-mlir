@@ -539,4 +539,4 @@ def compile_to_flatbuffer(
         builder.get_golden_map(),
         module_logger.module_log if module_logger.module_log else [],
     )
-    print(f"{target} flatbuffer created successfully.")
+    print(f"{target} flatbuffer created successfully at {output_file_fbb}.")
