@@ -228,6 +228,165 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.testName;
     });
 
+//===---------------------------------------------------------===
+struct BinaryOpTestParams {
+  std::string testName;
+  std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
+  ExpectedResult expectedResult;
+};
+
+class BinaryOpModelTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<BinaryOpTestParams> {
+protected:
+  void SetUp() override {
+    OpModelBase::SetUp();
+    params = GetParam();
+  }
+
+  BinaryOpTestParams params;
+};
+
+// Test case for normal operation
+TEST_P(BinaryOpModelTest, TestOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  mlir::ValueRange{input1, input2});
+  // Test constraints
+  auto constraintsExp = getOpConstraints(op);
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
+  } else {
+    FAIL() << "Missing L1 constraints for " << params.testName
+           << "; Error=" << llvm::toString(constraintsExp.takeError());
+  }
+
+  // Test runtime
+  auto runtimeExp = getOpRuntime(op);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for " << params.testName
+           << "; Error=" << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Test case for null output layout
+TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  mlir::ValueRange{input1, input2});
+  // Test constraints with null output
+  OpModel backend = dyn_cast<OpModel>(op);
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(op), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_EQ(static_cast<bool>(constraintsExp),
+            params.expectedResult.expectedLegal);
+
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+}
+
+// The default expected result for binary operations:
+const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
+// Some binary ops (such as divide, logicalOr, etc.) require extra circular
+// buffer memory which is captured via the following expected values:
+const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
+const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
+
+//===---------------------------------------------------------===
+// Lambda functions for creating binary operations
+const auto createAdd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<AddOp>(l, t, r).getOperation();
+};
+const auto createSubtract = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<SubtractOp>(l, t, r).getOperation();
+};
+const auto createMultiply = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<MultiplyOp>(l, t, r).getOperation();
+};
+const auto createDivide = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<DivideOp>(l, t, r).getOperation();
+};
+const auto createEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<EqualOp>(l, t, r).getOperation();
+};
+const auto createNotEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<NotEqualOp>(l, t, r).getOperation();
+};
+const auto createGE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<GreaterEqualOp>(l, t, r).getOperation();
+};
+const auto createGT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<GreaterThanOp>(l, t, r).getOperation();
+};
+const auto createLE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<LessEqualOp>(l, t, r).getOperation();
+};
+const auto createLT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<LessThanOp>(l, t, r).getOperation();
+};
+const auto createAnd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<LogicalAndOp>(l, t, r).getOperation();
+};
+const auto createOr = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<LogicalOrOp>(l, t, r).getOperation();
+};
+const auto createXor = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<LogicalXorOp>(l, t, r).getOperation();
+};
+const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<MaximumOp>(l, t, r).getOperation();
+};
+const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<MinimumOp>(l, t, r).getOperation();
+};
+//===---------------------------------------------------------===
+
+// Define the test parameters for binary operations
+const std::vector<BinaryOpTestParams> binaryOpTestParams = {
+    {"Add", createAdd, binaryExpected},
+    {"Subtract", createSubtract, binaryExpected},
+    {"Multiply", createMultiply, binaryExpected},
+    {"Divide", createDivide, binaryExpected_extraCb2048},
+    {"Equal", createEqual, binaryExpected},
+    {"NotEqual", createNotEqual, binaryExpected},
+    {"GreaterEqual", createGE, binaryExpected},
+    {"GreaterThan", createGT, binaryExpected},
+    {"LessEqual", createLE, binaryExpected},
+    {"LessThan", createLT, binaryExpected},
+    {"LogicalAnd", createAnd, binaryExpected_extraCb4096},
+    {"LogicalOr", createOr, binaryExpected_extraCb4096},
+    {"LogicalXor", createXor, binaryExpected_extraCb4096},
+    {"Maximum", createMax, binaryExpected},
+    {"Minimum", createMin, binaryExpected}};
+
+// Instantiate the test suite
+INSTANTIATE_TEST_SUITE_P(
+    BinaryOpModelTests, BinaryOpModelTest,
+    ::testing::ValuesIn(binaryOpTestParams),
+    [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
+      return info.param.testName;
+    });
+
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -684,6 +843,9 @@ TEST_F(OpModelBase, SumOpInterface) {
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
       /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
@@ -694,6 +856,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), ::mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
@@ -704,6 +868,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -723,6 +889,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
@@ -735,6 +903,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
   if (cachedRuntimeExp) {
@@ -748,6 +918,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, SliceOpInterface) {
@@ -1975,6 +2147,37 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   EXPECT_EQ(stats2.hits, 0);
   // The input sizes are different, so it should be a miss:
   EXPECT_EQ(stats2.misses, 2);
+}
+
+TEST_F(OpModelBase, WhereOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto input3 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  auto where =
+      builder.create<WhereOp>(builder.getUnknownLoc(), outputType,
+                              mlir::ValueRange{input1, input2, input3});
+
+  // test WhereOp interface
+  auto constraintsExp = getOpConstraints(where.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(where.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
 }
 
 } // namespace mlir::tt::ttnn
