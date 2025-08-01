@@ -1767,36 +1767,36 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
     ::testing::Values(
-        std::make_tuple(
-            detail::TestTensor{{1, 1, 128 * 128, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{1, 1, 64 * 64, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
-            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{0, 0},
-            llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(
-            detail::TestTensor{{1, 1, 256 * 256, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{1, 1, 64 * 128, 32},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
-            llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(
-            detail::TestTensor{{1, 1, 17 * 21, 22},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{1, 1, 5 * 11, 22},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
-            llvm::SmallVector<int32_t>{1, 1}, false, false)));
+        std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 1, 64 * 64, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
+                        llvm::SmallVector<int32_t>{2, 2},
+                        llvm::SmallVector<int32_t>{0, 0},
+                        llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(detail::TestTensor{{1, 1, 256 * 256, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 1, 64 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{4, 2},
+                        llvm::SmallVector<int32_t>{0, 0},
+                        llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 1, 5 * 11, 22},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{4, 2},
+                        llvm::SmallVector<int32_t>{0, 0},
+                        llvm::SmallVector<int32_t>{1, 1}, false, false)));
 
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<
@@ -1815,9 +1815,9 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
   const auto slope = llvm::APFloat(std::get<2>(params));
   const auto expectedLegal = std::get<3>(params);
 
-  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
-  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   SingletonDeviceContext::resetInstance();
@@ -1853,16 +1853,15 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    LeakyReluTests, OpModelLeakyReluParam,
-    ::testing::Values(std::make_tuple(
-        detail::TestTensor{{1, 1, 128 * 128, 32},
-                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                           mlir::tt::ttnn::BufferType::DRAM},
-        detail::TestTensor{{1, 1, 128 * 128, 32},
-                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                           mlir::tt::ttnn::BufferType::L1},
-        1.0, true)));
+INSTANTIATE_TEST_SUITE_P(LeakyReluTests, OpModelLeakyReluParam,
+                         ::testing::Values(std::make_tuple(
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::DRAM},
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::L1},
+                             1.0, true)));
 
 class OpModelClampScalarParam : public OpModelTest,
                                 public testing::WithParamInterface<
