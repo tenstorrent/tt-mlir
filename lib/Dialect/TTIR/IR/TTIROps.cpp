@@ -395,6 +395,23 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
+  auto dtype = getDtype();
+  auto outputType = getResult().getType().getElementType();
+
+  if (dtype != outputType) {
+    return emitOpError()
+           << "dtype does not match with output tensor type [dtype = " << dtype
+           << ", output tensor type = " << outputType << "].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

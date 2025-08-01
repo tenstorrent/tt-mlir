@@ -21,6 +21,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/moreh_cumsum.fbs
   operations/normalization.fbs
   operations/pool.fbs
+  operations/rand.fbs
   operations/reduction.fbs
   operations/trace.fbs
 )

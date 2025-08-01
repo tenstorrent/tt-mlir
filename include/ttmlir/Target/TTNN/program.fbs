@@ -20,6 +20,7 @@ include "ttmlir/Target/TTNN/operations/mlir_native.fbs";
 include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
+include "ttmlir/Target/TTNN/operations/rand.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 
@@ -68,6 +69,7 @@ union OpType {
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  RandOp,
   ReductionArgMaxOp,
   ReductionOp,
   ReductionProdOp,

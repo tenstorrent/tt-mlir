@@ -26,6 +26,7 @@
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
+#include "ttmlir/Target/TTNN/operations/rand_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -1609,6 +1610,26 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RandOp>
+createRandOp(FlatbufferObjectCache &cache, RandOp op) {
+  auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  ::tt::target::DataType dtype =
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
+  ::tt::target::TensorLayout layout =
+      ::mlir::tt::ttnn::utils::toTargetTensorLayout(op.getLayout());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig());
+  float low = op.getLow().convertToFloat();
+  float high = op.getHigh().convertToFloat();
+  uint32_t seed = op.getSeed();
+
+  return ::tt::target::ttnn::CreateRandOp(
+      *cache.fbb, size, cache.at<::tt::target::DeviceRef>(device), dtype,
+      layout, memoryConfig, low, high, seed, out);
+}
+
 template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
@@ -2239,6 +2260,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
     return createOperation(cache, createConcatOp(cache, concatOp), debugString,
+                           locInfo);
+  }
+  if (auto randOp = dyn_cast<RandOp>(op); randOp) {
+    return createOperation(cache, createRandOp(cache, randOp), debugString,
                            locInfo);
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
