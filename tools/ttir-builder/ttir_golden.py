@@ -411,10 +411,11 @@ def gather_golden(
         raise NotImplementedError("General gather not implemented")
 
 
-def tilize_golden(input_tensor):
+def tilize_golden(input_tensor, tilize=True):
     """
     @brief Custom golden function for tilize operation.
     @param input_tensor Input tensor to tilize
+    @param tilize Tilize parameter (ignored, for compatibility)
     @return Tilized tensor with proper tile layout transformation
     """
     shape = input_tensor.shape
@@ -443,10 +444,11 @@ def tilize_golden(input_tensor):
     return tilized
 
 
-def untilize_golden(input_tensor):
+def untilize_golden(input_tensor, tilize=False):
     """
     @brief Custom golden function for untilize operation.
     @param input_tensor Input tensor to untilize
+    @param tilize Tilize parameter (ignored, for compatibility)
     @return Untilized tensor with proper layout transformation
     """
     shape = input_tensor.shape
