@@ -1093,6 +1093,171 @@ private:
   }
 };
 
+class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    PermuteOp permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!permuteOp || !isFusable(permuteOp, reshapeOp)) {
+      return mlir::failure();
+    }
+
+    Value inputTensor = permuteOp.getOperand(0);
+    RankedTensorType inputTensorType =
+        mlir::cast<RankedTensorType>(inputTensor.getType());
+    ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+
+    RankedTensorType reshapeResultType =
+        mlir::cast<RankedTensorType>(reshapeOp.getResult().getType());
+    ArrayRef<int64_t> reshapeOutputShape = reshapeResultType.getShape();
+
+    enum InputDimensions {
+      INPUT_BATCH = 0,
+      INPUT_NUM_HEADS = 1,
+      INPUT_SEQ = 2,
+      INPUT_HEAD_SIZE = 3
+    };
+
+    if (reshapeOutputShape.size() == 3) {
+      // default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), reshapeResultType, inputTensor);
+      rewriter.replaceOp(reshapeOp, concatHeadsOp);
+      return mlir::success();
+    }
+
+    if (reshapeOutputShape.size() == 2) {
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+
+      int64_t originalBatchSize = inputShape[INPUT_BATCH];
+      int64_t originalSequenceSize = inputShape[INPUT_SEQ];
+
+      // The new 3D shape for ConcatenateHeadsOp
+      // [batch_size, sequence_size, num_heads * head_size]
+      SmallVector<int64_t> newReshapeShape = {
+          originalBatchSize, originalSequenceSize,
+          reshapeOutputShape[1] // num_heads * head_size (hidden)
+      };
+
+      // Get element type from the original reshape result type
+      RankedTensorType newReshapeType = mlir::RankedTensorType::get(
+          newReshapeShape, reshapeResultType.getElementType());
+
+      // Create ConcatenateHeadsOp with the new shape.
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), newReshapeType, inputTensor);
+
+      SmallVector<mlir::Attribute> newReshapeShapeAttrs;
+      for (int64_t dim : reshapeOutputShape) {
+        newReshapeShapeAttrs.push_back(rewriter.getI32IntegerAttr(dim));
+      }
+      mlir::ArrayAttr newReshapeShapeAttr =
+          rewriter.getArrayAttr(newReshapeShapeAttrs);
+
+      // Convert 3d output to 2d output to match original output shape.
+      // input: [batch_size, sequence_size, num_heads * head_size]
+      // output: [batch_size * sequence_size, num_heads * head_size]
+      ReshapeOp newReshapeOp = utils::createDPSOp<ReshapeOp>(
+          rewriter, reshapeOp.getLoc(), reshapeResultType, concatHeadsOp,
+          newReshapeShapeAttr);
+
+      // Replace the original reshape op with the new reshape op
+      rewriter.replaceOp(reshapeOp, newReshapeOp);
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  }
+
+private:
+  bool isFusable(PermuteOp permuteOp, ReshapeOp reshapeOp) const {
+
+    // The sequence of operations without a 'concatenate_heads' op is:
+    // 1. **Input Tensor:** `tensor<#batch_size, #num_heads, #sequence_size,
+    // #head_size>`
+    // 2. **`tensor.permute` op:** Applied  with a **permutation attribute** of
+    // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
+    // #sequence_size, #num_heads, #head_size>`.
+    // 3. **`reshape` op:** `tensor.reshape(<permuted_tensor>, [#batch_size,
+    // #sequence_size, #num_heads * #head_size])`
+
+    // Check if the permutation is {0, 2, 1, 3}.
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    llvm::SmallVector<int64_t> expectedPermutation = {0, 2, 1, 3};
+
+    if (!llvm::equal(permutation, expectedPermutation)) {
+      return false;
+    }
+
+    ArrayRef<int64_t> inputShape = permuteOp.getInput().getType().getShape();
+    ArrayRef<int64_t> reshapeOutputShape =
+        reshapeOp.getResult().getType().getShape();
+
+    // Check that input shape is 4 dimensional.
+    if (inputShape.size() != 4) {
+      return false;
+    }
+
+    enum InputDimensions {
+      INPUT_BATCH = 0,
+      INPUT_NUM_HEADS = 1,
+      INPUT_SEQ = 2,
+      INPUT_HEAD_SIZE = 3
+    };
+
+    enum OutputDimensions {
+      OUTPUT_BATCH = 0,
+      OUTPUT_SEQ = 1,
+      OUTPUT_HIDDEN = 2
+    };
+
+    if (inputShape[INPUT_HEAD_SIZE] % 32 != 0) {
+      // The head size must be a multiple of 32.
+      // Requirement coming from
+      // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/transformer/concatenate_heads/concatenate_heads.cpp
+      return false;
+    }
+
+    if (reshapeOutputShape.size() == 3) {
+      // Default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      if (inputShape[INPUT_BATCH] != reshapeOutputShape[OUTPUT_BATCH] ||
+          inputShape[INPUT_SEQ] != reshapeOutputShape[OUTPUT_SEQ]) {
+        return false;
+      }
+
+      if (inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE] !=
+          reshapeOutputShape[OUTPUT_HIDDEN]) {
+        return false;
+      }
+    } else if (reshapeOutputShape.size() == 2) {
+      // If reshape output is 2D,
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+      SmallVector<int64_t> expectedReshapeOutputShape = {
+          inputShape[INPUT_BATCH] * inputShape[INPUT_SEQ],
+          inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
+
+      if (expectedReshapeOutputShape != reshapeOutputShape) {
+        return false;
+      }
+    } else {
+      // If the reshape output shape is not 2D or 3D, we cannot fuse.
+      return false;
+    }
+    return true;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1124,6 +1289,7 @@ public:
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(

@@ -1146,6 +1146,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_BeginTraceCaptureOp()->trace_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1433,6 +1437,10 @@ getOpInputRefs(OpContext opContextHandle,
          *opContext.type_as_CaptureOrExecuteTraceOp()->inputs()) {
       tensorRefs.push_back(input);
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
