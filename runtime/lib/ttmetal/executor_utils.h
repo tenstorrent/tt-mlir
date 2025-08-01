@@ -100,9 +100,12 @@ private:
 // Needed to construct ShardedBufferConfig
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
-inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
-    tt_metal::IDevice *device, const target::metal::BufferRef *bufferRef,
+inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
+createMeshBufferFromBufferRef(
+    tt_metal::distributed::MeshDevice *meshDevice,
+    const target::metal::BufferRef *bufferRef,
     const DeviceAddressValidator &deviceAddressValidator) {
+
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
   const target::metal::ShardedBufferConfig *shardedBufferConfig =
       bufferDesc->sharded_buffer_config();
@@ -135,24 +138,38 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
       bufferDesc->memory_space() == target::MemorySpace::DeviceDRAM
           ? tt_metal::BufferType::DRAM
           : tt_metal::BufferType::L1;
+  uint32_t address = deviceAddressValidator(bufferRef->address(),
+                                            bufferRef->desc()->memory_space());
 
-  auto metalShardedBufferConfig = tt_metal::ShardedBufferConfig{
-      .device = device,
-      .size = shardedBufferConfig->size(),
+  auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
+  auto distributedBufferShape =
+      tt_metal::Shape2D{localShardShape.height() * meshDevice->num_rows(),
+                        localShardShape.width() * meshDevice->num_cols()};
+  auto distributedBufferSizeBytes = meshDevice->num_rows() *
+                                    meshDevice->num_cols() *
+                                    shardedBufferConfig->size();
+
+  tt_metal::BufferShardingArgs bufferShardingArgs(
+      metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+
+  auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = bufferType,
-      .buffer_layout = tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-      .shard_parameters = metalShardSpecBuffer,
-  };
+      .sharding_args = std::move(bufferShardingArgs)};
+
+  auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
+      .global_size = distributedBufferSizeBytes,
+      .global_buffer_shape = distributedBufferShape,
+      .shard_shape = localShardShape,
+      .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
 
   LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
             logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
-  uint32_t address = deviceAddressValidator(bufferRef->address(),
-                                            bufferRef->desc()->memory_space());
-  std::shared_ptr<tt_metal::Buffer> buffer =
-      tt_metal::CreateBuffer(metalShardedBufferConfig, address);
+  std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer =
+      tt_metal::distributed::MeshBuffer::create(
+          distributedBufferConfig, localBufferConfig, meshDevice, address);
 
-  return buffer;
+  return meshBuffer;
 }
 #pragma clang diagnostic pop
 
@@ -289,7 +306,9 @@ std::vector<std::uint32_t> processKernelArgs(
         *args,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *buffers,
-    const std::unordered_map<std::uint32_t, DeviceBuffer> &deviceBuffers,
+    const std::unordered_map<std::uint32_t,
+                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
+        &meshBuffers,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
@@ -312,7 +331,7 @@ std::vector<std::uint32_t> processKernelArgs(
       const auto *arg = kernelArg->arg_as_KernelArgBufferAddress();
       const tt::target::metal::BufferRef *buffer =
           buffers->Get(arg->operand_idx());
-      LOG_ASSERT(deviceBuffers.find(buffer->global_id()) != deviceBuffers.end(),
+      LOG_ASSERT(meshBuffers.find(buffer->global_id()) != meshBuffers.end(),
                  "Buffer id referenced by rt args is no longer alive or was "
                  "never created ",
                  logger::Buffer(buffer->global_id()));
@@ -355,14 +374,16 @@ createKernelConfig(
     const target::metal::KernelConfig *kernelConfig,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *buffers,
-    const std::unordered_map<std::uint32_t, DeviceBuffer> &deviceBuffers,
+    const std::unordered_map<std::uint32_t,
+                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
+        &meshBuffers,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t, CoreType)> createSemaphoreFn) {
-  std::vector<uint32_t> compileArgs = processCompileArgs(
-      kernelConfig->args()->ct_args(), buffers, deviceBuffers, cbs,
-      deviceAddressValidator, createSemaphoreFn);
+  std::vector<uint32_t> compileArgs =
+      processCompileArgs(kernelConfig->args()->ct_args(), buffers, meshBuffers,
+                         cbs, deviceAddressValidator, createSemaphoreFn);
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
@@ -459,7 +480,9 @@ createKernelConfig(
 
 inline tt_metal::CircularBufferConfig createCircularBufferConfig(
     const target::metal::CBRef *cbRef,
-    const std::unordered_map<std::uint32_t, DeviceBuffer> &deviceBuffers) {
+    const std::unordered_map<std::uint32_t,
+                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
+        &meshBuffers) {
   const auto *bufferDesc = cbRef->buffer_ref()->desc();
   ::tt::DataFormat dataFormat = common::toDataFormat(bufferDesc->data_type());
   LOG_ASSERT(cbRef->buffer_ref());
@@ -468,10 +491,10 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
             logger::Buffer(cbRef->buffer_ref()->global_id()), " ",
             logger::Address(cbRef->buffer_ref()->address()), ": ",
             *bufferDesc->circular_buffer_config());
+  auto meshBuffer = meshBuffers.at(cbRef->buffer_ref()->global_id());
   return tt_metal::CircularBufferConfig(
              bufferDesc->circular_buffer_config()->total_size(),
-             {{cbRef->port(), dataFormat}},
-             *deviceBuffers.at(cbRef->buffer_ref()->global_id()))
+             {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
       .set_page_size(cbRef->port(),
                      bufferDesc->circular_buffer_config()->page_size());
 }

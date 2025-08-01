@@ -191,6 +191,13 @@ class Run:
             help="disable blackhole workarounds",
         )
         Run.register_arg(
+            name="--enable-d2m-return-event",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable d2m return event",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -568,6 +575,7 @@ class Run:
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
+                self["--enable-d2m-return-event"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {

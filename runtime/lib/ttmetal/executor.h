@@ -6,6 +6,7 @@
 #define RUNTIME_LIB_TTMETAL_EXECUTOR_H
 
 #define FMT_HEADER_ONLY
+#include "tt-metalium/distributed.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
 #include "tt/runtime/detail/common/dylib.h"
@@ -15,10 +16,10 @@
 namespace tt::runtime::ttmetal {
 
 std::vector<Tensor>
-executeDeviceProgram(::tt::tt_metal::IDevice *device,
-                     const ::tt::target::metal::DeviceProgram *program,
-                     const std::vector<Tensor> &inputs,
-                     common::DylibManager &&dylibs);
+executeMeshDeviceProgram(::tt::tt_metal::distributed::MeshDevice *meshDevice,
+                         const ::tt::target::metal::DeviceProgram *program,
+                         const std::vector<Tensor> &inputs,
+                         common::DylibManager &&dylibs);
 
 } // namespace tt::runtime::ttmetal
 
