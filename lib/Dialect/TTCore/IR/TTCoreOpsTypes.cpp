@@ -1087,8 +1087,9 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 // This function creates an affine map that represents mapping the tensor's
 // linear layout onto physical dram banks. The affine map round robin's the bank
 // in pages of page size.
-//   (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (
-//                |   |   |   |   |   |
+//   (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (
+//                |   |   |   |   |   |   |
+//                |   |   |   |   |   |   +- Element Size
 //                |   |   |   |   |   +- Base Address
 //                |   |   |   |   +- Page size
 //                |   |   |   +- Shard Dim X
@@ -1105,7 +1106,8 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat:
-//   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
+//   shard_vol = s2 * s3 * s6
+//   addr = (d0 * shard_vol * s1) + (d1 * shard_vol) + d2
 //
 // Where global_page_index is the global page index corresponding to the
 // address:
@@ -1120,7 +1122,9 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   mlir::AffineMap workerMap = workerGrid.getMapping();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
-  mlir::AffineExpr shardVolumeExpr = getAffineConstantExpr(1, context);
+  size_t elemSizeIndex = workerMap.getNumDims() * 2 + 2;
+  mlir::AffineExpr shardVolumeExpr =
+      getAffineSymbolExpr(elemSizeIndex, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr shardDim =
         getAffineSymbolExpr(workerMap.getNumDims() + i, context);
@@ -1154,7 +1158,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
           baseAddressExpr};
 
   unsigned dimCount = workerMap.getNumDims() + 1;
-  unsigned symbolCount = workerMap.getNumDims() * 2 + 2;
+  unsigned symbolCount = workerMap.getNumDims() * 2 + 3;
   return mlir::AffineMap::get(dimCount, symbolCount, dramMapResults, context);
 }
 
@@ -1235,13 +1239,13 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         .compose(affineMap);
   }
   case MemorySpace::DeviceDRAM: {
-    if (pageSize == 0) {
-      pageSize = getMemrefInterleavedPageSize(memrefType);
-    }
+    // page size == shard size
+    pageSize = getMemrefSizeBytes(memrefType);
     assert(pageSize > 0 && "expected positive page size");
     SmallVector<int64_t> symbols(memrefType.getShape());
     symbols.push_back(static_cast<int64_t>(pageSize));
     symbols.push_back(static_cast<int64_t>(baseOffset));
+    symbols.push_back(getElementSizeBytes(memrefType.getElementType()));
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   }
@@ -1302,24 +1306,6 @@ size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
   TileType tileType = mlir::dyn_cast<TileType>(elementType);
   return tileType ? tileType.getSizeBytes()
                   : TileType::get(elementType).getSizeBytes();
-}
-
-size_t DeviceAttr::getMemrefInterleavedPageSize(MemRefType memrefType) const {
-  size_t pageSize = 0;
-  switch (getMemorySpace(memrefType)) {
-  case MemorySpace::DeviceL1: {
-    pageSize = getMemrefCBPageSizeBytes(memrefType);
-    break;
-  }
-  case MemorySpace::DeviceDRAM: {
-    pageSize = 8192; // hardcoded at 8K for now
-    break;
-  }
-  default: {
-    llvm_unreachable("Unsupported memory space");
-  }
-  }
-  return pageSize;
 }
 
 size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
