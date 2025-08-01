@@ -13,8 +13,8 @@ from ttmlir.passes import GoldenTensor, DataType
 import torch
 from enum import Enum, auto
 import re
-from .ccl_golden import *
 from .ops import TTIRBuilderOps
+from . import ttir_golden
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -745,7 +745,6 @@ class TTIRBuilder(TTIRBuilderOps):
     @autodoc_skip
     def op_proxy(
         self,
-        op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
@@ -759,13 +758,10 @@ class TTIRBuilder(TTIRBuilderOps):
         loc: Optional[Union[str, Location]] = None,
     ) -> Any:
         """
-        Create and return a TTIR operation using the provided golden and TTIR functions.
+        Create and return a TTIR operation using the provided TTIR function and automatically derived golden function.
 
         Parameters
         ----------
-        op_golden_function : Callable
-            Function that creates the operation using golden approach
-
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
 
@@ -826,6 +822,11 @@ class TTIRBuilder(TTIRBuilderOps):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
+            # Get the golden function for this TTIR operation
+            op_golden_function = ttir_golden.get_golden_function(
+                op_ttir_function, **golden_kwargs
+            )
+
             # Compute the golden
             # Account for cases in which golden_arg organization is not needed:
             if (
@@ -892,7 +893,6 @@ class TTIRBuilder(TTIRBuilderOps):
     @autodoc_skip
     def eltwise_proxy(
         self,
-        op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
@@ -902,9 +902,6 @@ class TTIRBuilder(TTIRBuilderOps):
 
         Parameters
         ----------
-        op_golden_function : Callable
-            Function that creates the operation using golden approach
-
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
 
@@ -919,12 +916,11 @@ class TTIRBuilder(TTIRBuilderOps):
         OpView
             The created elementwise operation
         """
-        return self.op_proxy(op_golden_function, op_ttir_function, inputs, unit_attrs)
+        return self.op_proxy(op_ttir_function, inputs, unit_attrs)
 
     @autodoc_skip
     def ccl_proxy(
         self,
-        op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
         kwargs: dict = {},
@@ -936,9 +932,6 @@ class TTIRBuilder(TTIRBuilderOps):
 
         Parameters
         ----------
-        op_golden_function : Callable
-            Function that creates the operation using golden approach
-
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
 
@@ -955,7 +948,6 @@ class TTIRBuilder(TTIRBuilderOps):
         # Force GoldenCheckLevel to GRAPH_LEVEL when CCL Ops are used(phase 0)
         self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
         return self.op_proxy(
-            op_golden_function=op_golden_function,
             op_ttir_function=op_ttir_function,
             inputs=inputs,
             organize_golden_args=lambda i: (
