@@ -27,6 +27,7 @@
 #include "ttmlir/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/conversions/linalg/transforms/Passes.h"
 #include "stablehlo/transforms/Passes.h"
 #include "stablehlo/transforms/optimization/Passes.h"
 #endif
@@ -61,11 +62,16 @@ void createStableHLOToTTIRPipeline(
   if (options.enableAggressiveSimplification) {
     pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
   }
-  pm.addPass(createConvertStableHLOToTTIRPass());
-  // Fallback any remaining SHLO ops to CPU.
-  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-  pm.addPass(
-      ttir::createTTIRHoistTransformForDialects<stablehlo::StablehloDialect>());
+  ttir::ConvertStableHLOToTTIROptions passOptions;
+  passOptions.enablePartialConversion = options.enableCPUFallback;
+  pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
+
+  if (options.enableCPUFallback) {
+    // Fallback any remaining SHLO ops to CPU.
+    pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+    pm.addPass(ttir::createTTIRHoistTransformForDialects<
+               stablehlo::StablehloDialect>());
+  }
 }
 #endif
 
@@ -221,6 +227,12 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
   OpPassManager &cpuPm =
       manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+#ifdef TTMLIR_ENABLE_STABLEHLO
+  // Directly convert any hoisted SHLO ops into linalg ops.
+  cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());
+#endif
+
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
