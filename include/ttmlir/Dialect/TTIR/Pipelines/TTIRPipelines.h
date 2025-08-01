@@ -33,6 +33,12 @@ struct StableHLOToTTIRPipelineOptions
       llvm::cl::desc("Enable aggressive simplification of StableHLO operations "
                      "before conversion."),
       llvm::cl::init(false)};
+  //
+  Option<bool> enableCPUFallback{
+      *this, "enable-cpu-fallback",
+      llvm::cl::desc("Enable partial conversion and fallback any unconverted "
+                     "ops instead of a full conversion."),
+      llvm::cl::init(false)};
 };
 #endif
 
