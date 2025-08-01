@@ -154,6 +154,20 @@ def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
+def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {
+  let summary = "Convert SFPI dialect to EmitC dialect using GCC RISC-V Tenstorrent builtins.";
+  let description = [{
+    This pass converts SFPI (SFPU Programming Interface) operations to EmitC
+    operations that emit calls to GCC RISC-V Tenstorrent builtin functions.
+    
+    SFPI vector types (vector<4x8xf32>) are converted to __rvtt_vec_t and
+    operations are mapped to corresponding __builtin_rvtt_sfp* functions.
+  }];
+  let constructor = "createConvertSFPIToEmitCPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
+                           "mlir::tt::sfpi::SFPIDialect"];
+}
+
 def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to Linalg dialect.";
   let description = [{
