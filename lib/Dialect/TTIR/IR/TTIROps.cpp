@@ -1119,14 +1119,17 @@ static bool isIdentityPool2d(Pool2dOp op) {
   auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op.getDilation());
   auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPadding());
 
-  auto tupleToArray = [](const auto& t) {
+  auto tupleToArray = [](const auto &t) {
     return std::apply([](auto... args) { return std::array{args...}; }, t);
   };
 
   return kernel && stride && dilation && padding &&
-         llvm::all_of(tupleToArray(*kernel), [](int32_t v) { return v == 1; }) &&
-         llvm::all_of(tupleToArray(*stride), [](int32_t v) { return v == 1; }) &&
-         llvm::all_of(tupleToArray(*dilation), [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*kernel),
+                      [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*stride),
+                      [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*dilation),
+                      [](int32_t v) { return v == 1; }) &&
          llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
