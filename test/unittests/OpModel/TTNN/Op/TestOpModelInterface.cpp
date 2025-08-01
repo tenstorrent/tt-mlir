@@ -219,6 +219,66 @@ const auto createLog = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<LogOp>(loc, type, ops).getOperation();
 };
+const auto createAbs = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<AbsOp>(loc, type, ops).getOperation();
+};
+const auto createCeil = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CeilOp>(loc, type, ops).getOperation();
+};
+const auto createSign = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<SignOp>(loc, type, ops).getOperation();
+};
+const auto createErf = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<ErfOp>(loc, type, ops).getOperation();
+};
+const auto createErfc = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<ErfcOp>(loc, type, ops).getOperation();
+};
+const auto createFloor = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<FloorOp>(loc, type, ops).getOperation();
+};
+const auto createGelu = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<GeluOp>(loc, type, ops).getOperation();
+};
+const auto createIsFinite = [](OpBuilder &b, Location loc, Type type,
+                               ValueRange ops) {
+  return b.create<IsFiniteOp>(loc, type, ops).getOperation();
+};
+const auto createLogicalNot = [](OpBuilder &b, Location loc, Type type,
+                                 ValueRange ops) {
+  return b.create<LogicalNotOp>(loc, type, ops).getOperation();
+};
+const auto createNeg = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<NegOp>(loc, type, ops).getOperation();
+};
+const auto createTan = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<TanOp>(loc, type, ops).getOperation();
+};
+const auto createAtan = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AtanOp>(loc, type, ops).getOperation();
+};
+const auto createRsqrt = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<RsqrtOp>(loc, type, ops).getOperation();
+};
+const auto createLog1p = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Log1pOp>(loc, type, ops).getOperation();
+};
+const auto createExpm1 = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Expm1Op>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -232,7 +292,22 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Exp", createExp, expected},
     {"Tanh", createTanh, expected},
     {"Log", createLog, expected},
-    {"Reciprocal", createReciprocal, expected}};
+    {"Abs", createAbs, expected},
+    {"Ceil", createCeil, expected},
+    {"Sign", createSign, expected},
+    {"Erf", createErf, expected},
+    {"Erfc", createErfc, expected},
+    {"Floor", createFloor, expected},
+    {"Reciprocal", createReciprocal, expected},
+    {"Gelu", createGelu, expected},
+    {"IsFinite", createIsFinite, expected},
+    {"LogicalNot", createLogicalNot, expected},
+    {"Neg", createNeg, expected},
+    {"Tan", createTan, expected},
+    {"Atan", createAtan, expected},
+    {"Rsqrt", createRsqrt, expected},
+    {"Log1p", createLog1p, expected},
+    {"Expm1", createExpm1, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
@@ -1588,6 +1663,46 @@ TEST_F(OpModelBase, maxPool2DOp) {
   op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, LeakyReluOp) {
+  // Create LeakyReluOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input param
+  float slope = 0.01f;
+
+  // Convert float value to APFloat object
+  llvm::APFloat slopeAPF(slope);
+
+  LeakyReluOp leakyReluOp = builder.create<LeakyReluOp>(
+      builder.getUnknownLoc(), outputType, input, slopeAPF);
+  leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 8192);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
