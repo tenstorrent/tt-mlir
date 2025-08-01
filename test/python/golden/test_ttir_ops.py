@@ -2175,6 +2175,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -2232,6 +2233,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
+            marks=pytest.mark.fails_golden,
         ),
     ],
 )

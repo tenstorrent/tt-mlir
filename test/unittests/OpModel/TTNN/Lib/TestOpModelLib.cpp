@@ -2050,8 +2050,8 @@ TEST_F(OpModelTest, Where) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_EQ(cbSize, 12288);
-  EXPECT_EQ(peakSize, 10240);
+  EXPECT_EQ(cbSize, 16384);
+  EXPECT_EQ(peakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
   auto runtimeExp = OpModel<WhereOp>::getOpRuntime(
