@@ -1157,7 +1157,7 @@ template struct ReductionOpModel<SumOp>;
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, const int dimArg, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1173,7 +1173,7 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), numericStable);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1185,7 +1185,7 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
 
 llvm::Expected<size_t>
 OpModel<SoftmaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                 TTNNLayoutAttr inputLayout, const int dimArg,
+                                 TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
                                  TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1202,7 +1202,7 @@ OpModel<SoftmaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), numericStable);
   };
 
   return operation::getOpRuntime(softmaxOpQuery);
