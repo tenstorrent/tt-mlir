@@ -54,4 +54,15 @@ module attributes {} {
     return %1 : tensor<1x1x8192x512xf32>
   }
 }
-// CHECK: error: 'ttir.collective_broadcast' op replica_groups contains duplicated values
+// CHECK: error: 'ttir.collective_broadcast' op replica_groups must not contain duplicate values
+
+// -----
+
+module attributes {} {
+  func.func public @collective_broadcast_duplicated_device_id(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
+    %0 = ttir.empty() : tensor<1x1x8192x512xf32>
+    %1 = "ttir.collective_broadcast"(%arg0, %0) <{replica_groups = dense<[[1, 2, 3, 4], [5, 6, 7, 8]]> : tensor<2x4xi64>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
+    return %1 : tensor<1x1x8192x512xf32>
+  }
+}
+// CHECK: error: 'ttir.collective_broadcast' op replica_groups values must be in the range [0, 7], got 8
