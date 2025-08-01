@@ -1053,7 +1053,8 @@ template struct ReductionOpModel<SumOp>;
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1079,10 +1080,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t>
-OpModel<SoftmaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                 TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
-                                 TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
