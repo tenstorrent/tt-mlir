@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
@@ -22,6 +23,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
@@ -65,6 +67,84 @@ MemRefType getBufferType(Type type, bool isView) {
   return MemRefType::get(
       fullMemrefShape, tensorType.getElementType(), layoutAttr,
       ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // If the operands are both quantized but the types do not align, return
+  // false.
+  return mlir::tt::ttir::utils::areQuantizationParamsAligned(sourceOperands);
+}
+
+mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // Two cases:
+  // 1. One operand is quantized and the other is not: apply quantization and
+  //    proceed to case two.
+  // 2. Both operands are quantized: supported, return quantized add.
+  assert(sourceOperands.size() == 2 && "AddOp should have two operands.");
+  auto lhs = sourceOperands[0];
+  auto rhs = sourceOperands[1];
+
+  RankedTensorType lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+  RankedTensorType rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+
+  auto lhsElemQ =
+      mlir::dyn_cast<mlir::quant::QuantizedType>(lhsType.getElementType());
+  auto rhsElemQ =
+      mlir::dyn_cast<mlir::quant::QuantizedType>(rhsType.getElementType());
+
+  // One operand is dequantized, one is quantized — try to quantize the
+  // dequantized one.
+  if ((lhsElemQ && !rhsElemQ) || (!lhsElemQ && rhsElemQ)) {
+    Value quantVal = lhsElemQ ? lhs : rhs;
+    Value dequantVal = lhsElemQ ? rhs : lhs;
+    auto quantElemQ = lhsElemQ ? lhsElemQ : rhsElemQ;
+    auto quantType = mlir::cast<mlir::RankedTensorType>(quantVal.getType());
+    auto expressedType =
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType())
+            .getElementType();
+
+    // Insert quantize op for the dequantized value (the types must be
+    // compatible).
+    if (!isa<mlir::quant::UniformQuantizedType,
+             mlir::quant::UniformQuantizedPerAxisType>(quantElemQ)) {
+      return nullptr;
+    }
+    if (expressedType != quantElemQ.getExpressedType()) {
+      return nullptr;
+    }
+
+    RankedTensorType newType = RankedTensorType::get(
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType()).getShape(),
+        quantElemQ, quantType.getEncoding());
+
+    auto quantizedInput = ttir::utils::createDPSOp<ttir::QuantizeOp>(
+        rewriter, getLoc(), newType, dequantVal);
+
+    // Update operands.
+    if (lhsElemQ) {
+      rhs = quantizedInput;
+    } else {
+      lhs = quantizedInput;
+      lhsElemQ = quantElemQ;
+    }
+  }
+  // Now both values are quantized (and are equivalent).
+  Value output = outputOperands.front();
+  RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
+  RankedTensorType newResultType = RankedTensorType::get(
+      oldType.getShape(), lhsElemQ, oldType.getEncoding());
+
+  // Emit new AddOp with quantized types.
+  auto newAdd = ttir::utils::createDPSOp<ttir::AddOp>(rewriter, getLoc(),
+                                                      newResultType, lhs, rhs);
+  return newAdd.getOperation();
 }
 
 //===----------------------------------------------------------------------===//
@@ -704,6 +784,15 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                 /*isUnrolled=*/true);
 }
 
+// RequantizeOp folder for identity requantize.
+::mlir::OpFoldResult mlir::tt::ttir::RequantizeOp::fold(FoldAdaptor adaptor) {
+  // if types of input and output are equivalent, return input.
+  if (getInput().getType() == getOutput().getType()) {
+    return getInput();
+  }
+  return nullptr;
+}
+
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
   auto inputElemType = getInput().getType().getElementType();
@@ -912,6 +1001,63 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // ConvolutionOp
 //===----------------------------------------------------------------------===//
 
+bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // convolution op currently requires both input and weight to be quantized
+  // TODO(anuragsingh): enable float bias support
+  assert(sourceOperands.size() == 2 &&
+         "Quantized ConvolutionOp should have two operands (only input and "
+         "weight).");
+  return llvm::all_of(sourceOperands, [](mlir::Value val) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!type) {
+      return false;
+    }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
+    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
+  });
+}
+
+mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // rewrite the convolution op to be quantized.
+  // create the output quantized type, whose scale is input * weight and
+  // storage type is i32.
+  auto storageType =
+      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
+          .getElementType());
+  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
+          .getElementType());
+  mlir::quant::QuantizedType quantOutputType =
+      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
+          quantInputType, quantWeightType, storageType, getLoc());
+  if (!quantOutputType) {
+    return nullptr;
+  }
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+  auto quantConvOutputType =
+      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
+  if (!quantConvOutputType) {
+    return nullptr;
+  }
+  RankedTensorType newType =
+      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
+                            oldConvOutputType.getEncoding());
+  auto quantConv =
+      mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
+          rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
+          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
+          getBatchGroupCountAttr());
+  return quantConv.getOperation();
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::ConvolutionOp::verify() {
   if (getConvolutionLayout().getInputSpatialDimensions().size() !=
       getConvolutionLayout().getOutputSpatialDimensions().size()) {
@@ -1008,6 +1154,46 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
+// Rewrites the current PoolingOp to operate directly on quantized operands.
+//
+// This method constructs a new PoolingOp using the provided quantized inputs
+// and result type, preserving the original operation’s attributes.
+//
+// Returns:
+// - A pointer to the newly created quantized PoolingOp.
+mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // Can only commute if the pooling method is Max.
+  if (this->getPoolingMethod() != PoolingMethod::Max) {
+    return nullptr;
+  }
+  SmallVector<Value> updatedOutputs;
+  SmallVector<Type> resultTypes;
+  for (auto [in, out] : llvm::zip(sourceOperands, outputOperands)) {
+    // Can only commute in the per tensor quantized case.
+    if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+            in.getType())) {
+      return nullptr;
+    }
+    auto inType = mlir::cast<RankedTensorType>(in.getType());
+    auto outType = mlir::cast<RankedTensorType>(out.getType());
+    auto newResultType = RankedTensorType::get(
+        outType.getShape(), inType.getElementType(), outType.getEncoding());
+    resultTypes.push_back(newResultType);
+    auto empty = out.getDefiningOp<ttir::EmptyOp>();
+    assert(empty && "Output must be an EmptyOp");
+    auto newEmpty = rewriter.create<ttir::EmptyOp>(
+        empty.getLoc(), newResultType.getShape(),
+        newResultType.getElementType(), newResultType.getEncoding());
+    updatedOutputs.push_back(newEmpty);
+  }
+  auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
+      getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
+      getWindowDimensions(), getWindowStrides(), getBaseDilations(),
+      getWindowDilations(), getPadding());
+  return newOp.getOperation();
+}
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//

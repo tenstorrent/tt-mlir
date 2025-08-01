@@ -1288,7 +1288,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary] #  traits> {
+    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";
     let description = [{
       A base class for elementwise operations that apply a binary function to corresponding
@@ -1884,7 +1884,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
     }];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
       The `add` operation performs an elementwise addition between two tensors.
@@ -3359,7 +3359,7 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
+def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
   let summary = "Generalized convolution operation.";
   let description = [{
     This operation is a more flexible form of convolution that can handle arbitrary dimensionality
@@ -3493,7 +3493,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
+def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "General pooling operation.";
   let description = [{
     The `pooling` operation is a generalized pooling operation that can implement various pooling methods
@@ -5211,6 +5211,8 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
