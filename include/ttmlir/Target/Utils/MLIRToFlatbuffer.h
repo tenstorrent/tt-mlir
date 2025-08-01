@@ -242,17 +242,15 @@ inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
   }
 }
 
-inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                              ttcore::MemorySpace memspace) {
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttcore::MemorySpace memspace) {
   switch (memspace) {
-  case ttcore::MemorySpace::System:
-    return ::tt::target::MemorySpace::System;
-  case ttcore::MemorySpace::SystemMMIO:
-    return ::tt::target::MemorySpace::SystemMMIO;
   case ttcore::MemorySpace::DeviceDRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
+    return ::tt::target::BufferType::DRAM;
   case ttcore::MemorySpace::DeviceL1:
-    return ::tt::target::MemorySpace::DeviceL1;
+    return ::tt::target::BufferType::L1;
+  case ttcore::MemorySpace::SystemMMIO:
+  case ttcore::MemorySpace::System:
   case ttcore::MemorySpace::RegisterDst:
     llvm_unreachable("MemorySpace::RegisterDst not supported");
   }

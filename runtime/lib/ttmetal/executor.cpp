@@ -293,18 +293,19 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    // interleaved buffers do not have circular buffer configs!
-    if (cbRef->buffer_ref()->desc()->buffer_config_type() ==
-        target::metal::BufferConfig::InterleavedBufferConfig) {
+    const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+    LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+               target::metal::BufferDetail::MetalBuffer);
+    const target::metal::MetalBuffer *metalBuffer =
+        bufferDesc->buffer_detail_as_MetalBuffer();
+
+    // DRAM buffers cannot be associated/configured CBs
+    if (metalBuffer->buffer_type() == target::BufferType::DRAM) {
       continue;
     }
 
-    CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(cbRef->buffer_ref()
-                                   ->desc()
-                                   ->buffer_config_as_ShardedBufferConfig()
-                                   ->circular_buffer_config()
-                                   ->core_range_set());
+    CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+        metalBuffer->circular_buffer_config()->core_range_set());
     tt_metal::CircularBufferConfig config =
         createCircularBufferConfig(cbRef, deviceBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
