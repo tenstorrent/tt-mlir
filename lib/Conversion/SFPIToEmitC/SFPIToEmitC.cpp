@@ -53,18 +53,24 @@ public:
     addConversion([](IntegerType type) { return type; });
     addConversion([](FloatType type) { return type; });
     addConversion([](IndexType type) { return type; });
-    
+
     // Add materialization patterns for unrealized conversion casts
-    addSourceMaterialization([](OpBuilder &builder, Type resultType, ValueRange inputs, Location loc) -> Value {
-      if (inputs.size() != 1)
+    addSourceMaterialization([](OpBuilder &builder, Type resultType,
+                                ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1) {
         return nullptr;
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs).getResult(0);
+      }
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
     });
-    
-    addTargetMaterialization([](OpBuilder &builder, Type resultType, ValueRange inputs, Location loc) -> Value {
-      if (inputs.size() != 1)
+
+    addTargetMaterialization([](OpBuilder &builder, Type resultType,
+                                ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1) {
         return nullptr;
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs).getResult(0);
+      }
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
     });
   }
 };
@@ -289,18 +295,18 @@ struct ConvertSFPIToEmitCPass
     // Target is legal if it doesn't contain SFPI operations
     target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<sfpi::SFPIDialect>();
-    
+
     // Function dialect handling
-    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, typeConverter);
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return typeConverter.isSignatureLegal(op.getFunctionType()) &&
              typeConverter.isLegal(&op.getBody());
     });
-    
+
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
-      return typeConverter.isLegal(op);
-    });
+    target.addDynamicallyLegalOp<func::ReturnOp>(
+        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
 
     // Populate conversion patterns
     populateSFPIToEmitCConversionPatterns(patterns, typeConverter);
