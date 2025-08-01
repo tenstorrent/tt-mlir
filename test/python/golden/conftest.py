@@ -74,7 +74,6 @@ def filter_valid_mesh_shape(system_desc, params, require_exact_mesh=False):
         return num_chips <= num_physical_chips
 
 
-
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
