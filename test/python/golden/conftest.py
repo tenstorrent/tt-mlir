@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import os
 import pytest
 import ttrt
 import platform
@@ -66,6 +67,20 @@ def filter_valid_mesh_shape(system_desc, params, require_exact_mesh=False):
         return num_chips == num_physical_chips
     else:
         return num_chips <= num_physical_chips
+    
+def has_opmodel_enabled():
+    """Check if build was configured with DTTMLIR_ENABLE_OPMODEL=ON"""
+    try:
+        cache_file = os.path.join("build", "CMakeCache.txt")
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                content = f.read()
+                return "TTMLIR_ENABLE_OPMODEL:BOOL=ON" in content
+        
+        return False
+        
+    except Exception:
+        return False
 
 
 def pytest_collection_modifyitems(config, items):
@@ -75,7 +90,14 @@ def pytest_collection_modifyitems(config, items):
         ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
     )["system_desc"]
 
+    skip_opmodel = pytest.mark.skip(reason="Test requires build with op model")
+    opmodel_enabled = has_opmodel_enabled()
+
     for item in items:
+        # Skip optimizer tests if opmodel flag is missing
+        if not opmodel_enabled and "optimizer" in str(item.fspath):
+            item.add_marker(skip_opmodel)
+
         # Only check parameterized tests
         if hasattr(item, "callspec"):
             params = item.callspec.params

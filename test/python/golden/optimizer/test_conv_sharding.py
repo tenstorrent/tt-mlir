@@ -72,14 +72,13 @@ def test_conv2d_sharding(
             groups=groups,
             unit_attrs=unit_attrs,
         )
-
     output_file_mlir = compile_to_flatbuffer(
         conv2d,
         shapes,
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
-        system_desc_path=os.environ.get("SYSTEM_DESC_PATH"),
+        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",
             "memory-layout-analysis-enabled=true",
