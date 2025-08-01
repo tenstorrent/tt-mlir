@@ -1503,47 +1503,30 @@ Tensor<NumericType> calculatePooling(PoolingOp op,
   return outputTensor;
 }
 
-bool hasDilations(PoolingOp op) {
-  for (int64_t dilation : op.getBaseDilations()) {
-    if (dilation != 1) {
-      return true;
-    }
-  }
-
-  for (int64_t dilation : op.getWindowDilations()) {
-    if (dilation != 1) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool hasPadding(PoolingOp op) {
-  for (int64_t padding : op.getPadding()) {
-    if (padding != 0) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
 
-  // Cannot yet fold if there are dilations in the base or window.
-  if (hasDilations(*this)) {
+  // Cannot fold if there are dilations in the base as this is not implemented.
+  if (std::any_of(getBaseDilations().begin(), getBaseDilations().end(),
+                  [](int64_t dilation) { return dilation != 1; })) {
     return mlir::failure();
   }
 
-  // Cannot yet fold if there is padding.
-  if (hasPadding(*this)) {
+  // Cannot fold if there are dilations in the window as this is not
+  // implemented.
+  if (std::any_of(getWindowDilations().begin(), getWindowDilations().end(),
+                  [](int64_t dilation) { return dilation != 1; })) {
     return mlir::failure();
   }
 
-  // Cannot yet fold if there is more than one input.
+  // Cannot fold if there is padding as this is not implemented.
+  if (std::any_of(getPadding().begin(), getPadding().end(),
+                  [](int64_t padding) { return padding != 0; })) {
+    return mlir::failure();
+  }
+
+  // Cannot fold if there is more than one input as this is not implemented.
   if (adaptor.getInputs().size() > 1) {
     return mlir::failure();
   }
