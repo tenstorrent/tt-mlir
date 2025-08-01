@@ -1418,15 +1418,16 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
     }
     inputShapeStream << ")";
     std::string inputShapeStr = inputShapeStream.str();
+    bool isEmptySliceOp = adjustedEnd == adjustedBegin;
 
-    if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+    if (!isEmptySliceOp && (adjustedBegin < 0 || adjustedBegin >= dimSize)) {
       return emitOpError() << "Invalid begin index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
                            << "), got " << begin
                            << ". Input shape: " << inputShapeStr;
     }
-    if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+    if (!isEmptySliceOp && (adjustedEnd < 0 || adjustedEnd > dimSize)) {
       return emitOpError() << "Invalid end index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
