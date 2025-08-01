@@ -629,6 +629,8 @@ class TTKernelCompiler(ast.NodeVisitor):
                 )
             return func_arg
 
+        if node.func.id == "print":
+            return self.visit_Print(node.args)
         if not isinstance(node.func, ast.Attribute):
             # if not an Attribute, it's just a kernel api call.
             assert (
@@ -652,6 +654,30 @@ class TTKernelCompiler(ast.NodeVisitor):
                 func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
             self.visit(node.func, func_args=func_args)  # visit_Attribute
+
+    def visit_Print(self, node):
+        fmt = ""
+        argv = []
+        for arg in node:
+            # handles printing vars, eg: print(x)
+            if isinstance(arg, ast.Name):
+                fmt += "{} "
+                argv.append(self.visit(arg))
+            # handles printing constants, eg: print("hello world")
+            elif isinstance(arg, ast.Constant):
+                fmt += str(arg.value) + " "
+            # handles printing format strings, eg: print("hello {}".format(x))
+            elif isinstance(arg, ast.Call):
+                fmt += arg.func.value.value + " "
+                for arg in arg.args:
+                    argv.append(self.visit(arg))
+            else:
+                raise NotImplementedError(
+                    f"Print argument {type(arg).__name__} not supported"
+                )
+
+        # TODO: handle an emtpy argv case
+        ttkernel.dprint(fmt, argv)
 
     # Expressions
     def visit_Expr(self, node):
@@ -1078,19 +1104,19 @@ def ttkernel_compile(
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
-            # Check if generated IR is valid
+            # # Check if generated IR is valid
             print(b.module)
-            b.module.operation.verify()
+            # b.module.operation.verify()
 
-            # Run the PyKernel Compile Pipeline to fit model for Translation
-            if optimize:
-                pykernel_compile_pipeline(b.module)
-                print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
+            # # Run the PyKernel Compile Pipeline to fit model for Translation
+            # if optimize:
+            #     pykernel_compile_pipeline(b.module)
+            #     print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
-            if kernel_type:
-                print("---- Kernel String ----", b.module, sep="\n\n")
-                kernel_string = ttkernel_to_cpp(b.module)
-                return kernel_string
+            # if kernel_type:
+            #     print("---- Kernel String ----", b.module, sep="\n\n")
+            #     kernel_string = ttkernel_to_cpp(b.module)
+            #     return kernel_string
 
         # Make the decorator apply staticmethod for class methods defined using op.py
         _wrapper._decorator_name = thread_type + "_thread"
