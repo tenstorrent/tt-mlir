@@ -224,69 +224,71 @@ public:
 // This pattern detects and fuses numerically stable softmax:
 // softmax(x - max(x)) -> softmax(x, numericStable=true)
 // The subtraction of max(x) is the standard numerical stability technique
-// that should be handled internally by the softmax operation when numericStable=true
-class NumericStableSoftmaxFusionPattern : public mlir::OpRewritePattern<SoftmaxOp> {
+// that should be handled internally by the softmax operation when
+// numericStable=true
+class NumericStableSoftmaxFusionPattern
+    : public mlir::OpRewritePattern<SoftmaxOp> {
   using mlir::OpRewritePattern<SoftmaxOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(SoftmaxOp softmaxOp, mlir::PatternRewriter &rewriter) const final {
-    
+  matchAndRewrite(SoftmaxOp softmaxOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
     // Get the input to softmax
     mlir::Value softmaxInput = softmaxOp.getInput();
-    
+
     // Check if input is a subtract operation
     auto subOp = softmaxInput.getDefiningOp<SubtractOp>();
     if (!subOp) {
       return mlir::failure();
     }
-    
+
     // Get the operands of the subtract operation
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
-    
+
     // Check if the subtracted value is a max operation on the same input
     auto maxOp = subtractedValue.getDefiningOp<MaxOp>();
     if (!maxOp) {
       return mlir::failure();
     }
-    
+
     // Verify that max operates on the same input as the original
     if (maxOp.getInput() != originalInput) {
       return mlir::failure();
     }
-    
+
     // Verify that max reduces along the same dimension as softmax
     // and has keep_dim=true for proper broadcasting
     if (!maxOp.getDimArg() || !maxOp.getKeepDim()) {
       return mlir::failure();
     }
-    
+
     mlir::ArrayAttr maxReduceDims = *maxOp.getDimArg();
     if (maxReduceDims.size() != 1) {
       return mlir::failure();
     }
-    
-    int64_t maxReduceDim = mlir::cast<mlir::IntegerAttr>(maxReduceDims[0]).getInt();
+
+    int64_t maxReduceDim =
+        mlir::cast<mlir::IntegerAttr>(maxReduceDims[0]).getInt();
     if (maxReduceDim != softmaxOp.getDimension()) {
       return mlir::failure();
     }
-    
+
     // Check usage patterns to ensure we can safely fuse:
     // - subtract should have exactly 1 user (the softmax)
     // - max should have exactly 1 user (the subtract)
     if (!subOp.getResult().hasOneUse() || !maxOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
-    
+
     // Replace with numerically stable softmax
     utils::replaceOpWithNewDPSOp<SoftmaxOp>(
-        rewriter, softmaxOp,
-        softmaxOp.getResult().getType(),
-        originalInput,
+        rewriter, softmaxOp, softmaxOp.getResult().getType(), originalInput,
         softmaxOp.getDimension(),
         /*numericStable=*/rewriter.getBoolAttr(true));
-    
+
     return mlir::success();
   }
 };
