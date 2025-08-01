@@ -4922,24 +4922,6 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR region ops (ops that may appear inside of ttir.generic region)
-//    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
-//===----------------------------------------------------------------------===//
-
-def TTIR_KernelOp : TTIR_NamedOp<"kernel", [AttrSizedOperandSegments]> {
-    let summary = "Kernel call.";
-    let description = [{
-      A generic kernel call operation. This operation is used to pattern match by some consuming backend.
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
-    let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-}
-
-//===----------------------------------------------------------------------===//
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
