@@ -1189,6 +1189,8 @@ struct Tensor {
 
   const SmallVector<int64_t> &getShape() const { return shape; }
 
+  int64_t getVolume() const { return volume; }
+
   NumericType &operator[](ArrayRef<int64_t> index) {
     return operator[](getFlatIndexFromStride(index, strides));
   }
@@ -1488,12 +1490,16 @@ Tensor<NumericType> calculatePooling(PoolingOp op,
     NumericType result = applyReductionWindow(op, inputTensor, window.value());
 
     outputTensor[currentOutputIndex] = result;
-    currentOutputIndex++;
+    currentOutputIndex++; // On the very last iteration, this will move
+                          // currentOutputIndex out of bounds, thus being equal
+                          // to the output tensor volume
 
     window = getNextWindow(window.value(), op.getWindowStrides(),
                            op.getWindowDimensions(), inputTensor);
   } while (window.has_value());
 
+  assert(currentOutputIndex == outputTensor.getVolume() &&
+         "The output tensor was not filled.");
   return outputTensor;
 }
 
