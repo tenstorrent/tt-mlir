@@ -1297,11 +1297,17 @@ private:
         static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
     });
 
+    // PadOp padding is in the form [..., high, low, ...] for each dimension.
+    // This means that newPadding is in the form [top, bottom, left, right]
+    // MaxPool2dOp and AvgPool2dOp padding is in the for [top, left, bottom,
+    // right] so we must insert the padding in the correct order.
     auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
     });
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
