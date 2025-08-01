@@ -1751,7 +1751,8 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   int32_t dimension = op.getDimension();
   bool numericStable = op.getNumericStable();
 
-  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension, numericStable);
+  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension,
+                                             numericStable);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
