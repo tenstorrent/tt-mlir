@@ -676,7 +676,6 @@ class TTKernelCompiler(ast.NodeVisitor):
                     f"Print argument {type(arg).__name__} not supported"
                 )
 
-        # TODO: handle an emtpy argv case
         ttkernel.dprint(fmt, argv)
 
     # Expressions
