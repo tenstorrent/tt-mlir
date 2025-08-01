@@ -28,6 +28,7 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -3950,11 +3951,10 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
-static mlir::LogicalResult
-verifyReplicaGroups(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
-                    mlir::DenseIntElementsAttr replicaGroups) {
+static std::optional<std::string>
+verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
   if (replicaGroups.getType().getRank() != 2) {
-    return emitOpError() << "replica_groups must be a 2D array";
+    return "replica_groups must be a 2D array";
   }
 
   auto replicaIds = replicaGroups.getValues<int64_t>();
@@ -3962,18 +3962,19 @@ verifyReplicaGroups(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   llvm::SmallDenseSet<int64_t> seen;
   for (auto id : replicaIds) {
     if (id < 0) {
-      return emitOpError() << "replica_groups values must be positive";
+      return "replica_groups values must be positive";
     }
     if (id > maxId) {
-      return emitOpError() << "replica_groups values must be in the range [0, "
-                           << maxId << "], got " << id;
+      return llvm::formatv(
+                 "replica_groups values must be in the range [0, {0}], got {1}",
+                 maxId, id)
+          .str();
     }
     if (!seen.insert(id).second) {
-      return emitOpError()
-             << "replica_groups must not contain duplicate values";
+      return "replica_groups must not contain duplicate values";
     }
   }
-  return success();
+  return std::nullopt;
 }
 
 //===----------------------------------------------------------------------===//
@@ -4013,9 +4014,9 @@ verifyReplicaGroups(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     return emitOpError("Input and output element types must match");
   }
   ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
-  if (failed(verifyReplicaGroups([&]() { return emitOpError(); },
-                                 replicaGroups))) {
-    return failure();
+
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
   }
   auto replicaGroupsShape = replicaGroups.getType().getShape();
   if (replicaGroupsShape[1] != splitCount) {
@@ -4749,9 +4750,8 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   }
 
   ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
-  if (failed(verifyReplicaGroups([&]() { return emitOpError(); },
-                                 replicaGroups))) {
-    return failure();
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
   }
 
   return success();
