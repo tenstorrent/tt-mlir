@@ -2920,6 +2920,8 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
