@@ -82,7 +82,7 @@ private:
   // Flags for enabling/disabling the memory configurations
   bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = false;
-  bool enableL1InterleavedAnalysis = false;
+  bool enableL1InterleavedFallbackAnalysis = false;
 
   llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;
 

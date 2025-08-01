@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDANALYSIS_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDFALLBACKANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDFALLBACKANALYSIS_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
@@ -17,15 +17,16 @@
 
 namespace mlir::tt::ttnn {
 
-struct L1InterleavedAnalysisInput {
+struct L1InterleavedFallbackAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalL1InterleavedConfigs;
   llvm::DenseMap<Operation *, OpConfig> currentConfigs;
   func::FuncOp funcOp;
   unsigned usableL1CacheSize = 0;
 
-  L1InterleavedAnalysisInput() : legalL1InterleavedConfigs(), funcOp() {}
+  L1InterleavedFallbackAnalysisInput()
+      : legalL1InterleavedConfigs(), funcOp() {}
 
-  L1InterleavedAnalysisInput(
+  L1InterleavedFallbackAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>>
           &legalL1InterleavedConfigs, // only tiled rn, but could have row-major
       const llvm::DenseMap<Operation *, OpConfig> &currentConfigs,
@@ -34,23 +35,23 @@ struct L1InterleavedAnalysisInput {
         currentConfigs(currentConfigs), funcOp(funcOp),
         usableL1CacheSize(usableL1CacheSize) {}
 
-  bool operator==(const L1InterleavedAnalysisInput &rhs) const {
+  bool operator==(const L1InterleavedFallbackAnalysisInput &rhs) const {
     return legalL1InterleavedConfigs == rhs.legalL1InterleavedConfigs &&
            currentConfigs == rhs.currentConfigs && funcOp == rhs.funcOp &&
            usableL1CacheSize == rhs.usableL1CacheSize;
   }
 
-  bool operator!=(const L1InterleavedAnalysisInput &rhs) const {
+  bool operator!=(const L1InterleavedFallbackAnalysisInput &rhs) const {
     return !(*this == rhs);
   }
 };
 
-struct L1InterleavedAnalysisResult {
+struct L1InterleavedFallbackAnalysisResult {
   llvm::DenseMap<Operation *, OpConfig> upgradedConfigs;
 
-  L1InterleavedAnalysisResult() : upgradedConfigs() {}
+  L1InterleavedFallbackAnalysisResult() : upgradedConfigs() {}
 
-  L1InterleavedAnalysisResult(
+  L1InterleavedFallbackAnalysisResult(
       const llvm::DenseMap<Operation *, OpConfig> &upgradedConfigs)
       : upgradedConfigs(upgradedConfigs) {}
 };
@@ -61,8 +62,9 @@ struct L1InterleavedAnalysisResult {
 // 2. That user is the immediate next operation in the schedule
 // 3. L1 memory constraints are satisfied
 //
-class L1InterleavedAnalysis : public TTNNAnalysis<L1InterleavedAnalysisInput,
-                                                  L1InterleavedAnalysisResult> {
+class L1InterleavedFallbackAnalysis
+    : public TTNNAnalysis<L1InterleavedFallbackAnalysisInput,
+                          L1InterleavedFallbackAnalysisResult> {
 
 private:
   void analysisImplementation() override;
@@ -93,9 +95,9 @@ private:
       const TTNNLayoutAttr upgradedProducerLayout) const;
 
 public:
-  L1InterleavedAnalysis(Operation *op) : TTNNAnalysis(op) {}
+  L1InterleavedFallbackAnalysis(Operation *op) : TTNNAnalysis(op) {}
 };
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDANALYSIS_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDFALLBACKANALYSIS_H
