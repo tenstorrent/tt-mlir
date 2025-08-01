@@ -13,5 +13,6 @@ add_mlir_conversion_library(TTMLIRSFPIToEmitC
   MLIRTransforms
   MLIREmitCDialect
   MLIRFuncDialect
+  MLIRFuncTransforms
   MLIRSFPIDialect
 )

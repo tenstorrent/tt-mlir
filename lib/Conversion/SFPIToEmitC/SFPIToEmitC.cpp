@@ -6,6 +6,7 @@
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -52,6 +53,19 @@ public:
     addConversion([](IntegerType type) { return type; });
     addConversion([](FloatType type) { return type; });
     addConversion([](IndexType type) { return type; });
+    
+    // Add materialization patterns for unrealized conversion casts
+    addSourceMaterialization([](OpBuilder &builder, Type resultType, ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1)
+        return nullptr;
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs).getResult(0);
+    });
+    
+    addTargetMaterialization([](OpBuilder &builder, Type resultType, ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1)
+        return nullptr;
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs).getResult(0);
+    });
   }
 };
 
@@ -273,8 +287,20 @@ struct ConvertSFPIToEmitCPass
     ConversionTarget target(*context);
 
     // Target is legal if it doesn't contain SFPI operations
-    target.addLegalDialect<emitc::EmitCDialect, func::FuncDialect>();
+    target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<sfpi::SFPIDialect>();
+    
+    // Function dialect handling
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
+    
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
+      return typeConverter.isLegal(op);
+    });
 
     // Populate conversion patterns
     populateSFPIToEmitCConversionPatterns(patterns, typeConverter);
