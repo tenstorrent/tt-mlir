@@ -11,6 +11,12 @@
 
 namespace tt::alchemist {
 
+// Main interface for the tt-alchemist tool.
+//
+// This header defines the TTAlchemist singleton class, which provides methods
+// to convert MLIR models to C++ or Python code, and to generate standalone
+// solutions from these models. The class manages an MLIRContext internally.
+//
 class TTAlchemist {
 public:
   // Singleton pattern

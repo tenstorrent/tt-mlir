@@ -77,9 +77,7 @@ class TTAlchemistAPI:
                 return ctypes.CDLL(lib_path)
             except Exception as e:
                 print(f"Failed to load library from: {lib_path}")
-                print(f"Exception: {e}")
-                # Fall back to TT_MLIR_HOME if loading from package fails
-                pass
+                raise e
 
     def model_to_cpp(self, input_file):
         """Convert MLIR model to C++ code.
