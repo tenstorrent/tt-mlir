@@ -26,6 +26,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // interleaved
   analysisInput.funcOp->walk([&](Operation *op) {
     // Skip operations that have the row-major workaround later on in Optimizer
+    // TODO(bmalesevic): remove this after manual workaround is removed
     if (isa<ttnn::MaxPool2dOp>(op) || isa<ttnn::UpsampleOp>(op)) {
       return;
     }
@@ -43,7 +44,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
     // Skip if operation doesn't use DRAM layout
-    if (!outputsDRAMLayout(op)) {
+    if (!utils::outputsDRAMLayout(op)) {
       return;
     }
     // Skip if producer is not immediately consumed by consumer
@@ -58,7 +59,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     std::vector<OpConfig> opL1InterleavedConfigs =
         getL1InterleavedLayoutConfigs(op);
 
-    bool isCurrentlyTiled = isTiledTensorLayout(op);
+    bool isCurrentlyTiled = utils::isTiledTensorLayout(op);
 
     // Partition configs to prioritize those matching current tiling preference
     std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
@@ -111,54 +112,6 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
   return it->second;
 }
 
-bool L1InterleavedFallbackAnalysis::outputsDRAMLayout(Operation *op) const {
-  // Check if the operation has a result type that is a tensor
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-
-  auto resultType =
-      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
-  if (!resultType) {
-    return false;
-  }
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.hasDRAMBufferType();
-  }
-
-  return false;
-}
-
-bool L1InterleavedFallbackAnalysis::outputsL1Layout(Operation *op) const {
-  // Check if the operation has a result type that is a tensor
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-
-  auto resultType =
-      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
-  if (!resultType) {
-    return false;
-  }
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.hasL1BufferType();
-  }
-
-  return false;
-}
-
 bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
   // Check if operation has exactly one user
   if (!op->hasOneUse()) {
@@ -174,20 +127,6 @@ bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
 
   // Check if the user is the immediate next operation in schedule
   return consumerOp == userOp;
-}
-
-bool L1InterleavedFallbackAnalysis::isTiledTensorLayout(Operation *op) const {
-  auto resultType =
-      mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.isTiled();
-  }
-  return false;
 }
 
 llvm::Expected<TTNNLayoutAttr>
@@ -304,12 +243,16 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    consumerOp->getName().getStringRef().data());
   }
   // Check if upgrading this operation would cause memory conflicts with its
-  // consumer, using one recursion level
+  // consumer. This is a single-level recursion check:
+  // - First call: upgradedProducerOp=nullptr, checks if current op can be
+  // upgraded
+  // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
+  // handle the upgrade
   if (!upgradedProducerOp) {
     Operation *nextConsumerOp = *consumerOp->getUsers().begin();
     assert(nextConsumerOp && "Operation must have a consumer");
     // If next consumer uses L1 memory, verify both operations can coexist in L1
-    if (outputsL1Layout(nextConsumerOp)) {
+    if (utils::outputsTensorWithSetLayout(nextConsumerOp)) {
       const OpConfig &nextConsumerOpConfig =
           analysisInput.currentConfigs.at(nextConsumerOp);
 

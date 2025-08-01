@@ -77,18 +77,16 @@ private:
   // available after LegalLayoutsAnalysis)
   std::vector<OpConfig> getL1InterleavedLayoutConfigs(Operation *op) const;
 
-  bool outputsDRAMLayout(Operation *op) const;
-
-  bool outputsL1Layout(Operation *op) const;
-
   // Check if operation has exactly one user that is immediate next in schedule
   bool hasImmediateConsumer(Operation *op) const;
 
-  // Check if originally tiled or row-major to choose correct upgrade path
-  bool isTiledTensorLayout(Operation *op) const;
-
-  // Check if upgrading operation to L1 interleaved if safe, return updated
-  // layout
+  // Check if upgrading operation to L1 interleaved is safe via single-level
+  // recursive validation of producer-consumer chain. Parameters support the
+  // recursive check:
+  // - upgradedProducerOp & upgradedProducerLayout: when non-null, represents
+  //   the hypothetical upgraded producer we need to validate against
+  // - This allows checking if the consumer can handle the upgraded layout
+  //   before committing to the upgrade
   llvm::Expected<TTNNLayoutAttr> checkUpgradeToL1Interleaved(
       Operation *consumerOp, const OpConfig &consumerConfig,
       const Operation *upgradedProducerOp,
