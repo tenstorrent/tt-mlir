@@ -2160,4 +2160,29 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::DRAM},
             detail::ExpectedResult{true, 32768, 16384, 8192})));
 
+TEST_F(OpModelTest, Where) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputTensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      inputTensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<WhereOp>::getOpConstraints(
+      CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
+      inputLayout, inputTensorShape, inputLayout, inputTensorShape,
+      outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 16384);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  auto runtimeExp = OpModel<WhereOp>::getOpRuntime(
+      inputTensorShape, inputLayout, inputTensorShape, inputLayout,
+      inputTensorShape, inputLayout, inputTensorShape, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 } // namespace mlir::tt::op_model::ttnn
