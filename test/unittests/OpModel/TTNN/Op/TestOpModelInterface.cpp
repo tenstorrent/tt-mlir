@@ -827,6 +827,30 @@ TEST_F(OpModelBase, MeanOpInterface) {
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
+TEST_F(OpModelBase, MaxOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  testReductionOp<MaxOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+}
+
+TEST_F(OpModelBase, MinOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  testReductionOp<MinOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/69632, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+}
+
 TEST_F(OpModelBase, SumOpInterface) {
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
   llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};

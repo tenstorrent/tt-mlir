@@ -322,7 +322,7 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-
+    SingletonDeviceContext::resetInstance();
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, dimArg, keepDim, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -337,9 +337,13 @@ protected:
 // Type aliases for reduction operations
 using OpModelSumParam = OpModelReductionParam<SumOp>;
 using OpModelMeanParam = OpModelReductionParam<MeanOp>;
+using OpModelMaxParam = OpModelReductionParam<MaxOp>;
+using OpModelMinParam = OpModelReductionParam<MinOp>;
 
 TEST_P(OpModelSumParam, SumOp) { RunTest(); }
 TEST_P(OpModelMeanParam, MeanOp) { RunTest(); }
+TEST_P(OpModelMaxParam, MaxOp) { RunTest(); }
+TEST_P(OpModelMinParam, MinOp) { RunTest(); }
 
 // Test parameters for reduction operations
 static const auto reductionParams = ::testing::Values(
@@ -367,6 +371,10 @@ static const auto reductionParams = ::testing::Values(
 INSTANTIATE_TEST_SUITE_P(SumTests, OpModelSumParam, reductionParams);
 
 INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelMeanParam, reductionParams);
+
+INSTANTIATE_TEST_SUITE_P(MaxTests, OpModelMaxParam, reductionParams);
+
+INSTANTIATE_TEST_SUITE_P(MinTests, OpModelMinParam, reductionParams);
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};

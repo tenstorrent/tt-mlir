@@ -272,6 +272,12 @@ struct OpModel<MeanOp> : ReductionOpModel<MeanOp> {};
 template <>
 struct OpModel<SumOp> : ReductionOpModel<SumOp> {};
 
+template <>
+struct OpModel<MaxOp> : ReductionOpModel<MaxOp> {};
+
+template <>
+struct OpModel<MinOp> : ReductionOpModel<MinOp> {};
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
