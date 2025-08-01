@@ -213,9 +213,9 @@ public:
     int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(reduceDims[0]).getInt();
 
     // Replace div op with new softmax op.
-    utils::replaceOpWithNewDPSOp<SoftmaxOp>(rewriter, divOp,
-                                            divOp.getResult().getType(),
-                                            expOp.getInput(), reduceDim);
+    utils::replaceOpWithNewDPSOp<SoftmaxOp>(
+        rewriter, divOp, divOp.getResult().getType(), expOp.getInput(),
+        reduceDim, /*numericStable=*/false);
 
     return mlir::success();
   }
@@ -287,7 +287,7 @@ public:
     utils::replaceOpWithNewDPSOp<SoftmaxOp>(
         rewriter, softmaxOp, softmaxOp.getResult().getType(), originalInput,
         softmaxOp.getDimension(),
-        /*numericStable=*/rewriter.getBoolAttr(true));
+        /*numericStable=*/true);
 
     return mlir::success();
   }
