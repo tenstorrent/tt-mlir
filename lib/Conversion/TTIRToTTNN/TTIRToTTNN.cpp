@@ -1542,7 +1542,8 @@ public:
     auto replicaGroups = ttmlir::utils::denseElementsAttrTo2D<int64_t>(
         adaptor.getReplicaGroups());
 
-    // For each replica group, broadcast the first device's tensor to all other.
+    // For each replica group, broadcast the first device's tensor to all
+    // others.
     for (const auto &group : replicaGroups) {
       auto sourceCoord = rewriter.getDenseI64ArrayAttr(
           ttmlir::utils::linearIdToCoord(group[0], meshShape));
@@ -1555,7 +1556,7 @@ public:
       }
     }
 
-    // Replace the original collective_broadcast op with the final output value
+    // Replace the original collective_broadcast op with the final output value.
     rewriter.replaceOp(op, finalValue);
 
     return success();
