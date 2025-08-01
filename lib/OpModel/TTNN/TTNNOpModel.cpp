@@ -982,8 +982,7 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, llvm::ArrayRef<int64_t> inputShapeC,
-    TTNNLayoutAttr inputLayoutC, llvm::ArrayRef<int64_t> outputShape,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayoutC, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1031,7 +1030,7 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
-    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();

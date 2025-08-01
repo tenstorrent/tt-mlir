@@ -2175,8 +2175,7 @@ TEST_F(OpModelTest, Where) {
 
   auto constraintsExp = OpModel<WhereOp>::getOpConstraints(
       CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
-      inputLayout, inputTensorShape, inputLayout, inputTensorShape,
-      outputLayout);
+      inputLayout, inputTensorShape, inputLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
@@ -2186,7 +2185,7 @@ TEST_F(OpModelTest, Where) {
 
   auto runtimeExp = OpModel<WhereOp>::getOpRuntime(
       inputTensorShape, inputLayout, inputTensorShape, inputLayout,
-      inputTensorShape, inputLayout, inputTensorShape, outputLayout);
+      inputTensorShape, inputLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }

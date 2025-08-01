@@ -120,7 +120,6 @@ getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getFirst().getType().getShape();
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
-  const auto outputShape = op.getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
   if (!check) {
@@ -131,7 +130,7 @@ getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], inputShapeC, inputs[2], outputShape,
+      inputs[0], inputShapeB, inputs[1], inputShapeC, inputs[2],
       opConfig.outputLayout);
 }
 
@@ -144,12 +143,10 @@ getTernaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getFirst().getType().getShape();
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
-  const auto outputShape = op.getType().getShape();
 
-  return opRuntimeCache().getOrCompute(op_model::OpModel<OpT>::getOpRuntime, op,
-                                       inputShapeA, inputs[0], inputShapeB,
-                                       inputs[1], inputShapeC, inputs[2],
-                                       outputShape, opConfig.outputLayout);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShapeA, inputs[0],
+      inputShapeB, inputs[1], inputShapeC, inputs[2], opConfig.outputLayout);
 }
 
 template <typename OpT>

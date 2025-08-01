@@ -243,14 +243,12 @@ struct TernaryEltwiseOpModel {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, llvm::ArrayRef<int64_t> inputShapeC,
-      TTNNLayoutAttr inputLayoutC, llvm::ArrayRef<int64_t> outputShape,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr inputLayoutC, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
                llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
-               llvm::ArrayRef<int64_t> outputShape,
                TTNNLayoutAttr outputLayout);
 };
 
