@@ -1115,26 +1115,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // - Number of inputs equals number of outputs.
 //===----------------------------------------------------------------------===//
 
-inline SmallVector<int64_t>
-getTensorIndexFromBufferIndex(int64_t bufferIndex, ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> index(shape.size());
-  for (int64_t i = shape.size() - 1; i >= 0; i--) {
-    index[i] = (bufferIndex % shape[i]);
-    bufferIndex /= shape[i];
-  }
-  return index;
-}
-
-inline int64_t getBufferIndexFromTensorIndex(ArrayRef<int64_t> index,
-                                             ArrayRef<int64_t> strides) {
-  int64_t bufferIndex = 0;
-  for (size_t i = 0; i < index.size(); i++) {
-    bufferIndex += index[i] * strides[i];
-  }
-  return bufferIndex;
-}
-
-SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
+// This function will calculate the strides for a given shape. That is, for each
+// dimension it will calculate the number of elements along the flat data buffer
+// you must traverse to reach the next element in that dimension.
+inline SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
   SmallVector<int64_t> strides(shape.size());
   strides.back() = 1;
 
@@ -1145,43 +1129,143 @@ SmallVector<int64_t> calculateStrides(ArrayRef<int64_t> shape) {
   return strides;
 }
 
-template <typename numeric_type>
-numeric_type indexTensor(const std::vector<numeric_type> &tensor,
-                         ArrayRef<int64_t> shape, ArrayRef<int64_t> index) {
-  // int64_t bufferIndex = 0;
-
-  // for (size_t i = 0; i < shape.size() - 1; i++) {
-  //   bufferIndex += index[i] * shape[i];
-  // }
-
-  // bufferIndex += index[shape.size() - 1];
-
-  return tensor[getBufferIndexFromTensorIndex(index, calculateStrides(shape))];
+// Calculate the flat index of a given shape index given the strides of a shape.
+inline int64_t getFlatIndexFromStride(ArrayRef<int64_t> index,
+                                      ArrayRef<int64_t> stride) {
+  assert(index.size() == stride.size() &&
+         "index and stride must have the same size");
+  int64_t flatIndex = 0;
+  for (int64_t i = 0; i < static_cast<int64_t>(index.size()); i++) {
+    flatIndex += index[i] * stride[i];
+  }
+  return flatIndex;
 }
 
-template <typename numeric_type>
-void setElementAtIndex(std::vector<numeric_type> &tensor,
-                       ArrayRef<int64_t> shape, ArrayRef<int64_t> strides,
-                       ArrayRef<int64_t> index, numeric_type value) {
-  int64_t bufferIndex = getBufferIndexFromTensorIndex(index, strides);
-  tensor[bufferIndex] = value;
+// Calculate the flat index within a given shape given the shape index.
+inline int64_t getFlatIndexFromShape(ArrayRef<int64_t> index,
+                                     ArrayRef<int64_t> shape) {
+  assert(index.size() == shape.size() &&
+         "index and shape must have the same size");
+  return getFlatIndexFromStride(index, calculateStrides(shape));
 }
 
+// Calculate the shape index of a given flat index and shape.
+inline SmallVector<int64_t>
+getShapeIndexFromFlatIndex(int64_t flatIndex, ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> index(shape.size());
+  for (int64_t i = shape.size() - 1; i >= 0; i--) {
+    index[i] = (flatIndex % shape[i]);
+    flatIndex /= shape[i];
+  }
+  return index;
+}
+
+template <typename NumericType>
+struct Tensor {
+  template <typename Iterable>
+  Tensor(const Iterable &data, ArrayRef<int64_t> shape) : shape(shape) {
+    this->data.reserve(std::accumulate(shape.begin(), shape.end(), 1,
+                                       std::multiplies<int64_t>()));
+    for (const NumericType &element : data) {
+      this->data.push_back(element);
+    }
+    isSplat = this->data.size() == 1;
+    volume = std::accumulate(shape.begin(), shape.end(), 1,
+                             std::multiplies<int64_t>());
+    strides = calculateStrides(this->shape);
+  }
+
+  static Tensor<NumericType> getEmptyTensor(ArrayRef<int64_t> shape,
+                                            NumericType zeroValue) {
+    auto data =
+        std::vector<NumericType>(std::accumulate(shape.begin(), shape.end(), 1,
+                                                 std::multiplies<int64_t>()),
+                                 zeroValue);
+
+    return Tensor<NumericType>(data, shape);
+  }
+
+  int64_t getRank() const { return shape.size(); }
+
+  const SmallVector<int64_t> &getShape() const { return shape; }
+
+  int64_t getVolume() const { return volume; }
+
+  NumericType &operator[](ArrayRef<int64_t> index) {
+    return operator[](getFlatIndexFromStride(index, strides));
+  }
+
+  const NumericType &operator[](ArrayRef<int64_t> index) const {
+    return operator[](getFlatIndexFromStride(index, strides));
+  }
+
+  NumericType &operator[](int64_t flatIndex) {
+    assert(flatIndex < volume && "Index out of bounds");
+    if (isSplat) {
+      return data[0];
+    }
+    return data[flatIndex];
+  }
+
+  const NumericType &operator[](int64_t flatIndex) const {
+    assert(flatIndex < volume && "Index out of bounds");
+    if (isSplat) {
+      return data[0];
+    }
+    return data[flatIndex];
+  }
+
+  const llvm::fltSemantics &getFloatSemantics() const {
+    static_assert(std::is_same_v<NumericType, llvm::APFloat> &&
+                  "getFloatSemantics is only valid for APFloat tensors");
+    return cast<llvm::APFloat>(data[0]).getSemantics();
+  }
+
+  unsigned getIntBitWidth() const {
+    static_assert(std::is_same_v<NumericType, llvm::APInt> &&
+                  "getIntBitWidth is only valid for APInt tensors");
+    return cast<llvm::APInt>(data[0]).getBitWidth();
+  }
+
+  bool isSigned() const {
+    static_assert(std::is_same_v<NumericType, llvm::APInt> &&
+                  "isSigned is only valid for APInt tensors");
+    return cast<llvm::APInt>(data[0]).isSigned();
+  }
+
+  const DenseElementsAttr getAsDenseElementsAttr(Type elementType) const {
+    return DenseElementsAttr::get(RankedTensorType::get(shape, elementType),
+                                  data);
+  }
+
+private:
+  std::vector<NumericType> data;
+  SmallVector<int64_t> shape;
+  SmallVector<int64_t> strides;
+  int64_t volume;
+  bool isSplat;
+};
+
+// This function will generate a window of indices within a given shape,
+// starting at a given least significant corner.
 SmallVector<SmallVector<int64_t>>
-getWindow(ArrayRef<int64_t> leastSignificantCorner, PoolingOp op) {
+getWindow(ArrayRef<int64_t> leastSignificantCorner,
+          ArrayRef<int64_t> windowDimensions) {
   SmallVector<SmallVector<int64_t>> window;
-  int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
-                                         op.getWindowDimensions().end(), 1,
-                                         std::multiplies<int64_t>());
+  int64_t windowVolume =
+      std::accumulate(windowDimensions.begin(), windowDimensions.end(), 1,
+                      std::multiplies<int64_t>());
 
   SmallVector<SmallVector<int64_t>> offsets;
 
+  // We iterate over each flat index within the window and generate an offset
+  // for each index.
   for (int64_t windowIndex = 0; windowIndex < windowVolume; windowIndex++) {
-    auto offset =
-        getTensorIndexFromBufferIndex(windowIndex, op.getWindowDimensions());
+    auto offset = getShapeIndexFromFlatIndex(windowIndex, windowDimensions);
     offsets.push_back(offset);
   }
 
+  // We create a window by adding each offset to the least significant corner.
   for (auto offset : offsets) {
     SmallVector<int64_t> index(leastSignificantCorner);
     for (int64_t i = 0; i < static_cast<int64_t>(offset.size()); i++) {
@@ -1193,7 +1277,7 @@ getWindow(ArrayRef<int64_t> leastSignificantCorner, PoolingOp op) {
   return window;
 }
 
-bool indexWithinShape(ArrayRef<int64_t> index, ArrayRef<int64_t> shape) {
+inline bool indexWithinShape(ArrayRef<int64_t> index, ArrayRef<int64_t> shape) {
   for (size_t i = 0; i < index.size(); i++) {
     if (index[i] < 0 || index[i] >= shape[i]) {
       return false;
@@ -1202,8 +1286,8 @@ bool indexWithinShape(ArrayRef<int64_t> index, ArrayRef<int64_t> shape) {
   return true;
 }
 
-bool windowWithinShape(SmallVector<SmallVector<int64_t>> window,
-                       ArrayRef<int64_t> shape) {
+inline bool windowWithinShape(SmallVector<SmallVector<int64_t>> window,
+                              ArrayRef<int64_t> shape) {
   for (auto index : window) {
     if (!indexWithinShape(index, shape)) {
       return false;
@@ -1212,283 +1296,268 @@ bool windowWithinShape(SmallVector<SmallVector<int64_t>> window,
   return true;
 }
 
-void printTensor(const float *data, const std::vector<int64_t> &shape) {
-  if (shape.empty()) {
-    llvm::outs() << llvm::format("%.3f", data[0]) << "\n";
-    return;
-  }
-
-  // Calculate strides for each dimension
-  std::vector<int64_t> strides(shape.size());
-  strides.back() = 1;
-  for (int i = shape.size() - 2; i >= 0; --i) {
-    strides[i] = strides[i + 1] * shape[i + 1];
-  }
-
-  // Helper function to print recursively
-  std::function<void(int64_t, int, int64_t)> printDimension =
-      [&](int64_t offset, int dimension, int64_t totalDims) {
-        if (dimension == totalDims - 1) {
-          // Innermost dimension - print elements separated by spaces
-          for (int64_t i = 0; i < shape[dimension]; ++i) {
-            if (i > 0) {
-              llvm::outs() << " ";
-            }
-            llvm::outs() << llvm::format("%.3f", data[offset + i]);
-          }
-        } else {
-          // Outer dimensions - recurse
-          for (int64_t i = 0; i < shape[dimension]; ++i) {
-            if (i > 0) {
-              // Add newlines based on dimension level
-              int numNewlines = totalDims - dimension;
-              for (int j = 0; j < numNewlines; ++j) {
-                llvm::outs() << "\n";
-              }
-            }
-            printDimension(offset + i * strides[dimension], dimension + 1,
-                           totalDims);
-          }
-        }
-      };
-
-  printDimension(0, 0, shape.size());
-  llvm::outs() << "\n";
-}
-
-// Alternative version with C-style array for shape
-void printTensor(const float *data, const int64_t *shape, int numDims) {
-  std::vector<int64_t> shapeVec(shape, shape + numDims);
-  printTensor(data, shapeVec);
-}
-
+// This function will generate the next index within a given shape, according to
+// a given movement stride (not to be confused with the strides of a shape).
+// This function will return the next index in row-major order, or nullopt if
+// there is no next index, implying that the current index is the last index in
+// the shape.
 std::optional<SmallVector<int64_t>> getNextIndex(SmallVector<int64_t> index,
                                                  ArrayRef<int64_t> shape,
                                                  ArrayRef<int64_t> stride) {
   SmallVector<int64_t> nextIndex(index);
-  bool foundNextIndex = false;
   int64_t currentDim = shape.size() - 1;
 
-  if (index[0] == 0 && index[1] == 28) {
-    int x = 2;
-    (void)x;
-  }
+  // Starting at the innermost dimension, we will increment the index by the
+  // stride to produce a new index. If this is out of bounds, we will reset the
+  // current dimension to 0, and try to increment the next spatial dimension.
+  while (currentDim >= 0) {
 
-  while (!foundNextIndex) {
     if (nextIndex[currentDim] + stride[currentDim] < shape[currentDim]) {
       nextIndex[currentDim] += stride[currentDim];
-      foundNextIndex = true;
-    } else {
+      return std::make_optional(nextIndex);
+    }
+    // If the new index is out of bounds, we will reset the current dimension to
+    // 0, and try to increment the next spatial dimension.
+    else {
       nextIndex[currentDim] = 0;
       currentDim--;
     }
+  }
+  // If the current dimension we are trying to increment is < 0, that means we
+  // have exhausted all dimensions, and there is no next index.
+  return std::nullopt;
+}
 
-    if (currentDim < 0) {
+// This function will generate the next window to preform reduction over for a
+// given input tensor. The next window is chosen via row-major traversal of the
+// input tensor.
+template <typename NumericType>
+std::optional<SmallVector<SmallVector<int64_t>>>
+getNextWindow(SmallVector<SmallVector<int64_t>> window,
+              ArrayRef<int64_t> windowStrides,
+              ArrayRef<int64_t> windowDimensions,
+              const Tensor<NumericType> &inputTensor) {
+  // Get the least significant corner of the current window.
+  // The least significant corner is the one which has the lowest flat index
+  // within the window.
+  SmallVector<int64_t> currentleastSignificantCorner;
+  int64_t minFlatIndex = std::numeric_limits<int64_t>::max();
+  for (auto index : window) {
+    int64_t flatIndex = getFlatIndexFromShape(index, windowDimensions);
+    if (flatIndex < minFlatIndex) {
+      minFlatIndex = flatIndex;
+      currentleastSignificantCorner = index;
+    }
+  }
+
+  // Retrieve the next index within the input shape after the current least
+  // significant corner, according to the window strides.
+  auto nextLeastSignificantCorner = getNextIndex(
+      currentleastSignificantCorner, inputTensor.getShape(), windowStrides);
+  // If the next index is out of bounds, there is no next window. Return
+  // nullopt.
+  if (!nextLeastSignificantCorner.has_value()) {
+    return std::nullopt;
+  }
+
+  // Generate the next window from the next least significant corner.
+  SmallVector<SmallVector<int64_t>> nextWindow =
+      getWindow(nextLeastSignificantCorner.value(), windowDimensions);
+
+  // It is possible that one or more of the indices in the newly generated
+  // window are out of bounds, even if the next least significant corner is
+  // within bounds. This indicates that the next legal window begins in a
+  // different location within a higher spatial dimension. We naively increase
+  // the least significant corner until the window we generate is within bounds.
+  while (!windowWithinShape(nextWindow, inputTensor.getShape())) {
+
+    // If at any point during our search we cannot generate a legal least
+    // significant corner, it means that there is no next window. Return
+    // nullopt.
+    auto currentleastSignificantCorner_ = getNextIndex(
+        currentleastSignificantCorner, inputTensor.getShape(), windowStrides);
+    if (!currentleastSignificantCorner_.has_value()) {
       return std::nullopt;
     }
+    currentleastSignificantCorner = currentleastSignificantCorner_.value();
+    nextWindow = getWindow(currentleastSignificantCorner, windowDimensions);
   }
-  return std::make_optional(nextIndex);
+
+  return std::make_optional(nextWindow);
 }
 
-std::vector<float> calculatePooling(PoolingOp op, std::vector<float> input,
-                                    ArrayRef<int64_t> inputShape,
-                                    ArrayRef<int64_t> outputShape) {
-
-  std::vector<float> outputTensor(std::accumulate(outputShape.begin(),
-                                                  outputShape.end(), 1,
-                                                  std::multiplies<int64_t>()),
-                                  0.0f);
-
-  SmallVector<int64_t> currentInputIndex_(inputShape.size(), 0);
-  SmallVector<int64_t> currentOutputIndex_(outputShape.size(), 0);
-
-  std::optional<SmallVector<int64_t>> currentInputIndex =
-      std::make_optional(currentInputIndex_);
-  std::optional<SmallVector<int64_t>> currentOutputIndex =
-      std::make_optional(currentOutputIndex_);
-
-  SmallVector<int64_t> outputStrides = calculateStrides(outputShape);
-
-  do {
-    auto window = getWindow(currentInputIndex.value(), op);
-    if (!windowWithinShape(window, inputShape)) {
-      currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
-                                       op.getWindowStrides());
-      // currentOutputIndex =
-      //     getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
-      continue;
-    }
-
-    float sum = 0;
-    for (auto index : window) {
-      sum += indexTensor<float>(input, inputShape, index);
-    }
-
-    setElementAtIndex(outputTensor, outputShape, outputStrides,
-                      currentOutputIndex.value(), sum);
-    currentInputIndex = getNextIndex(currentInputIndex.value(), inputShape,
-                                     op.getWindowStrides());
-    currentOutputIndex =
-        getNextIndex(currentOutputIndex.value(), outputShape, {1, 1});
-  } while (currentInputIndex && currentOutputIndex);
-
-  return outputTensor;
-}
-
-bool hasDilations(PoolingOp op) {
-  for (int64_t dilation : op.getBaseDilations()) {
-    if (dilation != 1) {
-      return true;
+llvm::APFloat
+applyReductionWindow(PoolingOp op, const Tensor<llvm::APFloat> &inputTensor,
+                     const SmallVector<SmallVector<int64_t>> &window) {
+  llvm::APFloat result(
+      op.getPoolingMethod() == PoolingMethod::Max
+          ? llvm::APFloat::getInf(inputTensor.getFloatSemantics(), true)
+          : llvm::APFloat::getZero(inputTensor.getFloatSemantics()));
+  for (auto index : window) {
+    if (op.getPoolingMethod() == PoolingMethod::Max) {
+      llvm::APFloat element = inputTensor[index];
+      if (element > result) {
+        result = element;
+      }
+    } else if (op.getPoolingMethod() == PoolingMethod::Average ||
+               op.getPoolingMethod() == PoolingMethod::Sum) {
+      result = result + inputTensor[index];
+    } else {
+      llvm_unreachable("Unsupported pooling method");
     }
   }
 
-  for (int64_t dilation : op.getWindowDilations()) {
-    if (dilation != 1) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool hasPadding(PoolingOp op) {
-  for (int64_t padding : op.getPadding()) {
-    if (padding != 0) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-::mlir::OpFoldResult foldSplatPooling(ElementsAttr elements, PoolingOp op,
-                                      RankedTensorType resultType) {
-
-  assert(elements.isSplat() && "Expected splat elements");
-  int64_t windowVolume = std::accumulate(op.getWindowDimensions().begin(),
+  if (op.getPoolingMethod() == PoolingMethod::Average) {
+    float windowVolume = std::accumulate(op.getWindowDimensions().begin(),
                                          op.getWindowDimensions().end(), 1,
                                          std::multiplies<int64_t>());
-
-  APFloat value = elements.getSplatValue<APFloat>();
-  float floatValue = value.convertToFloat();
-
-  if (op.getPoolingMethod() == PoolingMethod::Max ||
-      op.getPoolingMethod() == PoolingMethod::Average) {
-    APFloat resultAPFloat = APFloat(floatValue);
+    llvm::APFloat windowVolumeAPFloat(windowVolume);
     bool losesInfo = false;
-    resultAPFloat.convert(
-        cast<FloatType>(resultType.getElementType()).getFloatSemantics(),
-        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-    return DenseElementsAttr::get(resultType, resultAPFloat);
-  } else if (op.getPoolingMethod() == PoolingMethod::Sum) {
-    float result = floatValue * windowVolume;
-    APFloat resultAPFloat = APFloat(result);
-    bool losesInfo = false;
-    resultAPFloat.convert(
-        cast<FloatType>(resultType.getElementType()).getFloatSemantics(),
-        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-    return DenseElementsAttr::get(resultType, resultAPFloat);
-  } else {
-    llvm_unreachable("Pooling method must be one of Max, Sum, or Average");
+    windowVolumeAPFloat.convert(result.getSemantics(),
+                                llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    result = result / windowVolumeAPFloat;
   }
+  return result;
 }
 
-template <typename numeric_type>
-std::unique_ptr<std::vector<numeric_type>>
-castOutputTensor(std::vector<float> outputTensor) {
-  std::vector<numeric_type> outputCasted(outputTensor.size());
-  for (int64_t i = 0; i < static_cast<int64_t>(outputTensor.size()); i++) {
-    if constexpr (std::is_same_v<numeric_type, int16_t>) {
-      int32_t value_bits = *reinterpret_cast<int32_t *>(&outputTensor[i]);
-      outputCasted[i] = static_cast<numeric_type>(value_bits >> 16);
-    } else if constexpr (std::is_floating_point_v<numeric_type>) {
-      outputCasted[i] = static_cast<numeric_type>(outputTensor[i]);
+llvm::APInt
+applyReductionWindow(PoolingOp op, const Tensor<llvm::APInt> &inputTensor,
+                     const SmallVector<SmallVector<int64_t>> &window) {
+  llvm::APInt result(
+      op.getPoolingMethod() == PoolingMethod::Max
+          ? llvm::APInt::getSignedMinValue(inputTensor.getIntBitWidth())
+          : llvm::APInt::getZero(inputTensor.getIntBitWidth()));
+  for (auto index : window) {
+    if (op.getPoolingMethod() == PoolingMethod::Max) {
+      llvm::APInt element = inputTensor[index];
+      if (element.sgt(result)) {
+        result = element;
+      }
+    } else if (op.getPoolingMethod() == PoolingMethod::Average ||
+               op.getPoolingMethod() == PoolingMethod::Sum) {
+      result += inputTensor[index];
+    } else {
+      llvm_unreachable("Unsupported pooling method");
+    }
+  }
+
+  if (op.getPoolingMethod() == PoolingMethod::Average) {
+    llvm::APInt windowVolume(result.getBitWidth(),
+                             std::accumulate(op.getWindowDimensions().begin(),
+                                             op.getWindowDimensions().end(), 1,
+                                             std::multiplies<int64_t>()));
+    result = result.sdiv(windowVolume);
+  }
+  return result;
+}
+
+template <typename NumericType>
+Tensor<NumericType> calculatePooling(PoolingOp op,
+                                     const Tensor<NumericType> &inputTensor) {
+  ArrayRef<int64_t> outputShape =
+      cast<RankedTensorType>(op.getResult(0).getType()).getShape();
+
+  // Depending on the numeric type (APInt or APFloat), we need to initialize the
+  // zero value differently.
+  NumericType zero = [&]() -> NumericType {
+    if constexpr (std::is_same_v<NumericType, llvm::APFloat>) {
+      return llvm::APFloat::getZero(inputTensor.getFloatSemantics());
+    } else if constexpr (std::is_same_v<NumericType, llvm::APInt>) {
+      return llvm::APInt::getZero(inputTensor.getIntBitWidth());
     } else {
       llvm_unreachable("Unsupported numeric type");
     }
-  }
-  return std::make_unique<std::vector<numeric_type>>(outputCasted);
+  }();
+
+  // Create an empty tensor for the output
+  Tensor<NumericType> outputTensor =
+      Tensor<NumericType>::getEmptyTensor(outputShape, zero);
+
+  // Begin the sliding window in the least significant location of the input
+  // tensor. i.e for a 4D tensor, the least significant corner is located at (0,
+  // 0, 0, 0).
+  SmallVector<int64_t> firstWindowCorner(inputTensor.getRank(), 0);
+
+  // We will keep track of the current output index using a flat index since we
+  // are traversing the input tensor in row-major order.
+  int64_t currentOutputIndex = 0;
+
+  // Generate the first window, starting at the least significant location of
+  // the input tensor.
+  auto window = std::make_optional(
+      getWindow(firstWindowCorner, op.getWindowDimensions()));
+  do {
+    NumericType result = applyReductionWindow(op, inputTensor, window.value());
+
+    outputTensor[currentOutputIndex] = result;
+    currentOutputIndex++; // On the very last iteration, this will move
+                          // currentOutputIndex out of bounds, thus being equal
+                          // to the output tensor volume
+
+    window = getNextWindow(window.value(), op.getWindowStrides(),
+                           op.getWindowDimensions(), inputTensor);
+  } while (window.has_value());
+
+  assert(currentOutputIndex == outputTensor.getVolume() &&
+         "The output tensor was not filled.");
+  return outputTensor;
 }
 
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
 
-  // Cannot yet fold if there are dilations in the base or window.
-  if (hasDilations(*this)) {
+  // Cannot fold if there are dilations in the base as this is not implemented.
+  if (std::any_of(getBaseDilations().begin(), getBaseDilations().end(),
+                  [](int64_t dilation) { return dilation != 1; })) {
     return mlir::failure();
   }
 
-  // Cannot yet fold if there is padding.
-  if (hasPadding(*this)) {
+  // Cannot fold if there are dilations in the window as this is not
+  // implemented.
+  if (std::any_of(getWindowDilations().begin(), getWindowDilations().end(),
+                  [](int64_t dilation) { return dilation != 1; })) {
     return mlir::failure();
   }
 
-  std::vector<std::vector<float>> outputTensors;
-  for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
-    auto input = adaptor.getInputs()[i];
-    if (!input) {
-      return mlir::failure();
-    }
-    if (!isa<ElementsAttr>(input)) {
-      return mlir::failure();
-    }
+  // Cannot fold if there is padding as this is not implemented.
+  if (std::any_of(getPadding().begin(), getPadding().end(),
+                  [](int64_t padding) { return padding != 0; })) {
+    return mlir::failure();
+  }
 
-    RankedTensorType resultType =
-        cast<RankedTensorType>(getResult(i).getType());
+  // Cannot fold if there is more than one input as this is not implemented.
+  if (adaptor.getInputs().size() > 1) {
+    return mlir::failure();
+  }
 
-    ElementsAttr elements = cast<ElementsAttr>(input);
+  auto input = adaptor.getInputs()[0];
+  if (!input) {
+    return mlir::failure();
+  }
+  if (!isa<ElementsAttr>(input)) {
+    return mlir::failure();
+  }
 
-    // Cannot fold if the input is not a float type.
-    if (!isa<FloatType>(elements.getElementType())) {
-      return mlir::failure();
-    }
+  RankedTensorType resultType = cast<RankedTensorType>(getResult(0).getType());
 
-    if (elements.isSplat()) {
-      results.push_back(foldSplatPooling(elements, *this, resultType));
-      continue;
-    }
+  ElementsAttr elements = cast<ElementsAttr>(input);
+  auto inputShape = elements.getShapedType().getShape();
 
-    auto inputShape = elements.getShapedType().getShape();
-    auto outputShape = resultType.getShape();
-
-    if (isa<FloatType>(elements.getElementType())) {
-      std::vector<float> tensor(elements.getNumElements(), 0);
-      auto values = elements.getValues<llvm::APFloat>();
-      for (int64_t i = 0; i < elements.getNumElements(); i++) {
-        tensor[i] = values[i].convertToFloat();
-      }
-
-      auto outputTensor =
-          calculatePooling(*this, tensor, inputShape, outputShape);
-      outputTensors.push_back(outputTensor);
-    }
-
-    if (resultType.getElementType().isF64()) {
-      auto outputCasted = castOutputTensor<double>(outputTensors[0]);
-      ArrayRef<char> outputCastedRef(
-          reinterpret_cast<char *>(outputCasted->data()),
-          outputCasted->size() * sizeof(double));
-      results.push_back(DenseElementsAttr::getFromRawBuffer(
-          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
-    } else if (resultType.getElementType().isF32()) {
-      auto outputCasted = castOutputTensor<float>(outputTensors[0]);
-      ArrayRef<char> outputCastedRef(
-          reinterpret_cast<char *>(outputCasted->data()),
-          outputCasted->size() * sizeof(float));
-      results.push_back(DenseElementsAttr::getFromRawBuffer(
-          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
-    } else if (resultType.getElementType().isF16() ||
-               resultType.getElementType().isBF16()) {
-      auto outputCasted = castOutputTensor<int16_t>(outputTensors[0]);
-      ArrayRef<char> outputCastedRef(
-          reinterpret_cast<char *>(outputCasted->data()),
-          outputCasted->size() * sizeof(int16_t));
-      results.push_back(DenseElementsAttr::getFromRawBuffer(
-          cast<RankedTensorType>(getResult(i).getType()), outputCastedRef));
-    } else {
-      llvm_unreachable("Unsupported numeric type");
-    }
+  if (isa<FloatType>(elements.getElementType())) {
+    Tensor<llvm::APFloat> inputTensor(elements.getValues<llvm::APFloat>(),
+                                      inputShape);
+    Tensor<llvm::APFloat> outputTensor = calculatePooling(*this, inputTensor);
+    results.push_back(
+        outputTensor.getAsDenseElementsAttr(resultType.getElementType()));
+  } else if (isa<IntegerType>(elements.getElementType())) {
+    Tensor<llvm::APInt> inputTensor(elements.getValues<llvm::APInt>(),
+                                    inputShape);
+    Tensor<llvm::APInt> outputTensor = calculatePooling(*this, inputTensor);
+    results.push_back(
+        outputTensor.getAsDenseElementsAttr(resultType.getElementType()));
+  } else {
+    llvm_unreachable("Unsupported element type");
   }
   return mlir::success();
 }
@@ -4327,22 +4396,6 @@ mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
   } else {
     llvm_unreachable("unhandled element type");
   }
-
-  // // Handle float types
-  // if (auto floatType = dyn_cast_or_null<mlir::FloatType>(elemType)) {
-  //   bool losesInfo = false;
-  //   llvm::APFloat value = cast<FloatAttr>(fillAttr).getValue();
-  //   value.convert(floatType.getFloatSemantics(),
-  //                 llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-  //   return mlir::DenseElementsAttr::get(type, value);
-  // } else if (auto intType = dyn_cast_or_null<mlir::IntegerType>(elemType)) {
-  //   llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
-  //   llvm::APInt convertedValue = llvm::APInt(intType.getWidth(),
-  //   value.getZExtValue(), intType.isSigned()); return
-  //   mlir::DenseElementsAttr::get(type, convertedValue);
-  // } else {
-  //   llvm_unreachable("unhandled element type");
-  // }
 }
 
 // FullOp verification
