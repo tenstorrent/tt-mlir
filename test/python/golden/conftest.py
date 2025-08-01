@@ -3,11 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import ttrt
+import platform
 from functools import reduce
 import operator
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+
+
+def is_x86_machine():
+    machine = platform.machine().lower()
+    return machine in ["x86_64", "amd64", "i386", "i686", "x86"]
+
+
+x86_only = pytest.mark.skipif(
+    not is_x86_machine(),
+    reason=f"Test requires x86 architecture, but running on {platform.machine()}",
+)
 
 
 def pytest_addoption(parser):

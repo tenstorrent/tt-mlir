@@ -82,9 +82,3 @@ class TensorPool(dict):
                 return
             # TODO: potentialy enable to not override existing files
             torch.save(value.data, self.output_dir / f"{key}.pt")
-
-    def save_device_tensor(self, key):
-        if not self.caching:
-            return
-        if key not in self:
-            return

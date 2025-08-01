@@ -191,6 +191,13 @@ class Run:
             help="disable blackhole workarounds",
         )
         Run.register_arg(
+            name="--enable-d2m-return-event",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable d2m return event",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -314,7 +321,7 @@ class Run:
             type=int,
             default=1,
             choices=None,
-            help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
+            help="Random ones vs zeroes density, 1 = 100%% ones, 2 = 50%% ones, 3 = 33%% ones, etc.",
         )
         Run.register_arg(
             name="--fabric-config",
@@ -529,6 +536,29 @@ class Run:
                     )
                 return inputs_converted
 
+            # Create 'owned tensor' in case of empty tensor;
+            # otherwise create 'borrowed tensor'.
+            def create_tensor(tensor):
+                # Empty tensor if any of the dim is zero.
+                isEmptyTensor = not all(tensor.shape)
+
+                if isEmptyTensor:
+                    return ttrt.runtime.create_owned_host_tensor(
+                        tensor.data_ptr(),
+                        list(tensor.shape),
+                        list(tensor.stride()),
+                        tensor.element_size(),
+                        Binary.Program.to_data_type(tensor.dtype),
+                    )
+
+                return ttrt.runtime.create_borrowed_host_tensor(
+                    tensor.data_ptr(),
+                    list(tensor.shape),
+                    list(tensor.stride()),
+                    tensor.element_size(),
+                    Binary.Program.to_data_type(tensor.dtype),
+                )
+
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
@@ -545,6 +575,7 @@ class Run:
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
+                self["--enable-d2m-return-event"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {
@@ -695,25 +726,13 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_borrowed_host_tensor(
-                                i.data_ptr(),
-                                list(i.shape),
-                                list(i.stride()),
-                                i.element_size(),
-                                Binary.Program.to_data_type(i.dtype),
-                            )
+                            new_input = create_tensor(i)
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
-                            outputs.append(
-                                ttrt.runtime.create_borrowed_host_tensor(
-                                    i.data_ptr(),
-                                    list(i.shape),
-                                    list(i.stride()),
-                                    i.element_size(),
-                                    Binary.Program.to_data_type(i.dtype),
-                                )
-                            )
+                            new_output = create_tensor(i)
+                            outputs.append(new_output)
+
                         # load output golden tensors
                         if not self["--disable-golden"]:
                             golden_outputs_torch = []
@@ -852,12 +871,30 @@ class Run:
                                     self["--print-input-output-tensors"]
                                     or not self["--disable-golden"]
                                 ):
-                                    output_tensor_torch = torch.frombuffer(
-                                        bytearray(outputs[i].get_data_buffer()),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            outputs[i].get_dtype()
-                                        ),
-                                    ).reshape(outputs[i].get_shape())
+                                    isEmptyTensor = not all(outputs[i].get_shape())
+                                    data_buffer = bytearray(
+                                        outputs[i].get_data_buffer()
+                                    )
+                                    if isEmptyTensor and len(data_buffer) == 0:
+                                        # Create empty tensor.
+                                        output_tensor_torch = torch.empty(
+                                            outputs[i].get_shape(),
+                                            dtype=ttrt_datatype_to_torch_dtype(
+                                                outputs[i].get_dtype()
+                                            ),
+                                        )
+                                    elif not isEmptyTensor and len(data_buffer) > 0:
+                                        # Create regular tensor.
+                                        output_tensor_torch = torch.frombuffer(
+                                            data_buffer,
+                                            dtype=ttrt_datatype_to_torch_dtype(
+                                                outputs[i].get_dtype()
+                                            ),
+                                        ).reshape(outputs[i].get_shape())
+                                    else:
+                                        raise Exception(
+                                            f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
+                                        )
 
                                 # Compare program level golden.
                                 golden_tensor_torch = None

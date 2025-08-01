@@ -607,6 +607,19 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
   ];
 }
 
+def TTIRQuantDequantConversion : Pass<"ttir-quant-dequant-conversion", "::mlir::ModuleOp">
+{
+  let summary = "Convert floating-point ops surrounded by quantize/dequantize into TTIR quantized operations.";
+  let description = [{
+    This pass detects and fuses the (x -> dequantize → floating-point operation)
+    pattern into a single TTIR operation that consumes quantized inputs and produces
+    quantized outputs. If the target operation implements the QuantizableOpInterface,
+    it is rewritten directly into its quantized form. Otherwise, a fallback transformation
+    inserts dequantize and quantize nodes around the original op to maintain correctness.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
+}
+
 def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTIR fusing pass.";

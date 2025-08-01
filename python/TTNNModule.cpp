@@ -109,27 +109,26 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
-             std::optional<tt::ttcore::TensorMeshShardingAttr>
-                 tensorMeshSharding = std::nullopt) {
+             std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
-            if (tensorMeshSharding.has_value()) {
-              tensorMeshShardingAttr = tensorMeshSharding.value();
+            tt::ttcore::TensorMeshAttr tensorMeshAttr;
+            if (tensorMesh.has_value()) {
+              tensorMeshAttr = tensorMesh.value();
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshShardingAttr));
+                tensorMeshAttr));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(),
-          nb::arg("tensorMeshSharding") = nb::none())
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
@@ -177,25 +176,18 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding,
+             BoolAttr inPlace) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
-                context, dtype, weightsDtype, activation, deallocateActivation,
+                context, weightsDtype, activation, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
                 enableWeightsDoubleBuffer, enableSplitReader,
-                enableSubblockPadding));
+                enableSubblockPadding, inPlace));
           })
-      .def_prop_ro("dtype_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, uint32_t> {
-                     if (!self.getDtype()) {
-                       return nb::none();
-                     }
-                     return static_cast<uint32_t>(*self.getDtype());
-                   })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
                        -> std::variant<nb::object, uint32_t> {
@@ -318,6 +310,14 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableSubblockPadding().getValue();
+                   })
+      .def_prop_ro("in_place",
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getInPlace()) {
+                       return nb::none();
+                     }
+                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

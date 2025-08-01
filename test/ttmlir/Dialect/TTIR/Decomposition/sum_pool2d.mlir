@@ -11,10 +11,10 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
   // CHECK-SAME: -> tensor<8x6x6x256xf32>
   // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]],
   // CHECK-SAME: ceil_mode = false,
-  // CHECK-SAME: dilation_height = 1 : si32, dilation_width = 1 : si32,
-  // CHECK-SAME: kernel_height = 1 : si32, kernel_width = 1 : si32,
-  // CHECK-SAME: padding_bottom = 0 : si32, padding_left = 0 : si32, padding_right = 0 : si32, padding_top = 0 : si32,
-  // CHECK-SAME: stride_height = 1 : si32, stride_width = 1 : si32
+  // CHECK-SAME: dilation = array<i32: 1, 1>,
+  // CHECK-SAME: kernel = array<i32: 1, 1>,
+  // CHECK-SAME: padding = array<i32: 0, 0, 0, 0>,
+  // CHECK-SAME: stride = array<i32: 1, 1>
   // CHECK-SAME: (tensor<8x6x6x256xf32>, tensor<8x6x6x256xf32>)
   // CHECK-SAME: -> tensor<8x6x6x256xf32>
   %3 = "ttir.pooling"(%arg0, %2) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, pooling_method = #ttir<pooling_method Sum>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<8x256x6x6xf32>, tensor<8x256x6x6xf32>) -> tensor<8x256x6x6xf32>

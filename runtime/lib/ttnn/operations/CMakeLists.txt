@@ -75,7 +75,7 @@ add_library(TTRuntimeTTNNOps
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
-  target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+  target_compile_options(TTRuntimeTTNNOps PUBLIC -march=x86-64-v3)
 endif()
 target_include_directories(TTRuntimeTTNNOps PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn

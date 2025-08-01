@@ -9,6 +9,8 @@
 
 #include "llvm/ADT/SmallVector.h"
 
+namespace mlir::tt::ttnn::op_model {
+
 class MlirToTtnnConversion : public OpModelFixture {};
 class Conversion : public OpModelFixture {};
 //================================================================================
@@ -20,8 +22,7 @@ class ConversionShape
 
 TEST_P(ConversionShape, Shape) {
   const auto &originalShape = GetParam();
-  const ttnn::Shape &convertedShape =
-      mlir::tt::op_model::ttnn::conversion::getShape(originalShape);
+  const ::ttnn::Shape &convertedShape = conversion::getShape(originalShape);
 
   // MLIR -> TTNN conversion
   EXPECT_EQ(convertedShape.size(), originalShape.size());
@@ -31,7 +32,7 @@ TEST_P(ConversionShape, Shape) {
 
   // TTNN -> MLIR conversion
   const mlir::SmallVector<int64_t> &reconvertedShape =
-      mlir::tt::op_model::ttnn::conversion::getShape(convertedShape);
+      conversion::getShape(convertedShape);
   EXPECT_EQ(reconvertedShape.size(), originalShape.size());
   for (size_t i = 0; i < reconvertedShape.size(); ++i) {
     EXPECT_EQ(reconvertedShape[i], originalShape[i]);
@@ -50,48 +51,44 @@ INSTANTIATE_TEST_SUITE_P(
 class ConversionDataType
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::ttcore::DataType, ::tt::tt_metal::DataType>> {};
+          std::tuple<ttcore::DataType, ::tt::tt_metal::DataType>> {};
 
 TEST_P(ConversionDataType, DataType) {
-  const mlir::tt::ttcore::DataType &dataType = std::get<0>(GetParam());
+  const ttcore::DataType &dataType = std::get<0>(GetParam());
   const ::tt::tt_metal::DataType &expectedDataType = std::get<1>(GetParam());
 
   llvm::SmallVector<int64_t> tensorShape = {32, 32};
-  auto layout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+  auto layout = TTNNLayoutAttr::get(
       &context, tensorShape,
-      mlir::tt::ttcore::TileType::get(&context, {32, 32}, dataType),
-      mlir::tt::ttnn::BufferType::L1,
-      mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
-      mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-          &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+      ttcore::TileType::get(&context, {32, 32}, dataType), BufferType::L1,
+      ttcore::GridAttr::get(&context, {8, 8}),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
 
   // MLIR -> TTNN conversion
-  auto convertedDataType =
-      mlir::tt::op_model::ttnn::conversion::getDataType(layout.getDataType());
+  auto convertedDataType = conversion::getDataType(layout.getDataType());
   EXPECT_EQ(convertedDataType, expectedDataType);
 
   // TTNN -> MLIR conversion
-  EXPECT_EQ(dataType, mlir::tt::op_model::ttnn::conversion::getDataType(
-                          convertedDataType));
+  EXPECT_EQ(dataType, conversion::getDataType(convertedDataType));
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ToDataType, ConversionDataType,
-    ::testing::Values(std::make_tuple(mlir::tt::ttcore::DataType::Float32,
+    ::testing::Values(std::make_tuple(ttcore::DataType::Float32,
                                       ::tt::tt_metal::DataType::FLOAT32),
-                      std::make_tuple(mlir::tt::ttcore::DataType::BFloat16,
+                      std::make_tuple(ttcore::DataType::BFloat16,
                                       ::tt::tt_metal::DataType::BFLOAT16),
-                      std::make_tuple(mlir::tt::ttcore::DataType::BFP_BFloat8,
+                      std::make_tuple(ttcore::DataType::BFP_BFloat8,
                                       ::tt::tt_metal::DataType::BFLOAT8_B),
-                      std::make_tuple(mlir::tt::ttcore::DataType::BFP_BFloat4,
+                      std::make_tuple(ttcore::DataType::BFP_BFloat4,
                                       ::tt::tt_metal::DataType::BFLOAT4_B),
-                      std::make_tuple(mlir::tt::ttcore::DataType::UInt32,
+                      std::make_tuple(ttcore::DataType::UInt32,
                                       ::tt::tt_metal::DataType::UINT32),
-                      std::make_tuple(mlir::tt::ttcore::DataType::UInt16,
+                      std::make_tuple(ttcore::DataType::UInt16,
                                       ::tt::tt_metal::DataType::UINT16),
-                      std::make_tuple(mlir::tt::ttcore::DataType::UInt8,
+                      std::make_tuple(ttcore::DataType::UInt8,
                                       ::tt::tt_metal::DataType::UINT8),
-                      std::make_tuple(mlir::tt::ttcore::DataType::Int32,
+                      std::make_tuple(ttcore::DataType::Int32,
                                       ::tt::tt_metal::DataType::INT32)));
 
 //================================================================================
@@ -99,9 +96,9 @@ INSTANTIATE_TEST_SUITE_P(
 //================================================================================
 class MlirToTtnnConversionShardShape
     : public MlirToTtnnConversion,
-      public testing::WithParamInterface<std::tuple<
-          llvm::SmallVector<int64_t>, llvm::SmallVector<int64_t>,
-          mlir::tt::ttnn::BufferType, mlir::tt::ttnn::TensorMemoryLayout>> {};
+      public testing::WithParamInterface<
+          std::tuple<llvm::SmallVector<int64_t>, llvm::SmallVector<int64_t>,
+                     BufferType, TensorMemoryLayout>> {};
 
 TEST_P(MlirToTtnnConversionShardShape, ShardShape) {
   const auto &virtualGrid = std::get<0>(GetParam());
@@ -109,17 +106,15 @@ TEST_P(MlirToTtnnConversionShardShape, ShardShape) {
   const auto &bufferType = std::get<2>(GetParam());
   const auto &tensorMemoryLayout = std::get<3>(GetParam());
 
-  if (tensorMemoryLayout == mlir::tt::ttnn::TensorMemoryLayout::WidthSharded) {
+  if (tensorMemoryLayout == TensorMemoryLayout::WidthSharded) {
     EXPECT_EQ(virtualGrid[0], 1);
-  } else if (tensorMemoryLayout ==
-             mlir::tt::ttnn::TensorMemoryLayout::HeightSharded) {
+  } else if (tensorMemoryLayout == TensorMemoryLayout::HeightSharded) {
     EXPECT_EQ(virtualGrid[1], 1);
   }
 
   const auto layout = CreateTiledLayout(tensorShape, bufferType,
                                         tensorMemoryLayout, virtualGrid);
-  const auto shardShape =
-      mlir::tt::op_model::ttnn::conversion::getShardShape(layout);
+  const auto shardShape = conversion::getShardShape(layout);
 
   EXPECT_EQ(shardShape[0],
             ttmlir::utils::alignUp(tensorShape[0] / virtualGrid[0], 32L));
@@ -131,29 +126,23 @@ INSTANTIATE_TEST_SUITE_P(
     ToShardShape, MlirToTtnnConversionShardShape,
     ::testing::Values(
         std::make_tuple(llvm::SmallVector<int64_t>{8, 8},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded),
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::BlockSharded),
         std::make_tuple(llvm::SmallVector<int64_t>{6, 6},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded),
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::BlockSharded),
         std::make_tuple(llvm::SmallVector<int64_t>{64, 1},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded),
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded),
         std::make_tuple(llvm::SmallVector<int64_t>{36, 1},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded),
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded),
         std::make_tuple(llvm::SmallVector<int64_t>{1, 64},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded),
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::WidthSharded),
         std::make_tuple(llvm::SmallVector<int64_t>{1, 36},
-                        llvm::SmallVector<int64_t>{4096, 2048},
-                        mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded)));
+                        llvm::SmallVector<int64_t>{4096, 2048}, BufferType::L1,
+                        TensorMemoryLayout::WidthSharded)));
 
 //================================================================================
 // getPageLayout
@@ -161,17 +150,15 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(MlirToTtnnConversion, PageLayout) {
   llvm::SmallVector<int64_t> tensorShape = {16 * 64 * 32, 32};
 
-  mlir::tt::ttnn::TTNNLayoutAttr tiledLayout =
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  TTNNLayoutAttr tiledLayout = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
-  EXPECT_EQ(mlir::tt::op_model::ttnn::conversion::getPageLayout(tiledLayout),
+  EXPECT_EQ(conversion::getPageLayout(tiledLayout),
             ::tt::tt_metal::Layout::TILE);
 
-  mlir::tt::ttnn::TTNNLayoutAttr rowLayout =
-      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  EXPECT_EQ(mlir::tt::op_model::ttnn::conversion::getPageLayout(rowLayout),
+  TTNNLayoutAttr rowLayout = CreateRowMajorLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  EXPECT_EQ(conversion::getPageLayout(rowLayout),
             ::tt::tt_metal::Layout::ROW_MAJOR);
 }
 
@@ -182,9 +169,9 @@ TEST_F(MlirToTtnnConversion, PageLayout) {
 class ShardedCoreRangeSet
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::ttnn::TensorMemoryLayout, // tensor memory layout
-                     llvm::SmallVector<int64_t>,         // shard shape
-                     llvm::SmallVector<int64_t>,         // virtual grid shape
+          std::tuple<TensorMemoryLayout,            // tensor memory layout
+                     llvm::SmallVector<int64_t>,    // shard shape
+                     llvm::SmallVector<int64_t>,    // virtual grid shape
                      ::tt::tt_metal::CoreRangeSet>> // expected core range set
 {};
 
@@ -194,11 +181,10 @@ TEST_P(ShardedCoreRangeSet, ShardedCoreRangeSet) {
   const auto &grid = std::get<2>(GetParam());
   const auto &expectedCoreRangeSet = std::get<3>(GetParam());
 
-  const auto layout = CreateTiledLayout(
-      tensorShape, mlir::tt::ttnn::BufferType::L1, tensorMemoryLayout, grid);
+  const auto layout =
+      CreateTiledLayout(tensorShape, BufferType::L1, tensorMemoryLayout, grid);
 
-  const auto coreRangeSet =
-      mlir::tt::op_model::ttnn::conversion::getCoreRangeSet(layout);
+  const auto coreRangeSet = conversion::getCoreRangeSet(layout);
 
   EXPECT_EQ(coreRangeSet.size(), expectedCoreRangeSet.size());
   for (const auto &[v, r] :
@@ -211,34 +197,34 @@ TEST_P(ShardedCoreRangeSet, ShardedCoreRangeSet) {
 INSTANTIATE_TEST_SUITE_P(
     ToCoreRangeSet, ShardedCoreRangeSet,
     ::testing::Values(
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
+        std::make_tuple(TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{32, 56 * 32},
                         llvm::SmallVector<int64_t>{1, 56},
                         CoreRangeSet{
                             CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
+        std::make_tuple(TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{32, 13 * 32},
                         llvm::SmallVector<int64_t>{1, 13},
                         CoreRangeSet{std::set<CoreRange>{
                             CoreRange(CoreCoord(0, 0), CoreCoord(7, 0)),
                             CoreRange(CoreCoord(0, 1), CoreCoord(4, 1))}}),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+        std::make_tuple(TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{56 * 32, 32},
                         llvm::SmallVector<int64_t>{56, 1},
                         CoreRangeSet{
                             CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+        std::make_tuple(TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{13 * 32, 32},
                         llvm::SmallVector<int64_t>{13, 1},
                         CoreRangeSet{std::set<CoreRange>{
                             CoreRange(CoreCoord(0, 0), CoreCoord(7, 0)),
                             CoreRange(CoreCoord(0, 1), CoreCoord(4, 1))}}),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+        std::make_tuple(TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{7 * 32, 8 * 32},
                         llvm::SmallVector<int64_t>{7, 8},
                         CoreRangeSet{
                             CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+        std::make_tuple(TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{4 * 11 * 32, 8 * 13 * 32},
                         llvm::SmallVector<int64_t>{4, 8},
                         CoreRangeSet{
@@ -253,21 +239,17 @@ TEST_F(MlirToTtnnConversion, ShardWithInterleaved) {
 
   // dram interleaved
   {
-    const auto layout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                          mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-    const auto shardSpec =
-        mlir::tt::op_model::ttnn::conversion::getShardSpec(layout);
+    const auto layout = CreateTiledLayout(tensorShape, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+    const auto shardSpec = conversion::getShardSpec(layout);
     EXPECT_EQ(shardSpec.has_value(), false);
   }
 
   // l1 interleaved
   {
-    const auto layout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                          mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-    const auto shardSpec =
-        mlir::tt::op_model::ttnn::conversion::getShardSpec(layout);
+    const auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                          TensorMemoryLayout::Interleaved);
+    const auto shardSpec = conversion::getShardSpec(layout);
     EXPECT_EQ(shardSpec.has_value(), false);
   }
 }
@@ -275,11 +257,11 @@ TEST_F(MlirToTtnnConversion, ShardWithInterleaved) {
 class ShardSpecFixture
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::ttnn::BufferType,         // buffer type
-                     mlir::tt::ttnn::TensorMemoryLayout, // tensor memory layout
-                     llvm::SmallVector<int64_t>,         // tensor shape
-                     llvm::SmallVector<int64_t>,         // phy grid shape
-                     llvm::SmallVector<int64_t>>>        // expected shard shape
+          std::tuple<BufferType,                  // buffer type
+                     TensorMemoryLayout,          // tensor memory layout
+                     llvm::SmallVector<int64_t>,  // tensor shape
+                     llvm::SmallVector<int64_t>,  // phy grid shape
+                     llvm::SmallVector<int64_t>>> // expected shard shape
 {};
 
 TEST_P(ShardSpecFixture, ShardSpec) {
@@ -295,8 +277,7 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   const auto layout = CreateTiledLayout(
       tensorShape, bufferType, tensorMemoryLayout, virtualGrid, phyGridShape);
 
-  const auto shardSpec =
-      mlir::tt::op_model::ttnn::conversion::getShardSpec(layout);
+  const auto shardSpec = conversion::getShardSpec(layout);
 
   EXPECT_EQ(shardSpec.has_value(), true);
 
@@ -320,48 +301,39 @@ TEST_P(ShardSpecFixture, ShardSpec) {
 INSTANTIATE_TEST_SUITE_P(
     ToShardSpec, ShardSpecFixture,
     ::testing::Values(
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{8, 8},
                         llvm::SmallVector<int64_t>{512, 256}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{7 * 512, 8 * 256},
                         llvm::SmallVector<int64_t>{7, 8},
                         llvm::SmallVector<int64_t>{512, 256}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{4, 4},
                         llvm::SmallVector<int64_t>{1024, 512}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{8, 8},
                         llvm::SmallVector<int64_t>{64, 2048}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{56 * 64, 2048},
                         llvm::SmallVector<int64_t>{7, 8},
                         llvm::SmallVector<int64_t>{64, 2048}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{4, 4},
                         llvm::SmallVector<int64_t>{256, 2048}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{8, 8},
                         llvm::SmallVector<int64_t>{4096, 32}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{4096, 56 * 32},
                         llvm::SmallVector<int64_t>{7, 8},
                         llvm::SmallVector<int64_t>{4096, 32}),
-        std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
+        std::make_tuple(BufferType::L1, TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{4096, 2048},
                         llvm::SmallVector<int64_t>{4, 4},
                         llvm::SmallVector<int64_t>{4096, 128})));
@@ -372,38 +344,35 @@ INSTANTIATE_TEST_SUITE_P(
 class ConversionBufferType
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::ttnn::BufferType, tt::tt_metal::BufferType>> {};
+          std::tuple<BufferType, ::tt::tt_metal::BufferType>> {};
 
 TEST_P(ConversionBufferType, BufferType) {
-  const mlir::tt::ttnn::BufferType &mlirBufferType = std::get<0>(GetParam());
-  const tt::tt_metal::BufferType &expectedBufferType = std::get<1>(GetParam());
+  const BufferType &mlirBufferType = std::get<0>(GetParam());
+  const ::tt::tt_metal::BufferType &expectedBufferType =
+      std::get<1>(GetParam());
 
-  auto layout =
-      CreateTiledLayout({32, 32}, mlirBufferType,
-                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto layout = CreateTiledLayout({32, 32}, mlirBufferType,
+                                  TensorMemoryLayout::Interleaved);
 
   // MLIR -> TTNN
-  const tt::tt_metal::BufferType bufferType =
-      mlir::tt::op_model::ttnn::conversion::getBufferType(layout);
+  const ::tt::tt_metal::BufferType bufferType =
+      conversion::getBufferType(layout);
   EXPECT_EQ(bufferType, expectedBufferType);
 
   // TTNN -> MLIR
-  EXPECT_EQ(mlirBufferType,
-            mlir::tt::op_model::ttnn::conversion::getBufferType(bufferType));
+  EXPECT_EQ(mlirBufferType, conversion::getBufferType(bufferType));
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ToBufferType, ConversionBufferType,
-    ::testing::Values(std::make_tuple(mlir::tt::ttnn::BufferType::L1,
-                                      tt::tt_metal::BufferType::L1),
-                      std::make_tuple(mlir::tt::ttnn::BufferType::DRAM,
-                                      tt::tt_metal::BufferType::DRAM),
-                      std::make_tuple(mlir::tt::ttnn::BufferType::SystemMemory,
-                                      tt::tt_metal::BufferType::SYSTEM_MEMORY),
-                      std::make_tuple(mlir::tt::ttnn::BufferType::L1Small,
-                                      tt::tt_metal::BufferType::L1_SMALL),
-                      std::make_tuple(mlir::tt::ttnn::BufferType::Trace,
-                                      tt::tt_metal::BufferType::TRACE)));
+    ::testing::Values(
+        std::make_tuple(BufferType::L1, ::tt::tt_metal::BufferType::L1),
+        std::make_tuple(BufferType::DRAM, ::tt::tt_metal::BufferType::DRAM),
+        std::make_tuple(BufferType::SystemMemory,
+                        ::tt::tt_metal::BufferType::SYSTEM_MEMORY),
+        std::make_tuple(BufferType::L1Small,
+                        ::tt::tt_metal::BufferType::L1_SMALL),
+        std::make_tuple(BufferType::Trace, ::tt::tt_metal::BufferType::TRACE)));
 
 //================================================================================
 // getTensorMemoryLayout
@@ -411,51 +380,48 @@ INSTANTIATE_TEST_SUITE_P(
 class ConversionTensorMemoryLayout
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<
-          std::tuple<mlir::tt::ttnn::TensorMemoryLayout,
-                     tt::tt_metal::TensorMemoryLayout>> {};
+          std::tuple<TensorMemoryLayout, ::tt::tt_metal::TensorMemoryLayout>> {
+};
 
 TEST_P(ConversionTensorMemoryLayout, MemoryConfig) {
-  const auto &mlirTensorMemoryLayout =
-      std::get<mlir::tt::ttnn::TensorMemoryLayout>(GetParam());
+  const auto &mlirTensorMemoryLayout = std::get<TensorMemoryLayout>(GetParam());
   const auto &expectedTensorMemoryLayout =
-      std::get<tt::tt_metal::TensorMemoryLayout>(GetParam());
+      std::get<::tt::tt_metal::TensorMemoryLayout>(GetParam());
 
   const llvm::SmallVector<int64_t> tensorShape = {56 * 32, 56 * 32};
 
-  auto layout = CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                                  mlirTensorMemoryLayout);
+  auto layout =
+      CreateTiledLayout(tensorShape, BufferType::L1, mlirTensorMemoryLayout);
 
   // MLIR -> TTNN
   const auto tensorMemoryLayout =
-      mlir::tt::op_model::ttnn::conversion::getTensorMemoryLayout(
-          layout.getMemLayout());
+      conversion::getTensorMemoryLayout(layout.getMemLayout());
   EXPECT_EQ(tensorMemoryLayout, expectedTensorMemoryLayout);
 
   // TTNN -> MLIR
   EXPECT_EQ(mlirTensorMemoryLayout,
-            mlir::tt::op_model::ttnn::conversion::getTensorMemoryLayout(
-                tensorMemoryLayout));
+            conversion::getTensorMemoryLayout(tensorMemoryLayout));
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ToTensorMemoryLayout, ConversionTensorMemoryLayout,
     ::testing::Values(
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                        tt::tt_metal::TensorMemoryLayout::INTERLEAVED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                        tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
-                        tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
-                        tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED)));
+        std::make_tuple(TensorMemoryLayout::Interleaved,
+                        ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED),
+        std::make_tuple(TensorMemoryLayout::HeightSharded,
+                        ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED),
+        std::make_tuple(TensorMemoryLayout::WidthSharded,
+                        ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED),
+        std::make_tuple(TensorMemoryLayout::BlockSharded,
+                        ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED)));
 
 //================================================================================
 // getMemoryConfig
 //================================================================================
 class MlirToTtnnConversionMemoryConfig
     : public MlirToTtnnConversion,
-      public testing::WithParamInterface<std::tuple<
-          mlir::tt::ttnn::BufferType, mlir::tt::ttnn::TensorMemoryLayout>> {};
+      public testing::WithParamInterface<
+          std::tuple<BufferType, TensorMemoryLayout>> {};
 
 TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
   const auto &mlirBufferType = std::get<0>(GetParam());
@@ -465,17 +431,13 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
   auto layout =
       CreateTiledLayout(tensorShape, mlirBufferType, mlirTensorMemoryLayout);
 
-  const auto memoryConfig =
-      mlir::tt::op_model::ttnn::conversion::getMemoryConfig(layout);
+  const auto memoryConfig = conversion::getMemoryConfig(layout);
 
-  EXPECT_EQ(memoryConfig.is_l1(),
-            mlirBufferType == mlir::tt::ttnn::BufferType::L1);
-  EXPECT_EQ(memoryConfig.is_dram(),
-            mlirBufferType == mlir::tt::ttnn::BufferType::DRAM);
+  EXPECT_EQ(memoryConfig.is_l1(), mlirBufferType == BufferType::L1);
+  EXPECT_EQ(memoryConfig.is_dram(), mlirBufferType == BufferType::DRAM);
   EXPECT_FALSE(layout.getIgnorePhysicalLayout());
 
-  if (mlirTensorMemoryLayout !=
-      mlir::tt::ttnn::TensorMemoryLayout::Interleaved) {
+  if (mlirTensorMemoryLayout != TensorMemoryLayout::Interleaved) {
     EXPECT_TRUE(memoryConfig.is_sharded());
     EXPECT_TRUE(memoryConfig.shard_spec().has_value());
 
@@ -483,8 +445,7 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
     EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
     EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
 
-    const auto partialConfig =
-        mlir::tt::op_model::ttnn::conversion::getMemoryConfig(partialLayout);
+    const auto partialConfig = conversion::getMemoryConfig(partialLayout);
     EXPECT_TRUE(partialConfig.is_sharded());
     EXPECT_FALSE(partialConfig.shard_spec().has_value());
   }
@@ -492,9 +453,6 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
 
 INSTANTIATE_TEST_SUITE_P(
     ToMemoryConfig, MlirToTtnnConversionMemoryConfig, ::testing::ValuesIn([] {
-      using mlir::tt::ttnn::BufferType;
-      using mlir::tt::ttnn::TensorMemoryLayout;
-
       std::vector<std::tuple<BufferType, TensorMemoryLayout>>
           validCombinations = {
               {BufferType::DRAM,
@@ -513,28 +471,24 @@ TEST_F(MlirToTtnnConversion, TensorLayout) {
   const llvm::SmallVector<int64_t> tensorShape = {56 * 32, 56 * 32};
   // test tilized layout
   {
-    const auto layout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                          mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+    const auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                          TensorMemoryLayout::BlockSharded);
 
-    const auto tensorLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(layout);
+    const auto tensorLayout = conversion::getTensorLayout(layout);
 
-    EXPECT_EQ(tensorLayout.get_data_type(), tt::tt_metal::DataType::BFLOAT16);
-    EXPECT_EQ(tensorLayout.get_layout(), tt::tt_metal::Layout::TILE);
+    EXPECT_EQ(tensorLayout.get_data_type(), ::tt::tt_metal::DataType::BFLOAT16);
+    EXPECT_EQ(tensorLayout.get_layout(), ::tt::tt_metal::Layout::TILE);
     EXPECT_EQ(tensorLayout.get_memory_config().is_sharded(), true);
   }
   // test row-major layout
   {
-    const auto layout =
-        CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+    const auto layout = CreateRowMajorLayout(tensorShape, BufferType::L1,
+                                             TensorMemoryLayout::BlockSharded);
 
-    const auto tensorLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(layout);
+    const auto tensorLayout = conversion::getTensorLayout(layout);
 
-    EXPECT_EQ(tensorLayout.get_data_type(), tt::tt_metal::DataType::BFLOAT16);
-    EXPECT_EQ(tensorLayout.get_layout(), tt::tt_metal::Layout::ROW_MAJOR);
+    EXPECT_EQ(tensorLayout.get_data_type(), ::tt::tt_metal::DataType::BFLOAT16);
+    EXPECT_EQ(tensorLayout.get_layout(), ::tt::tt_metal::Layout::ROW_MAJOR);
     EXPECT_EQ(tensorLayout.get_memory_config().is_sharded(), true);
   }
 }
@@ -546,188 +500,172 @@ TEST_F(Conversion, LayoutToTensorSpec) {
   const llvm::SmallVector<int64_t> tensorShape = {56 * 32, 56 * 32};
   // test tilized layout
   {
-    const auto originalLayout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                          mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-    const auto ttnnShape =
-        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
-    const auto ttnnLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
+    const auto originalLayout = CreateTiledLayout(
+        tensorShape, BufferType::L1, TensorMemoryLayout::BlockSharded);
+    const auto ttnnShape = conversion::getShape(tensorShape);
+    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
-              tt::tt_metal::Layout::TILE);
+              ::tt::tt_metal::Layout::TILE);
   }
 
   {
-    const auto originalLayout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                          mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
-    const auto ttnnShape =
-        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
-    const auto ttnnLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
+    const auto originalLayout = CreateTiledLayout(
+        tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
+    const auto ttnnShape = conversion::getShape(tensorShape);
+    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
-              tt::tt_metal::Layout::TILE);
+              ::tt::tt_metal::Layout::TILE);
   }
 
   {
-    const auto originalLayout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                          mlir::tt::ttnn::TensorMemoryLayout::WidthSharded);
-    const auto ttnnShape =
-        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
-    const auto ttnnLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
+    const auto originalLayout = CreateTiledLayout(
+        tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+    const auto ttnnShape = conversion::getShape(tensorShape);
+    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
-              tt::tt_metal::Layout::TILE);
+              ::tt::tt_metal::Layout::TILE);
   }
 
   // test DRAM Interleaved layout
   {
-    const auto originalLayout =
-        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                          mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-    const auto ttnnShape =
-        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
-    const auto ttnnLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
+    const auto originalLayout = CreateTiledLayout(
+        tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+    const auto ttnnShape = conversion::getShape(tensorShape);
+    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
-              tt::tt_metal::Layout::TILE);
+              ::tt::tt_metal::Layout::TILE);
   }
 
   // test row-major layout
   {
-    const auto originalLayout =
-        CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-    const auto ttnnShape =
-        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
-    const auto ttnnLayout =
-        mlir::tt::op_model::ttnn::conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
+    const auto originalLayout = CreateRowMajorLayout(
+        tensorShape, BufferType::L1, TensorMemoryLayout::BlockSharded);
+    const auto ttnnShape = conversion::getShape(tensorShape);
+    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
-              tt::tt_metal::Layout::ROW_MAJOR);
+              ::tt::tt_metal::Layout::ROW_MAJOR);
   }
 }
 
 TEST_F(Conversion, TensorSpecToLayout) {
   const llvm::SmallVector<int64_t> tensorShape = {56 * 32, 56 * 32};
-  const std::vector<mlir::tt::ttnn::TTNNLayoutAttr> layouts = {
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::BlockSharded),
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded),
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::WidthSharded),
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                           mlir::tt::ttnn::TensorMemoryLayout::BlockSharded)};
-  for (mlir::tt::ttnn::TTNNLayoutAttr originalLayout : layouts) {
-    const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-        tensorShape, originalLayout);
-    EXPECT_TRUE(mlir::tt::op_model::ttnn::conversion::validateTensorSpec(
-        tensorSpec, {8, 8}));
+  const std::vector<TTNNLayoutAttr> layouts = {
+      CreateTiledLayout(tensorShape, BufferType::L1,
+                        TensorMemoryLayout::BlockSharded),
+      CreateTiledLayout(tensorShape, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded),
+      CreateTiledLayout(tensorShape, BufferType::L1,
+                        TensorMemoryLayout::WidthSharded),
+      CreateTiledLayout(tensorShape, BufferType::DRAM,
+                        TensorMemoryLayout::Interleaved),
+      CreateRowMajorLayout(tensorShape, BufferType::DRAM,
+                           TensorMemoryLayout::Interleaved),
+      CreateTiledLayout(tensorShape, BufferType::L1,
+                        TensorMemoryLayout::Interleaved),
+      CreateRowMajorLayout(tensorShape, BufferType::L1,
+                           TensorMemoryLayout::BlockSharded)};
+  for (TTNNLayoutAttr originalLayout : layouts) {
+    const auto tensorSpec =
+        conversion::getTensorSpec(tensorShape, originalLayout);
+    EXPECT_TRUE(conversion::validateTensorSpec(tensorSpec, {8, 8}));
 
-    const auto reconvertedLayout =
-        mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, tensorSpec, /*deviceGrid=*/{8, 8});
+    const auto reconvertedLayout = conversion::getLayoutAttrFromTensorSpec(
+        &context, tensorSpec, /*deviceGrid=*/{8, 8});
     ExpectLayoutsEQ(originalLayout, reconvertedLayout);
   }
 }
 
 TEST_F(Conversion, TensorSpecToLayoutReversed) {
-  const ttnn::Shape tensorShape{56 * 32, 56 * 32};
-  const std::vector<tt::tt_metal::TensorSpec> tensorSpecs = {
-      tt::tt_metal::TensorSpec{
+  const ::ttnn::Shape tensorShape{56 * 32, 56 * 32};
+  const std::vector<::tt::tt_metal::TensorSpec> tensorSpecs = {
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
-                  tt::tt_metal::BufferType::DRAM}}},
-      tt::tt_metal::TensorSpec{
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::TILE},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  ::tt::tt_metal::BufferType::DRAM}}},
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::ROW_MAJOR},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
-                  tt::tt_metal::BufferType::DRAM}}},
-      tt::tt_metal::TensorSpec{
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::ROW_MAJOR},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  ::tt::tt_metal::BufferType::DRAM}}},
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
-                  tt::tt_metal::BufferType::L1}}},
-      tt::tt_metal::TensorSpec{
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::TILE},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  ::tt::tt_metal::BufferType::L1}}},
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-                  tt::tt_metal::BufferType::L1,
-                  tt::tt_metal::ShardSpec{
-                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
-                                              tt::tt_metal::CoreCoord{3, 3}},
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::TILE},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
+                  ::tt::tt_metal::BufferType::L1,
+                  ::tt::tt_metal::ShardSpec{
+                      ::tt::tt_metal::CoreRange{
+                          ::tt::tt_metal::CoreCoord{0, 0},
+                          ::tt::tt_metal::CoreCoord{3, 3}},
                       {14 * 32, 14 * 32}}}}},
 
-      tt::tt_metal::TensorSpec{
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
-                  tt::tt_metal::BufferType::L1,
-                  tt::tt_metal::ShardSpec{
-                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
-                                              tt::tt_metal::CoreCoord{3, 0}},
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::TILE},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
+                  ::tt::tt_metal::BufferType::L1,
+                  ::tt::tt_metal::ShardSpec{
+                      ::tt::tt_metal::CoreRange{
+                          ::tt::tt_metal::CoreCoord{0, 0},
+                          ::tt::tt_metal::CoreCoord{3, 0}},
                       {14 * 32, 56 * 32}}}}},
-      tt::tt_metal::TensorSpec{
+      ::tt::tt_metal::TensorSpec{
           tensorShape,
-          tt::tt_metal::TensorLayout{
-              tt::tt_metal::DataType::BFLOAT16,
-              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
-              tt::tt_metal::MemoryConfig{
-                  tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED,
-                  tt::tt_metal::BufferType::L1,
-                  tt::tt_metal::ShardSpec{
-                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
-                                              tt::tt_metal::CoreCoord{3, 0}},
+          ::tt::tt_metal::TensorLayout{
+              ::tt::tt_metal::DataType::BFLOAT16,
+              ::tt::tt_metal::PageConfig{::tt::tt_metal::Layout::TILE},
+              ::tt::tt_metal::MemoryConfig{
+                  ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED,
+                  ::tt::tt_metal::BufferType::L1,
+                  ::tt::tt_metal::ShardSpec{
+                      ::tt::tt_metal::CoreRange{
+                          ::tt::tt_metal::CoreCoord{0, 0},
+                          ::tt::tt_metal::CoreCoord{3, 0}},
                       {56 * 32, 14 * 32}}}}}};
 
-  for (tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
-    const auto layout =
-        mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, originalTensorSpec, /*deviceGrid=*/{8, 8});
+  for (::tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
+    const auto layout = conversion::getLayoutAttrFromTensorSpec(
+        &context, originalTensorSpec, /*deviceGrid=*/{8, 8});
     const auto reconvertedTensorSpec =
-        mlir::tt::op_model::ttnn::conversion::getTensorSpec(
-            mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
-            layout);
+        conversion::getTensorSpec(conversion::getShape(tensorShape), layout);
     EXPECT_EQ(reconvertedTensorSpec, originalTensorSpec);
-    EXPECT_TRUE(mlir::tt::op_model::ttnn::conversion::validateTensorSpec(
-        reconvertedTensorSpec, {8, 8}));
+    EXPECT_TRUE(conversion::validateTensorSpec(reconvertedTensorSpec, {8, 8}));
   }
 }
+
+} // namespace mlir::tt::ttnn::op_model

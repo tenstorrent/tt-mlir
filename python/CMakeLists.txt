@@ -179,6 +179,8 @@ if(TTMLIR_ENABLE_STABLEHLO)
   list(APPEND TTMLIR_PYTHON_SOURCES
     StablehloPythonSources
     StablehloPythonExtensions
+    SdyPythonSources
+    SdyPythonExtensions
   )
 endif()
 

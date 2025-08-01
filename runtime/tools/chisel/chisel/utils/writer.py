@@ -30,7 +30,6 @@ class ReportWriter:
         self._init_file()
 
     def _format_ops(self, ops: List[Operation], kind: ExecutionType):
-        # import pdb; pdb.set_trace()
         return "\n".join([op.get_asm(enable_debug_info=True) for op in ops])
 
     def _format_tensor(self, tensor, kind: ExecutionType):

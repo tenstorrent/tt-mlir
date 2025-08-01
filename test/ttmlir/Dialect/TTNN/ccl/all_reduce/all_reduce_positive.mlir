@@ -12,8 +12,8 @@ module attributes {} {
     %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
     // CHECK: = "ttnn.reshape"
     // CHECK: "ttnn.reduce_scatter"
-    // CHECK: "ttnn.all_gather"
     // CHECK: = "ttnn.reshape"
+    // CHECK: "ttnn.all_gather"
     return %1 : tensor<4096x16384xf32>
   }
 }
@@ -28,8 +28,8 @@ module attributes {} {
     %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK: "ttnn.reduce_scatter"
-    // CHECK: "ttnn.all_gather"
     // CHECK-NOT: = "ttnn.reshape"
+    // CHECK: "ttnn.all_gather"
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }
@@ -44,9 +44,9 @@ module attributes {} {
     %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.all_reduce"
-    // CHECK-NOT: = "ttnn.reshape"
     return %1 : tensor<4096x16384xf32>
   }
 }
@@ -61,9 +61,9 @@ module attributes {} {
     %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.all_reduce"
-    // CHECK-NOT: = "ttnn.reshape"
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }

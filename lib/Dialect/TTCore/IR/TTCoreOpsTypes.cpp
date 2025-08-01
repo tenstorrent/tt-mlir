@@ -87,12 +87,6 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
       TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
   };
 
-  // dram = [ 0x0,  1x0,  2x0,  3x0,  4x0,  5x0,  6x0,  7x0]
-  llvm::SmallVector<CoreCoordAttr> dramCores;
-  for (std::int64_t y = 0; y < 8; ++y) {
-    dramCores.push_back(CoreCoordAttr::get(context, y, 0));
-  }
-
   // Get number of chips indices.
   llvm::SmallVector<uint32_t> chipIndicesList =
       llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
@@ -107,10 +101,9 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
         coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
-        dramUnreservedEnd,
-        ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
-        supported_data_types, supported_tile_sizes, dstRegisterSizeTiles,
-        numCBs, numComputeThreads, numDatamovementThreads));
+        dramUnreservedEnd, supported_data_types, supported_tile_sizes,
+        dstRegisterSizeTiles, numCBs, numComputeThreads,
+        numDatamovementThreads));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -118,10 +111,8 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
   chipCapabilities.reserve(numberOfChips);
 
   for (auto i = 0; i < numberOfChips; i++) {
-    chipCapabilities.push_back(ChipCapabilityAttr::get(
-        context,
-        // NOLINTNEXTLINE
-        ChipCapability::PCIE | ChipCapability::HostMMIO));
+    chipCapabilities.push_back(
+        ChipCapabilityAttr::get(context, ChipCapability::HostMMIO));
   }
 
   // Update chip channels based on number of chips.
@@ -210,13 +201,6 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
       TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
   };
 
-  llvm::SmallVector<CoreCoordAttr> dramCores;
-  for (std::int64_t x = 0; x < 4; ++x) {
-    for (std::int64_t y = 0; y < 3; ++y) {
-      dramCores.push_back(CoreCoordAttr::get(context, y + gridShape[0], x));
-    }
-  }
-
   // Get number of chips indices.
   llvm::SmallVector<uint32_t> chipIndicesList =
       llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
@@ -231,10 +215,9 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
         coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
-        dramUnreservedEnd,
-        ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
-        supportedDataTypes, supportedTileSizes, dstRegisterSizeTiles, numCBs,
-        numComputeThreads, numDatamovementThreads));
+        dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
+        dstRegisterSizeTiles, numCBs, numComputeThreads,
+        numDatamovementThreads));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -242,10 +225,8 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
   chipCapabilities.reserve(numberOfChips);
 
   for (auto i = 0; i < numberOfChips; i++) {
-    chipCapabilities.push_back(ChipCapabilityAttr::get(
-        context,
-        // NOLINTNEXTLINE
-        ChipCapability::PCIE | ChipCapability::HostMMIO));
+    chipCapabilities.push_back(
+        ChipCapabilityAttr::get(context, ChipCapability::HostMMIO));
   }
 
   // Update chip channels based on number of chips.
@@ -348,26 +329,6 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   // Acquire chip descs
   std::vector<ChipDescAttr> chipDescList;
   for (const auto *element : *binaryChipDesc) {
-    std::vector<CoreCoordAttr> dramCores, ethCores, ethInactiveCores;
-    const auto *physicalHelperCores = element->physical_helper_cores();
-
-    // Populate all vecrors with CoreCoordAttr instances
-    for (const auto &core : *physicalHelperCores->dram()) {
-      dramCores.emplace_back(CoreCoordAttr::get(context, core->y(), core->x()));
-    }
-    for (const auto &core : *physicalHelperCores->eth()) {
-      ethCores.emplace_back(CoreCoordAttr::get(context, core->y(), core->x()));
-    }
-    for (const auto &core : *physicalHelperCores->eth_inactive()) {
-      ethInactiveCores.emplace_back(
-          CoreCoordAttr::get(context, core->y(), core->x()));
-    }
-
-    // Create ChipPhysicalHelperCoresAttr from the list of CoreCoordAttr
-    // instances
-    auto chipPhysicalHelperCoresAttr = ChipPhysicalHelperCoresAttr::get(
-        context, dramCores, ethCores, ethInactiveCores);
-
     Arch arch;
     switch (element->arch()) {
     case ::tt::target::Arch::Grayskull:
@@ -467,10 +428,10 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
         element->pcie_address_align_bytes(),
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
-        element->dram_unreserved_end(), chipPhysicalHelperCoresAttr,
-        supportedDataTypesAttr, supportedTileSizesAttr,
-        element->dst_register_size_tiles(), element->num_cbs(),
-        element->num_compute_threads(), element->num_datamovement_threads());
+        element->dram_unreserved_end(), supportedDataTypesAttr,
+        supportedTileSizesAttr, element->dst_register_size_tiles(),
+        element->num_cbs(), element->num_compute_threads(),
+        element->num_datamovement_threads());
     chipDescList.push_back(currentChipDescAttr);
   }
 
@@ -483,8 +444,6 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   // Acquire chip capabilities
   std::vector<ChipCapabilityAttr> chipCapabilitiesList;
   for (auto element : *chipCapabilities) {
-    static_assert(llvm::to_underlying(ChipCapability::PCIE) ==
-                  llvm::to_underlying(::tt::target::ChipCapability::PCIE));
     static_assert(llvm::to_underlying(ChipCapability::HostMMIO) ==
                   llvm::to_underlying(::tt::target::ChipCapability::HostMMIO));
 
@@ -1152,18 +1111,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      ::llvm::ArrayRef<unsigned> chipIds,
                                      unsigned dramPageSize) {
   auto chipDesc = systemDesc.getChipDescs().front();
-  auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
-  auto firstDramCores = chipPhysicalHelperCores.getDram();
-  assert(!firstDramCores.empty() && "expected at least one dram core");
-
-  for (unsigned chipId : chipIds) {
-    auto chipDesc = systemDesc.getChipDesc(chipId);
-    auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
-    auto dramCores = chipPhysicalHelperCores.getDram();
-    assert(dramCores.size() == firstDramCores.size());
-  }
-
-  return createDramMap(context, workerGrid, firstDramCores.size(),
+  return createDramMap(context, workerGrid, chipDesc.getNumDramChannels(),
                        dramPageSize);
 }
 

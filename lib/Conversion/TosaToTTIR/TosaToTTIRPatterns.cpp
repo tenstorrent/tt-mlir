@@ -252,14 +252,36 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    auto dims = srcOp.getKernel();
-    auto strides = srcOp.getStride();
-    auto pad = srcOp.getPad();
+    auto kernelAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(srcOp.getKernel()[0]),
+        static_cast<int32_t>(srcOp.getKernel()[1]),
+    });
+
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(srcOp.getStride()[0]),
+        static_cast<int32_t>(srcOp.getStride()[1]),
+    });
+
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(1),
+        static_cast<int32_t>(1),
+    });
+
+    // Tosa max pool 2D op has padding in the order of
+    // [top, bottom, left, right], while TTIR expects it in the order
+    // of [top, left, bottom, right].
+    // Thus, we need to rearrange the padding values.
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(srcOp.getPad()[0]),
+        static_cast<int32_t>(srcOp.getPad()[2]),
+        static_cast<int32_t>(srcOp.getPad()[1]),
+        static_cast<int32_t>(srcOp.getPad()[3]),
+    });
 
     // TODO (azecevic) Add comment about the parameters.
     ttir::utils::replaceOpWithNewDPSOp<ttir::MaxPool2dOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), dims[0], dims[1],
-        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1],
+        rewriter, srcOp, outputType, adaptor.getInput(), kernelAttr, strideAttr,
+        dilationAttr, paddingAttr, /*ceil_mode=*/false,
         /*flattened_compat_info=*/nullptr);
 
     return success();

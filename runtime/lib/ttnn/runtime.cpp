@@ -332,8 +332,15 @@ std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
   void *dataPtr = nullptr;
-  std::vector<std::byte> dataVec(getTensorElementSize(tensor) *
-                                 getTensorVolume(tensor));
+  std::uint32_t tensorVolume = getTensorVolume(tensor);
+
+  if (tensorVolume == 0) {
+    LOG_WARNING("getTensorDataBuffer: Tensor has zero volume; returning an "
+                "empty data vector.");
+    return {};
+  }
+
+  std::vector<std::byte> dataVec(getTensorElementSize(tensor) * tensorVolume);
 
   // Need to `memcpy` in each case because the vector will go out of scope if we
   // wait until after the switch case

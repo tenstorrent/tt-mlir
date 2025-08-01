@@ -5,14 +5,14 @@
 
 // CHECK-LABEL: @reduce_scatter_sum_positive
 module attributes {} {
-  func.func @reduce_scatter_sum_positive(%arg0: tensor<8192x2048xf32, #ttcore.mesh_sharding<"mesh">>) -> tensor<8192x1024xf32, #ttcore.mesh_sharding<"mesh">> {
-    %0 = ttir.empty() : tensor<8192x1024xf32, #ttcore.mesh_sharding<"mesh">>
+  func.func @reduce_scatter_sum_positive(%arg0: tensor<8192x2048xf32>) -> tensor<8192x1024xf32> {
+    %0 = ttir.empty() : tensor<8192x1024xf32>
     // CHECK: ttir.reduce_scatter
     // CHECK-SAME: cluster_axis = 1 : ui32
     // CHECK-SAME: reduce_type = #ttcore.reduce_type<sum>
     // CHECK-SAME: scatter_dim = 1 : si32
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<8192x2048xf32, #ttcore.mesh_sharding<"mesh">>, tensor<8192x1024xf32, #ttcore.mesh_sharding<"mesh">>) -> tensor<8192x1024xf32, #ttcore.mesh_sharding<"mesh">>
-    return %1 : tensor<8192x1024xf32, #ttcore.mesh_sharding<"mesh">>
+    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<8192x2048xf32>, tensor<8192x1024xf32>) -> tensor<8192x1024xf32>
+    return %1 : tensor<8192x1024xf32>
   }
 }
 

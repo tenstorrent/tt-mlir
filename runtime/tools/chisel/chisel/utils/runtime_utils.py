@@ -9,10 +9,11 @@ from ttrt.runtime import (
     create_owned_host_tensor,
     update_tensor_in_pool,
     Tensor as RtTensor,
+    TensorRef,
 )
 
 
-def get_torch_tensor(tensor):
+def get_torch_tensor(tensor: RtTensor) -> torch.Tensor:
     rt_data_ptr = tensor.get_data_buffer()
     rt_dtype = tensor.get_dtype()
     dtype = ttrt_dtype_maps[str(rt_dtype)]
@@ -24,8 +25,11 @@ def get_torch_tensor(tensor):
 
 
 def update_device_tensor(
-    program_context, tensor_ref, dst_tensor, src_tensor: torch.Tensor
-):
+    program_context,
+    tensor_ref: TensorRef,
+    dst_tensor: RtTensor,
+    src_tensor: torch.Tensor,
+) -> None:
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
     stride = dst_tensor.get_stride()

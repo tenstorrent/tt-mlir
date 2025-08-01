@@ -12,7 +12,7 @@ This module provides the OpGroup and Registry classes which are responsible for:
 """
 from collections import defaultdict
 from functools import cache
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Union
 
 from ttmlir.ir import BlockArgument, Operation, OpResult
 
@@ -152,12 +152,14 @@ class Registry:
             return False
         return last_op == op
 
-    def add_tensor(self, tensor: Operation, kind: ExecutionType) -> None:
+    def add_tensor(
+        self, tensor: Union[OpResult, BlockArgument], kind: ExecutionType
+    ) -> None:
         """
         Register a tensor in the registry and track its location.
 
         Args:
-            tensor: The tensor operation to register
+            tensor: The tensor (OpResult or BlockArgument) to register
             kind: The execution context (GOLDEN or DEVICE)
         """
         location_hash = hash_location(tensor.location)
@@ -249,6 +251,7 @@ class Registry:
         with_output: bool = True,
     ) -> Operation | None:
         if group_id not in self.op_groups:
+            # TODO: check in what cases this happens
             return None
         return self.op_groups[group_id].get_last_op(execution_type, with_output)
 

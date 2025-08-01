@@ -1,11 +1,11 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,32" --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,32" -o %t.mlir %s
+// RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,32 automatic-arg-analysis" --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,32" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module {
   sdy.mesh @mesh = <["model"=1, "batch"=32]>
 
-  func.func @main(%arg0: tensor<784x128xf32>, %arg1: tensor<128xf32>, %arg2: tensor<128x64xf32>, %arg3: tensor<64xf32>, %arg4: tensor<64x12xf32>, %arg5: tensor<12xf32>, %arg6: tensor<12x3xf32>, %arg7: tensor<3xf32>, %arg8: tensor<3x12xf32>, %arg9: tensor<12xf32>, %arg10: tensor<12x64xf32>, %arg11: tensor<64xf32>, %arg12: tensor<64x128xf32>, %arg13: tensor<128xf32>, %arg14: tensor<128x784xf32>, %arg15: tensor<784xf32>, %arg16: tensor<128x784xbf16>, %arg17: tensor<128xbf16>, %arg18: tensor<64x128xbf16>, %arg19: tensor<64xbf16>, %arg20: tensor<12x64xbf16>, %arg21: tensor<12xbf16>, %arg22: tensor<3x12xbf16>, %arg23: tensor<3xbf16>, %arg24: tensor<12x3xbf16>, %arg25: tensor<12xbf16>, %arg26: tensor<64x12xbf16>, %arg27: tensor<64xbf16>, %arg28: tensor<128x64xbf16>, %arg29: tensor<128xbf16>, %arg30: tensor<784x128xbf16>, %arg31: tensor<784xbf16>, %arg32: tensor<32x1x1x784xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> tensor<32x1x1x784xbf16> {
+  func.func @main(%arg0: tensor<784x128xf32>, %arg1: tensor<128xf32>, %arg2: tensor<128x64xf32>, %arg3: tensor<64xf32>, %arg4: tensor<64x12xf32>, %arg5: tensor<12xf32>, %arg6: tensor<12x3xf32>, %arg7: tensor<3xf32>, %arg8: tensor<3x12xf32>, %arg9: tensor<12xf32>, %arg10: tensor<12x64xf32>, %arg11: tensor<64xf32>, %arg12: tensor<64x128xf32>, %arg13: tensor<128xf32>, %arg14: tensor<128x784xf32>, %arg15: tensor<784xf32>, %arg16: tensor<128x784xbf16>, %arg17: tensor<128xbf16>, %arg18: tensor<64x128xbf16>, %arg19: tensor<64xbf16>, %arg20: tensor<12x64xbf16>, %arg21: tensor<12xbf16>, %arg22: tensor<3x12xbf16>, %arg23: tensor<3xbf16>, %arg24: tensor<12x3xbf16>, %arg25: tensor<12xbf16>, %arg26: tensor<64x12xbf16>, %arg27: tensor<64xbf16>, %arg28: tensor<128x64xbf16>, %arg29: tensor<128xbf16>, %arg30: tensor<784x128xbf16>, %arg31: tensor<784xbf16>, %arg32: tensor<32x1x1x784xbf16>) -> tensor<32x1x1x784xbf16> {
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<32x1x1x128xbf16>
     %cst_0 = stablehlo.constant dense<0.000000e+00> : tensor<32x1x1x64xbf16>
     %cst_1 = stablehlo.constant dense<0.000000e+00> : tensor<32x1x1x12xbf16>

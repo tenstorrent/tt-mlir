@@ -2722,17 +2722,11 @@ class TTIRBuilderOps:
         self,
         in0: Operand,
         in1: Operand,
-        kernel_height: int,
-        kernel_width: int,
-        stride_height: int,
-        stride_width: int,
-        dilation_height: int,
-        dilation_width: int,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
         ceil_mode: bool,
-        padding_left: int,
-        padding_right: int,
-        padding_top: int,
-        padding_bottom: int,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2768,24 +2762,34 @@ class TTIRBuilderOps:
             ttir.MaxPool2dOp,
             [in0],
             golden_kwargs={
-                "kernel_size": (kernel_height, kernel_width),
-                "stride": (stride_height, stride_width),
-                "padding": (padding_top, padding_left),
-                "dilation": (dilation_height, dilation_width),
+                "kernel": kernel,
+                "stride": stride,
+                "dilation": dilation,
+                "padding": padding,
                 "ceil_mode": ceil_mode,
             },
             ttir_kwargs={
-                "kernel_height": kernel_height,
-                "kernel_width": kernel_width,
-                "stride_height": stride_height,
-                "stride_width": stride_width,
-                "dilation_height": dilation_height,
-                "dilation_width": dilation_width,
+                "kernel": (
+                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    if isinstance(kernel, int)
+                    else DenseI32ArrayAttr.get(kernel)
+                ),
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
                 "ceil_mode": ceil_mode,
-                "padding_left": padding_left,
-                "padding_right": padding_right,
-                "padding_top": padding_top,
-                "padding_bottom": padding_bottom,
             },
             unit_attrs=unit_attrs,
         )

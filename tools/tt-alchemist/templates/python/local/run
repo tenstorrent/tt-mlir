@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Check if TT_MLIR_HOME is set
+if [[ -z "${TT_MLIR_HOME}" ]]; then
+    echo "Error: TT_MLIR_HOME environment variable is not set"
+    exit 1
+fi
+
+# Confirm python3 exists
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 could not be found"
+    exit 1
+fi
+
+# Run main.py
+echo "Running main.py..."
+python3 main.py

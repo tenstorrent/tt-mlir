@@ -30,6 +30,8 @@ constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
     "ttir.conv2d_weight";
 constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
     "ttir.cpu_hoist_call";
+constexpr inline llvm::StringLiteral g_skipQdqCommuteAttrName =
+    "ttir.skip_qdq_commute";
 
 template <typename T>
 T alignUp(T ptr, T alignment) {

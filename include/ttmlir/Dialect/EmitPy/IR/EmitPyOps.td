@@ -113,7 +113,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
 
     ```mlir
     %0 = emitpy.literal "0" : index
-    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"list<ttnn.Tensor>">, index) -> !emitpy.opaque<"ttnn.Tensor">
+    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"[ttnn.Tensor]">, index) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
@@ -128,7 +128,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
 }
 
 def EmitPy_AssignOp : EmitPy_Op<"assign"> {
-  let summary = "Assign operation.";
+  let summary = "Assign operation";
   let description = [{
     The `emitpy.assign` operation represents a Python variable assignment.
     This models `new_var = old_var` or `var = constant`.

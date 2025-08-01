@@ -17,15 +17,6 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
       filterOutFn(filterOutFn) {
 
   // Populate activeSearchFields from searchSpace.
-  if (searchSpace.isDtypeSetForSearch() && !baseConfig.hasDtype()) {
-    activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.dtype),
-        [](Conv2dConfigAttr attr,
-           const Conv2dConfigGeneratorSearchFieldInfo &info)
-            -> Conv2dConfigAttr {
-          return attr.withDtype(info.getCurrentDataType());
-        });
-  }
   if (searchSpace.isWeightsDtypeSetForSearch() &&
       !baseConfig.hasWeightsDtype()) {
     activeSearchFields.emplace_back(

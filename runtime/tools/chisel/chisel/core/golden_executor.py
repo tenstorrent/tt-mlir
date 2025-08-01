@@ -11,7 +11,6 @@ from .enums import ExecutionType
 from .registry import Registry
 
 from ..utils.mapping import ttir_to_torch_mapping
-import pdb
 
 
 class GoldenExecutor:
