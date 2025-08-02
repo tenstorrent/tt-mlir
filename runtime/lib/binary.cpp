@@ -237,12 +237,7 @@ std::string getProgramMlirAsJson(Flatbuffer binary,
 std::string getProgramCpp(Flatbuffer binary, std::uint32_t programIndex) {
   const auto *programs = getBinary(binary)->programs();
   LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  try {
-    return programs->Get(programIndex)->debug_info()->cpp()->c_str();
-  } catch (...) {
-    LOG_WARNING("CPP not found");
-  }
-  return "";
+  return programs->Get(programIndex)->debug_info()->cpp()->c_str();
 }
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
