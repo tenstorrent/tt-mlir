@@ -179,47 +179,46 @@ def test_reduce_scatter(
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "test_shape",
     [
-        (1, 1, 256, 4096),
-        (1, 1, 258, 4096),
-        (1, 1, 260, 4096),
-        (1, 1, 254, 4096),
-        (1, 1, 252, 4096),
-        (1, 1, 256, 4100),
-        (1, 1, 256, 4104),
-        (1, 1, 256, 4092),
-        (1, 1, 256, 4088),
-        (1, 1, 30, 32),
-        (1, 1, 2, 4),
+        (1, 1, 256, 512),
+        (1, 256, 512),
+        (256, 512),
+        (256, 512, 1, 1),
+        (1, 256, 512, 1),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def collective_permute(in0: Operand, builder: TTIRBuilder):
-        pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
-        sharded = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 2, 4),
-            shard_dims=(2, 3),
-        )
-        reduced = builder.collective_permute(
-            sharded,
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize(
+    "pairs",
+    [
+        [(0, 1)],
+        [(0, 1), (1, 2), (2, 3), (3, 0)],
+        [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)],
+        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)],
+        [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)],
+        [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)],
+        [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)],
+    ],
+)
+def test_collective_permute(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    pairs: List[Tuple[int, int]],
+    request,
+    shard_wrap_factory,
+):
+    def collective_permute(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.collective_permute(
+            sharded_in,
             source_target_pairs=pairs,
         )
-        return builder.mesh_shard(
-            reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 2, 4),
-            shard_dims=(2, 3),
-        )
+
+    input_shape, test_fn = shard_wrap_factory(collective_permute)
 
     compile_ttir_to_flatbuffer(
-        collective_permute,
-        [shape],
+        test_fn,
+        [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
