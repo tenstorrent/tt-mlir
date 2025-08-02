@@ -3558,6 +3558,8 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
   let results = (outs Variadic<AnyRankedTensor>);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
@@ -4661,7 +4663,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
 }
 
 def TTIR_FullOp : TTIR_CreationOp<"full",
-  [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+  [ ConstantLike, DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                        , "bufferizesToMemoryWrite"
                                                        , "bufferize"
                                                        , "getAliasingValues"
@@ -4694,6 +4696,8 @@ def TTIR_FullOp : TTIR_CreationOp<"full",
   ];
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
