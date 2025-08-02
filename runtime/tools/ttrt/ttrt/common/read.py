@@ -27,7 +27,6 @@ class Read:
         "version",
         "system_desc",
         "mlir",
-        "cpp",
         "inputs",
         "outputs",
         "op_stats",
@@ -448,21 +447,6 @@ class Read:
             return results
 
         return self._operate_on_binary(binaries, _get_mlir)
-
-    def cpp(self, *binaries):
-        def _get_cpp(binary):
-            results = []
-            for index in range(binary.fbb.get_num_programs()):
-                results.append(
-                    {
-                        binary.fbb.get_program_name(index): binary.fbb.get_program_cpp(
-                            index
-                        )
-                    }
-                )
-            return results
-
-        return self._operate_on_binary(binaries, _get_cpp)
 
     def inputs(self, *binaries):
         return self._operate_on_binary(
