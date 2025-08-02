@@ -10,7 +10,6 @@ include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
 
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"

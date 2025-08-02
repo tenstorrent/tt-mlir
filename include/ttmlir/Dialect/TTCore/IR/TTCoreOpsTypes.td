@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTCore/IR/TTCoreBase.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreTypeInterfaces.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
@@ -554,6 +555,13 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     }];
 
     let genVerifyDecl = 1;
+}
+
+def TT_BFloat8B : TTCore_Type<"BFloat8B", "bfp8_b", [BlockTypeInterface, MemRefElementTypeInterface]> {
+  let summary = "This is MLIR type representation of bfp8_b type in TT.";
+  let description = [{
+    This is MLIR type representation of bfp8_b type in TT.
+  }];
 }
 
 //===----------------------------------------------------------------------===//

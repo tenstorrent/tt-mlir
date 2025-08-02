@@ -4,6 +4,12 @@ add_mlir_doc(TTCoreOps TTCoreOp src/autogen/md/Dialect/ -gen-op-doc)
 add_mlir_doc(TTCoreOpsTypes TTCoreAttr src/autogen/md/Dialect/ -gen-attrdef-doc)
 add_mlir_doc(TTCoreOpsTypes TTCoreType src/autogen/md/Dialect/ -gen-typedef-doc)
 
+set(LLVM_TARGET_DEFINITIONS TTCoreTypeInterfaces.td)
+mlir_tablegen(TTCoreTypeInterfaces.h.inc -gen-type-interface-decls)
+mlir_tablegen(TTCoreTypeInterfaces.cpp.inc -gen-type-interface-defs)
+add_public_tablegen_target(TTCoreTypeInterfacesIncGen)
+add_dependencies(mlir-headers TTCoreTypeInterfacesIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTCoreAttrInterfaces.td)
 mlir_tablegen(TTCoreAttrInterfaces.h.inc -gen-attr-interface-decls)
 mlir_tablegen(TTCoreAttrInterfaces.cpp.inc -gen-attr-interface-defs)

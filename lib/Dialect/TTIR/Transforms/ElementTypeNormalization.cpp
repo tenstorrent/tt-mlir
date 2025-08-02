@@ -14,15 +14,26 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class ElementTypeConverter : public TypeConverter {
+class ElementTypeConverter : public mlir::TypeConverter {
 public:
-  ElementTypeConverter() {
-    addConversion([](RankedTensorType type) -> std::optional<RankedTensorType> {
+  void init(bool enableBfp8Type) {
+    addConversion([enableBfp8Type](mlir::RankedTensorType type)
+                      -> std::optional<mlir::RankedTensorType> {
       Type elementType = type.getElementType();
 
       // Skip quantized types - don't modify them.
-      if (isa<quant::QuantizedType>(elementType)) {
+      if (mlir::isa<quant::QuantizedType>(elementType)) {
         return type;
+      }
+
+      if (mlir::isa<ttcore::BFloat8BType>(elementType)) {
+        return type;
+      }
+
+      if (enableBfp8Type && mlir::isa<mlir::BFloat16Type>(elementType)) {
+        return mlir::RankedTensorType::get(
+            type.getShape(), ttcore::BFloat8BType::get(type.getContext()),
+            type.getEncoding());
       }
 
       elementType = mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
@@ -30,8 +41,8 @@ public:
         return {};
       }
 
-      return RankedTensorType::get(type.getShape(), elementType,
-                                   type.getEncoding());
+      return mlir::RankedTensorType::get(type.getShape(), elementType,
+                                         type.getEncoding());
     });
   }
 };
@@ -40,15 +51,18 @@ public:
 // We need more sophisticated rewriting of the constant op,
 // since current logic doesn't rely on the type converter and
 // doesn't support DenseResourceElementsAttr conversion.
-class ConstantOpAttrRewriter : public OpRewritePattern<tt::ttir::ConstantOp> {
+class ConstantOpAttrRewriter
+    : public mlir::OpRewritePattern<tt::ttir::ConstantOp> {
 public:
-  using OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
 
-  ConstantOpAttrRewriter(const TypeConverter &converter, MLIRContext *ctx)
+  ConstantOpAttrRewriter(const mlir::TypeConverter &converter,
+                         mlir::MLIRContext *ctx)
       : OpRewritePattern(ctx), converter(converter) {}
 
-  LogicalResult matchAndRewrite(tt::ttir::ConstantOp op,
-                                PatternRewriter &rewriter) const override {
+  mlir::LogicalResult
+  matchAndRewrite(tt::ttir::ConstantOp op,
+                  mlir::PatternRewriter &rewriter) const override {
     if (auto newAttr = rebuildElementsAttr(op.getValue())) {
       if (newAttr == op.getValue()) {
         return failure();
@@ -63,7 +77,7 @@ public:
   }
 
 private:
-  TypeConverter converter;
+  mlir::TypeConverter converter;
 
   mlir::ElementsAttr rebuildElementsAttr(mlir::ElementsAttr attr) const {
     auto elementType = attr.getElementType();
@@ -73,14 +87,14 @@ private:
     // Skip rewriting if type is already supported or if the attribute is
     // DenseResourceElementsAttr (conversion not supported yet).
     if (newType.getElementType() == elementType ||
-        isa<DenseResourceElementsAttr>(attr)) {
+        mlir::isa<mlir::DenseResourceElementsAttr>(attr)) {
       return attr;
     }
 
-    if (isa<IntegerType>(elementType)) {
+    if (mlir::isa<mlir::IntegerType>(elementType)) {
       return rebuildIntAttr(attr, newType);
     }
-    if (isa<FloatType>(elementType)) {
+    if (mlir::isa<mlir::FloatType>(elementType)) {
       return rebuildFloatAttr(attr, newType);
     }
 
@@ -129,39 +143,43 @@ private:
   }
 };
 
-struct ElementTypeNormalization
+class ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
       ElementTypeNormalization>::ElementTypeNormalizationBase;
 
+public:
   void runOnOperation() final {
+    // Command line options are parsed after the pass is created
+    // so we can't initialize the converter in the constructor.
+    converter.init(enableBfp8Type);
+
     // Check that all types are supported by TTMLIR.
     if (!checkSupportedTypes()) {
       signalPassFailure();
       return;
     }
 
-    RewritePatternSet patterns(&getContext());
+    mlir::RewritePatternSet patterns(&getContext());
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+    if (failed(
+            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
     }
   }
 
 private:
-  ElementTypeConverter converter;
-
-  bool isLegal(Type type) const {
+  bool isLegal(mlir::Type type) const {
     return converter.convertType(type) != nullptr;
   }
 
-  bool isLegal(Operation *op) const {
-    auto isTypeLegal = [this](Type type) { return isLegal(type); };
+  bool isLegal(mlir::Operation *op) const {
+    auto isTypeLegal = [this](mlir::Type type) { return isLegal(type); };
 
     // Special handling for function signature
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
+    if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
       return llvm::all_of(funcOp.getArgumentTypes(), isTypeLegal) &&
              llvm::all_of(funcOp.getResultTypes(), isTypeLegal);
     }
@@ -173,19 +191,21 @@ private:
 
   // Check that all operations in module are using supported types.
   bool checkSupportedTypes() {
-    ModuleOp moduleOp = getOperation();
-    WalkResult walkResult =
-        moduleOp->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    mlir::ModuleOp moduleOp = getOperation();
+    mlir::WalkResult walkResult =
+        moduleOp->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) {
           if (!isLegal(op)) {
             op->emitOpError("Unsupported type.");
-            return WalkResult::interrupt();
+            return mlir::WalkResult::interrupt();
           }
 
-          return WalkResult::advance();
+          return mlir::WalkResult::advance();
         });
 
     return !walkResult.wasInterrupted();
   }
+
+  ElementTypeConverter converter;
 };
 } // namespace
 
