@@ -62,6 +62,15 @@ TEST(AssertsDeathTest, BinaryExprDecomposition) {
         TT_assert(sa == sb);
       },
       TT_STANDARD_ASSERT_MSG_PREFIX(sa == sb) "abcdef == asdf");
+  // Literals.
+  ASSERT_DEATH(
+      {
+        // Note that the stringifier macro will capture the source
+        // test but the runtime message will show the evaluated
+        // literal. This is ok.
+        TT_assert(2 + 2 == 3);
+      },
+      TT_STANDARD_ASSERT_MSG_PREFIX(2 \\+ 2 == 3) "4 == 3");
   // Chars.
   ASSERT_DEATH(
       {
