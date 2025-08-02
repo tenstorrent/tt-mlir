@@ -2,7 +2,7 @@ if (TTMLIR_ENABLE_OPMODEL)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(TestOpModelInterface
+add_mlir_unittest(TestOpModelInterface
 TestOpModelInterface.cpp
 )
 
@@ -19,11 +19,8 @@ target_include_directories(TestOpModelInterface
 
 target_link_libraries(TestOpModelInterface
     PRIVATE
-    gtest
-    gtest_main
     TTNNOpModelLib
     MLIRTTCoreDialect
-    MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
 )

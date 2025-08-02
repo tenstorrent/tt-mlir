@@ -687,7 +687,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME=OFF \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=OFF \
+        -DTTMLIR_ENABLE_OPMODEL=ON \
         -DCODE_COVERAGE=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 

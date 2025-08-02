@@ -3,7 +3,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # TestConversion is used to test MLIR to TTNN types conversion
-add_executable(TestConversion
+add_mlir_unittest(TestConversion
     TestConversion.cpp
 )
 
@@ -19,11 +19,8 @@ target_include_directories(TestConversion
 
 target_link_libraries(TestConversion
     PRIVATE
-    gtest
-    gtest_main
     TTNNOpModelLib
     MLIRTTCoreDialect
-    MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
 )
