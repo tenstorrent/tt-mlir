@@ -1721,6 +1721,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
+           NamedFullConversionPattern<ttir::ZerosLikeOp, ttnn::ZerosLikeOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
            FullOpConversionPattern,
            ToLayoutOpConversionPattern,

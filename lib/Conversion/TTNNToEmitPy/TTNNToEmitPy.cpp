@@ -381,6 +381,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
+               NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosLikeOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>>(typeConverter, ctx);
   // clang-format on
 

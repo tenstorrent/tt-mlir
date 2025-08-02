@@ -4760,6 +4760,30 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
   }];
 }
 
+def TTIR_ZerosLikeOp : TTIR_NamedFullOp<"zeros_like"> {
+  let summary = "Creates a tensor filled with zeros from another tensor.";
+  let description = [{
+    The `zeros_like` operation creates a tensor of the same shape as the input tensor and fills it with a value of 0.0.
+
+    This operation is commonly used to initialize tensors with zero values from another tensor shape.
+
+    Example:
+    ```mlir
+    // Create a 3D tensor of zeros from an input tensor that has shape [64, 28, 28]
+    %result = ttir.zeros(%input) {
+    } : () -> tensor<64x28x28xbf16>
+    // Result: A tensor of shape [64, 28, 28] filled with zeros
+    ```
+
+    Outputs:
+    - `result` (Tensor): The tensor filled with zeros.
+
+    Note: The element type of the result tensor is determined by the return type specified in the operation.
+    This operation is useful when you want to create single device or multi-device tensors from another existing tensor
+    without having to manually worry about creating a tensor and initializing it's values.
+  }];
+}
+
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{

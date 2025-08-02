@@ -1796,6 +1796,18 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
   }];
 }
 
+def TTNN_ZerosLikeOp : TTNN_NamedFullOp<"zeros_like"> {
+  let summary = "Creates a tensor filled with zeros from another tensor.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros from another tensor. It takes the same shape and multi-device shard spec (if exists)
+    as the input tensor.
+
+    Example:
+      %0 = "ttnn.zeros"(%input) : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+}
+
 def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{

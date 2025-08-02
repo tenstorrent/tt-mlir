@@ -2356,6 +2356,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
+               NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosLikeOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
