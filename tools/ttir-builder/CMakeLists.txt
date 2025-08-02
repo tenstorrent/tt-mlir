@@ -7,11 +7,11 @@ declare_mlir_python_sources(TTIRBuilderSources
   ADD_TO_PARENT TTIRBuilder
   SOURCES
     __init__.py
-    ccl_golden.py
     test_optimizer_overrides.py
     utils.py
     apis.py
     ops.py
+    ttir_golden.py
 )
 
 add_mlir_python_modules(TTIRBuilderModules
