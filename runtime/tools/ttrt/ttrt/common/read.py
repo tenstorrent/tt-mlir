@@ -42,13 +42,6 @@ class Read:
             help="output sections of the fb",
         )
         Read.register_arg(
-            name="--read-file",
-            type=str,
-            default="read_sections.json",
-            choices=None,
-            help="json file to save read flatbuffer sections to",
-        )
-        Read.register_arg(
             name="--clean-artifacts",
             type=bool,
             default=False,
@@ -132,7 +125,6 @@ class Read:
         self.ttmetal_binaries = []
         self.system_desc_binaries = []
         self.results = Results(self.logger, self.file_manager)
-        self.outputs = []
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing read API")
@@ -225,7 +217,7 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.outputs.append(self.read_action_functions[self["--section"]](bin))
+                self.read_action_functions[self["--section"]](bin)
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -245,7 +237,7 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.outputs.append(self.read_action_functions[self["--section"]](bin))
+                self.read_action_functions[self["--section"]](bin)
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -265,7 +257,7 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.outputs.append(self.read_action_functions[self["--section"]](bin))
+                self.read_action_functions[self["--section"]](bin)
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -291,12 +283,6 @@ class Read:
 
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
-
-        if not self["--read-file"] == "":
-            with open(self["--read-file"], "w") as read_file:
-                json.dump(self.outputs, read_file, indent=2)
-
-            self.logging.info(f"Saved read sections to {self['--read-file']}")
 
         for bin in self.system_desc_binaries:
             if bin.test_result == "pass":

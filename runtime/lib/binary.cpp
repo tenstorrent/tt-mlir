@@ -723,6 +723,8 @@ std::string Binary::getProgramMlirAsJson(std::uint32_t programIndex) const {
   LOG_FATAL("Unsupported binary format");
 }
 
+// NOTE: This function keeps throwing segmentation fault, removing use from ttrt
+// read until resolved
 std::string Binary::getProgramCpp(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
