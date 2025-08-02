@@ -28,6 +28,7 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -3950,6 +3951,32 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
+static std::optional<std::string>
+verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
+  if (replicaGroups.getType().getRank() != 2) {
+    return "replica_groups must be a 2D array";
+  }
+
+  auto replicaIds = replicaGroups.getValues<int64_t>();
+  int64_t maxId = replicaIds.size() - 1;
+  llvm::SmallDenseSet<int64_t> seen;
+  for (auto id : replicaIds) {
+    if (id < 0) {
+      return "replica_groups values must be positive";
+    }
+    if (id > maxId) {
+      return llvm::formatv(
+                 "replica_groups values must be in the range [0, {0}], got {1}",
+                 maxId, id)
+          .str();
+    }
+    if (!seen.insert(id).second) {
+      return "replica_groups must not contain duplicate values";
+    }
+  }
+  return std::nullopt;
+}
+
 //===----------------------------------------------------------------------===//
 // AllToAllOp
 //===----------------------------------------------------------------------===//
@@ -3987,18 +4014,11 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
     return emitOpError("Input and output element types must match");
   }
   ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
+
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
+  }
   auto replicaGroupsShape = replicaGroups.getType().getShape();
-  llvm::SmallDenseSet<int64_t> seen;
-  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                    [&](int64_t id) { return seen.insert(id).second; })) {
-    return emitOpError("replica_groups must not contain duplicate IDs");
-  }
-  int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
-  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                    [&](int64_t id) { return 0 <= id && id < numIds; })) {
-    return emitOpError("replicaGroup ID must be in the range [0, "
-                       "size(replica_groups))");
-  }
   if (replicaGroupsShape[1] != splitCount) {
     return emitOpError("replicaGroup count must match splitCount");
   }
@@ -4708,6 +4728,47 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// CollectiveBroadcastOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
+  // Check input/output/result types are RankedTensorType
+  auto inputType = mlir::dyn_cast<RankedTensorType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<RankedTensorType>(getOutput().getType());
+  auto resultType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
+
+  // Check input == output type
+  if (inputType != outputType) {
+    return emitOpError("input and output must have the same type");
+  }
+
+  // Check output == result type
+  if (outputType != resultType) {
+    return emitOpError("output and result must have the same type");
+  }
+
+  ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
+  }
+
+  return success();
+}
+
+mlir::OpFoldResult
+mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
+  auto groupsType = getReplicaGroups().getType();
+  // If there is no group, the broadcast is a no-op.
+  if (groupsType.getShape()[0] < 1) {
+    return getInput();
+  }
+  // If there is only one device in a group, the broadcast is a no-op.
+  if (groupsType.getShape()[1] <= 1) {
+    return getInput();
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

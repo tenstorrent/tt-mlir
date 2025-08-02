@@ -4932,6 +4932,41 @@ class TTIRBuilderOps:
             kwargs=kwargs,
         )
 
+    def collective_broadcast(
+        self,
+        input: Operand,
+        replica_groups: List[Tuple[int, int]],
+    ) -> OpView:
+        """
+        Creates ``ttir.collective_broadcast``.
+        *Collective broadcast operation.*
+        The collective_broadcast operation distributes a tensor from a single source device to all
+        other devices within each replica group. Each replica group defines a subset of devices that
+        participate in the broadcast, and the operation is applied independently within each group.
+        By convention, the first device listed in each replica group is treated as the broadcast source.
+        The value of the `input` tensor on that source device is sent to all other devices in the same
+        group. The `input` tensor values on non-source devices are ignored and will be overwritten
+        during the operation.
+        Parameters
+        ----------
+        input: The tensor to broadcast. Only the value on the first device of each replica group
+              (the source) is used; values on other devices are ignored.
+        replica_groups: A list of replica groups. Each group is a list of device IDs, and the first
+                        ID in each group is treated as the broadcast source for that group.
+        Returns
+        -------
+        (*OpView*)
+        """
+        kwargs = {
+            "replica_groups": replica_groups,
+        }
+        return self.ccl_proxy(
+            collective_broadcast_golden,
+            ttir.CollectiveBroadcastOp,
+            [input],
+            kwargs=kwargs,
+        )
+
 
 # Remove autodoc_skip from Sphinx documentation
 del autodoc_skip

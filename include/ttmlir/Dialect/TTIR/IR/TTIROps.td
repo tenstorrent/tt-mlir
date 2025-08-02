@@ -5252,4 +5252,38 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
     let hasVerifier = 1;
 }
 
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+  let summary = "Collective Broadcast op";
+  let description = [{
+    The collective_broadcast operation distributes a tensor from a single source device to all
+    other devices within each replica group. Each replica group defines a subset of devices that
+    participate in the broadcast, and the operation is applied independently within each group.
+
+    By convention, the first device listed in each replica group is treated as the broadcast source.
+    The value of the `input` tensor on that source device is sent to all other devices in the same
+    group. The `input` tensor values on non-source devices are ignored and will be overwritten
+    during the operation.
+
+    Inputs:
+      - input: The tensor to broadcast. Only the value on the first device of each replica group
+              (the source) is used; values on other devices are ignored.
+      - output: An allocated tensor that will be populated with the broadcasted value on all devices.
+      - replica_groups: A list of replica groups. Each group is a list of device IDs, and the first
+                        ID in each group is treated as the broadcast source for that group.
+
+    Result:
+      - result: The output tensor containing the broadcasted value, identical across all devices
+                in the same replica group.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                        AnyRankedTensor:$output,
+                        I64ElementsAttr:$replica_groups);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+  let hasFolder = 1;
+}
+
+
 #endif
