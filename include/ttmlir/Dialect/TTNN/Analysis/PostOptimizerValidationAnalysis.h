@@ -77,15 +77,25 @@ struct OperationValidationResult {
   // Updated operation config if needed (contains the working output layout)
   std::optional<OpConfig> updatedOpConfig;
 
+  // Track specific output property changes (what backend actually changed)
+  std::optional<Layout> outputLayoutChange;
+  std::optional<TensorMemoryLayout> outputMemoryLayoutChange;
+  std::optional<BufferType> outputBufferTypeChange;
+  std::optional<ttcore::DataType> outputDataTypeChange;
+
   OperationValidationResult() = default;
 
   // Helper methods to access layout information
   TTNNLayoutAttr getUpdatedOutputLayout() const {
     return updatedOpConfig ? updatedOpConfig->outputLayout : TTNNLayoutAttr{};
   }
-  
-  bool hasOutputLayoutChange() const {
-    return updatedOpConfig.has_value();
+
+  bool hasOutputLayoutChange() const { return updatedOpConfig.has_value(); }
+
+  // Check if any specific output properties changed
+  bool hasOutputPropertyChanges() const {
+    return outputLayoutChange.has_value() || outputMemoryLayoutChange.has_value() ||
+           outputBufferTypeChange.has_value() || outputDataTypeChange.has_value();
   }
 };
 
@@ -106,7 +116,9 @@ struct PostOptimizerValidationAnalysisResult {
   PostOptimizerValidationAnalysisResult() = default;
 
   // Helper method to get updated configuration for an operation
-  OpConfig getUpdatedOpConfig(Operation *op, const PostOptimizerValidationAnalysisInput &input) const {
+  OpConfig
+  getUpdatedOpConfig(Operation *op,
+                     const PostOptimizerValidationAnalysisInput &input) const {
     auto it = operationResults.find(op);
     if (it != operationResults.end() && it->second.updatedOpConfig) {
       return *it->second.updatedOpConfig;
@@ -118,7 +130,8 @@ struct PostOptimizerValidationAnalysisResult {
   // Check if an operation has an updated configuration
   bool hasUpdatedOpConfig(Operation *op) const {
     auto it = operationResults.find(op);
-    return it != operationResults.end() && it->second.updatedOpConfig.has_value();
+    return it != operationResults.end() &&
+           it->second.updatedOpConfig.has_value();
   }
 };
 
@@ -143,10 +156,10 @@ private:
   // originalConfig: Original configuration that failed
   // fallbackLayouts: List of layouts to test directly
   // Returns: Vector of validation results with early exit on first success
-  std::vector<OpConstraintValidator::ValidationResult> testFallbackLayouts(
-      OpConstraintValidator &validator, Operation *op,
-      const OpConfig &originalConfig,
-      const std::vector<TTNNLayoutAttr> &fallbackLayouts);
+  std::vector<OpConstraintValidator::ValidationResult>
+  testFallbackLayouts(OpConstraintValidator &validator, Operation *op,
+                      const OpConfig &originalConfig,
+                      const std::vector<TTNNLayoutAttr> &fallbackLayouts);
 
   // Test a specific combination of fallback layouts for an operation
   // validator: Validator instance to use for testing
@@ -154,25 +167,23 @@ private:
   // originalConfig: Original configuration that failed
   // inputLayouts: Combination of layouts to test
   // Returns: Single validation result
-  OpConstraintValidator::ValidationResult testFallbackCombination(
-      OpConstraintValidator &validator, Operation *op,
-      const OpConfig &originalConfig,
-      const std::vector<TTNNLayoutAttr> &inputLayouts);
+  OpConstraintValidator::ValidationResult
+  testFallbackCombination(OpConstraintValidator &validator, Operation *op,
+                          const OpConfig &originalConfig,
+                          const std::vector<TTNNLayoutAttr> &inputLayouts);
 
   // Record a successful fallback combination
   void recordSuccessfulCombination(
       const std::vector<TTNNLayoutAttr> &originalLayouts,
       const std::vector<TTNNLayoutAttr> &workingLayouts,
       const OpConstraintValidator::ValidationResult &result,
-      const OpConfig &originalConfig,
-      OperationValidationResult &opResult);
+      const OpConfig &originalConfig, OperationValidationResult &opResult);
 
   // Process fallback configurations for a failed operation
-  void processFallbackConfigurations(OpConstraintValidator &validator,
-                                     Operation *operation,
-                                     const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                                     const OpConfig &config,
-                                     OperationValidationResult &opResult);
+  void processFallbackConfigurations(
+      OpConstraintValidator &validator, Operation *operation,
+      const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+      const OpConfig &config, OperationValidationResult &opResult);
 
 public:
   PostOptimizerValidationAnalysis(Operation *op) : TTNNAnalysis(op) {}

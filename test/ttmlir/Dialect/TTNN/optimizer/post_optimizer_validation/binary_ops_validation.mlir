@@ -47,7 +47,7 @@ module attributes {} {
 
     // The post-optimizer validation determines that add can work with row-major inputs
     // but produces a different output layout than expected, so it inserts a revert operation
-    
+
     // CHECK: "ttnn.add"
     // CHECK: "ttnn.to_layout"
 
