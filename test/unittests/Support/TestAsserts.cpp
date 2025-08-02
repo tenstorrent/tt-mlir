@@ -136,6 +136,19 @@ TEST_F(AssertsTest, BinaryExprDecomposition) {
     check(TT_STANDARD_ASSERT_MSG_PREFIX(sa == sb));
     check("abcdef == asdf");
   }
+  // Literals.
+  {
+    reset();
+
+    // Note that the stringifier macro will capture the source
+    // test but the runtime message will show the evaluated
+    // literal. This is ok.
+
+    TT_assert(2 + 2 == 3);
+
+    check(TT_STANDARD_ASSERT_MSG_PREFIX(2 \\+ 2 == 3));
+    check("4 == 3");
+  }
   // Chars.
   {
     reset();
@@ -312,6 +325,43 @@ TEST_F(AssertsTest, NonprintableTypes) {
     TT_assert(one == another);
 
     check(TT_STANDARD_ASSERT_MSG_PREFIX((one == another)));
+  }
+}
+
+namespace {
+struct NoncopyableType {
+  int32_t x;
+  int32_t y;
+
+  NoncopyableType(const NoncopyableType &) = delete;
+  NoncopyableType &operator=(const NoncopyableType &) = delete;
+
+  NoncopyableType(NoncopyableType &&) = delete;
+  NoncopyableType &operator=(NoncopyableType &&) = delete;
+
+  friend bool operator<(const NoncopyableType &lhs,
+                        const NoncopyableType &rhs) {
+    return (lhs.x < rhs.x) && (lhs.y < rhs.y);
+  }
+
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                       const NoncopyableType &obj) {
+    return os << "{x = " << obj.x << ", y = " << obj.y << '}';
+  }
+};
+} // namespace
+
+// Confirm that our lhs/rhs captures don't trigger any extra copies.
+
+TEST_F(AssertsTest, NoncopyableType) {
+  {
+    reset();
+
+    NoncopyableType small{123, 456};
+    NoncopyableType big{1230, 4560};
+    TT_assert(big < small);
+
+    check(TT_STANDARD_ASSERT_MSG_PREFIX((big < small)));
   }
 }
 
