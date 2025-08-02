@@ -97,16 +97,6 @@ def TTCore_TileSizeAttr : TTCore_Attr<"TileSize", "tile_size"> {
 }
 
 
-def TTCore_ChipPhysicalHelperCoresAttr : TTCore_Attr<"ChipPhysicalHelperCores", "chip_physical_helper_cores"> {
-  let summary = "TT chip_physical_helper_cores attribute";
-  let description = [{
-    TT chip_physical_helper_cores attribute containing arrays of physical helper cores by core type in order of logical cores.
-  }];
-
-  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
-}
-
 def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
   let summary = "TT chip_desc attribute";
   let description = [{
@@ -126,7 +116,6 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$eriscL1UnreservedBase,
                     "unsigned":$dramUnreservedBase,
                     "unsigned":$dramUnreservedEnd,
-                    "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
                     "unsigned":$dstRegisterSizeTiles,
@@ -146,7 +135,6 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
-                             `physical_helper_cores` `=` $chipPhysicalHelperCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
                              `dst_register_size_tiles` `=` $dstRegisterSizeTiles `,`

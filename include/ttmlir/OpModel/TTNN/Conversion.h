@@ -11,7 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 
 #include <type_traits>
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 namespace conversion {
 ::tt::tt_metal::DataType getDataType(const ttcore::DataType dataType);
 ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType);
@@ -19,61 +19,50 @@ ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType);
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
 llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape);
 
-const std::array<uint32_t, 2>
-getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+const std::array<uint32_t, 2> getShardShape(const TTNNLayoutAttr &layout);
 
-::tt::tt_metal::Layout
-getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+::tt::tt_metal::Layout getPageLayout(const TTNNLayoutAttr &layout);
 
-::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout);
+::tt::tt_metal::Layout getPageLayout(Layout layout);
 
 ::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::CoreRangeSetAttr &coreRangeSetAttr);
+getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr);
 
-::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout);
 
-::tt::tt_metal::ShardOrientation getShardOrientation(
-    const mlir::tt::ttnn::ShardOrientationAttr &shardOrientationAttr);
+::tt::tt_metal::ShardOrientation
+getShardOrientation(const ShardOrientationAttr &shardOrientationAttr);
 
-::tt::tt_metal::ShardMode
-getShardMode(const mlir::tt::ttnn::ShardModeAttr &shardModeAttr);
+::tt::tt_metal::ShardMode getShardMode(const ShardModeAttr &shardModeAttr);
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+getShardSpec(const TTNNLayoutAttr &layout);
 
-::tt::tt_metal::ShardSpec
-getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr);
+::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 
-::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::BufferType &bufferType);
+::tt::tt_metal::BufferType getBufferType(const BufferType &bufferType);
 
-::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+::tt::tt_metal::BufferType getBufferType(const TTNNLayoutAttr &layout);
 
-mlir::tt::ttnn::BufferType
-getBufferType(const ::tt::tt_metal::BufferType bufferType);
+BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType);
 
-::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
-    const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr);
+::tt::tt_metal::TensorMemoryLayout
+getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr);
 
-mlir::tt::ttnn::TensorMemoryLayout
+TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
-::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout);
 
-::tt::tt_metal::ShardSpec
-getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr);
+::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 
 ::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr);
+getMemoryConfig(const MemoryConfigAttr &memConfigAttr);
 
-::tt::tt_metal::TensorLayout
-getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout);
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+                                 const TTNNLayoutAttr &layout);
 
 /**
  * @brief Perform various validity checks on a converted TensorSpec
@@ -98,8 +87,8 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
 ::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
-    const std::optional<mlir::tt::ttnn::Conv2dConfigAttr> &conv2dConfig);
+std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig);
 
 template <typename To, std::size_t N, typename From>
 std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
@@ -137,17 +126,16 @@ llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores);
 
-mlir::tt::ttnn::TTNNLayoutAttr
-getLayoutAttrFromTensorSpec(MLIRContext *context,
-                            const ::ttnn::TensorSpec &tensorSpec,
-                            llvm::ArrayRef<int64_t> deviceGrid);
+TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
+                                           const ::ttnn::TensorSpec &tensorSpec,
+                                           llvm::ArrayRef<int64_t> deviceGrid);
 
-std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
-    const std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
-        &deviceComputeKernelConfig);
+std::optional<::ttnn::DeviceComputeKernelConfig>
+getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
+                                 &deviceComputeKernelConfig);
 
 } // namespace conversion
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
 #endif // TTMLIR_OPMODEL_TTNN_CONVERSION_H

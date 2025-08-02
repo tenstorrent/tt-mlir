@@ -32,9 +32,9 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-    unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
-    MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
-    unsigned dstRegisterSizeTiles, unsigned numCBs, unsigned numComputeThreads,
+    unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
+    MlirAttribute *supportedTileSizes, unsigned dstRegisterSizeTiles,
+    unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
@@ -73,10 +73,6 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
                                                          int64_t y, int64_t x);
-
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
-    MlirContext ctx, MlirAttribute *dram, size_t dramSize, MlirAttribute *eth,
-    size_t ethSize, MlirAttribute *eth_inactive, size_t eth_inactiveSize);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx,
                                                           int64_t y, int64_t x);

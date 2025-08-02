@@ -32,8 +32,7 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout,
-                                                   maxGrid)) {
+  if (!op_model::isLayoutLegalForTensorShape(tensorShape, layout, maxGrid)) {
     return false;
   }
 
@@ -256,7 +255,7 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
 
-  // Categorize layouts by scalar type, memory layout, and data layout
+  // Categorize layouts by scalar type, memory layout, and page layout
   for (const TTNNLayoutAttr &layout : layouts) {
     Type scalarType = layout.getScalarElementType();
 

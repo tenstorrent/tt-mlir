@@ -125,7 +125,7 @@ public:
     // runtime.
     // This will be removed once we switch to virtual device:
     // https://github.com/tenstorrent/tt-metal/issues/14000
-    mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
+    op_model::SingletonDeviceContext::closeInstance();
 #endif
   }
 
@@ -133,7 +133,7 @@ private:
   ::mlir::RankedTensorType getPreparedWeightsType(ttnn::Conv2dOp conv2dOp) {
     // We use graph capture to retrieve the output type of the PrepareConv2dOp
     // for now until metal exposes an API.
-    return op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
+    return op_model::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
   }
 
   ::mlir::RankedTensorType getPreparedBiasType(ttnn::Conv2dOp conv2dOp) {
