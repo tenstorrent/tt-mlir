@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_PROFILER_H
 #define TT_RUNTIME_DETAIL_TTMETAL_PROFILER_H
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "tools/profiler/op_profiler.hpp"
 #include "tt/runtime/detail/common/logger.h"
 

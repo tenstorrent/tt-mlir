@@ -37,17 +37,12 @@ target_include_directories(TTRuntimeGTestLib INTERFACE
 target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTBinary
     TTMLIRRuntime
-    TTNN_LIBRARY
-    TTMETAL_LIBRARY
-    DEVICE_LIBRARY
+    TTNN::CPP
+    TT::Metalium
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main
 )
-
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
-endif()
 
 function(add_runtime_gtest test_name)
   if(ARGC EQUAL 1)
