@@ -43,7 +43,7 @@ public:
              vectorType.getElementType().isInteger(32))) {
           // Convert to __rvtt_vec_t (represented as opaque type)
           auto context = type.getContext();
-          return emitc::OpaqueType::get(context, "__rvtt_vec_t");
+          return emitc::OpaqueType::get(context, "sfpi::__rvtt_vec_t");
         }
       }
       return type; // Pass through other types unchanged
@@ -80,201 +80,60 @@ public:
 //===----------------------------------------------------------------------===//
 
 /// Base class for SFPI to EmitC conversion patterns
-template <typename SFPIOpType>
+template <typename SFPIOpType, typename SFPIBuiltinInfo>
 class SFPIToEmitCOpConversionPattern : public OpConversionPattern<SFPIOpType> {
 public:
   using OpConversionPattern<SFPIOpType>::OpConversionPattern;
 
 protected:
-  /// Create an EmitC call to a GCC builtin function
-  emitc::CallOpaqueOp createBuiltinCall(ConversionPatternRewriter &rewriter,
-                                        Location loc, StringRef builtinName,
-                                        ArrayRef<Value> operands,
-                                        Type resultType) const {
-    return rewriter.create<emitc::CallOpaqueOp>(
-        loc, resultType, rewriter.getStringAttr(builtinName),
-        rewriter.getArrayAttr({}), nullptr, operands);
-  }
-};
-
-/// Convert SFPI add operations to __builtin_rvtt_sfpadd
-struct ConvertSFPIAddOp : public SFPIToEmitCOpConversionPattern<AddOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
   LogicalResult
-  matchAndRewrite(AddOp op, OpAdaptor adaptor,
+  matchAndRewrite(SFPIOpType op, typename SFPIOpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
+    auto resultType = this->getTypeConverter()->convertType(op.getType());
     if (!resultType) {
       return failure();
     }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpadd",
-                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, rewriter.getStringAttr(SFPIBuiltinInfo::builtinName),
+        nullptr, nullptr, adaptor.getOperands());
     return success();
   }
 };
 
-/// Convert SFPI mul operations to __builtin_rvtt_sfpmul
-struct ConvertSFPIMulOp : public SFPIToEmitCOpConversionPattern<MulOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(MulOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmul",
-                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIAddBuiltin {
+  constexpr static char const* builtinName = "__builtin_rvtt_sfpadd";
 };
 
-/// Convert SFPI mad operations to __builtin_rvtt_sfpmad
-struct ConvertSFPIMadOp : public SFPIToEmitCOpConversionPattern<MadOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(MadOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call = createBuiltinCall(
-        rewriter, op.getLoc(), "__builtin_rvtt_sfpmad",
-        {adaptor.getA(), adaptor.getB(), adaptor.getC()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIMulBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpmul";
 };
 
-/// Convert SFPI mov operations to __builtin_rvtt_sfpmov
-struct ConvertSFPIMovOp : public SFPIToEmitCOpConversionPattern<MovOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(MovOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpmov",
-                          {adaptor.getSrc()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIMadBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpmad";
 };
 
-/// Convert SFPI abs operations to __builtin_rvtt_sfpabs
-struct ConvertSFPIAbsOp : public SFPIToEmitCOpConversionPattern<AbsOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(AbsOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpabs",
-                          {adaptor.getSrc()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIMovBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpmov";
 };
 
-/// Convert SFPI and operations to __builtin_rvtt_sfpand
-struct ConvertSFPIAndOp : public SFPIToEmitCOpConversionPattern<AndOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(AndOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpand",
-                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIAbsBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpabs";
 };
 
-/// Convert SFPI or operations to __builtin_rvtt_sfpor
-struct ConvertSFPIOrOp : public SFPIToEmitCOpConversionPattern<OrOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(OrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpor",
-                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIAndBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpand";
 };
 
-/// Convert SFPI xor operations to __builtin_rvtt_sfpxor
-struct ConvertSFPIXorOp : public SFPIToEmitCOpConversionPattern<XorOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(XorOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpxor",
-                          {adaptor.getLhs(), adaptor.getRhs()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPIOrBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpor";
 };
 
-/// Convert SFPI not operations to __builtin_rvtt_sfpnot
-struct ConvertSFPINotOp : public SFPIToEmitCOpConversionPattern<NotOp> {
-  using SFPIToEmitCOpConversionPattern::SFPIToEmitCOpConversionPattern;
+struct SFPIXorBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpxor";
+};
 
-  LogicalResult
-  matchAndRewrite(NotOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = getTypeConverter()->convertType(op.getType());
-    if (!resultType) {
-      return failure();
-    }
-
-    auto call =
-        createBuiltinCall(rewriter, op.getLoc(), "__builtin_rvtt_sfpnot",
-                          {adaptor.getSrc()}, resultType);
-    rewriter.replaceOp(op, call.getResult(0));
-    return success();
-  }
+struct SFPINotBuiltin {
+  constexpr static const char *builtinName = "__builtin_rvtt_sfpnot";
 };
 
 //===----------------------------------------------------------------------===//
@@ -326,9 +185,15 @@ struct ConvertSFPIToEmitCPass
 
 void mlir::tt::populateSFPIToEmitCConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<ConvertSFPIAddOp, ConvertSFPIMulOp, ConvertSFPIMadOp,
-               ConvertSFPIMovOp, ConvertSFPIAbsOp, ConvertSFPIAndOp,
-               ConvertSFPIOrOp, ConvertSFPIXorOp, ConvertSFPINotOp>(
+  patterns.add<SFPIToEmitCOpConversionPattern<AddOp, SFPIAddBuiltin>,
+               SFPIToEmitCOpConversionPattern<MulOp, SFPIMulBuiltin>,
+               SFPIToEmitCOpConversionPattern<MadOp, SFPIMadBuiltin>,
+               SFPIToEmitCOpConversionPattern<MovOp, SFPIMovBuiltin>,
+               SFPIToEmitCOpConversionPattern<AbsOp, SFPIAbsBuiltin>,
+               SFPIToEmitCOpConversionPattern<AndOp, SFPIAndBuiltin>,
+               SFPIToEmitCOpConversionPattern<OrOp, SFPIOrBuiltin>,
+               SFPIToEmitCOpConversionPattern<XorOp, SFPIXorBuiltin>,
+               SFPIToEmitCOpConversionPattern<NotOp, SFPINotBuiltin>>(
       typeConverter, patterns.getContext());
 }
 
