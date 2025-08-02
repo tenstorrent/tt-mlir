@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/PostOptimizerValidationAnalysis.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
 #include "ttmlir/Support/Logger.h"
@@ -35,6 +36,14 @@ void PostOptimizerValidationAnalysis::analysisImplementation() {
       if (operation->getNumResults() == 0 ||
           analysisInput.chosenOpConfigs.find(operation) ==
               analysisInput.chosenOpConfigs.end()) {
+        return;
+      }
+
+      // Skip operations that are not OpModel castable (can't be validated)
+      if (!mlir::dyn_cast<OpModel>(operation)) {
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Skipping operation {} at {} - not OpModel castable",
+                     operation->getName(), operation->getLoc());
         return;
       }
 
@@ -334,6 +343,46 @@ void PostOptimizerValidationAnalysis::recordSuccessfulCombination(
     OpConfig updatedConfig = originalConfig;
     updatedConfig.outputLayout = result.actualOutputLayout;
     opResult.updatedOpConfig = updatedConfig;
+
+    // Detect specific output property changes (what backend actually changed)
+    TTNNLayoutAttr originalOutputLayout = originalConfig.outputLayout;
+    TTNNLayoutAttr actualOutputLayout = result.actualOutputLayout;
+
+    // Check for layout changes (RowMajor vs Tile)
+    if (originalOutputLayout.getLayout() != actualOutputLayout.getLayout()) {
+      opResult.outputLayoutChange = actualOutputLayout.getLayout();
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Backend changed output layout: {} -> {}",
+                   static_cast<int>(originalOutputLayout.getLayout()),
+                   static_cast<int>(actualOutputLayout.getLayout()));
+    }
+
+    // Check for memory layout changes
+    if (originalOutputLayout.getMemLayout() != actualOutputLayout.getMemLayout()) {
+      opResult.outputMemoryLayoutChange = actualOutputLayout.getMemLayout().getValue();
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Backend changed output memory layout: {} -> {}",
+                   static_cast<int>(originalOutputLayout.getMemLayout().getValue()),
+                   static_cast<int>(actualOutputLayout.getMemLayout().getValue()));
+    }
+
+    // Check for buffer type changes
+    if (originalOutputLayout.getBufferType() != actualOutputLayout.getBufferType()) {
+      opResult.outputBufferTypeChange = actualOutputLayout.getBufferType();
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Backend changed output buffer type: {} -> {}",
+                   static_cast<int>(originalOutputLayout.getBufferType()),
+                   static_cast<int>(actualOutputLayout.getBufferType()));
+    }
+
+    // Check for data type changes
+    if (originalOutputLayout.getDataType() != actualOutputLayout.getDataType()) {
+      opResult.outputDataTypeChange = actualOutputLayout.getDataType();
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Backend changed output data type: {} -> {}",
+                   static_cast<int>(originalOutputLayout.getDataType()),
+                   static_cast<int>(actualOutputLayout.getDataType()));
+    }
   }
 
   analysisResult.operationsFixed++;
@@ -351,8 +400,8 @@ PostOptimizerValidationAnalysis::testFallbackCombination(
       TTNNLayoutAttr{}; // Let backend choose output layout
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "\t\tInput layout {}: {} ", i, inputLayouts[i]);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t\tInput layout {}: {} ", i,
+                 inputLayouts[i]);
   }
 
   auto result = validator.validateSingleConfig(op, inputLayouts, testConfig);

@@ -99,17 +99,15 @@ private:
   // inputLayouts: All input layouts for the operation
   // consumerConfig: Configuration for the consumer operation
   // Returns: Expected output layout if valid, error otherwise
-  llvm::Expected<TTNNLayoutAttr>
-  validateConstraintsWithAllLayouts(Operation *consumerOp,
-                                    const std::vector<TTNNLayoutAttr> &inputLayouts,
-                                    const OpConfig &consumerConfig);
+  llvm::Expected<TTNNLayoutAttr> validateConstraintsWithAllLayouts(
+      Operation *consumerOp, const std::vector<TTNNLayoutAttr> &inputLayouts,
+      const OpConfig &consumerConfig);
 
   // Extract input operand for constraint checking
   // op: Operation to extract from
   // operandIndex: Index of operand to extract (default: 0)
   // Returns: Value representing the input operand
   static Value extractInputOperand(Operation *op, size_t operandIndex = 0);
-
 };
 
 } // namespace mlir::tt::ttnn

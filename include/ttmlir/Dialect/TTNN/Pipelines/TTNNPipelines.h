@@ -190,6 +190,14 @@ struct TTIRToTTNNBackendPipelineOptions
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
 
+  // Option to enable/disable the post-optimizer validation analysis.
+  //
+  Option<bool> postOptimizerValidationEnabled{
+      *this, "post-optimizer-validation-enabled",
+      llvm::cl::desc("Enable post-optimizer validation analysis with fallback "
+                     "detection and automatic workaround application."),
+      llvm::cl::init(false)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> layoutWorkaroundsEnabled{

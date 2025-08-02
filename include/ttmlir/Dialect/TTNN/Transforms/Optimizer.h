@@ -26,6 +26,7 @@ struct TTNNOptimizerOptions {
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
+  bool postOptimizerValidationEnabled = false;
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

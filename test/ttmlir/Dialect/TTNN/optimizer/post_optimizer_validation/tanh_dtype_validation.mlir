@@ -16,7 +16,7 @@ module attributes {} {
 
     // The post-optimizer validation should detect that tanh requires BFloat16
     // and automatically insert type conversion for float32 input
-    
+
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: -> tensor<1x1x32x32xbf16,
     // CHECK-NEXT: "ttnn.tanh"

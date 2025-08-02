@@ -222,8 +222,8 @@ OpConstraintValidator::validateConstraintsWithAllLayouts(
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Input layout {}: {}, getLayout()={}, dtype={}", i, inputLayouts[i],
-                 static_cast<int>(inputLayouts[i].getLayout()),
+                 "Input layout {}: {}, getLayout()={}, dtype={}", i,
+                 inputLayouts[i], static_cast<int>(inputLayouts[i].getLayout()),
                  static_cast<int>(inputLayouts[i].getDataType()));
   }
 
@@ -245,11 +245,10 @@ OpConstraintValidator::validateConstraintsWithAllLayouts(
   auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
       l1UsageExp.get();
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "Backend returned output layout: {}, layout={}, dtype={}",
-      outputLayout, static_cast<int>(outputLayout.getLayout()),
-      static_cast<int>(outputLayout.getDataType()));
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Backend returned output layout: {}, layout={}, dtype={}",
+               outputLayout, static_cast<int>(outputLayout.getLayout()),
+               static_cast<int>(outputLayout.getDataType()));
 
   if (consumerConfig.outputLayout &&
       outputLayout != consumerConfig.outputLayout) {

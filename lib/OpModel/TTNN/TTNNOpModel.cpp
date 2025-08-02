@@ -3082,13 +3082,16 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
   // sgholamiTT: For the following arguments, I tried to follow the same pattern
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
-  ::ttnn::Layout layout = outputLayout
-      ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT)
-      : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT);
+  ::ttnn::Layout layout =
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  std::optional<::ttnn::DataType> dtype = outputLayout 
-      ? std::make_optional(conversion::getDataType(outputLayout.getDataType()))
-      : std::nullopt;
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -3123,13 +3126,16 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
   // sgholamiTT: For the following arguments, I tried to follow the same pattern
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
-  ::ttnn::Layout layout = outputLayout
-      ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT)
-      : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT);
+  ::ttnn::Layout layout =
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  std::optional<::ttnn::DataType> dtype = outputLayout 
-      ? std::make_optional(conversion::getDataType(outputLayout.getDataType()))
-      : std::nullopt;
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
