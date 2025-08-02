@@ -1677,8 +1677,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getSize()),
-        emitter.template emit<::ttnn::distributed::MeshDevice>(
-            srcOp.getDevice()),
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
         emitter.emit(srcOp.getMemoryConfig()),

@@ -1482,11 +1482,24 @@ public:
       return emit(std::nullopt);
     }
 
-    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *> ||
-                  std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice>) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *>) {
       unsigned index = getOperandIndex(device);
       operands.push_back(adaptor.getOperands()[index]);
 
+      return rewriter.getIndexAttr(index);
+    } else if constexpr (std::is_same_v<TargetTy,
+                                        ::ttnn::distributed::MeshDevice>) {
+      unsigned index = getOperandIndex(device);
+      mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
+
+      // ::ttnn::distributed::MeshDevice& deviceRef = *devicePtr;
+      emitc::ApplyOp meshDeviceOp = rewriter.create<emitc::ApplyOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<TargetTy> + "&"),
+          "*", deviceValueFromOperandsList);
+
+      operands.push_back(meshDeviceOp.getResult());
       return rewriter.getIndexAttr(index);
     } else if constexpr (std::is_same_v<TargetTy,
                                         ::ttnn::operations::creation::detail::

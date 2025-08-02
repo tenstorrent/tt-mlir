@@ -75,6 +75,19 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
     return emitOpError() << "dtype does not match with output tensor type.";
   }
 
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = ("
+           << getSize().getShape() << "), output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
   return success();
 }
 
