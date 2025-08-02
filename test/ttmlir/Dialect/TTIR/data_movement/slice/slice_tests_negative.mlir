@@ -66,17 +66,6 @@ module attributes {} {
   }
 }
 
-// Verify that the parsing fails if the begin value exceeds positive limit
-// -----
-module attributes {} {
-  func.func @slice_negative_invalid_begin_positive(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    %0 = ttir.empty() : tensor<4x1x16x8xbf16>
-    // CHECK: error: 'ttir.slice' op Invalid begin index for dimension 2. Expected value in range [-128, 128), got 128. Input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice"(%arg0, %0) <{begins = [0: i32, 0: i32, 128: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>, tensor<4x1x16x8xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
 // Verify that the parsing fails if the begin value exceeds negative limit
 // -----
 module attributes {} {

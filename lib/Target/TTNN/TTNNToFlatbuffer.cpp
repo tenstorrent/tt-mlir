@@ -838,17 +838,14 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
           getOperandThroughDPSOps(op.getInput()));
   flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation =
       toFlatbuffer(cache, op.getPermutation());
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   float padValue = op.getPadValue().convertToFloat();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  return ::tt::target::ttnn::CreatePermuteOp(
-      *cache.fbb, input, permutation,
-      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0, padValue,
-      output);
+  return ::tt::target::ttnn::CreatePermuteOp(*cache.fbb, input, permutation,
+                                             memoryConfig, padValue, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>

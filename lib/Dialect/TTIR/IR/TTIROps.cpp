@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
@@ -22,10 +23,12 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -65,6 +68,84 @@ MemRefType getBufferType(Type type, bool isView) {
   return MemRefType::get(
       fullMemrefShape, tensorType.getElementType(), layoutAttr,
       ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // If the operands are both quantized but the types do not align, return
+  // false.
+  return mlir::tt::ttir::utils::areQuantizationParamsAligned(sourceOperands);
+}
+
+mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // Two cases:
+  // 1. One operand is quantized and the other is not: apply quantization and
+  //    proceed to case two.
+  // 2. Both operands are quantized: supported, return quantized add.
+  assert(sourceOperands.size() == 2 && "AddOp should have two operands.");
+  auto lhs = sourceOperands[0];
+  auto rhs = sourceOperands[1];
+
+  RankedTensorType lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+  RankedTensorType rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+
+  auto lhsElemQ =
+      mlir::dyn_cast<mlir::quant::QuantizedType>(lhsType.getElementType());
+  auto rhsElemQ =
+      mlir::dyn_cast<mlir::quant::QuantizedType>(rhsType.getElementType());
+
+  // One operand is dequantized, one is quantized — try to quantize the
+  // dequantized one.
+  if ((lhsElemQ && !rhsElemQ) || (!lhsElemQ && rhsElemQ)) {
+    Value quantVal = lhsElemQ ? lhs : rhs;
+    Value dequantVal = lhsElemQ ? rhs : lhs;
+    auto quantElemQ = lhsElemQ ? lhsElemQ : rhsElemQ;
+    auto quantType = mlir::cast<mlir::RankedTensorType>(quantVal.getType());
+    auto expressedType =
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType())
+            .getElementType();
+
+    // Insert quantize op for the dequantized value (the types must be
+    // compatible).
+    if (!isa<mlir::quant::UniformQuantizedType,
+             mlir::quant::UniformQuantizedPerAxisType>(quantElemQ)) {
+      return nullptr;
+    }
+    if (expressedType != quantElemQ.getExpressedType()) {
+      return nullptr;
+    }
+
+    RankedTensorType newType = RankedTensorType::get(
+        mlir::cast<mlir::RankedTensorType>(dequantVal.getType()).getShape(),
+        quantElemQ, quantType.getEncoding());
+
+    auto quantizedInput = ttir::utils::createDPSOp<ttir::QuantizeOp>(
+        rewriter, getLoc(), newType, dequantVal);
+
+    // Update operands.
+    if (lhsElemQ) {
+      rhs = quantizedInput;
+    } else {
+      lhs = quantizedInput;
+      lhsElemQ = quantElemQ;
+    }
+  }
+  // Now both values are quantized (and are equivalent).
+  Value output = outputOperands.front();
+  RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
+  RankedTensorType newResultType = RankedTensorType::get(
+      oldType.getShape(), lhsElemQ, oldType.getEncoding());
+
+  // Emit new AddOp with quantized types.
+  auto newAdd = ttir::utils::createDPSOp<ttir::AddOp>(rewriter, getLoc(),
+                                                      newResultType, lhs, rhs);
+  return newAdd.getOperation();
 }
 
 //===----------------------------------------------------------------------===//
@@ -704,6 +785,15 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                 /*isUnrolled=*/true);
 }
 
+// RequantizeOp folder for identity requantize.
+::mlir::OpFoldResult mlir::tt::ttir::RequantizeOp::fold(FoldAdaptor adaptor) {
+  // if types of input and output are equivalent, return input.
+  if (getInput().getType() == getOutput().getType()) {
+    return getInput();
+  }
+  return nullptr;
+}
+
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
   auto inputElemType = getInput().getType().getElementType();
@@ -912,6 +1002,63 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // ConvolutionOp
 //===----------------------------------------------------------------------===//
 
+bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // convolution op currently requires both input and weight to be quantized
+  // TODO(anuragsingh): enable float bias support
+  assert(sourceOperands.size() == 2 &&
+         "Quantized ConvolutionOp should have two operands (only input and "
+         "weight).");
+  return llvm::all_of(sourceOperands, [](mlir::Value val) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!type) {
+      return false;
+    }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
+    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
+  });
+}
+
+mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // rewrite the convolution op to be quantized.
+  // create the output quantized type, whose scale is input * weight and
+  // storage type is i32.
+  auto storageType =
+      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
+          .getElementType());
+  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
+          .getElementType());
+  mlir::quant::QuantizedType quantOutputType =
+      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
+          quantInputType, quantWeightType, storageType, getLoc());
+  if (!quantOutputType) {
+    return nullptr;
+  }
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+  auto quantConvOutputType =
+      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
+  if (!quantConvOutputType) {
+    return nullptr;
+  }
+  RankedTensorType newType =
+      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
+                            oldConvOutputType.getEncoding());
+  auto quantConv =
+      mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
+          rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
+          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
+          getBatchGroupCountAttr());
+  return quantConv.getOperation();
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::ConvolutionOp::verify() {
   if (getConvolutionLayout().getInputSpatialDimensions().size() !=
       getConvolutionLayout().getOutputSpatialDimensions().size()) {
@@ -1008,6 +1155,46 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
+// Rewrites the current PoolingOp to operate directly on quantized operands.
+//
+// This method constructs a new PoolingOp using the provided quantized inputs
+// and result type, preserving the original operation’s attributes.
+//
+// Returns:
+// - A pointer to the newly created quantized PoolingOp.
+mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
+    mlir::ValueRange outputOperands) {
+  // Can only commute if the pooling method is Max.
+  if (this->getPoolingMethod() != PoolingMethod::Max) {
+    return nullptr;
+  }
+  SmallVector<Value> updatedOutputs;
+  SmallVector<Type> resultTypes;
+  for (auto [in, out] : llvm::zip(sourceOperands, outputOperands)) {
+    // Can only commute in the per tensor quantized case.
+    if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+            in.getType())) {
+      return nullptr;
+    }
+    auto inType = mlir::cast<RankedTensorType>(in.getType());
+    auto outType = mlir::cast<RankedTensorType>(out.getType());
+    auto newResultType = RankedTensorType::get(
+        outType.getShape(), inType.getElementType(), outType.getEncoding());
+    resultTypes.push_back(newResultType);
+    auto empty = out.getDefiningOp<ttir::EmptyOp>();
+    assert(empty && "Output must be an EmptyOp");
+    auto newEmpty = rewriter.create<ttir::EmptyOp>(
+        empty.getLoc(), newResultType.getShape(),
+        newResultType.getElementType(), newResultType.getEncoding());
+    updatedOutputs.push_back(newEmpty);
+  }
+  auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
+      getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
+      getWindowDimensions(), getWindowStrides(), getBaseDilations(),
+      getWindowDilations(), getPadding());
+  return newOp.getOperation();
+}
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
@@ -1118,6 +1305,63 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   }
 
   return success();
+}
+
+// ConcatOp with single input is a no-op.
+// Replace the op with input.
+mlir::OpFoldResult foldUnitConcatOp(ttir::ConcatOp op) {
+  mlir::ValueRange inputs = op.getInputs();
+  if (inputs.size() == 1) {
+    return inputs.front();
+  }
+  return nullptr;
+}
+
+// Empty tensor(s) act as neutral/identity element for ConcatOp.
+// Remove empty tensors from ConcatOp operands.
+mlir::OpFoldResult foldEmptyTensorsConcatOp(ttir::ConcatOp op) {
+  RankedTensorType outputType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+  mlir::ValueRange inputs = op.getInputs();
+  int32_t dim = op.getDim();
+  int32_t rank = outputType.getRank();
+  int32_t adjustedDim = dim < 0 ? (dim + rank) : dim;
+  llvm::SmallVector<mlir::Value> nonEmptyInputs;
+
+  for (auto input : inputs) {
+    auto shape = mlir::cast<RankedTensorType>(input.getType()).getShape();
+    if (shape[adjustedDim] == 0) {
+      continue;
+    }
+    nonEmptyInputs.push_back(input);
+  }
+
+  // No empty tensors to remove; Folding not applicable.
+  if (inputs.size() == nonEmptyInputs.size()) {
+    return nullptr;
+  }
+
+  // All inputs are empty tensors; returning first input (it can be any input).
+  if (nonEmptyInputs.empty()) {
+    return inputs.front();
+  }
+
+  // Update the operands with non empty inputs.
+  op.getInputsMutable().assign(nonEmptyInputs);
+
+  return op.getResult();
+}
+
+// ConcatOp Folder
+mlir::OpFoldResult mlir::tt::ttir::ConcatOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldUnitConcatOp(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldEmptyTensorsConcatOp(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1361,15 +1605,16 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
     }
     inputShapeStream << ")";
     std::string inputShapeStr = inputShapeStream.str();
+    bool isEmptySliceOp = adjustedEnd == adjustedBegin;
 
-    if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+    if (!isEmptySliceOp && (adjustedBegin < 0 || adjustedBegin >= dimSize)) {
       return emitOpError() << "Invalid begin index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
                            << "), got " << begin
                            << ". Input shape: " << inputShapeStr;
     }
-    if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+    if (!isEmptySliceOp && (adjustedEnd < 0 || adjustedEnd > dimSize)) {
       return emitOpError() << "Invalid end index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
@@ -3706,6 +3951,32 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
+static std::optional<std::string>
+verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
+  if (replicaGroups.getType().getRank() != 2) {
+    return "replica_groups must be a 2D array";
+  }
+
+  auto replicaIds = replicaGroups.getValues<int64_t>();
+  int64_t maxId = replicaIds.size() - 1;
+  llvm::SmallDenseSet<int64_t> seen;
+  for (auto id : replicaIds) {
+    if (id < 0) {
+      return "replica_groups values must be positive";
+    }
+    if (id > maxId) {
+      return llvm::formatv(
+                 "replica_groups values must be in the range [0, {0}], got {1}",
+                 maxId, id)
+          .str();
+    }
+    if (!seen.insert(id).second) {
+      return "replica_groups must not contain duplicate values";
+    }
+  }
+  return std::nullopt;
+}
+
 //===----------------------------------------------------------------------===//
 // AllToAllOp
 //===----------------------------------------------------------------------===//
@@ -3743,18 +4014,11 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
     return emitOpError("Input and output element types must match");
   }
   ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
+
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
+  }
   auto replicaGroupsShape = replicaGroups.getType().getShape();
-  llvm::SmallDenseSet<int64_t> seen;
-  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                    [&](int64_t id) { return seen.insert(id).second; })) {
-    return emitOpError("replica_groups must not contain duplicate IDs");
-  }
-  int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
-  if (!llvm::all_of(replicaGroups.getValues<int64_t>(),
-                    [&](int64_t id) { return 0 <= id && id < numIds; })) {
-    return emitOpError("replicaGroup ID must be in the range [0, "
-                       "size(replica_groups))");
-  }
   if (replicaGroupsShape[1] != splitCount) {
     return emitOpError("replicaGroup count must match splitCount");
   }
@@ -4464,6 +4728,47 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// CollectiveBroadcastOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
+  // Check input/output/result types are RankedTensorType
+  auto inputType = mlir::dyn_cast<RankedTensorType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<RankedTensorType>(getOutput().getType());
+  auto resultType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
+
+  // Check input == output type
+  if (inputType != outputType) {
+    return emitOpError("input and output must have the same type");
+  }
+
+  // Check output == result type
+  if (outputType != resultType) {
+    return emitOpError("output and result must have the same type");
+  }
+
+  ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
+  if (auto errorMsg = verifyReplicaGroups(replicaGroups)) {
+    return emitOpError() << *errorMsg;
+  }
+
+  return success();
+}
+
+mlir::OpFoldResult
+mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
+  auto groupsType = getReplicaGroups().getType();
+  // If there is no group, the broadcast is a no-op.
+  if (groupsType.getShape()[0] < 1) {
+    return getInput();
+  }
+  // If there is only one device in a group, the broadcast is a no-op.
+  if (groupsType.getShape()[1] <= 1) {
+    return getInput();
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

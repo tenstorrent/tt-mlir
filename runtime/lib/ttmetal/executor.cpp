@@ -16,6 +16,7 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "tt/runtime/workarounds.h"
 
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
@@ -29,12 +30,13 @@ namespace tt::runtime::ttmetal {
 
 namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
+namespace distributed = ::tt::tt_metal::distributed;
 
 namespace {
-class CQExecutor {
+class MCQExecutor {
 public:
-  CQExecutor(
-      tt_metal::IDevice *device,
+  MCQExecutor(
+      distributed::MeshDevice *meshDevice,
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
       const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
@@ -66,13 +68,15 @@ private:
   std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
 
 private:
-  tt_metal::IDevice *device;
-  std::vector<std::shared_ptr<tt_metal::Event>> initEvents;
-  std::unordered_map<std::uint32_t, DeviceBuffer> deviceBuffers;
+  distributed::MeshDevice *meshDevice;
+  std::vector<std::shared_ptr<distributed::MeshEvent>> initMeshEvents;
+  std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshBuffer>>
+      meshBuffers;
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
-  std::unordered_map<std::uint32_t, std::shared_ptr<tt_metal::Event>> events;
+  std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
+      meshEvents;
   std::vector<Tensor> outputs;
-  tt_metal::CommandQueue *cq;
+  distributed::MeshCommandQueue *mcq;
   bool blockingCQ;
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
@@ -81,50 +85,50 @@ private:
 };
 } // namespace
 
-CQExecutor::CQExecutor(
-    tt_metal::IDevice *device,
+MCQExecutor::MCQExecutor(
+    distributed::MeshDevice *meshDevice,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
     const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
     bool blockingCQ)
-    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device),
+    : meshDevice(meshDevice), blockingCQ(blockingCQ),
+      deviceAddressValidator(meshDevice->get_devices().at(0)),
       dylibManager(std::move(dylibManager)) {
-  initEvents.reserve(inputs.size());
+  initMeshEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
   for (const Tensor &input : inputs) {
     const target::metal::BufferRef *ref = programInputs->Get(inputIndex++);
-
     std::visit(utils::overloaded{
                    [&](const TensorDesc &) {
                      auto [_, inserted] =
                          hostBuffers.try_emplace(ref->global_id(), input);
                      LOG_ASSERT(inserted);
                    },
-                   [&](const DeviceBuffer &buffer) {
+                   [&](const MeshBuffer &mesh_buffer) {
                      auto [_, inserted] =
-                         deviceBuffers.try_emplace(ref->global_id(), buffer);
+                         meshBuffers.try_emplace(ref->global_id(), mesh_buffer);
                      LOG_ASSERT(inserted);
                    },
                },
                input.as<MetalTensor>(DeviceRuntime::TTMetal));
 
-    auto event =
-        input.event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);
-    if (event) {
-      initEvents.push_back(event);
+    auto meshEvent =
+        input.event.asSharedPtr<distributed::MeshEvent>(DeviceRuntime::TTMetal);
+    if (meshEvent) {
+      initMeshEvents.push_back(meshEvent);
     }
   }
 }
 
-void CQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
+void MCQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
   currentProgramName = commandQueue->name()->c_str();
-  cq = &device->command_queue(commandQueue->queue_id());
+  mcq = &meshDevice->mesh_command_queue(commandQueue->queue_id());
 
-  for (const auto &event : initEvents) {
-    tt_metal::EnqueueWaitForEvent(*cq, event);
+  for (const auto &mesh_event : initMeshEvents) {
+    distributed::EventSynchronize(*mesh_event);
   }
-  initEvents.clear();
+  initMeshEvents.clear();
 
   for (const target::metal::Command *command : *commandQueue->commands()) {
     LOG_TRACE(logger::LogRuntimeTTMetalCommand,
@@ -134,7 +138,7 @@ void CQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
   }
 }
 
-void CQExecutor::execute(const target::metal::Command *command) {
+void MCQExecutor::execute(const target::metal::Command *command) {
   switch (command->type_type()) {
   case target::metal::CommandType::HostAllocCommand: {
     execute(command->type_as_HostAllocCommand());
@@ -204,7 +208,7 @@ void CQExecutor::execute(const target::metal::Command *command) {
   }
 }
 
-void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
+void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
   LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
@@ -227,38 +231,43 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
   auto [_, inserted] = hostBuffers.try_emplace(
-      command->dst()->global_id(), static_pointer_cast<void>(tensor), data,
+      command->dst()->global_id(), std::static_pointer_cast<void>(tensor), data,
       DeviceRuntime::TTMetal);
   LOG_ASSERT(inserted);
 }
 
-void CQExecutor::execute(const target::metal::ReturnCommand *command) {
-  std::shared_ptr<tt_metal::Event> event = std::make_shared<tt_metal::Event>();
-  tt_metal::EnqueueRecordEvent(*cq, event);
+void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
+  std::shared_ptr<distributed::MeshEvent> meshEvent = nullptr;
+  if (workaround::Env::get().d2mReturnEvent) {
+    meshEvent = std::make_shared<distributed::MeshEvent>(
+        distributed::EnqueueRecordEventToHost(*mcq));
+  } else {
+    distributed::Finish(*mcq);
+  }
 
   LOG_ASSERT(outputs.empty(),
              "Unexpected outputs, multiple returns not supported");
   outputs.reserve(command->results()->size());
   for (const auto *result : *command->results()) {
-    auto deviceIter = deviceBuffers.find(result->global_id());
-    auto hostIter = hostBuffers.find(result->global_id());
-    bool deviceFound = deviceIter != deviceBuffers.end();
-    bool hostFound = hostIter != hostBuffers.end();
-    LOG_ASSERT(deviceFound != hostFound);
-    if (deviceFound) {
-      outputs.emplace_back(static_pointer_cast<void>(deviceIter->second),
-                           nullptr, static_pointer_cast<void>(event),
-                           DeviceRuntime::TTMetal);
+    auto meshBufferIter = meshBuffers.find(result->global_id());
+    bool meshBufferFound = meshBufferIter != meshBuffers.end();
+    auto hostBufferIter = hostBuffers.find(result->global_id());
+    bool hostBufferFound = hostBufferIter != hostBuffers.end();
+    LOG_ASSERT(meshBufferFound != hostBufferFound);
+    if (meshBufferFound) {
+      outputs.emplace_back(
+          std::static_pointer_cast<void>(meshBufferIter->second), nullptr,
+          std::static_pointer_cast<void>(meshEvent), DeviceRuntime::TTMetal);
     } else {
-      outputs.emplace_back(hostIter->second);
-      outputs.back().event =
-          Event(static_pointer_cast<void>(event), DeviceRuntime::TTMetal);
+      outputs.emplace_back(hostBufferIter->second);
+      outputs.back().event = Event(std::static_pointer_cast<void>(meshEvent),
+                                   DeviceRuntime::TTMetal);
     }
   }
 }
 
-void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
-                         const char *loc, const char *debugInfo) {
+void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
+                          const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
   tt_metal::Program program = tt_metal::CreateProgram();
   program.set_runtime_id(getUniqueProgramRuntimeId());
@@ -282,13 +291,13 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
     tt_metal::KernelHandle handle = createKernel(
         program, kernelSourceString, coreRangeSet,
-        createKernelConfig(kernelConfig, command->buffers(), deviceBuffers,
+        createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
                            command->cbs(), deviceAddressValidator,
                            createSemaphore),
         currentProgramName, debugInfo, kernelConfig->debug_info()->c_str());
 
     std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
-        kernelConfig->args()->rt_args(), command->buffers(), deviceBuffers,
+        kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
         command->cbs(), deviceAddressValidator, createSemaphore);
     tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
   }
@@ -300,91 +309,99 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                                    ->circular_buffer_config()
                                    ->core_range_set());
     tt_metal::CircularBufferConfig config =
-        createCircularBufferConfig(cbRef, deviceBuffers);
+        createCircularBufferConfig(cbRef, meshBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
   }
 
-  tt_metal::EnqueueProgram(*cq, program, blockingCQ);
+  auto meshWorkload = distributed::CreateMeshWorkload();
+  auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
+
+  distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),
+                                        deviceRange);
+  distributed::EnqueueMeshWorkload(*mcq, meshWorkload, blockingCQ);
 
   if (perf::Env::get().enablePerfTrace) {
-    profiler::profileProgram(device, program, loc);
+    profiler::profileProgram(meshDevice, program, loc);
   }
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
 
   void *src = hostBuffers.at(command->src()->global_id()).data.get();
   LOG_ASSERT(src);
-  tt_metal::EnqueueWriteBuffer(
-      *cq, deviceBuffers.at(command->dst()->global_id()), src, blockingCQ);
+  auto meshBuffer = meshBuffers.at(command->dst()->global_id());
+  mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::EnqueueReadBufferCommand *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
 
   void *dst = hostBuffers.at(command->dst()->global_id()).data.get();
   LOG_ASSERT(dst);
-  tt_metal::EnqueueReadBuffer(
-      *cq, deviceBuffers.at(command->src()->global_id()), dst, blockingCQ);
+  auto meshBuffer = meshBuffers.at(command->src()->global_id());
+  mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
 }
 
-void CQExecutor::execute(const target::metal::CreateBufferCommand *command) {
+void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
-  if (deviceBuffers.find(command->ref()->global_id()) == deviceBuffers.end()) {
-    deviceBuffers[command->ref()->global_id()] = createBufferFromBufferRef(
-        device, command->ref(), deviceAddressValidator);
+  if (meshBuffers.find(command->ref()->global_id()) == meshBuffers.end()) {
+    meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
+        meshDevice, command->ref(), deviceAddressValidator);
   }
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::DeallocateBufferCommand *command) {
   ZoneScopedN("DeallocateBufferCommand");
-  auto iter = deviceBuffers.find(command->ref()->global_id());
-  LOG_ASSERT(iter != deviceBuffers.end(), "Buffer not allocated");
-  LOG_ASSERT(iter->second != nullptr, "Buffer already deallocated");
-  tt_metal::DeallocateBuffer(*iter->second);
-  deviceBuffers.erase(iter);
+  auto meshBufferIter = meshBuffers.find(command->ref()->global_id());
+  LOG_ASSERT(meshBufferIter != meshBuffers.end(), "Buffer not allocated");
+  LOG_ASSERT(meshBufferIter->second != nullptr, "Buffer already deallocated");
+  auto meshBuffer = meshBufferIter->second;
+  meshBuffer->deallocate();
+  meshBuffers.erase(meshBufferIter);
 }
 
-void CQExecutor::execute(const target::metal::CreateEventCommand *command) {
+void MCQExecutor::execute(const target::metal::CreateEventCommand *command) {
   ZoneScopedN("CreateEventCommand");
-  LOG_ASSERT(!events.contains(command->ref()->global_id()));
-  events[command->ref()->global_id()] = std::make_shared<tt_metal::Event>();
+  LOG_ASSERT(!meshEvents.contains(command->ref()->global_id()));
+  // TODO(wooseoklee): CreateEventCommand should be updated once we confirm the
+  // use cases of MeshEvent.
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::EnqueueRecordEventCommand *command) {
   ZoneScopedN("EnqueueRecordEventCommand");
-  auto event = events.at(command->ref()->global_id());
-  tt_metal::EnqueueRecordEvent(*cq, event);
+  meshEvents[command->ref()->global_id()] =
+      std::make_shared<distributed::MeshEvent>(
+          distributed::EnqueueRecordEvent(*mcq));
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::EnqueueWaitForEventCommand *command) {
   ZoneScopedN("EnqueueWaitForEventCommand");
-  auto event = events.at(command->ref()->global_id());
-  tt_metal::EnqueueWaitForEvent(*cq, event);
+  auto mesh_event = meshEvents.at(command->ref()->global_id());
+  distributed::EnqueueWaitForEvent(*mcq, *mesh_event);
 }
 
-void CQExecutor::execute(
+void MCQExecutor::execute(
     const target::metal::EventSynchronizeCommand *command) {
   ZoneScopedN("EventSynchronizeCommand");
-  auto event = events.at(command->ref()->global_id());
-  tt_metal::EventSynchronize(event);
+  auto mesh_event = meshEvents.at(command->ref()->global_id());
+  distributed::EventSynchronize(*mesh_event);
 }
 
-void CQExecutor::execute(const target::metal::EventQueryCommand *command) {
+void MCQExecutor::execute(const target::metal::EventQueryCommand *command) {
   ZoneScopedN("EventQueryCommand");
-  auto event = events.at(command->ref()->global_id());
-  (void)tt_metal::EventQuery(
-      event); // todo, we need flatbuffer support for tracking and doing
-              // something with the result
+  auto mesh_event = meshEvents.at(command->ref()->global_id());
+  // TODO(nsmith): Need flatbuffer support for tracking and doing something
+  // with the result
+  (void)distributed::EventQuery(*mesh_event);
 }
 
-void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
   auto srcIt = hostBuffers.find(command->src()->global_id());
   LOG_ASSERT(srcIt != hostBuffers.end());
   auto dstIt = hostBuffers.find(command->dst()->global_id());
@@ -392,7 +409,7 @@ void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
   ttmetal::memcpy(dstIt->second, srcIt->second);
 }
 
-void CQExecutor::execute(const target::metal::CpuCommand *command) {
+void MCQExecutor::execute(const target::metal::CpuCommand *command) {
   std::vector<std::vector<int64_t>> allSizesAndStrides;
   auto dataFuncPtr =
       std::function<void *(const tt::target::metal::BufferRef *)>(
@@ -418,23 +435,25 @@ void CQExecutor::execute(const target::metal::CpuCommand *command) {
   hostBuffers.insert({command->out()->global_id(), lastInputIt->second});
 }
 
-void CQExecutor::execute(const target::metal::FinishCommand *) {
+void MCQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
-  tt_metal::Finish(*cq);
+  distributed::Finish(*mcq);
 }
 
-std::vector<Tensor> executeDeviceProgram(
-    tt_metal::IDevice *device, const target::metal::DeviceProgram *program,
-    const std::vector<Tensor> &inputs, common::DylibManager &&dylibs) {
-  LOG_ASSERT(program->command_queues()->size() == 1, "Only one CQ supported");
+std::vector<Tensor>
+executeMeshDeviceProgram(distributed::MeshDevice *meshDevice,
+                         const target::metal::DeviceProgram *program,
+                         const std::vector<Tensor> &inputs,
+                         common::DylibManager &&dylibs) {
+  LOG_ASSERT(program->command_queues()->size() == 1, "Only one MCQ supported");
 
-  CQExecutor executor(device, program->inputs(), inputs, std::move(dylibs),
-                      debug::Env::get().blockingCQ);
+  MCQExecutor executor(meshDevice, program->inputs(), inputs, std::move(dylibs),
+                       debug::Env::get().blockingCQ);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;
     ZoneScoped;
     std::string zoneName =
-        "executeCommandQueue_cq_" + std::to_string(cq->queue_id());
+        "executeCommandQueue_mcq_" + std::to_string(cq->queue_id());
     ZoneName(zoneName.c_str(), zoneName.size());
 
     executor.execute(cq);

@@ -2112,15 +2112,86 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Create SmallVector variable for begins
+    auto beginsAttr =
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins());
+    auto beginsVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        beginsAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto beginsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{beginsVar.getResult()});
+
+    // Create SmallVector variable for ends
+    auto endsAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds());
+    auto endsVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        endsAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto endsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{endsVar.getResult()});
+
+    // Create SmallVector variable for step
+    auto stepAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep());
+    auto stepVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        stepAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto stepSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{stepVar.getResult()});
+
+    // Collect operands: input + all SmallVector variables + all span variables
+    llvm::SmallVector<mlir::Value> operands;
+
+    // Add input operand (this will be the first operand from the source op)
+    operands.push_back(adaptor.getOperands()[0]);
+
+    // Add our SmallVector variables (needed for the span construction)
+    operands.push_back(beginsVar.getResult());
+    operands.push_back(endsVar.getResult());
+    operands.push_back(stepVar.getResult());
+
+    // Add our span variables
+    operands.push_back(beginsSpanVar.getResult(0));
+    operands.push_back(endsSpanVar.getResult(0));
+    operands.push_back(stepSpanVar.getResult(0));
+
+    // Create args array with index references
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
+        rewriter.getIndexAttr(0), // Reference to input
+        rewriter.getIndexAttr(4), // Reference to beginsSpanVar
+        rewriter.getIndexAttr(5), // Reference to endsSpanVar
+        rewriter.getIndexAttr(6), // Reference to stepSpanVar
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Manually create the CallOpaqueOp
+    auto resultType =
+        this->getTypeConverter()->convertType(srcOp.getResult().getType());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultType, this->convertOpName(srcOp),
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
 
     return success();
   }

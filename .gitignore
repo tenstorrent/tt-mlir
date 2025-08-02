@@ -4,6 +4,7 @@ third_party/tt-metal
 .DS_STORE
 .vscode/*
 .cache
+.claude/*
 *pycache*
 *.egg-info
 cluster_descriptor.yaml
