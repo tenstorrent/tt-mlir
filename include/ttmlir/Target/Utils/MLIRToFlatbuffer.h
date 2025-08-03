@@ -63,7 +63,6 @@ deviceToFlatbufferMeshShape(const ttcore::DeviceAttr attr) {
   return meshShape;
 }
 
-// Remove?
 inline flatbuffers::Offset<::tt::target::MLIR>
 toMLIR(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
        ModuleOp module) {

@@ -164,7 +164,7 @@ def test_section_read():
     custom_args[
         "--result-file"
     ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = "ttnn"
+    custom_args["binary"] = BINARY_FILE_PATH
     sections = [
         "all",
         "version",
