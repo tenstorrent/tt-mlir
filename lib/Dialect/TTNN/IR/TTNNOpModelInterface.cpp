@@ -1072,12 +1072,12 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp - TTNN Op Model Interface
+// SliceStaticOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-SliceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
+SliceStaticOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
@@ -1090,22 +1090,22 @@ SliceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SliceOp>::getOpConstraints, *this, deviceGrid,
+      op_model::OpModel<SliceStaticOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
       detail::convertArrayAttrToSmallVec(getEnds()),
       detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
-SliceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                      const OpConfig &opConfig) {
+SliceStaticOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<SliceOp>::getOpRuntime, *this, inputShape, inputs[0],
-      detail::convertArrayAttrToSmallVec(getBegins()),
+      op_model::OpModel<SliceStaticOp>::getOpRuntime, *this, inputShape,
+      inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
       detail::convertArrayAttrToSmallVec(getEnds()),
       detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
 }

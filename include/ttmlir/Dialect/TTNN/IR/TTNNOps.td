@@ -1229,13 +1229,13 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
   }];
 }
 
-def TTNN_SliceOp: TTNN_Op<"slice",
+def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      indices for each dimension. The `begins` and `ends` parameters are attributes with fixed values.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -1252,7 +1252,32 @@ def TTNN_SliceOp: TTNN_Op<"slice",
         ::mlir::ArrayAttr begins = getBegins();
         ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceOpOperandsWorkarounds(layoutAttr, begins, step);
+            createSliceStaticOpOperandsWorkarounds(layoutAttr, begins, step);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
+    let summary = "Dynamic slice op.";
+    let description = [{
+      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
+      indices for each dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends,
+                         OptionalAttr<I32ArrayAttr>:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::ArrayAttr step = getStepAttr();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceDynamicOpOperandsWorkarounds(step);
       }
     }];
 

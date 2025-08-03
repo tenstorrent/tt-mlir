@@ -1028,8 +1028,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   op_model::SingletonDeviceContext::resetInstance();
 }
 
-TEST_F(OpModelBase, SliceOpInterface) {
-  // create SliceOp
+TEST_F(OpModelBase, SliceStaticOpInterface) {
+  // create SliceStaticOp
   llvm::SmallVector<int64_t> tensorShapeA = {1, 56, 56, 96};
   llvm::SmallVector<int64_t> tensorShapeO = {1, 28, 56, 95};
 
@@ -1040,15 +1040,15 @@ TEST_F(OpModelBase, SliceOpInterface) {
   llvm::SmallVector<int64_t> endsArray = {1, 56, 56, 95};
   llvm::SmallVector<int64_t> stepArray = {1, 2, 1, 1};
 
-  auto sliceOp = builder.create<SliceOp>(
+  auto sliceStaticOp = builder.create<SliceStaticOp>(
       builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
 
-  sliceOp.setBeginsAttr(builder.getI64ArrayAttr(beginsArray));
-  sliceOp.setEndsAttr(builder.getI64ArrayAttr(endsArray));
-  sliceOp.setStepAttr(builder.getI64ArrayAttr(stepArray));
+  sliceStaticOp.setBeginsAttr(builder.getI64ArrayAttr(beginsArray));
+  sliceStaticOp.setEndsAttr(builder.getI64ArrayAttr(endsArray));
+  sliceStaticOp.setStepAttr(builder.getI64ArrayAttr(stepArray));
 
-  // test SliceOp interface
-  auto constraintsExp = getOpConstraints(sliceOp.getOperation());
+  // test SliceStaticOp interface
+  auto constraintsExp = getOpConstraints(sliceStaticOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
@@ -1060,7 +1060,7 @@ TEST_F(OpModelBase, SliceOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(sliceOp.getOperation());
+  auto runtimeExp = getOpRuntime(sliceStaticOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

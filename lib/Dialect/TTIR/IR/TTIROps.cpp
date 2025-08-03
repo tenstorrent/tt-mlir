@@ -1697,11 +1697,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
 
-// SliceOp verification
-::mlir::LogicalResult mlir::tt::ttir::SliceOp::verify() {
+// SliceStaticOp verification
+::mlir::LogicalResult mlir::tt::ttir::SliceStaticOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::mlir::ArrayAttr begins = getBeginsAttr();
@@ -1813,6 +1813,69 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
                            << " of the output tensor: expected size "
                            << expectedDimSize << ", but got "
                            << outputType.getDimSize(i);
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+// SliceDynamicOp verification
+::mlir::LogicalResult mlir::tt::ttir::SliceDynamicOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType beginsType = getBegins().getType();
+  ::llvm::ArrayRef<int64_t> beginsShape = beginsType.getShape();
+  ::mlir::RankedTensorType endsType = getEnds().getType();
+  ::llvm::ArrayRef<int64_t> endsShape = endsType.getShape();
+  ::mlir::ArrayAttr stepAttr = getStepAttr();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Verify that the input is at least 1D tensor.
+  if (inputType.getRank() < 1) {
+    return emitOpError("Input must be at least a 1D tensor");
+  }
+
+  // Verify that begins and ends are 1D tensors.
+  size_t begins_rank = static_cast<size_t>(beginsType.getRank());
+  size_t ends_rank = static_cast<size_t>(endsType.getRank());
+  if (begins_rank != 1 || ends_rank != 1) {
+    return emitOpError("Begins and ends must be 1D tensors");
+  }
+
+  // Verify that the input rank matches number of elements in begins, ends, and
+  // step.
+  auto input_rank = inputType.getRank();
+
+  if (input_rank != beginsShape[0] || input_rank != endsShape[0] ||
+      (stepAttr && static_cast<size_t>(input_rank) != stepAttr.size())) {
+    return emitOpError("Begins, ends, and step must have the same "
+                       "number of elements as the input tensor rank");
+  }
+
+  // Validate that the output tensor has the same element type as the input
+  // tensor.
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError(
+        "Output tensor must have the same element type as the input tensor");
+  }
+
+  // Verify the output tensor rank.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError(
+        "Output tensor must have the same rank as the input tensor");
+  }
+
+  if (stepAttr) {
+    // Verify that step isn't zero for any dimension.
+    for (auto i = 0; i < input_rank; ++i) {
+      int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[i]).getInt();
+      if (step == 0) {
+        return emitOpError("Step value for dimension " + std::to_string(i) +
+                           " cannot be zero");
+      }
     }
   }
 

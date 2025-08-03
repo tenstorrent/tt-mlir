@@ -339,11 +339,11 @@ struct OpModel<ReshapeOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<SliceOp> {
+struct OpModel<SliceStaticOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,

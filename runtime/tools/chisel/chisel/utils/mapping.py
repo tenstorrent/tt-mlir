@@ -483,7 +483,7 @@ ttir_to_torch_mapping = {
         custom_update_cache,
         {"batch_offset": "batch_offset"},
     ),
-    "ttir.slice": OpMapping(
+    "ttir.slice_static": OpMapping(
         custom_slice,
         {"begins": "begins", "ends": "ends", "step": "step"},
         unpack_inputs=False,

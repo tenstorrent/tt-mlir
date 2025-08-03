@@ -1349,9 +1349,9 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> begins,
     llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
@@ -1394,7 +1394,7 @@ llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<SliceOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
     llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout) {

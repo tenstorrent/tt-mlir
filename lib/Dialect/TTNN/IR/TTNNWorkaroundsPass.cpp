@@ -239,11 +239,12 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceOp requires bfloat16 data type for strided slice.
-// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
-// to Width and Height) are not divisible by tile width and height.
+// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
+// ttnn::SliceStaticOp requires row major layout if 'begins' elements
+// (corresponding to Width and Height) are not divisible by tile width and
+// height.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
+TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
@@ -287,6 +288,36 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+}
+
+// Factory method to create a set of workarounds for dynamic slice op input
+// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
+// ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
+    mlir::ArrayAttr step) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation. If step is null, assume non-strided operation.
+  bool isStridedSliceOp = false;
+  if (step) {
+    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+      return intAttr.getInt() > 1;
+    });
+  }
+
+  TTNNOperandWorkarounds BF16Workaround;
+  if (isStridedSliceOp) {
+    BF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
+  TTNNOperandWorkarounds UInt32Workaround;
+  UInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(BF16Workaround)
+      .addInputOperandWorkaround(UInt32Workaround)
+      .addInputOperandWorkaround(UInt32Workaround)
+      .addOutputOperandWorkaround(BF16Workaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN

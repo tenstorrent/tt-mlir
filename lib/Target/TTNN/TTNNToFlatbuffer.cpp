@@ -1654,21 +1654,48 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       op.getUseMulticore(), memoryConfig);
 }
 
+template <typename SliceOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
+  ::tt::target::ttnn::SliceOpType type;
+  ::tt::target::ttnn::SliceOpParams paramsType =
+      ::tt::target::ttnn::SliceOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<SliceOp, SliceDynamicOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceDynamicOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceDynamicOpParams;
+    auto begins = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBegins()));
+    auto ends = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getEnds()));
+    params =
+        ::tt::target::ttnn::CreateSliceDynamicOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else if constexpr (std::is_same_v<SliceOp, SliceStaticOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceStaticOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceStaticOpParams;
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> begins =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache,
+                                                          op.getBegins());
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> ends =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+    params =
+        ::tt::target::ttnn::CreateSliceStaticOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else {
+    llvm_unreachable("unhandled SliceOp");
+  }
+
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
   auto step =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
 
-  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
-                                           step);
+  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, type, in, out, step,
+                                           paramsType, params);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SortOp>
@@ -2289,9 +2316,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
-  if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
-    return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
-                           locInfo);
+  if (auto sliceStaticOp = dyn_cast<SliceStaticOp>(op); sliceStaticOp) {
+    return createOperation(cache, createSliceOp(cache, sliceStaticOp),
+                           debugString, locInfo);
+  }
+  if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
+    return createOperation(cache, createSliceOp(cache, sliceDynamicOp),
+                           debugString, locInfo);
   }
   if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {
     return createOperation(cache, createSortOp(cache, sortOp), debugString,
