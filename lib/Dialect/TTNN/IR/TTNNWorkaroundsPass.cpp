@@ -273,11 +273,12 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceOp requires bfloat16 data type for strided slice.
-// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
-// to Width and Height) are not divisible by tile width and height.
+// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
+// ttnn::SliceStaticOp requires row major layout if 'begins' elements
+// (corresponding to Width and Height) are not divisible by tile width and
+// height.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
+TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided

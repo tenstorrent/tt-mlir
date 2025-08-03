@@ -2096,20 +2096,20 @@ public:
 };
 } // namespace
 
-// SliceOp conversion pattern
+// SliceStaticOp conversion pattern
 //
 namespace {
-class SliceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SliceOp> {
+class SliceStaticOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SliceStaticOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::SliceOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::SliceStaticOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::SliceOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::SliceStaticOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceStaticOp> emitter(
         srcOp, adaptor, rewriter);
 
     // Create SmallVector variable for begins
@@ -2437,12 +2437,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor manipulation ops
   //
-  patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
-               SortOpConversionPattern, PermuteOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
-                                                                  ctx);
+  patterns
+      .add<TransposeOpConversionPattern, ConcatOpConversionPattern,
+           ReshapeOpConversionPattern, RepeatOpConversionPattern,
+           RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
+           SortOpConversionPattern, PermuteOpConversionPattern,
+           DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
+                                                              ctx);
 
   // Quantization ops.
   //

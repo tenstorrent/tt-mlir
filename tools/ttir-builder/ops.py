@@ -4588,7 +4588,8 @@ class TTIRBuilderOps:
 
         # Use op_proxy
         return self.op_proxy(
-            ttir.SliceOp,
+            slice_golden_fn,
+            ttir.SliceStaticOp,
             [in0],
             golden_kwargs={"begins": begins, "ends": ends, "step": step},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),

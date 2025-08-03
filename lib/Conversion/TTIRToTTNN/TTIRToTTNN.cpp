@@ -668,14 +668,16 @@ public:
 } // namespace
 
 namespace {
-class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+template <typename TTIROpTy, typename TTNNOpTy>
+class SliceOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
         adaptor.getStep());
@@ -1620,7 +1622,7 @@ public:
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
-// ttnn.slice, ttnn.point_to_point, and ttnn.concat ops.
+// ttnn.slice_static, ttnn.point_to_point, and ttnn.concat ops.
 //
 // The goal is to reproduce the behavior expected from StableHLO's all_to_all,
 // which involves redistributing data slices across devices according to the
@@ -1668,7 +1670,7 @@ public:
       ends[splitDim] = (sliceIdx + 1) * splitSize;
 
       // Create a slice for this range
-      ttnn::SliceOp sliceOp = rewriter.create<ttnn::SliceOp>(
+      ttnn::SliceStaticOp sliceOp = rewriter.create<ttnn::SliceStaticOp>(
           loc, sliceOutputType, op.getInput(), rewriter.getI32ArrayAttr(begins),
           rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
       sliceOpResults.push_back(sliceOp.getResult());
@@ -1798,7 +1800,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
-           SliceOpConversionPattern,
+           SliceOpConversionPattern<ttir::SliceStaticOp, ttnn::SliceStaticOp>,
+           SliceOpConversionPattern<ttir::SliceDynamicOp, ttnn::SliceDynamicOp>,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,

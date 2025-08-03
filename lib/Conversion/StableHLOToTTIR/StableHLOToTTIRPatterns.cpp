@@ -2149,7 +2149,7 @@ public:
     llvm::SmallVector<int32_t> endIndices(adaptor.getLimitIndices());
     llvm::SmallVector<int32_t> step(adaptor.getStrides());
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::SliceOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::SliceStaticOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         rewriter.getI32ArrayAttr(startIndices),
         rewriter.getI32ArrayAttr(endIndices), rewriter.getI32ArrayAttr(step));

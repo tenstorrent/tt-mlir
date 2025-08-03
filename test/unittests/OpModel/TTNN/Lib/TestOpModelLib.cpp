@@ -493,17 +493,19 @@ TEST_F(OpModelTest, Slice) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = OpModel<SliceOp>::getOpConstraints(
-      CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
-      layoutDRAM);
+  auto constraintsExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SliceStaticOp>::getOpConstraints(
+          CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
+          layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = OpModel<SliceOp>::getOpRuntime(
-      inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
+  auto runtimeExp =
+      op_model::ttnn::OpModel<mlir::tt::ttnn::SliceStaticOp>::getOpRuntime(
+          inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
