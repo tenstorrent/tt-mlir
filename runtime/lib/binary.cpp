@@ -224,20 +224,11 @@ std::string getProgramOutputsAsJson(Flatbuffer binary,
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
-std::string getProgramMlirAsJson(Flatbuffer binary,
-                                 std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  const auto *mlir = programs->Get(programIndex)->debug_info()->mlir();
+std::string getMlirAsJson(Flatbuffer binary) {
+  const auto *mlir = getBinary(binary)->mlir();
   return asJsonFromTable(mlir,
                          ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
                          ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-}
-
-std::string getProgramCpp(Flatbuffer binary, std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  return programs->Get(programIndex)->debug_info()->cpp()->c_str();
 }
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
@@ -321,20 +312,11 @@ std::string getProgramOutputsAsJson(Flatbuffer binary,
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
-std::string getProgramMlirAsJson(Flatbuffer binary,
-                                 std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  const auto *mlir = programs->Get(programIndex)->debug_info()->mlir();
-  return asJsonFromTable(mlir,
-                         ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-                         ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-}
-
-std::string getProgramCpp(Flatbuffer binary, std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  return programs->Get(programIndex)->debug_info()->cpp()->c_str();
+std::string getMlirAsJson(Flatbuffer binary) {
+  const auto *mlir = getBinary(binary)->mlir();
+  return asJsonFromTable(
+      mlir, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
+      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
 static std::vector<TensorDesc>
@@ -709,31 +691,15 @@ std::string Binary::getProgramOutputsAsJson(std::uint32_t programIndex) const {
   LOG_FATAL("Unsupported binary format");
 }
 
-std::string Binary::getProgramMlirAsJson(std::uint32_t programIndex) const {
+std::string Binary::getMlirAsJson() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
-    return ttnn::getProgramMlirAsJson(*this, programIndex);
+    return ttnn::getMlirAsJson(*this);
   }
 
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           handle.get())) {
-    return metal::getProgramMlirAsJson(*this, programIndex);
-  }
-
-  LOG_FATAL("Unsupported binary format");
-}
-
-// NOTE: This function keeps throwing segmentation fault, removing use from ttrt
-// read until resolved
-std::string Binary::getProgramCpp(std::uint32_t programIndex) const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramCpp(*this, programIndex);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramCpp(*this, programIndex);
+    return metal::getMlirAsJson(*this);
   }
 
   LOG_FATAL("Unsupported binary format");

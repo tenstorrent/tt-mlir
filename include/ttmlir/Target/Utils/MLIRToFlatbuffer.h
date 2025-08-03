@@ -63,9 +63,10 @@ deviceToFlatbufferMeshShape(const ttcore::DeviceAttr attr) {
   return meshShape;
 }
 
+// Remove?
 inline flatbuffers::Offset<::tt::target::MLIR>
-toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
-            ModuleOp module) {
+toMLIR(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
+       ModuleOp module) {
   std::string source;
   llvm::raw_string_ostream os(source);
 
@@ -77,8 +78,7 @@ toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
 }
 
 inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
-    flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
-    ModuleOp module,
+    flatbuffers::FlatBufferBuilder &fbb,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache,
     const char *cpp = nullptr) {
@@ -107,8 +107,8 @@ inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
     moduleCacheList.push_back(moduleCacheItem);
   }
 
-  return ::tt::target::CreateDebugInfoDirect(
-      fbb, toDebugInfo(fbb, name, module), cpp, &moduleCacheList, goldenInfo);
+  return ::tt::target::CreateDebugInfoDirect(fbb, cpp, &moduleCacheList,
+                                             goldenInfo);
 }
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,

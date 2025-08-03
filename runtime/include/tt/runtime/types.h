@@ -267,8 +267,7 @@ struct Binary : public Flatbuffer {
   std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
-  std::string getProgramMlirAsJson(std::uint32_t programIndex) const;
-  std::string getProgramCpp(std::uint32_t programIndex) const;
+  std::string getMlirAsJson() const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;

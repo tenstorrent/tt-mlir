@@ -474,6 +474,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   ttmlir::Version ttmlirVersion = ttmlir::getVersion();
   target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
+  flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
+      toMLIR(fbb, "ttmetal", module);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
 
   // Handle dylib creation and packaging, if needed.
@@ -665,7 +667,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         };
 
     flatbuffers::Offset<target::DebugInfo> debugInfo =
-        debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
+        debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
 
@@ -678,8 +680,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
       fbb, &binaryVersion, target::ttmetal::binary_bfbs_schema_hash,
-      ttmlir::getGitHash(), toFlatbuffer(cache, systemDesc), &programs,
-      &dylibs);
+      ttmlir::getGitHash(), toFlatbuffer(cache, systemDesc), binaryMLIR,
+      &programs, &dylibs);
 
   FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
   flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
