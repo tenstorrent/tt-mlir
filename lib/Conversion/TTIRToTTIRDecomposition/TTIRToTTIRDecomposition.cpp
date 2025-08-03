@@ -1297,16 +1297,11 @@ private:
         static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
     });
 
-    // In PoolingOp padding is [..., high, low, ...] for every dimension.
-    // We've calculated padding in the form [top, bottom, left, right].
-    // We need to permute it to [top, left, bottom, right].
     auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
-        static_cast<int32_t>(
-            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
-        static_cast<int32_t>(
-            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
     });
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
