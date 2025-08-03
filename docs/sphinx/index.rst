@@ -29,3 +29,4 @@ Contents
    ttir-builder/apis
    ttir-builder/utils
    ttir-builder/ops
+   ttir-builder/golden

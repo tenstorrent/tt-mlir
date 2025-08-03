@@ -376,7 +376,7 @@ public:
 
     // If the input to the allGather is from a allReduce workaround, we skip
     // this workaround, as it will produce incorrect results.
-    if (op->hasAttr("decomposed_from_all_reduce")) {
+    if (op->hasAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName)) {
       return failure();
     }
 
@@ -535,14 +535,15 @@ public:
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
             dimension, clusterAxis);
-    reduceScatterOp->setAttr("decomposed_from_all_reduce",
+    reduceScatterOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
                              rewriter.getUnitAttr());
 
     // Replace all_reduce op with all_gather op.
     auto allGatherOp = rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
         clusterAxis);
-    allGatherOp->setAttr("decomposed_from_all_reduce", rewriter.getUnitAttr());
+    allGatherOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
+                         rewriter.getUnitAttr());
     return success();
   }
 
