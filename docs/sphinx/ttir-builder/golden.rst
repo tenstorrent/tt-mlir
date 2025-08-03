@@ -55,6 +55,8 @@ ttir\_builder.ttir\_golden
 
 .. autofunction:: ttir_builder.ttir_golden.all_to_all_golden
 
+.. autofunction:: ttir_builder.ttir_golden.collective_broadcast_golden
+
 .. autofunction:: ttir_builder.ttir_golden.max_golden
 
 .. autofunction:: ttir_builder.ttir_golden.prod_golden
