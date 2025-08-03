@@ -4027,15 +4027,16 @@ mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
     value.convert(outputElementFloatType.getFloatSemantics(),
                   llvm::APFloat::rmNearestTiesToEven, &losesInfo);
     return mlir::DenseElementsAttr::get(type, value);
-  } else if (isa<IntegerAttr>(fillAttr) &&
-             isa<IntegerType>(outputElementType)) {
+  }
+  if (isa<IntegerAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
     IntegerType outputElementIntegerType = cast<IntegerType>(outputElementType);
     llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
     llvm::APInt convertedValue =
         llvm::APInt(outputElementIntegerType.getWidth(), value.getZExtValue(),
                     outputElementIntegerType.isSigned());
     return mlir::DenseElementsAttr::get(type, convertedValue);
-  } else if (isa<IntegerAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
+  }
+  if (isa<IntegerAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
     FloatType outputElementFloatType = cast<FloatType>(outputElementType);
     // If the fill value is an integer, and the output tensor is a float, this
     // must be because we represent boolean as Bfloat16. Assert that the output
@@ -4054,12 +4055,13 @@ mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
           llvm::APFloat::getOne(outputElementFloatType.getFloatSemantics());
     }
     return mlir::DenseElementsAttr::get(type, floatValue);
-  } else if (isa<FloatAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
+  }
+  if (isa<FloatAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
     llvm_unreachable(
         "Fill value is a float, but the result type is an integer.");
-  } else {
-    llvm_unreachable("unhandled element type");
   }
+
+  llvm_unreachable("unhandled fill_value and/or result type");
 }
 
 // FullOp verification
