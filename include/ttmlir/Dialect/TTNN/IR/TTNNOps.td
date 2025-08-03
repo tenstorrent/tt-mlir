@@ -1289,6 +1289,14 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
                          I32ArrayAttr:$step);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::ArrayAttr step = getStep();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceDynamicOpOperandsWorkarounds(step);
+      }
+    }];
 }
 
 def TTNN_LinearOp : TTNN_Op<"linear",
