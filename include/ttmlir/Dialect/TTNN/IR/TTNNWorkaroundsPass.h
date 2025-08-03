@@ -243,9 +243,13 @@ public:
 
   // Create workarounds for slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
-                                   mlir::ArrayAttr begins,
-                                   mlir::ArrayAttr step);
+  createSliceStaticOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
+                                         mlir::ArrayAttr begins,
+                                         mlir::ArrayAttr step);
+
+  // Create workarounds for dynamic slice op operands.
+  static TTNNOperandsWorkarounds
+  createSliceDynamicOpOperandsWorkarounds(mlir::ArrayAttr step);
 
   // Workaround for tensor creation that is modeled as ConstantOp in TTNN
   // dialect.
