@@ -6,9 +6,11 @@ import pytest
 import torch
 from typing import List
 
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder
 from ttmlir.ir import *
+
+from builder import *
+from builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_to_flatbuffer
 
 
 @pytest.mark.fails_golden

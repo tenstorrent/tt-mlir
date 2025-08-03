@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -22,112 +22,23 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .apis import Shape, TTIRBuilder, TypeInfo
+from ..base.builder import *
+from . import TTIRBuilder
 
-TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
-
-# Default output to the current directory from where this module is being invoked
-OUTPUT_PATH = ""
+# ----- Private APIs -----
 
 
-class Marks:
-    """
-    Convenience class for adding pytest marks.
-
-    Example
-    -------
-    >>> skip_test = Marks(pytest.mark.skip)
-    >>> test_case | skip_test  # Marks test_case to be skipped
-    """
-
-    def __init__(self, *marks):
-        """
-        Initialize with pytest marks.
-
-        Parameters
-        ----------
-        *marks : tuple
-            Variable number of pytest.mark objects
-        """
-        self.marks = marks
-
-    def __ror__(self, lhs):
-        """
-        Apply marks to a test parameter.
-
-        Parameters
-        ----------
-        lhs : Any
-            Test parameter to mark
-
-        Returns
-        -------
-        pytest.param
-            Marked test parameter
-        """
-        return pytest.param(lhs, marks=self.marks)
-
-
-#  ----- General Purpose Helpers - Could Be Used In Other Files -----
-
-
-def shape_str(shape):
-    """
-    Converts shape tuple to string.
-
-    Parameters
-    ----------
-    shape : *Union[Tuple[int, ...], List[int]]*
-        Shape to convert to string
-
-    Returns
-    -------
-    str
-        String representation of the shape (e.g., '32x32' for shape (32, 32))
-    """
-    return "x".join(map(str, shape))
-
-
-def set_output_path(path):
-    """
-    Sets global output path.
-
-    Parameters
-    ----------
-    path : str
-        Path to set as output directory
-    """
-    global OUTPUT_PATH
-    if not os.path.exists(path):
-        raise ValueError(f"The provided path '{path}' is not a valid path.")
-    OUTPUT_PATH = path
-
-
-def get_target_path(output_path, filename, target):
-    """
-    Gets target file path.
-
-    Parameters
-    ----------
-    output_path : str
-        Base output directory
-    filename : str
-        Name of the file
-    target : str
-        Target subdirectory name
-
-    Returns
-    -------
-    str
-        Full path to the target file
-    """
+def _get_target_path(output_path, filename, target):
     target_dir = os.path.join(output_path, target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     return os.path.join(target_dir, filename)
 
 
-def create_custom_pipeline_fn(
+# ----- Public APIs -----
+
+
+def create_custom_ttir_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
     """
@@ -166,7 +77,7 @@ def create_custom_pipeline_fn(
     return wrapper
 
 
-def build_mlir_module(
+def build_ttir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
@@ -219,7 +130,7 @@ def build_mlir_module(
     >>> def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     ...     return builder.add(in0, in1)
     ...
-    >>> build_mlir_module(test_add, ((32, 32), (32, 32)))
+    >>> build_ttir_module(test_add, ((32, 32), (32, 32)))
 
     This returns:
 
@@ -253,12 +164,12 @@ def build_mlir_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    builder = TTIRBuilder(ctx, loc)
+    ttir_builder = TTIRBuilder(ctx, loc)
 
     # deliver mesh_shape to TTIRBuilder
     # TTIR itself does not require mesh_shape information; however, it is needed to generate the golden tensor.
     if mesh_shape is not None:
-        builder.set_mesh_shape(mesh_shape)
+        ttir_builder.mesh_shape = mesh_shape
 
     # Default to all f32s
     if inputs_types is None:
@@ -267,9 +178,9 @@ def build_mlir_module(
     assert inputs_types is not None and len(inputs_shapes) == len(inputs_types)
     with ctx, loc:
         fn_input_types = [
-            builder.ranked_tensor_type(
+            ttir_builder.create_ranked_tensor_type(
                 shape,
-                builder.get_type_from_torch_dtype(
+                ttir_builder._get_type_from_torch_dtype(
                     dtype if isinstance(dtype, torch.dtype) else dtype
                 ),
             )
@@ -286,29 +197,33 @@ def build_mlir_module(
                 input_goldens = []
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens.append(
-                        builder.generate_input_golden(operand, dtype, index).tensor
+                        ttir_builder._generate_input_golden(
+                            operand, dtype, index
+                        ).tensor
                     )
-                result = fn(*inputs, builder=builder)
+                result = fn(*inputs, ttir_builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
-                builder.set_graph_input_output(input_goldens, output_goldens)
+                output_goldens = [
+                    ttir_builder._get_golden_tensor(op) for op in output_ops
+                ]
+                ttir_builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
 
         base = fn.__name__ if base is None else base
 
-        filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
+        filename = _get_target_path(output_root, base + "_ttir.mlir", "ttir")
 
         if module_dump:
             with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
 
-        return module, builder
+        return module, ttir_builder
 
 
-def run_pipeline(
+def run_ttir_pipeline(
     module,
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: Optional[List[str]] = None,
@@ -405,8 +320,8 @@ def compile_to_flatbuffer(
     This decorator is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
 
-    1. `build_mlir_module`
-    2. `run_pipeline`
+    1. `build_ttir_module`
+    2. `run_ttir_pipeline`
     3. `to_target`
 
     The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
@@ -466,7 +381,9 @@ def compile_to_flatbuffer(
         assert len(inputs_shapes) == len(inputs_types)
 
     if type(custom_pipeline) is str:
-        custom_pipeline = create_custom_pipeline_fn(custom_pipeline, print_ir=print_ir)
+        custom_pipeline = create_custom_ttir_pipeline_fn(
+            custom_pipeline, print_ir=print_ir
+        )
 
     if pipeline_options is None:
         pipeline_options = []
@@ -491,7 +408,7 @@ def compile_to_flatbuffer(
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
     elif target == "ttnn-standalone":
-        ttir_to_ttnn_emitc_pipeline = create_custom_pipeline_fn(
+        ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
         )
         pipeline_fn = (
@@ -504,7 +421,7 @@ def compile_to_flatbuffer(
         raise ValueError("Unsupported target: " + target)
 
     # Compile model to TTIR MLIR
-    module, builder = build_mlir_module(
+    module, builder = build_ttir_module(
         fn,
         inputs_shapes,
         inputs_types,
@@ -513,11 +430,11 @@ def compile_to_flatbuffer(
         output_root=output_root,
     )
 
-    output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)
+    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = run_pipeline(
+    module = run_ttir_pipeline(
         module,
         pipeline_fn,
         pipeline_options=pipeline_options,
@@ -536,7 +453,7 @@ def compile_to_flatbuffer(
     to_target(
         module,
         output_file_fbb,
-        builder.get_golden_map(),
+        builder.golden_map,
         module_logger.module_log if module_logger.module_log else [],
     )
     print(f"{target} flatbuffer created successfully.")

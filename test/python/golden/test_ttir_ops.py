@@ -7,8 +7,10 @@ import torch
 from typing import Callable, List, Optional, Tuple
 from conftest import x86_only
 
-from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
-from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
+from builder import *
+from builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_to_flatbuffer
+from test_utils import Marks, shape_str
 
 
 def exp(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):

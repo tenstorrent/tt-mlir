@@ -6,11 +6,12 @@ import torch
 import pytest
 
 from typing import List, Tuple
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+
+from builder import *
+from builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_to_flatbuffer
 
 pytestmark = pytest.mark.n300
-
 
 # utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):

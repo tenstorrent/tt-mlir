@@ -6,10 +6,12 @@ import pytest
 import torch
 from typing import List
 
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
+
+from builder import *
+from builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_to_flatbuffer
 
 
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
@@ -44,13 +46,13 @@ def test_to_layout(
     ):
         to_device = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape),
+            output_type=builder.get_metal_tensor_layout(shape),
             unit_attrs=unit_attrs,
             loc="to_device",
         )
         reblock = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape),
+            output_type=builder.get_metal_tensor_layout(shape),
             unit_attrs=unit_attrs,
             loc="reblock",
         )

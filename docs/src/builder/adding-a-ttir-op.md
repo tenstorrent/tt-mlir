@@ -1,14 +1,14 @@
 
 # Adding a new op to `ttir-builder`
 
-`ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
+`ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/builder/ttir/ttir_builder.py` that will create the op and its golden counterpart.
 
 ## TTIR op factories
 
 All ops are created when their relevant information is run through the `op_proxy` function which provides a general interface for proxy-ing and creating ops.
 
 ```bash
-def op_proxy(
+def _op_proxy(
     self,
     op_golden_function: Callable,
     op_ttir_function: Callable,
@@ -61,7 +61,7 @@ Example implementation:
 Element-wise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
 
 ```bash
-def eltwise_proxy(
+def _eltwise_proxy(
     self,
     op_golden_function: Callable,
     op_ttir_function: Callable,
@@ -73,7 +73,7 @@ def eltwise_proxy(
 CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and integrate that into their own proxy function.
 
 ```bash
-def ccl_proxy(
+def _ccl_proxy(
     self,
     op_golden_function: Callable,
     op_ttir_function: Callable,
