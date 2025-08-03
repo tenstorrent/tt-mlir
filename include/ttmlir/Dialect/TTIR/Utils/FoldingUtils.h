@@ -5,8 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTIR_UTILS_FOLDINGUTILS_H
 #define TTMLIR_DIALECT_TTIR_UTILS_FOLDINGUTILS_H
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
 
 namespace mlir::tt::ttir::folding_utils {
 
@@ -36,25 +37,6 @@ inline int64_t getFlatIndexFromStride(ArrayRef<int64_t> index,
   return flatIndex;
 }
 
-// Calculate the flat index within a given shape given the shape index.
-inline int64_t getFlatIndexFromShape(ArrayRef<int64_t> index,
-                                     ArrayRef<int64_t> shape) {
-  assert(index.size() == shape.size() &&
-         "index and shape must have the same size");
-  return getFlatIndexFromStride(index, calculateStrides(shape));
-}
-
-// Calculate the shape index of a given flat index and shape.
-inline SmallVector<int64_t>
-getShapeIndexFromFlatIndex(int64_t flatIndex, ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> index(shape.size());
-  for (int64_t i = shape.size() - 1; i >= 0; i--) {
-    index[i] = (flatIndex % shape[i]);
-    flatIndex /= shape[i];
-  }
-  return index;
-}
-
 // Basic tensor class to use for folding. Holds the data as a std::vector of
 // NumericType which must be eithet APInt or APFloat.
 template <typename NumericType>
@@ -65,9 +47,9 @@ struct Tensor {
 
   template <typename Iterable>
   Tensor(const Iterable &data, ArrayRef<int64_t> shape)
-      : shape(shape), strides(calculateStrides(shape)) {
-    volume = std::accumulate(shape.begin(), shape.end(), 1,
-                             std::multiplies<int64_t>());
+      : shape(shape), strides(calculateStrides(shape)),
+        volume(std::accumulate(shape.begin(), shape.end(), 1,
+                               std::multiplies<int64_t>())) {
     this->data.reserve(volume);
     int64_t index = 0;
     for (const NumericType &element : data) {
@@ -91,6 +73,29 @@ struct Tensor {
     return Tensor<NumericType>(data, shape);
   }
 
+  // Returns a compatible APInt or APFloat which can be operated with the tensor
+  // data
+  template <typename NativeNumericType>
+  NumericType getTensorCompatibleAPValue(NativeNumericType value) const {
+    if constexpr (std::is_same_v<float, NativeNumericType>) {
+      static_assert(
+          std::is_same_v<NumericType, llvm::APFloat>,
+          "NativeNumericType is float, but Tensor NumericType is not APFloat");
+      bool losesInfo = false;
+      llvm::APFloat apFloat(value);
+      apFloat.convert(getFloatSemantics(), llvm::APFloat::rmNearestTiesToEven,
+                      &losesInfo);
+      return apFloat;
+    } else if constexpr (std::is_same_v<int64_t, NativeNumericType>) {
+      static_assert(
+          std::is_same_v<NumericType, llvm::APInt>,
+          "NativeNumericType is int64_t, but Tensor NumericType is not APInt");
+      return llvm::APInt(getIntBitWidth(), value);
+    } else {
+      llvm_unreachable("NativeNumericType must be either float or int64_t");
+    }
+  }
+
   int64_t getRank() const { return shape.size(); }
 
   const SmallVector<int64_t> &getShape() const { return shape; }
@@ -99,9 +104,6 @@ struct Tensor {
 
   // Returnst a mutable reference to the element at a given shape index
   NumericType &operator[](ArrayRef<int64_t> index) {
-    if (isSplat) {
-      return data[0];
-    }
     return operator[](getFlatIndexFromStride(index, strides));
   }
 
@@ -113,7 +115,10 @@ struct Tensor {
     return operator[](getFlatIndexFromStride(index, strides));
   }
 
+  // Index a tensor by a flat index, will directly index the data vector.
   NumericType &operator[](int64_t flatIndex) {
+    assert(flatIndex == 0 ||
+           !isSplat && "Cannot mutate splat tensor unless index is 0.");
     assert(flatIndex < volume && "Index out of bounds");
     if (isSplat) {
       return data[0];
@@ -156,6 +161,114 @@ struct Tensor {
   const DenseElementsAttr getAsDenseElementsAttr(Type elementType) const {
     return DenseElementsAttr::get(RankedTensorType::get(shape, elementType),
                                   data);
+  }
+
+  Tensor<NumericType> slice(ArrayRef<int64_t> starts, ArrayRef<int64_t> ends,
+                            ArrayRef<int64_t> steps) const {
+    assert(starts.size() == shape.size() &&
+           "starts must have the same size as shape");
+    assert(ends.size() == shape.size() &&
+           "ends must have the same size as shape");
+    assert(steps.size() == shape.size() &&
+           "steps must have the same size as shape");
+    for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); i++) {
+      assert(starts[i] >= 0 && starts[i] < shape[i] &&
+             "starts must be within shape");
+      assert(ends[i] >= 0 && ends[i] <= shape[i] &&
+             "ends must be within shape");
+      assert(steps[i] > 0 && "steps must be positive");
+    }
+
+    // Calculate the shape of the output tensor.
+    SmallVector<int64_t> newShape;
+    for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); i++) {
+      newShape.push_back((ends[i] - starts[i]) / steps[i]);
+    }
+
+    int64_t newVolume = std::accumulate(newShape.begin(), newShape.end(), 1,
+                                        std::multiplies<int64_t>());
+
+    SmallVector<int64_t> currentIndex(starts);
+    std::vector<NumericType> newData;
+    newData.reserve(newVolume);
+    newData.push_back(operator[](currentIndex));
+
+    while (static_cast<int64_t>(newData.size()) < newVolume) {
+      int64_t currentDim = shape.size() - 1;
+      while (currentDim >= 0) {
+        currentIndex[currentDim] += steps[currentDim];
+        if (currentIndex[currentDim] < ends[currentDim]) {
+          break;
+        }
+        currentIndex[currentDim] = starts[currentDim];
+        currentDim--;
+      }
+      newData.push_back(operator[](currentIndex));
+    }
+    return Tensor<NumericType>(newData, newShape);
+  }
+
+  NumericType sum() const {
+    if (isSplat) {
+      // Constructing a valid multiplier for APInt and APFloat requires
+      // different logic, so we use if constexpr to handle the different cases.
+      if constexpr (std::is_same_v<NumericType, llvm::APInt>) {
+        return data[0] * getTensorCompatibleAPValue(volume);
+      } else if constexpr (std::is_same_v<NumericType, llvm::APFloat>) {
+        return data[0] * getTensorCompatibleAPValue(static_cast<float>(volume));
+      } else {
+        llvm_unreachable("Unsupported numeric type");
+      }
+    }
+    NumericType zero = [&]() -> NumericType {
+      if constexpr (std::is_same_v<NumericType, llvm::APInt>) {
+        return getTensorCompatibleAPValue(0l);
+      } else if constexpr (std::is_same_v<NumericType, llvm::APFloat>) {
+        return getTensorCompatibleAPValue(0.0f);
+      } else {
+        llvm_unreachable("Unsupported numeric type");
+      }
+    }();
+
+    // Both APFloat and APInt implement operator+. So we can use std::accumulate
+    // to sum the elements as long as we provide the correctly typed zero value.
+    return std::accumulate(data.begin(), data.end(), zero);
+  }
+
+  NumericType max() const {
+    if (isSplat) {
+      return data[0];
+    }
+
+    // Using std::reduce instead of std::max_element because APFloat and APInt
+    // have different interfaces for comparison.
+    return std::reduce(
+        data.begin(), data.end(), data[0],
+        [](NumericType a, NumericType b) -> NumericType {
+          if constexpr (std::is_same_v<NumericType, llvm::APInt>) {
+            return a.sgt(b) ? a : b;
+          } else if constexpr (std::is_same_v<NumericType, llvm::APFloat>) {
+            return a > b ? a : b;
+          } else {
+            llvm_unreachable("Unsupported numeric type");
+          }
+        });
+  }
+
+  NumericType mean() const {
+    if (isSplat) {
+      return data[0];
+    }
+
+    // APFloat and APInt do not have the same interface for division, so we use
+    // if constexpr to handle the different cases.
+    if constexpr (std::is_same_v<NumericType, llvm::APInt>) {
+      return sum().sdiv(getTensorCompatibleAPValue(volume));
+    }
+    if constexpr (std::is_same_v<NumericType, llvm::APFloat>) {
+      return sum() / getTensorCompatibleAPValue(static_cast<float>(volume));
+    }
+    llvm_unreachable("Unsupported numeric type");
   }
 
 private:
