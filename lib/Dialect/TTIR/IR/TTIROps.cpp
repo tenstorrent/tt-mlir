@@ -4013,12 +4013,10 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
-  // return nullptr;
-  // Only fold if the fill value is a constant attribute.
-  auto fillAttr = adaptor.getFillValue();
+  Attribute fillAttr = adaptor.getFillValue();
 
-  auto type = getType();
-  auto outputElementType = type.getElementType();
+  RankedTensorType type = getType();
+  Type outputElementType = type.getElementType();
 
   // fill_value type and output tensor type might be different
   if (isa<FloatAttr>(fillAttr) && isa<FloatType>(outputElementType)) {

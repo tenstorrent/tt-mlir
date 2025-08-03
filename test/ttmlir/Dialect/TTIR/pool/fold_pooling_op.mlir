@@ -1,6 +1,10 @@
 // RUN: ttmlir-opt --canonicalize %s | FileCheck %s
 
 // Test 1: Pooling a 2D float tensor with only ones.
+//
+// The input tensor is a full tensor of 1's. The window dimensions are 2x2.
+// So the output tensor must be filled with 4's.
+
 module attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
     func.func @main() -> (tensor<30x30xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
         // CHECK: %[[FULL:.*]] = "ttir.full"
@@ -16,6 +20,13 @@ module attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias =
 
 // ----
 // Test 2: Pooling a 2D float tensor with some ones and some zeros (padding)
+//
+// The input tensor is a 31x31 tensor of 1's, padded with an extra row and column of zeros,
+// ultimately with shape 32x32.
+//
+// The pool has a stride of 2x2 and window of size 2x2. So, the output should be a tensor
+// of size 16x16, the top-right 15x15 slice shall be all 4's, whilst the right-most column
+// and bottom-most row shall be all 2's, with the bottom-right corner being 1.
 
 module attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
     func.func @main() -> (tensor<16x16xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
@@ -32,6 +43,9 @@ module attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias =
 
 // ----
 // Test 3: Pooling a 2D integer tensor with only ones
+//
+// The input tensor is full of 1's. The window dimensions are 3x3.
+// So, the output tensor should be full of 9's
 
 module {
     func.func @main() -> tensor<35x35xi32> {
@@ -48,6 +62,12 @@ module {
 
 // ----
 // Test 4: Pooling a 2D integer tensor with some ones and some zeros (padding)
+//
+// The input tensor is a 35x35 tensor full of 1's padded all around with 0's with a thickness of 1,
+// ultimately with shape 37x37.
+//
+// The pool has a window size of 3x3. Thus the output a 6 along the edges of the output, where the
+// corners of the output have value 4. All interior values should be 9.
 
 module {
     func.func @main(%arg0: tensor<1x384x35x35xi32>) -> tensor<35x35xi32> {
