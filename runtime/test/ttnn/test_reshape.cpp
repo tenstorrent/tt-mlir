@@ -32,9 +32,10 @@ TEST(TTNNReshape, IdentityData) {
     tensorSize *= dim;
   }
 
-  /* Reshape has single input */
+  // Reshape has single input.
   std::shared_ptr<void> inData = ::tt::runtime::utils::malloc_shared(tensorSize);
-  /* Fill with sequential pattern */
+  
+  // Fill with sequential pattern.
   for (std::uint32_t i = 0; i < tensorSize; ++i) {
     static_cast<uint8_t *>(inData.get())[i] = static_cast<uint8_t>(i % 255);
   }
