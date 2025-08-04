@@ -1,4 +1,4 @@
-# EmitPy 
+# EmitPy
 
 `EmitPy` is part of the TT-Forge compiler project. Its primary function is to translate MLIR IR from various dialects into human-readable, executable Python source code.
 
@@ -24,4 +24,3 @@ Current implementation enables support for MNIST and ResNet models.
 # 3. Pipe the generated Python code to a .py file
 ttmlir-opt --ttir-to-emitpy-pipeline test/ttmlir/Dialect/EmitPy/ttir_to_emitpy_pipeline_sanity.mlir | \
 ttmlir-translate --mlir-to-python > example.py
-
