@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-import os
 import pytest
 import ttrt
 import platform

@@ -375,6 +375,11 @@ def compile_ttir_to_flatbuffer(
         Set to True to print IR to stdout. Set to dir path to print IR after
         each pass to its own file under that directory.
         Default is False.
+
+    Returns
+    -------
+    str
+        The path to the generated TT{Metal,NN} MLIR file.
     """
 
     if inputs_types is not None:
