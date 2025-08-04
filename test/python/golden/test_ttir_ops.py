@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
+from conftest import x86_only
 
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
@@ -71,6 +72,7 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     )
 
 
+@x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -551,6 +553,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
     )
 
 
+@x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -654,6 +657,7 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
     )
 
 
+@x86_only
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -1075,25 +1079,19 @@ def test_conv_transpose2d(
 
 
 @pytest.mark.parametrize(
-    "kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom",
-    [(2, 2, 2, 2, 1, 1, False, 0, 0, 0, 0)],
+    "kernel,stride,dilation,padding,ceil_mode",
+    [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
 @pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
 def test_max_pool2d(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
-    kernel_height: int,
-    kernel_width: int,
-    stride_height: int,
-    stride_width: int,
-    dilation_height: int,
-    dilation_width: int,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
     ceil_mode: bool,
-    padding_left: int,
-    padding_right: int,
-    padding_top: int,
-    padding_bottom: int,
     request,
 ):
     def max_pool2d(
@@ -1105,17 +1103,11 @@ def test_max_pool2d(
         return builder.max_pool2d(
             in0,
             in1,
-            kernel_height=kernel_height,
-            kernel_width=kernel_width,
-            stride_height=stride_height,
-            stride_width=stride_width,
-            dilation_height=dilation_height,
-            dilation_width=dilation_width,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
             ceil_mode=ceil_mode,
-            padding_left=padding_left,
-            padding_right=padding_right,
-            padding_top=padding_top,
-            padding_bottom=padding_bottom,
             unit_attrs=unit_attrs,
         )
 
@@ -1793,6 +1785,7 @@ hoisted_ternary_ops = [
 ]
 
 
+@x86_only
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -1815,6 +1808,7 @@ def test_cpu_hoistable_unary_ops(
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -1843,6 +1837,7 @@ def test_cpu_hoistable_binary_ops(
 
 
 # Test hoisted permute separately because it requires unique input shapes.
+@x86_only
 @pytest.mark.parametrize(
     "shapes_and_perms",
     [
@@ -1878,6 +1873,7 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
 
 
 # Test hoisted max separately because it requires more complex parameters combination.
+@x86_only
 @pytest.mark.parametrize("dim_arg", [None, 0, 1])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize(
@@ -1901,6 +1897,7 @@ def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
     [
@@ -1936,6 +1933,7 @@ def test_hoisted_slice(
 
 
 # Add test for hoisted where operation
+@x86_only
 @pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_where(shapes, request, target: str):
@@ -1954,6 +1952,7 @@ def test_hoisted_where(shapes, request, target: str):
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -1982,6 +1981,7 @@ def test_hoisted_reshape(shapes, request, target: str):
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shapes_and_dims",
     [
@@ -2187,6 +2187,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -2244,6 +2245,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
+            marks=pytest.mark.fails_golden,
         ),
     ],
 )
@@ -2300,6 +2302,7 @@ def test_slice(
     )
 
 
+@x86_only
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -2325,6 +2328,7 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shapes_and_broadcast_dims",
     [
@@ -2444,6 +2448,7 @@ def test_gather(
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
@@ -2495,6 +2500,7 @@ def test_hoisted_gather(
     )
 
 
+@x86_only
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [

@@ -14,26 +14,6 @@
 
 namespace mlir::tt::ttcore::utils {
 
-// Add a new mesh info to module attribute.
-inline void addMeshToModuleAttribute(PatternRewriter &rewriter,
-                                     mlir::ModuleOp module, StringAttr meshName,
-                                     llvm::ArrayRef<int64_t> meshShape) {
-  MLIRContext *context = rewriter.getContext();
-  llvm::SmallVector<MeshAttr> meshes;
-  if (auto meshesAttr = module->getAttrOfType<MeshesAttr>(MeshesAttr::name)) {
-    meshes = llvm::SmallVector<MeshAttr>(meshesAttr.getMeshes());
-  }
-  // Avoid adding multiple meshes with the same name and shape as GSPMD may try
-  // to add the same meshes.
-  if (llvm::all_of(meshes,
-                   [&](MeshAttr m) { return m.getName() != meshName; })) {
-    meshes.push_back(MeshAttr::get(context, meshName, meshShape));
-    rewriter.modifyOpInPlace(module, [&]() {
-      module->setAttr(MeshesAttr::name, MeshesAttr::get(context, meshes));
-    });
-  }
-}
-
 // Determine hardware mesh config for DeviceAttr.
 // If none exists, the empty meshShape leads to single device config.
 // If either option.meshShape or meshes exists, use one of them.

@@ -304,7 +304,8 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          overrideReshardEdges, memoryLayoutAnalysisPolicy));
+          overrideReshardEdges, overrideOutputLayout,
+          memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =

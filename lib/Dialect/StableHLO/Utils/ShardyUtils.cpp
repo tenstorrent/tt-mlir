@@ -4,11 +4,12 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/IRMapping.h"
+#include "llvm/Support/Error.h"
 
 #include "stablehlo/dialect/StablehloOps.h"
 
@@ -94,9 +95,29 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
       builder.getUnknownLoc(), builder.getStringAttr(meshName), sdyMeshAttr);
 }
 
+// Create a TTMeshAttr from a sdy::meshOp.
+mlir::tt::ttcore::MeshAttr
+createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp) {
+  return mlir::tt::ttcore::MeshAttr::get(
+      meshOp.getContext(),
+      mlir::StringAttr::get(meshOp.getContext(), meshOp.getSymName()),
+      getMeshShapeFromMeshAttr(meshOp.getMeshAttr()));
+}
+
 // Check if the module has any sdy tensor sharding annotations.
 bool sdyAnnotationsExist(mlir::ModuleOp &module) {
+  llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
+      shardy_utils::getMeshOps(module);
+
+  if (parsedMeshOps.size() > 0) {
+    return true;
+  }
+
   for (auto &op : module.getBody()->getOperations()) {
+    if (mlir::isa<mlir::sdy::ManualComputationOp>(op)) {
+      return true;
+    }
+
     if (!mlir::isa<func::FuncOp>(op)) {
       continue;
     }
@@ -439,6 +460,135 @@ void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
     }
     newRegion.push_back(newBlock.release());
   }
+}
+
+// Parse Shardy sharding attribute.
+llvm::Expected<bool> parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
+                                      mlir::sdy::MeshAttr meshAttr,
+                                      llvm::SmallVector<int64_t> &shardShape,
+                                      llvm::SmallVector<int64_t> &shardDims,
+                                      llvm::SmallVector<int64_t> &meshShape) {
+
+  shardShape.assign(sdySharding.getRank(), 1);
+  shardDims.assign(meshAttr.getAxes().size(), -1);
+
+  meshShape.clear();
+  llvm::SmallDenseMap<::llvm::StringRef, int64_t> axisPosition;
+  for (auto [idx, meshAxisAttr] : llvm::enumerate(meshAttr.getAxes())) {
+    axisPosition[meshAxisAttr.getName()] = idx;
+    meshShape.push_back(meshAxisAttr.getSize());
+  }
+
+  if (!sdySharding.isFullyClosed()) {
+    return llvm::createStringError(
+        "Sharding with open dimension is currently not supported.");
+  }
+
+  // Iterate each dimSharding in TensorShardingAttr.
+  for (auto [dimIdx, dimSharding] :
+       llvm::enumerate(sdySharding.getDimShardings())) {
+    for (auto [axisIdx, axes] : llvm::enumerate(dimSharding.getAxes())) {
+      // Check if there is any subaxis sharding.
+      if (auto subAxis = axes.getSubAxisInfo()) {
+        return llvm::createStringError(
+            "Sharding with subaxis partitioning is currently not supported.");
+      }
+      shardShape[dimIdx] *= axes.getSize(meshAttr);
+      // Sharding makes sense when it is higher than 1.
+      if (axes.getSize(meshAttr) > 1) {
+        shardDims[axisPosition[axes.getName()]] = dimIdx;
+      }
+    }
+  }
+
+  return true;
+}
+
+// Generate default ShardyMeshSharding.
+llvm::Expected<ShardyMeshSharding> ShardyMeshSharding::generateDefault() {
+  return ShardyMeshSharding{
+      mlir::tt::ttcore::MeshShardDirection::FullToShard,
+      mlir::tt::ttcore::MeshShardType::Identity,
+      /*shardShape=*/llvm::SmallVector<int64_t>{},
+      /*shardDims=*/llvm::SmallVector<int64_t>{},
+      /*meshShape=*/llvm::SmallVector<int64_t>{},
+      /*deviceIds=*/llvm::SmallVector<int64_t>{},
+      mlir::tt::ttcore::ShardStatus::Unsharded,
+      sdy::MeshAttr(),
+      mlir::sdy::TensorShardingAttr(),
+  };
+}
+
+llvm::Expected<ShardyMeshSharding>
+ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
+                             sdy::TensorShardingAttr sdySharding,
+                             mlir::tt::ttcore::ShardStatus shardStatus,
+                             ttcore::MeshShardDirection shardDirection) {
+  // Need to parse sdy sharding and fill out MeshSharding info.
+  mlir::tt::ttcore::MeshShardType shardType =
+      mlir::tt::ttcore::MeshShardType::Identity;
+  llvm::SmallVector<int64_t> shardShape = {-1};
+  llvm::SmallVector<int64_t> shardDims = {-1};
+  llvm::SmallVector<int64_t> meshShape = {-1};
+  llvm::SmallVector<int64_t> deviceIds = {-1};
+
+  // Lambda function to set non-device shard types.
+  auto setNonDevicesShardType =
+      [&](ttcore::MeshShardType targetShardType) -> void {
+    shardType = targetShardType;
+    shardShape = llvm::SmallVector<int64_t>{1};
+    shardDims = llvm::SmallVector<int64_t>{-1};
+    meshShape = llvm::SmallVector<int64_t>{-1};
+  };
+
+  // Empty meshAttr indicates single device, so no need to convert.
+  if (meshAttr.empty()) {
+    meshShape.clear();
+    return ShardyMeshSharding{shardDirection, shardType, shardShape,
+                              shardDims,      meshShape, deviceIds,
+                              shardStatus,    meshAttr,  sdySharding};
+  }
+
+  if (meshAttr.getAxes().empty()) {
+    if (meshAttr.getDeviceIds().empty()) {
+      // Set shard type to replicate.
+      setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
+    } else {
+      // Set shard type to maximal.
+      setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Maximal);
+      deviceIds = llvm::SmallVector<int64_t>(meshAttr.getDeviceIds());
+    }
+    return ShardyMeshSharding{shardDirection, shardType, shardShape,
+                              shardDims,      meshShape, deviceIds,
+                              shardStatus,    meshAttr,  sdySharding};
+  }
+
+  shardType = ttcore::MeshShardType::Devices;
+  auto error =
+      parseSdySharding(sdySharding, meshAttr, shardShape, shardDims, meshShape);
+  if (auto e = error.takeError()) {
+    return e;
+  }
+
+  // totalPartition is the total number of multi-chips such as 8 for t3k. Thus,
+  // no overflow is expected with int64_t.
+  int64_t totalPartition =
+      std::accumulate(shardShape.begin(), shardShape.end(), int64_t{1},
+                      std::multiplies<int64_t>());
+  // No partition indicates replicate to all devices.
+  if (totalPartition == 1) {
+    setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
+  }
+
+  // Check if the input is already pre-sharded. If it is, override shardType to
+  // Identity.
+  shardType = shardStatus == mlir::tt::ttcore::ShardStatus::Presharded
+                  ? ttcore::MeshShardType::Identity
+                  : shardType;
+
+  return ShardyMeshSharding{shardDirection, shardType, shardShape,
+                            shardDims,      meshShape, deviceIds,
+                            shardStatus,    meshAttr,  sdySharding};
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

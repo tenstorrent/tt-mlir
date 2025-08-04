@@ -225,6 +225,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
 
+  Option<bool> enableQuantDequantConversion{
+      *this, "enable-quant-dequant-conversion-pass",
+      llvm::cl::desc("Enable quant-dequant conversion pass."),
+      llvm::cl::init(true)};
+
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};

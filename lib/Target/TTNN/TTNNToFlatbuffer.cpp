@@ -133,7 +133,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
   // Set meshShape to {1, 1} for single device tensor.
   std::vector<int32_t> meshShape = {1, 1};
-  if (layoutAttr.getTensorMeshSharding()) {
+  if (layoutAttr.getTensorMesh()) {
     meshShape.clear();
     // Set meshShape to {x, y} for multi device tensor.
     auto meshShapeInt64 = deviceAttr.getMeshShape();
@@ -322,9 +322,7 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
         distribution);
   };
 
-  // Skip single device tensors if it includes TensorMeshShardingAttr.
-  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
-  if (!deviceValue || !layoutAttr.isMeshDeviceTensor()) {
+  if (!deviceValue) {
     return noneDistributionStrategy();
   }
 
@@ -2374,13 +2372,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
+  flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
+      toMLIR(fbb, "ttnn", rootModule);
 
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               module->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
+      debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2471,7 +2471,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
-      ::ttmlir::getGitHash(), systemDesc, &programs);
+      ::ttmlir::getGitHash(), systemDesc, binaryMLIR, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

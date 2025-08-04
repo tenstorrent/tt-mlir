@@ -20,7 +20,7 @@ module @ResNetForImageClassification attributes {} {
     %10 = ttir.empty() : tensor<8x112x112x64xbf16> loc(#loc254)
     %11 = "ttir.relu"(%9, %10) : (tensor<8x112x112x64xbf16>, tensor<8x112x112x64xbf16>) -> tensor<8x112x112x64xbf16> loc(#loc254)
     %12 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc255)
-    %13 = "ttir.max_pool2d"(%11, %12) <{ceil_mode = false, dilation_height = 1 : si32, dilation_width = 1 : si32, kernel_height = 3 : si32, kernel_width = 3 : si32, padding_bottom = 1 : si32, padding_left = 1 : si32, padding_right = 1 : si32, padding_top = 1 : si32, stride_height = 2 : si32, stride_width = 2 : si32}> {channel_last = true} : (tensor<8x112x112x64xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc255)
+    %13 = "ttir.max_pool2d"(%11, %12) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 3, 3>, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = true} : (tensor<8x112x112x64xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc255)
     %14 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc256)
     %15 = "ttir.conv2d"(%13, %arg108, %14) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x64xbf16>, tensor<64x64x1x1xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc256)
     %16 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc257)

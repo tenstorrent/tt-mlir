@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "94e5d6df95db69c08502c9079eb24ba790c05c85")
+set(TT_METAL_VERSION "d78b2f9ae3d33c468d71c99ee5e8ab7f3606c89d")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -77,7 +77,7 @@ if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   set(TTMETAL_DISABLE_PRECOMPILE_HEADERS ON)
 endif()
 
-if (TTMLIR_ENABLE_RUNTIME)
+if (TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL)
 set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
@@ -232,7 +232,7 @@ install(CODE
     )"
     COMPONENT SharedLib
 )
-else() # TTMLIR_ENABLE_RUNTIME
+else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(tt-metal INTERFACE)
   add_library(TTNN_LIBRARY INTERFACE)
   add_library(TTNN_PY_LIBRARY INTERFACE)
@@ -241,4 +241,4 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
-endif() # TTMLIR_ENABLE_RUNTIME
+endif() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL

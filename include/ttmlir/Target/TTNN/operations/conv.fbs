@@ -5,7 +5,6 @@ include "ttmlir/Target/TTNN/operations/configs.fbs";
 namespace tt.target.ttnn;
 
 table Conv2dConfig {
-  dtype: DataType = null;
   weights_dtype: DataType = null;
   activation: string;
   deallocate_activation: bool = null;
@@ -22,6 +21,7 @@ table Conv2dConfig {
   enable_weights_double_buffer: bool = null;
   enable_split_reader: bool = null;
   enable_subblock_padding: bool = null;
+  in_place: bool = null;
 }
 
 table PrepareConv2dWeightsOp {

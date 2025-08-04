@@ -82,19 +82,19 @@ static TTNNLayoutAttr createLayoutAttr(
                           : type.getElementType();
   }
   mlir::Attribute encoding = type.getEncoding();
-  ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
+  ttcore::TensorMeshAttr tensorMeshAttr;
   if (auto encodingMeshSharding =
-          mlir::dyn_cast_if_present<ttcore::TensorMeshShardingAttr>(encoding)) {
-    tensorMeshShardingAttr = encodingMeshSharding;
+          mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(encoding)) {
+    tensorMeshAttr = encodingMeshSharding;
   } else if (auto layout =
                  mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
-    tensorMeshShardingAttr = layout.getTensorMeshSharding();
+    tensorMeshAttr = layout.getTensorMesh();
   }
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGrid, memoryLayoutAttr,
-                             tensorMeshShardingAttr, collapseDimsRef);
+                             tensorGrid, memoryLayoutAttr, tensorMeshAttr,
+                             collapseDimsRef);
 }
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
@@ -149,8 +149,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
   // Get mesh sharding
-  ttcore::TensorMeshShardingAttr desiredTensorMeshSharding =
-      ttnnLayoutAttr.getTensorMeshSharding();
+  ttcore::TensorMeshAttr desiredTensorMesh = ttnnLayoutAttr.getTensorMesh();
 
   // Get the current element type (i.e bf16/TileType etc)
   Type currElementType = ttnnLayoutAttr.getElementType();
@@ -183,7 +182,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // memory layout
   TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMeshSharding,
+      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMesh,
       g_defaultCollapseDims);
 
   // If the input tensor is a constant or empty tensor, we can replace it with a

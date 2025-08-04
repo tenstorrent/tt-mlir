@@ -1282,31 +1282,29 @@ private:
         llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
     auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
 
-    auto kernelHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[0]]));
-    auto kernelWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[1]]));
+    auto kernelAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[0]]),
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[1]]),
+    });
 
-    auto strideHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[0]]));
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[0]]),
+        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[1]]),
+    });
 
-    auto strideWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[1]]));
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[0]]),
+        static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
+    });
 
-    auto dilationHeightAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDimIndices[0]]);
-    auto dilationWidthAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDimIndices[1]]);
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
+    });
+
     auto ceilModeAttr = rewriter.getBoolAttr(false);
-
-    auto paddingTopAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[0]]);
-    auto paddingBottomAttr = rewriter.getSI32IntegerAttr(
-        op.getPadding()[2 * spatialDimIndices[0] + 1]);
-    auto paddingLeftAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[1]]);
-    auto paddingRightAttr = rewriter.getSI32IntegerAttr(
-        op.getPadding()[2 * spatialDimIndices[1] + 1]);
 
     llvm::SmallVector<Value> outputs;
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
@@ -1330,9 +1328,8 @@ private:
       auto newPool = ttir::utils::createDPSOp<PoolOpType>(
           rewriter, op.getLoc(), resultPermuteShape,
           originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
-          input, kernelHeightAttr, kernelWidthAttr, strideHeightAttr,
-          strideWidthAttr, dilationHeightAttr, dilationWidthAttr, ceilModeAttr,
-          paddingTopAttr, paddingBottomAttr, paddingLeftAttr, paddingRightAttr);
+          input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+          ceilModeAttr);
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
       auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(

@@ -35,7 +35,6 @@ struct OptionNames {
 };
 
 struct Conv2dConfigOverrideParams {
-  std::optional<ttcore::DataType> dtype = std::nullopt;
   std::optional<ttcore::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
@@ -54,8 +53,8 @@ struct Conv2dConfigOverrideParams {
   std::optional<bool> enableSubblockPadding = std::nullopt;
 
   bool empty() const {
-    return !dtype.has_value() && !weightsDtype.has_value() &&
-           !activation.has_value() && !deallocateActivation.has_value() &&
+    return !weightsDtype.has_value() && !activation.has_value() &&
+           !deallocateActivation.has_value() &&
            !reallocateHaloOutput.has_value() &&
            !actBlockHOverride.has_value() && !actBlockWDiv.has_value() &&
            !reshardIfNotOptimal.has_value() &&
@@ -67,8 +66,8 @@ struct Conv2dConfigOverrideParams {
   }
 
   bool fullConfigOverride() const {
-    return dtype.has_value() && weightsDtype.has_value() &&
-           activation.has_value() && deallocateActivation.has_value() &&
+    return weightsDtype.has_value() && activation.has_value() &&
+           deallocateActivation.has_value() &&
            reallocateHaloOutput.has_value() && actBlockHOverride.has_value() &&
            actBlockWDiv.has_value() && reshardIfNotOptimal.has_value() &&
            overrideShardingConfig.has_value() && shardLayout.has_value() &&
@@ -80,8 +79,8 @@ struct Conv2dConfigOverrideParams {
 
   friend llvm::raw_ostream &
   operator<<(llvm::raw_ostream &os, const Conv2dConfigOverrideParams &params) {
-    os << "dtype#" << params.dtype << ":weights_dtype#" << params.weightsDtype
-       << ":activation#" << params.activation << ":deallocate_activation#"
+    os << "weights_dtype#" << params.weightsDtype << ":activation#"
+       << params.activation << ":deallocate_activation#"
        << params.deallocateActivation << ":reallocate_halo_output#"
        << params.reallocateHaloOutput << ":act_block_h_override#"
        << params.actBlockHOverride << ":act_block_w_div#" << params.actBlockWDiv

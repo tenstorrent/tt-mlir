@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
-#include "ttmlir/Dialect/StableHLO/Utils/MeshShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -238,16 +238,6 @@ public:
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
 
-    // Check if the graph is already solved by shardy. If so, we will remove
-    // all sdy tensor shardings from the arguments and results.
-    if (shardy_utils::isGraphSolved(rootModule)) {
-      rootModule.walk([&](func::FuncOp funcOp) {
-        shardy_utils::removeSdyTensorShardings(context, funcOp);
-      });
-
-      return;
-    }
-
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
@@ -274,7 +264,7 @@ public:
       }
 
       // Check for validity of the mesh.
-      if (failed(mesh_sharding_utils::checkValidMesh(newMeshShape))) {
+      if (failed(sharding_utils::checkValidMesh(newMeshShape))) {
         rootModule.emitError("Mesh is not valid");
         signalPassFailure();
         return;
@@ -297,6 +287,14 @@ public:
         shardy_utils::addMeshToModule(
             rootModule, parsedMeshOps[0].getSymName().str(), newAxisName,
             existingAxisName, newMeshShape[0], newMeshShape[1]);
+      }
+
+      // Check if the graph is already solved by shardy. If so, we will remove
+      // all sdy tensor shardings from the arguments and results.
+      if (shardy_utils::isGraphSolved(rootModule)) {
+        rootModule.walk([&](func::FuncOp funcOp) {
+          shardy_utils::removeSdyTensorShardings(context, funcOp);
+        });
       }
 
       return;

@@ -15,7 +15,6 @@
 #ttnn_layout7 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 #conv2d_config_prepare_conv2d_bias = #ttnn.conv2d_config<
-  dtype = bf16,
   weights_dtype = bf16
 >
 

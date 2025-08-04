@@ -177,10 +177,10 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
         unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
   }
 
-  mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
+  mlir::tt::ttcore::TensorMeshAttr tensorMeshAttr;
   return wrap(
       TTNNLayoutAttr::get(unwrap(ctx), affineMap,
                           mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
                           mlir::cast<mlir::MemRefType>(unwrap(memref)),
-                          memLayoutAttr, tensorMeshShardingAttr));
+                          memLayoutAttr, tensorMeshAttr));
 }

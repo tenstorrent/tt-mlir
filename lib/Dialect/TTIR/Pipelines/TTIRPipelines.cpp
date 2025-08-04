@@ -50,7 +50,6 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
   }
   pm.addPass(createConvertStableHLOToTTIRPass());
-  pm.addPass(createTTIRTensorAnnotationCleanupPass());
 }
 #endif
 

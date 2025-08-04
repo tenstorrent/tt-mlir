@@ -57,7 +57,6 @@ enum MemorySpace: ushort {
 }
 
 enum ChipCapability: uint32 (bit_flags) {
-  PCIE,
   HostMMIO,
 }
 
@@ -89,7 +88,6 @@ table ChipDesc {
   erisc_l1_unreserved_base: uint32;
   dram_unreserved_base: uint32;
   dram_unreserved_end: uint32;
-  physical_helper_cores: ChipPhysicalHelperCores;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
   dst_register_size_tiles: uint32;
@@ -110,12 +108,6 @@ struct ChipChannel {
   ethernet_core_coord0: Dim2d;
   device_id1: uint32;
   ethernet_core_coord1: Dim2d;
-}
-
-table ChipPhysicalHelperCores {
-  dram: [Dim2d];
-  eth: [Dim2d];
-  eth_inactive: [Dim2d];
 }
 
 enum CPURole: uint8 {
@@ -157,4 +149,9 @@ enum MathFidelity : uint8 {
 table DynamicLib {
   dylib_id: uint32;
   raw_file: [uint8];
+}
+
+table MLIR {
+  name: string;
+  source: string;
 }
