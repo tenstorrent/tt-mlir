@@ -29,10 +29,10 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis)
 
-      .def("set_enabled_l1_interleaved_fallback_analysis",
+      .def("set_enable_l1_interleaved_fallback_analysis",
            &tt::ttnn::OptimizerOverridesHandler::
                setEnableL1InterleavedFallbackAnalysis)
-      .def("get_enabled_l1_interleaved_fallback_analysis",
+      .def("get_enable_l1_interleaved_fallback_analysis",
            &tt::ttnn::OptimizerOverridesHandler::
                getEnableL1InterleavedFallbackAnalysis)
 
