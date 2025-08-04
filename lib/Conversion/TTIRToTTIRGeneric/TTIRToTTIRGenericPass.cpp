@@ -101,7 +101,7 @@ struct TTIRToTTIRGenericPass final
       return llvm::to_vector(overrideDeviceShape);
     }
 
-    // Get from device if not overridden
+    // Get from device if no override given.
     auto moduleOp = getOperation();
     auto device = ttcore::lookupDevice(moduleOp);
     assert(device && "Device not found");

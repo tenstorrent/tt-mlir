@@ -704,7 +704,7 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
       // Process remaining dimensions from inner to outer w/ multplication.
       for (int64_t j = end - 2; j >= start; --j) {
-        // For outer dimensions, multiply then align the product
+        // For outer dimensions, multiply then align the product.
         collapsedDim =
             ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
       }
@@ -840,20 +840,20 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     const int64_t tileDim = tileShape[tileIdx];
     const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
 
-    // Determine alignment based on collapsed size
+    // Determine alignment based on collapsed size.
     // If size > gridAlignmentThreshold, align to grid boundary, else align to
-    // tile boundary
+    // tile boundary.
     int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
                             ? gridAlignmentThreshold
                             : tileDim;
 
-    // Set alignment on the first dimension of the interval
+    // Set alignment on the first dimension of the interval.
     dimAlignmentsVec[intervalStart] = alignment;
   }
   return dimAlignmentsVec;
 }
 
-// No intervals or alignments, we calculate them both
+// Getter with no intervals or alignments, we calculate them both.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
@@ -888,7 +888,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
              oobVal, memorySpace);
 }
 
-// Explicit collapsIntervals, we calculate the alignments
+// Getter with explicit collapsedIntervals, we calculate the alignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
@@ -903,6 +903,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
              oobVal, memorySpace);
 }
 
+// Getteer with explicit collapsedIntervals and dimAlignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
