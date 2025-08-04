@@ -131,19 +131,39 @@ Tensor<NumericType> calculatePooling(PoolingOp op,
   return outputTensor;
 }
 
+// Checks if a PoolingOp is an identity operation.
+// Identity operations can be folded away when all window dimensions=1,
+// strides=1, dilations=1, and padding=0.
+static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
+  return llvm::all_of(op.getWindowDimensions(),
+                      [](int64_t dim) { return dim == 1; }) &&
+         llvm::all_of(op.getWindowStrides(),
+                      [](int64_t stride) { return stride == 1; }) &&
+         llvm::all_of(op.getBaseDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getWindowDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
+}
+
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
 
+  if (isIdentityPooling(*this)) {
+    results.append(getInputs().begin(), getInputs().end());
+    return mlir::success();
+  }
+
   // Cannot fold if there are dilations in the base as this is not implemented.
-  if (std::any_of(getBaseDilations().begin(), getBaseDilations().end(),
-                  [](int64_t dilation) { return dilation != 1; })) {
+  if (llvm::any_of(getBaseDilations(),
+                   [](int64_t dilation) { return dilation != 1; })) {
     return mlir::failure();
   }
 
   // Cannot fold if there is padding as this is not implemented.
-  if (std::any_of(getPadding().begin(), getPadding().end(),
-                  [](int64_t padding) { return padding != 0; })) {
+  if (llvm::any_of(getPadding(),
+                   [](int64_t padding) { return padding != 0; })) {
     return mlir::failure();
   }
 

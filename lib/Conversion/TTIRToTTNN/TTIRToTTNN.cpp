@@ -1236,19 +1236,16 @@ public:
     int32_t paddingBottom = std::get<2>(*paddingQuad);
     int32_t paddingRight = std::get<3>(*paddingQuad);
 
-    // Check for asymmetric padding.
-    if (paddingBottom != paddingTop) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for top/bottom";
+    // If the padding is even along both spatial dims, we can populate the
+    // padding attribute as [vertical, horizontal]. Otherwise, propagate [top,
+    // left, bottom, right]
+    DenseI32ArrayAttr paddingAttr;
+    if (paddingTop == paddingBottom && paddingLeft == paddingRight) {
+      paddingAttr = rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
+    } else {
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {paddingTop, paddingLeft, paddingBottom, paddingRight});
     }
-
-    if (paddingLeft != paddingRight) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for left/right";
-    }
-
-    DenseI32ArrayAttr paddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
