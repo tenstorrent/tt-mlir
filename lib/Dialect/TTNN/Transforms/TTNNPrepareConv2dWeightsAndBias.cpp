@@ -91,7 +91,7 @@ public:
               conv2dOp.getPaddingAttr(), conv2dOp.getDilationAttr(),
               rewriter.getBoolAttr(conv2dOp.getBias() != nullptr),
               conv2dOp.getGroupsAttr(), conv2dOp.getDevice(), inputDtypeAttr,
-              outputDtypeAttr, conv2dOp.getConv2dConfigAttr());
+              outputDtypeAttr, conv2dConfig);
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
       if (conv2dOp.getBias()) {
