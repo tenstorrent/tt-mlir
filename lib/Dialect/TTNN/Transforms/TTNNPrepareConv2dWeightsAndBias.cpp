@@ -72,9 +72,9 @@ public:
       auto conv2dConfig = conv2dOp.getConv2dConfigAttr()
                               ? conv2dOp.getConv2dConfigAttr()
                               : Conv2dConfigAttr::get(&getContext());
-      conv2dConfig =
-          conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(
-              inputLayoutAttr.getScalarElementType()));
+
+      Type inputElementType = inputLayoutAttr.getScalarElementType();
+      conv2dConfig = conv2dConfig.withWeightsDtype(inputDtypeAttr.getValue());
 
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
@@ -98,7 +98,7 @@ public:
         prepareConv2dBiasOp = rewriter.create<ttnn::PrepareConv2dBiasOp>(
             ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
                                                 "_prepare_conv2d_bias"),
-            getPreparedBiasType(conv2dOp), conv2dOp.getBias(),
+            getPreparedBiasType(conv2dOp, inputElementType), conv2dOp.getBias(),
             inputMemConfigAttr,
             rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
             conv2dOp.getInChannelsAttr(), conv2dOp.getOutChannelsAttr(),
@@ -138,7 +138,8 @@ private:
     return op_model::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
   }
 
-  ::mlir::RankedTensorType getPreparedBiasType(ttnn::Conv2dOp conv2dOp) {
+  ::mlir::RankedTensorType getPreparedBiasType(ttnn::Conv2dOp conv2dOp,
+                                               Type newElementType) {
     // Prepared bias will retain the shape of the original bias, and it will
     // have a <DRAM, interleaved, tile> memory layout.
     auto oldType =
@@ -147,7 +148,7 @@ private:
 
     auto newLayout = ttnn::TTNNLayoutAttr::get(
         &getContext(), oldType.getShape(),
-        ttcore::TileType::get(oldType.getElementType()), BufferType::DRAM,
+        ttcore::TileType::get(newElementType), BufferType::DRAM,
         oldLayout.getGrid(),
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
