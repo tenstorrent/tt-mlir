@@ -26,7 +26,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // interleaved
   analysisInput.funcOp->walk([&](Operation *op) {
     // Skip operations that have the row-major workaround later on in Optimizer
-    // TODO(bmalesevic): remove this after manual workaround is removed
+    // TODO(bmalesevic): remove this after manual row-major workaround is
+    // removed
     if (isa<ttnn::MaxPool2dOp>(op) || isa<ttnn::UpsampleOp>(op)) {
       return;
     }
@@ -59,7 +60,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     std::vector<OpConfig> opL1InterleavedConfigs =
         getL1InterleavedLayoutConfigs(op);
 
-    bool isCurrentlyTiled = utils::isTiledTensorLayout(op);
+    bool isCurrentlyTiled = utils::outputsTiledTensorLayout(op);
 
     // Partition configs to prioritize those matching current tiling preference
     std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
@@ -100,8 +101,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
 
 bool L1InterleavedFallbackAnalysis::hasL1InterleavedLegalLayout(
     Operation *op) const {
-  const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
-  return it != analysisInput.legalL1InterleavedConfigs.end();
+  return analysisInput.legalL1InterleavedConfigs.find(op) !=
+         analysisInput.legalL1InterleavedConfigs.end();
 }
 
 std::vector<OpConfig>
@@ -174,15 +175,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         // If it's a nested check of update candidate's (producer in this scope)
         // consumer's storage
         inputLayouts.push_back(upgradedProducerLayout);
-        producersL1OutputUsage +=
-            utils::getOpOutputL1Usage(upgradedProducerLayout);
         continue;
       }
       auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
       if (it != analysisResult.upgradedConfigs.end()) {
         inputLayouts.push_back(it->second.outputLayout);
-        producersL1OutputUsage +=
-            utils::getOpOutputL1Usage(it->second.outputLayout);
         continue;
       }
     }
@@ -192,8 +189,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
 
     assert(layout && "Input operand must have a layout");
-    producersL1OutputUsage += utils::getOpOutputL1Usage(layout);
     inputLayouts.push_back(layout);
+  }
+
+  for (const auto &inputLayout : inputLayouts) {
+    producersL1OutputUsage += utils::getOpOutputL1Usage(inputLayout);
   }
 
   llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
@@ -248,36 +248,51 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // upgraded
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
   // handle the upgrade
-  if (!upgradedProducerOp) {
-    Operation *nextConsumerOp = *consumerOp->getUsers().begin();
-    assert(nextConsumerOp && "Operation must have a consumer");
-    // If next consumer uses L1 memory, verify both operations can coexist in L1
-    if (utils::outputsTensorWithSetLayout(nextConsumerOp)) {
-      const OpConfig &nextConsumerOpConfig =
-          analysisInput.currentConfigs.at(nextConsumerOp);
+  if (upgradedProducerOp) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "OpModel constraints valid. Consumer: {0}\n"
+        "OutputLayout: {1}\n"
+        "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
+        "producerL1OutputUsage: {5}, totalL1Usage: {6}\n"
+        "=== End of debug dump ===",
+        consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+        outputTensorUsage, producersL1OutputUsage,
+        cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
-      llvm::Expected<TTNNLayoutAttr> nextConsumerOpL1Layout =
-          checkUpgradeToL1Interleaved(nextConsumerOp, nextConsumerOpConfig,
-                                      consumerOp, outputLayout);
+    return outputLayout;
+  }
 
-      if (!nextConsumerOpL1Layout) {
-        llvm::Error error = nextConsumerOpL1Layout.takeError();
-        std::string errorStr = llvm::toString(std::move(error));
-        TTMLIR_DEBUG(
-            ttmlir::LogComponent::Optimizer,
-            "L1InterleavedFallbackAnalysis: Upgrade blocked - consumer {} "
-            "would exceed L1 memory: {}",
-            errorStr);
-        return llvm::createStringError(
-            llvm::inconvertibleErrorCode(),
-            "L1 upgrade blocked: consumer %s would exceed memory limits",
-            nextConsumerOp->getName().getStringRef().data());
-      }
-      TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
-      assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayout &&
-             "Expected consumer of updated op layout to match the one in "
-             "OpConfig");
+  assert(consumerOp->hasOneUse() && "Consumer must have exactly one user");
+  Operation *nextConsumerOp = *consumerOp->getUsers().begin();
+  assert(nextConsumerOp && "Operation must have a consumer");
+  // If next consumer has TTNN layout output encoding, verify both operations
+  // can coexist in L1
+  if (utils::outputsTTNNLayoutEncoding(nextConsumerOp)) {
+    const OpConfig &nextConsumerOpConfig =
+        analysisInput.currentConfigs.at(nextConsumerOp);
+
+    llvm::Expected<TTNNLayoutAttr> nextConsumerOpL1Layout =
+        checkUpgradeToL1Interleaved(nextConsumerOp, nextConsumerOpConfig,
+                                    consumerOp, outputLayout);
+
+    if (!nextConsumerOpL1Layout) {
+      llvm::Error error = nextConsumerOpL1Layout.takeError();
+      std::string errorStr = llvm::toString(std::move(error));
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::Optimizer,
+          "L1InterleavedFallbackAnalysis: Upgrade blocked - consumer {} "
+          "would exceed L1 memory: {}",
+          errorStr);
+      return llvm::createStringError(
+          llvm::inconvertibleErrorCode(),
+          "L1 upgrade blocked: consumer %s would exceed memory limits",
+          nextConsumerOp->getName().getStringRef().data());
     }
+    TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
+    assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayout &&
+           "Expected consumer of updated op layout to match the one in "
+           "OpConfig");
   }
 
   TTMLIR_DEBUG(
