@@ -1168,21 +1168,6 @@ static bool isIdentityPool2d(Pool2dOp op) {
          llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
-// Checks if a PoolingOp is an identity operation.
-// Identity operations can be folded away when all window dimensions=1,
-// strides=1, dilations=1, and padding=0.
-static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
-  return llvm::all_of(op.getWindowDimensions(),
-                      [](int64_t dim) { return dim == 1; }) &&
-         llvm::all_of(op.getWindowStrides(),
-                      [](int64_t stride) { return stride == 1; }) &&
-         llvm::all_of(op.getBaseDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getWindowDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
-}
-
 //===----------------------------------------------------------------------===//
 // PoolingOp
 // Ensures the following constraints:
@@ -1274,17 +1259,6 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   return newOp.getOperation();
 }
 
-// Folds PoolingOp when it is an identity operation.
-::mlir::LogicalResult
-mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
-                                SmallVectorImpl<OpFoldResult> &results) {
-  if (isIdentityPooling(*this)) {
-    results.append(getInputs().begin(), getInputs().end());
-    return mlir::success();
-  }
-  return mlir::failure();
-}
-
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
@@ -1347,6 +1321,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   if (isIdentityPool2d(*this)) {
     return getInput();
   }
+
   return {};
 }
 

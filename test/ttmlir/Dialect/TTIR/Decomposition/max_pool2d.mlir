@@ -101,4 +101,18 @@ module attributes {} {
     // CHECK: return %[[RET]] : tensor<1x192x10x27xbf16>
     return %1 : tensor<1x192x10x27xbf16>
   }
+
+  func.func @test_maxpool2d_padding_conversion(%arg0: tensor<1x128x57x57xf32>) -> tensor<1x128x28x28xf32> {
+    // CHECK-LABEL: func.func @test_maxpool2d_padding_conversion(
+    %0 = ttir.empty() : tensor<1x128x28x28xf32>
+    // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%arg0
+    // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK: %[[MAXPOOL:[0-9]+]] = "ttir.max_pool2d"(%[[PERMUTE]],
+    // CHECK-SAME: padding = array<i32: 0, 0, 1, 1>
+    // CHECK: %[[RET:[0-9]+]] = "ttir.permute"(%[[MAXPOOL]],
+    // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
+    // CHECK: return %[[RET]]
+    %1 = "ttir.pooling"(%arg0, %0) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 0, 1, 0, 1>, pooling_method = #ttir<pooling_method Max>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 3, 3>, window_strides = array<i64: 1, 1, 2, 2>}> : (tensor<1x128x57x57xf32>, tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
+    return %1 : tensor<1x128x28x28xf32>
+  }
 }
