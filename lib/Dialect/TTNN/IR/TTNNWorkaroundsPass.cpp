@@ -98,7 +98,15 @@ TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(Operation *op) {
 // type, so the bf16 workaround is applied to both the input and output
 // operands.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds() {
+TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds(
+    llvm::ArrayRef<int32_t> dilation) {
+  // Until dilation > 1 is supported, error out early:
+  // https://github.com/tenstorrent/tt-metal/issues/25845
+  assert(dilation.size() == 2 && "Dilation must be a 2D array");
+  if (dilation[0] != 1 || dilation[1] != 1) {
+    assert(false && "Dilation must be 1x1 for now");
+  }
+
   wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
   rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =

@@ -863,14 +863,6 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
-  // Until dilation > 1 is supported, error out early:
-  // https://github.com/tenstorrent/tt-metal/issues/25845
-  if (getDilation()[0] != 1 || getDilation()[1] != 1) {
-    return emitOpError()
-           << "Dilation must be 1 in both dims for MaxPool2dOp. "
-              "See https://github.com/tenstorrent/tt-metal/issues/25845";
-  }
-
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
                          getBatchSize(), getChannels(), getOperationName());

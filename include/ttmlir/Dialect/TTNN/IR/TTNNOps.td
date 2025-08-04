@@ -1590,7 +1590,8 @@ class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+        llvm::ArrayRef<int32_t> dilation = getDilation();
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds(dilation);
       }
     }];
 

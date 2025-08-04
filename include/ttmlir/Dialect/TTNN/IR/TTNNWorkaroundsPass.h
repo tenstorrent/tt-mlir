@@ -215,7 +215,8 @@ private:
 class TTNNOperandsWorkaroundsFactory {
 public:
   // Create workarounds for pooling 2d ops (max_pool2d, avg_pool2d) operands.
-  static TTNNOperandsWorkarounds createPool2DOpOperandsWorkarounds();
+  static TTNNOperandsWorkarounds
+  createPool2DOpOperandsWorkarounds(llvm::ArrayRef<int32_t> dilation);
 
   // Create workarounds for embedding op operands.
   static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
