@@ -31,7 +31,6 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface]> {
     Example:
 
     ```mlir
-    // Custom form defining a call to `foo()`.
     %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
