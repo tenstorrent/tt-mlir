@@ -741,20 +741,50 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Reduction ops
   //
   // clang-format off
-  patterns.add<ReductionOpConversionPattern<mlir::tt::ttnn::MeanOp>>(typeConverter, ctx);
+  patterns.add<ReductionOpConversionPattern<mlir::tt::ttnn::SumOp>,
+               ReductionOpConversionPattern<mlir::tt::ttnn::MeanOp>,
+               ReductionOpConversionPattern<mlir::tt::ttnn::MaxOp>,
+               ReductionOpConversionPattern<mlir::tt::ttnn::MinOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
   //
   // clang-format off
-  patterns.add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>>(typeConverter, ctx);
+  patterns.add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AbsOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::FloorOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::IsFiniteOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogicalNotOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CosOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Expm1Op>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise binary ops
   //
   // clang-format off
   patterns.add<EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::AddOp>,
-               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::MultiplyOp>>(typeConverter, ctx);
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::SubtractOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::MultiplyOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalAndOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalOrOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalXorOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::EqualOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::NotEqualOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::GreaterEqualOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::GreaterThanOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LessEqualOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LessThanOp>,
+               EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>>(typeConverter, ctx);
   // clang-format on
 
   // Tensor manipulation ops
