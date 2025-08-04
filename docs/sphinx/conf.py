@@ -9,7 +9,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "ttir-builder"
+project = "builder"
 copyright = "2025 Tenstorrent AI ULC"
 author = "Nick Smith"
 release = "0.1"
@@ -44,7 +44,7 @@ napoleon_numpy_docstring = True
 autosummary_generate = True
 
 # Exclude patterns
-exclude_patterns = ["modules.rst", "ttir_builder.rst"]
+exclude_patterns = ["modules.rst", "base.rst", "ttir.rst", "stablehlo.rst"]
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
