@@ -22,6 +22,7 @@
     - [API usage & reference](./tt-explorer/usage-api.md)
     - [Roadmap](./tt-explorer/roadmap.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
+  - [`EmitPy`](./emitpy.md)
 - [Optimizer](./optimizer.md)
 - [PyKernel](./pykernel.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
