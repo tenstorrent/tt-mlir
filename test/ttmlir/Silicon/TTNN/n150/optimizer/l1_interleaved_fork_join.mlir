@@ -36,8 +36,8 @@ module @L1InterleavedTestForkJoin attributes {} {
 // fork, not a single user -> dram
 // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
 
-// not immediately consumed, not backend supported -> dram
+// not immediately consumed -> dram
 // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-// not backend supported -> dram
-// CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+
+// CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[L1]]>
 // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
