@@ -523,28 +523,36 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.
-// Input tensor must have BFLOAT16 data type and ROW_MAJOR layout.
-// No need for data type workaround for output tensor; only layout workaround is
-// required to match original layout.
-// tt-metal specs:
+// Input tensor can have BFLOAT16 or INT32 data type and must use ROW_MAJOR
+// layout. No need for data type workaround for output tensor; only layout
+// workaround is required to match original layout. tt-metal specs:
 // https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.argmax.html
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
-  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
-  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-      mlir::tt::ttcore::DataType::BFloat16;
+TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds(
+    mlir::RankedTensorType inputType) {
+  wa::TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
-  wa::TTNNOperandWorkarounds rowMajorLayoutUint32Workaround;
-  rowMajorLayoutUint32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  rowMajorLayoutUint32Workaround.tensorDataTypeWorkaround =
+  // Check if input data type is already bfloat16 or int32
+  mlir::Type inputElementType = inputType.getElementType();
+  mlir::tt::ttcore::DataType inputDataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+
+  // Only apply data type workaround if input is not already bfloat16 or int32
+  if (inputDataType != mlir::tt::ttcore::DataType::BFloat16 &&
+      inputDataType != mlir::tt::ttcore::DataType::Int32) {
+    inputWorkaround.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::BFloat16;
+  }
+
+  wa::TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputWorkaround.tensorDataTypeWorkaround =
       mlir::tt::ttcore::DataType::UInt32;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addOutputOperandWorkaround(rowMajorLayoutUint32Workaround);
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 // Factory method to create a set of workarounds for Pad op operands.
