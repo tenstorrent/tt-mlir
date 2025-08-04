@@ -14,6 +14,10 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include <stack>
 
 using namespace mlir;
@@ -60,6 +64,16 @@ inline LogicalResult interleaveCommaWithError(const Container container,
                              [&]() { os << ", "; });
 }
 
+/// Return the precedence of a operator as an integer, higher values
+/// imply higher precedence.
+static FailureOr<int> getOperatorPrecedence(Operation *operation) {
+  return llvm::TypeSwitch<Operation *, FailureOr<int>>(operation)
+      .Case<CallOpaqueOp>([&](auto op) { return 2; })
+      .Case<SubscriptOp>([&](auto op) { return 1; })
+      .Case<LiteralOp>([&](auto op) { return 3; })
+      .Default([](auto op) { return op->emitError("unsupported operation"); });
+}
+
 namespace {
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
@@ -97,15 +111,13 @@ struct PythonEmitter {
   LogicalResult emitOperand(Value value);
 
   /// Return the existing or a new name for a Value.
-  StringRef getOrCreateName(Value val);
+  StringRef getOrCreateName(Value value);
 
   // Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
-  /// Determine whether op result should be emitted in a deferred way.
-  static bool hasDeferredEmission(Operation *op) {
-    return isa_and_nonnull<LiteralOp, SubscriptOp>(op);
-  }
+  /// Emit an expression as a Py expression.
+  LogicalResult emitExpression(ExpressionOp expressionOp);
 
   /// Insert the op result into the value cache.
   void cacheDeferredOpResult(Value value, StringRef str);
@@ -124,10 +136,27 @@ struct PythonEmitter {
   };
 
   /// Returns wether the Value is assigned to a Python variable in the scope.
-  bool hasValueInScope(Value val) { return valueMapper.count(val); };
+  bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
   /// Returns the output stream.
   raw_indented_ostream &ostream() { return os; };
+
+  /// Get expression currently being emitted.
+  ExpressionOp getEmittedExpression() { return emittedExpression; }
+
+  /// Determine whether given value is part of the expression potentially being
+  /// emitted.
+  bool isPartOfCurrentExpression(Value value) {
+    if (!emittedExpression) {
+      return false;
+    }
+    Operation *def = value.getDefiningOp();
+    if (!def) {
+      return false;
+    }
+    auto operandExpression = dyn_cast<ExpressionOp>(def->getParentOp());
+    return operandExpression == emittedExpression;
+  };
 
 private:
   using ValueMapper = llvm::ScopedHashTable<Value, std::string>;
@@ -141,20 +170,80 @@ private:
   /// The number of values in the current scope. This is used to declare the
   /// names of values in a scope.
   std::stack<int64_t> valueInScopeCount;
+
+  /// State of the current expression being emitted.
+  ExpressionOp emittedExpression;
+  SmallVector<int> emittedExpressionPrecedence;
+
+  void pushExpressionPrecedence(int precedence) {
+    emittedExpressionPrecedence.push_back(precedence);
+  }
+
+  void popExpressionPrecedence() { emittedExpressionPrecedence.pop_back(); }
+
+  static int lowestPrecedence() { return 0; }
+
+  int getExpressionPrecedence() {
+    if (emittedExpressionPrecedence.empty()) {
+      return lowestPrecedence();
+    }
+    return emittedExpressionPrecedence.back();
+  }
 };
 } // namespace
 
-StringRef PythonEmitter::getOrCreateName(Value val) {
-  if (!valueMapper.count(val)) {
-    valueMapper.insert(val, formatv("v{0}", ++valueInScopeCount.top()));
+/// Determine whether op result should be emitted in a deferred way.
+static bool hasDeferredEmission(Operation *op) {
+  return isa_and_nonnull<LiteralOp>(op);
+}
+
+/// Determine whether expression expressionOp should be emitted inline, i.e.
+/// as part of its user. This function recommends inlining of any expressions
+/// that can be inlined unless it is used by another expression, under the
+/// assumption that  any expression fusion/re-materialization was taken care of
+/// by transformations run by the backend.
+static bool shouldBeInlined(ExpressionOp expressionOp) {
+  // Do not inline if expression is marked as such.
+  if (expressionOp.getDoNotInline()) {
+    return false;
   }
-  return *valueMapper.begin(val);
+
+  // Do not inline expressions with side effects to prevent side-effect
+  // reordering.
+  /*  if (expressionOp.hasSideEffects()) {
+     return false;
+   } */
+
+  // Do not inline expressions with multiple uses to prevent redundant
+  // calculations.
+  Value result = expressionOp.getResult();
+  if (!result.hasOneUse()) {
+    return false;
+  }
+
+  Operation *user = *result.getUsers().begin();
+
+  // Do not inline expressions used by operations with deferred emission, since
+  // their translation requires the materialization of variables.
+  if (hasDeferredEmission(user)) {
+    return false;
+  }
+
+  // Do not inline expressions used by ops with the PyExpressionInterface. If
+  // this was intended, the user could have been merged into the expression op.
+  return !isa<PyExpressionInterface>(*user);
+}
+
+StringRef PythonEmitter::getOrCreateName(Value value) {
+  if (!valueMapper.count(value)) {
+    valueMapper.insert(value, formatv("v{0}", ++valueInScopeCount.top()));
+  }
+  return *valueMapper.begin(value);
 }
 
 std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
-  ss << getOrCreateName(op.getValue());
   auto index = op.getIndex();
   ss << "[" << getOrCreateName(index) << "]";
   return name;
@@ -175,7 +264,11 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     return failure();
   }
 
-  auto emitArgs = [&](Attribute attr) -> LogicalResult {
+  auto emitArgs = [&](const auto &pair) -> LogicalResult {
+    auto [attr, keywordArg] = pair;
+    auto keywordArgStr = mlir::cast<StringAttr>(keywordArg).getValue();
+    keywordArgStr != "" ? os << keywordArgStr << "=" : os << keywordArgStr;
+
     if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
       if (iAttr.getType().isIndex()) {
         int64_t idx = iAttr.getInt();
@@ -204,10 +297,11 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     os << "]";
   } else {
     os << callee << "(";
+    auto args =
+        llvm::zip(*callOpaqueOp.getArgs(), *callOpaqueOp.getKeywordArgs());
     LogicalResult emittedArgs =
-        callOpaqueOp.getArgs()
-            ? interleaveCommaWithError(*callOpaqueOp.getArgs(), os, emitArgs)
-            : emitter.emitOperands(op);
+        callOpaqueOp.getArgs() ? interleaveCommaWithError(args, os, emitArgs)
+                               : emitter.emitOperands(op);
     if (failed(emittedArgs)) {
       return failure();
     }
@@ -353,12 +447,49 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SubscriptOp subscriptOp) {
+  if (failed(emitter.emitAssignPrefix(*subscriptOp))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitOperand(subscriptOp.getOperand(0)))) {
+    return failure();
+  }
+
+  if (auto exprOp = dyn_cast<ExpressionOp>(subscriptOp->getParentOp())) {
+    if (failed(emitter.emitOperand(subscriptOp.getOperand(1)))) {
+      return failure();
+    }
+  }
+
+  os << emitter.getSubscriptName(subscriptOp);
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
   if (failed(emitter.emitAssignPrefix(*assignOp))) {
     return failure();
   }
 
   return emitter.emitOperands(*assignOp);
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    ExpressionOp expressionOp) {
+  if (shouldBeInlined(expressionOp)) {
+    return success();
+  }
+
+  Operation &op = *expressionOp.getOperation();
+
+  if (failed(emitter.emitAssignPrefix(op))) {
+    return failure();
+  }
+
+  return emitter.emitExpression(expressionOp);
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -378,14 +509,10 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp>(
-              [&](auto op) { return printOperation(*this, op); })
+          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, ExpressionOp,
+                SubscriptOp>([&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());
-            return success();
-          })
-          .Case<SubscriptOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), getSubscriptName(op));
             return success();
           })
           // Func ops.
@@ -399,20 +526,74 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return failure();
   }
 
-  if (!hasDeferredEmission(&op)) {
-    os << "\n";
+  if (hasDeferredEmission(&op)) {
+    return success();
   }
+
+  if (getEmittedExpression() ||
+      (isa<ExpressionOp>(op) && shouldBeInlined(cast<ExpressionOp>(op)))) {
+    return success();
+  }
+
+  os << "\n";
+
   return success();
 }
 
-LogicalResult PythonEmitter::emitOperand(Value val) {
-  os << getOrCreateName(val);
+LogicalResult PythonEmitter::emitOperand(Value value) {
+  if (isPartOfCurrentExpression(value)) {
+    Operation *def = value.getDefiningOp();
+    assert(def && "Expected operand to be defined by an operation");
+    FailureOr<int> precedence = getOperatorPrecedence(def);
+    if (failed(precedence)) {
+      return failure();
+    }
+
+    // Sub-expressions with equal or lower precedence need to be
+    // parenthesized, as they might be evaluated in the wrong order
+    // depending on the shape of the expression tree.
+    bool encloseInParenthesis = precedence.value() <= getExpressionPrecedence();
+    if (encloseInParenthesis) {
+      os << "(";
+    }
+    pushExpressionPrecedence(precedence.value());
+
+    if (failed(emitOperation(*def))) {
+      return failure();
+    }
+
+    if (encloseInParenthesis) {
+      os << ")";
+    }
+
+    popExpressionPrecedence();
+    return success();
+  }
+
+  auto expressionOp = dyn_cast_if_present<ExpressionOp>(value.getDefiningOp());
+  if (expressionOp && shouldBeInlined(expressionOp)) {
+    return emitExpression(expressionOp);
+  }
+  os << getOrCreateName(value);
   return success();
 }
 
 LogicalResult PythonEmitter::emitOperands(Operation &op) {
-  return interleaveCommaWithError(op.getOperands(), os,
-                                  [&](Value val) { return emitOperand(val); });
+  return interleaveCommaWithError(op.getOperands(), os, [&](Value value) {
+    // If an expression is being emitted, push lowest
+    // precedence as these
+    // operands are either wrapped by parenthesis.
+    if (getEmittedExpression()) {
+      pushExpressionPrecedence(lowestPrecedence());
+    }
+    if (failed(emitOperand(value))) {
+      return failure();
+    }
+    if (getEmittedExpression()) {
+      popExpressionPrecedence();
+    }
+    return success();
+  });
 }
 
 LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
@@ -436,7 +617,36 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
   return emitError(loc, "cannot emit attribute: ") << attr;
 }
 
+LogicalResult PythonEmitter::emitExpression(ExpressionOp expressionOp) {
+  assert(emittedExpressionPrecedence.empty() &&
+         "Expected precedence stack to be empty");
+  Operation *rootOp = expressionOp.getRootOp();
+
+  emittedExpression = expressionOp;
+  FailureOr<int> precedence = getOperatorPrecedence(rootOp);
+  if (failed(precedence)) {
+    return failure();
+  }
+  pushExpressionPrecedence(precedence.value());
+
+  if (failed(emitOperation(*rootOp))) {
+    return failure();
+  }
+
+  popExpressionPrecedence();
+  assert(emittedExpressionPrecedence.empty() &&
+         "Expected precedence stack to be empty");
+  emittedExpression = nullptr;
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
+  // If op is being emitted as part of an expression, bail out.
+  if (getEmittedExpression()) {
+    return success();
+  }
+
   switch (op.getNumResults()) {
   case 0:
     break;
