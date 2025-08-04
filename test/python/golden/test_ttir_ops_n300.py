@@ -6,8 +6,10 @@ import torch
 import pytest
 
 from typing import List, Tuple
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.n300
 
@@ -68,7 +70,7 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1,),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         all_gather,
         [shape],
         mesh_shape=mesh_shape,
@@ -134,7 +136,7 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1,),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         all_reduce,
         [shape],
         mesh_shape=mesh_shape,
@@ -207,7 +209,7 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         reduce_scatter,
         [shape],
         mesh_shape=mesh_shape,
@@ -266,7 +268,7 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         collective_permute,
         [shape],
         mesh_shape=mesh_shape,
@@ -326,7 +328,7 @@ def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_dims=(-1,),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_1x2,
         shapes,
         mesh_shape=mesh_shape,
@@ -381,7 +383,7 @@ def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_1x2_dim_3,
         [shape],
         mesh_shape=mesh_shape,
@@ -436,7 +438,7 @@ def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_1x2_dim_1,
         [shape],
         mesh_shape=mesh_shape,
@@ -494,7 +496,7 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
             shard_dims=(-1, 1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         eltwise_multidevice,
         shapes,
         mesh_shape=mesh_shape,
@@ -552,7 +554,7 @@ def test_matmul_and_binary_op(
         output = builder.add(unsharded, in2)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
         mesh_shape=mesh_shape,
@@ -607,7 +609,7 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         output = builder.neg(unsharded)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
         mesh_shape=mesh_shape,
@@ -700,7 +702,7 @@ def test_matmul_and_binary_op_2(
         output = builder.add(matmul_0, matmul_2)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
         mesh_shape=mesh_shape,
@@ -794,7 +796,7 @@ def all_to_all_test(
             shard_dims=shard_dims,
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         all_to_all,
         [input_shape],
         mesh_shape=mesh_shape,
@@ -928,7 +930,7 @@ def test_collective_broadcast(
             shard_dims=(-1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         collective_broadcast,
         [shape],
         mesh_shape=mesh_shape,

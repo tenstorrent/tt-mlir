@@ -1,14 +1,14 @@
 
 # Adding a new op to `ttir-builder`
 
-`ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
+`ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/builder/ttir/ttir_builder.py` that will create the op and its golden counterpart.
 
 ## TTIR op factories
 
-All ops are created when their relevant information is run through the `op_proxy` function which provides a general interface for proxy-ing and creating ops.
+All ops are created when their relevant information is run through the `_op_proxy` function which provides a general interface for proxy-ing and creating ops.
 
 ```bash
-def op_proxy(
+def _op_proxy(
     self,
     op_ttir_function: Callable,
     inputs: List[Operand],
@@ -31,7 +31,7 @@ All input operands should be passed into a proxy function using the argument `in
 
 ## Golden functions
 
-Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/ttir-builder/ttir_golden.py` and must be mapped to their corresponding TTIR operations. The `op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
+Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/ttir-builder/ttir_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
 
 ### Writing a golden function
 
@@ -64,12 +64,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 
 ### Using golden functions in ops.py
 
-In your operation implementation in `ops.py`, simply pass the TTIR operation class to `op_proxy`. The golden function is automatically retrieved internally:
+In your operation implementation in `ops.py`, simply pass the TTIR operation class to `_op_proxy`. The golden function is automatically retrieved internally:
 
 ```python
 # In ops.py
 def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-    return self.op_proxy(
+    return self._op_proxy(
         ttir.CbrtOp,  # Golden function automatically retrieved from GOLDEN_MAPPINGS
         [in0],
         unit_attrs=unit_attrs,

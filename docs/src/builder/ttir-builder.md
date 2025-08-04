@@ -12,25 +12,23 @@
 ttrt query --save-artifacts
 ```
 
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `builder.ttir.ttir_utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
 
 ## Getting started
 
-`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The python package `ttir_builder` contains everything needed to create ops through a `TTIRBuilder` object. `ttir_builder.utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The python package `builder` contains everything needed to create ops through a `TTIRBuilder` object. `builder.ttir.ttir_utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
 
 ```python
-from ttir_builder import TTIRBuilder
-from ttir_builder.utils import compile_to_flatbuffer
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
 ```
-
-tt-mlir documentation contains more detailed information on `ttir-builder` [APIs](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/apis.html), [utility functions](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/utils.html), and supported TTIR [operations](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/ops.html).
 
 ## Creating a TTIR module
 
-`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
+`build_ttir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
 
 ```python
-def build_mlir_module(
+def build_ttir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
@@ -44,8 +42,9 @@ def build_mlir_module(
 ### Example
 
 ```python
-from ttir_builder.utils import build_mlir_module
-from ttir_builder import Operand, TTIRBuilder
+from builder.base.builder import Operand
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import build_ttir_module
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -54,7 +53,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     multiply_1 = builder.multiply(in1, add_0)
     return builder.multiply(multiply_1, in2)
 
-module, builder = build_mlir_module(model, shapes)
+module, builder = build_ttir_module(model, shapes)
 ```
 
 #### Returns
@@ -77,10 +76,10 @@ module {
 
 ## Running a pipeline
 
-`run_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
+`run_ttir_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
 
 ```python
-def run_pipeline(
+def run_ttir_pipeline(
     module,
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: List[str] = None,
@@ -97,9 +96,10 @@ def run_pipeline(
 Let's expand on our previous example
 
 ```python
-from ttir_builder.utils import build_mlir_module, run_pipeline
-from ttir_builder import Operand, TTIRBuilder
 from ttmlir.passes import ttir_to_ttnn_backend_pipeline
+from builder.base.builder import Operand
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import build_ttir_module, run_ttir_pipeline
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -108,8 +108,8 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     multiply_1 = builder.multiply(in1, add_0)
     return builder.multiply(multiply_1, in2)
 
-module, builder = build_mlir_module(model, shapes)
-ttnn_module = run_pipeline(module, ttir_to_ttnn_backend_pipeline)
+module, builder = build_ttir_module(model, shapes)
+ttnn_module = run_ttir_pipeline(module, ttir_to_ttnn_backend_pipeline)
 ```
 
 #### Returns
@@ -146,11 +146,11 @@ module {
 
 ### TTMetal example
 
-Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
+Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_ttir_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
 
 ```python
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
-ttmetal_module = run_pipeline(module, ttir_to_ttmetal_backend_pipeline)
+ttmetal_module = run_ttir_pipeline(module, ttir_to_ttmetal_backend_pipeline)
 ```
 
 #### Returns
@@ -436,10 +436,10 @@ module {
 
 ## Compiling into flatbuffer
 
-`compile_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_mlir_module`, `run_pipeline`, and `ttnn_to_flatbuffer_file` or `ttmetal_to_flatbuffer_file` as dictated by the `target` parameter.
+`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file` or `ttmetal_to_flatbuffer_file` as dictated by the `target` parameter.
 
 ```python
-def compile_to_flatbuffer(
+def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
@@ -462,8 +462,9 @@ No flatbuffer is printed or returned. It's only written to a file because it is 
 Let's use our previous model function.
 
 ```python
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder
+from builder.base.builder import Operand
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -472,7 +473,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     multiply_1 = builder.multiply(in1, add_0)
     return builder.multiply(multiply_1, in2)
 
-compile_to_flatbuffer(
+compile_ttir_to_flatbuffer(
     model,
     shapes,
     target="ttnn",
@@ -481,10 +482,10 @@ compile_to_flatbuffer(
 
 ### TTMetal example
 
-Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `run_pipeline`, only one or the other can be run on a module since `compile_to_flatbuffer` modifies the module in place.
+Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `run_ttir_pipeline`, only one or the other can be run on a module since `compile_ttir_to_flatbuffer` modifies the module in place.
 
 ```python
-compile_to_flatbuffer(
+compile_ttir_to_flatbuffer(
     model,
     shapes,
     target="ttmetal",
@@ -536,7 +537,8 @@ GRAPH_LEVEL : check graph level goldens only
 Check and set `GoldenCheckLevel` with `TTIRBuilder` APIs.
 
 ```python
-from ttir_builder import TTIRBuilder, Operand, GoldenCheckLevel
+from builder.base.builder import Operand, GoldenCheckLevel
+from builder.ttir.ttir_builder import TTIRBuilder
 
 def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     builder.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
@@ -555,7 +557,7 @@ To get info from a `GoldenTensor` object, use the attributes supported by `ttmli
 
 ```python
 from ttmlir.passes import GoldenTensor
-from ttir_builder import TTIRBuilder
+from builder.ttir.ttir_builder import TTIRBuilder
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
