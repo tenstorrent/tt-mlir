@@ -150,8 +150,6 @@ def test_reduce_scatter(
         pytest.skip("CCL across 1 device is meaningless")
     if scatter_dim >= len(test_shape):
         pytest.skip("scatter_dim is out of range")
-    # if test_shape[scatter_dim] % mesh_shape[cluster_axis] != 0:
-    #     pytest.skip("Test shape is not divisible by number of devices")
     if scatter_dim != len(test_shape) - 1:
         pytest.skip("Known issue : Reduce Scater produces incorrect output")
         # https://github.com/tenstorrent/tt-metal/issues/19433
@@ -941,130 +939,60 @@ def test_matmul_and_binary_op_2(
     )
 
 
-def all_to_all_test(
-    input_shape: Shape,
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (256, 128),
+        (32, 64, 128),
+        (8, 8, 64, 64),
+    ],
+)
+@pytest.mark.parametrize("split_dim", range(4))
+@pytest.mark.parametrize("concat_dim", range(4))
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
+        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
+        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
+        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
+        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
+    ],
+)
+def test_all_to_all(
+    test_shape: Shape,
     split_dim,
     concat_dim,
     mesh_shape,
-    shard_dims,
-    shard_shape,
-    cluster_axis,
     replica_groups,
     request,
+    shard_wrap_factory,
 ):
-    def all_to_all(in0: Operand, builder: TTIRBuilder):
-        sharded = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        gathered = builder.all_to_all(
-            sharded,
+    split_count = len(replica_groups[0])
+    if split_dim >= len(test_shape):
+        pytest.skip("Split dimension is out of range")
+    if concat_dim >= len(test_shape):
+        pytest.skip("Concat dimension is out of range")
+
+    def all_to_all(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.all_to_all(
+            sharded_in,
             split_dim=split_dim,
             concat_dim=concat_dim,
-            split_count=mesh_shape[cluster_axis],
+            split_count=split_count,
             replica_groups=replica_groups,
         )
-        return builder.mesh_shard(
-            gathered,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
+
+    input_shape, test_fn = shard_wrap_factory(all_to_all)
 
     compile_ttir_to_flatbuffer(
-        all_to_all,
+        test_fn,
         [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize("input_shape", [(2048, 2048), (512, 128), (256, 1024)])
-@pytest.mark.parametrize("split_dim", range(2))
-@pytest.mark.parametrize("concat_dim", range(2))
-@pytest.mark.parametrize(
-    "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
-    [
-        ((1, 8), (-1, 0), (8, 1), 1, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((1, 8), (-1, 1), (1, 8), 1, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((2, 4), (0, 1), (2, 4), 0, ((0, 4), (1, 5), (2, 6), (3, 7))),
-        ((2, 4), (0, 1), (2, 4), 1, ((0, 1, 2, 3), (4, 5, 6, 7))),
-        ((4, 2), (0, 1), (4, 2), 0, ((0, 2, 4, 6), (1, 3, 5, 7))),
-        ((4, 2), (0, 1), (4, 2), 1, ((0, 1), (2, 3), (4, 5), (6, 7))),
-        ((8, 1), (0, -1), (8, 1), 0, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((8, 1), (1, -1), (1, 8), 0, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-    ],
-)
-def test_all_to_all_2d(
-    input_shape: Shape,
-    split_dim,
-    concat_dim,
-    mesh_shape,
-    shard_dims,
-    shard_shape,
-    cluster_axis,
-    replica_groups,
-    request,
-):
-    all_to_all_test(
-        input_shape=input_shape,
-        split_dim=split_dim,
-        concat_dim=concat_dim,
-        mesh_shape=mesh_shape,
-        shard_dims=shard_dims,
-        shard_shape=shard_shape,
-        cluster_axis=cluster_axis,
-        replica_groups=replica_groups,
-        request=request,
-    )
-
-
-@pytest.mark.parametrize(
-    "input_shape", [(1, 1, 2048, 2048), (1, 1, 512, 128), (1, 1, 256, 1024)]
-)
-@pytest.mark.parametrize("split_dim", range(2, 4))
-@pytest.mark.parametrize("concat_dim", range(2, 4))
-@pytest.mark.parametrize(
-    "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
-    [
-        ((1, 8), (-1, 2), (1, 1, 8, 1), 1, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((1, 8), (-1, 3), (1, 1, 1, 8), 1, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((2, 4), (2, 3), (1, 1, 2, 4), 0, ((0, 4), (1, 5), (2, 6), (3, 7))),
-        ((2, 4), (2, 3), (1, 1, 2, 4), 1, ((0, 1, 2, 3), (4, 5, 6, 7))),
-        ((4, 2), (2, 3), (1, 1, 4, 2), 0, ((0, 2, 4, 6), (1, 3, 5, 7))),
-        ((4, 2), (2, 3), (1, 1, 4, 2), 1, ((0, 1), (2, 3), (4, 5), (6, 7))),
-        ((8, 1), (2, -1), (1, 1, 8, 1), 0, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((8, 1), (3, -1), (1, 1, 1, 8), 0, ((0, 1, 2, 3, 4, 5, 6, 7),)),
-    ],
-)
-def test_all_to_all_4d(
-    input_shape: Shape,
-    split_dim,
-    concat_dim,
-    mesh_shape,
-    shard_dims,
-    shard_shape,
-    cluster_axis,
-    replica_groups,
-    request,
-):
-    all_to_all_test(
-        input_shape=input_shape,
-        split_dim=split_dim,
-        concat_dim=concat_dim,
-        mesh_shape=mesh_shape,
-        shard_dims=shard_dims,
-        shard_shape=shard_shape,
-        cluster_axis=cluster_axis,
-        replica_groups=replica_groups,
-        request=request,
     )
 
 
