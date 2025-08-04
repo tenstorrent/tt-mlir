@@ -12,8 +12,8 @@ module attributes {} {
   func.func @test_slice_empty(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x8x0xbf16> {
     // CHECK-LABEL: @test_slice_empty
     %0 = ttir.empty() : tensor<4x1x8x0xbf16>
-    // CHECK: %{{[0-9]+}} = "ttnn.slice"
-    %1 = "ttir.slice"(%arg0, %0) <{begins = [0: i32, 0: i32, 32: i32, 128: i32], ends = [10: i32, 3: i32, 64: i32, 128: i32], step = [3: i32, 3: i32, 4: i32, 8: i32]}> : (tensor<10x3x128x64xbf16>, tensor<4x1x8x0xbf16>) -> tensor<4x1x8x0xbf16>
+    // CHECK: %{{[0-9]+}} = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 32: i32, 128: i32], ends = [10: i32, 3: i32, 64: i32, 128: i32], step = [3: i32, 3: i32, 4: i32, 8: i32]}> : (tensor<10x3x128x64xbf16>, tensor<4x1x8x0xbf16>) -> tensor<4x1x8x0xbf16>
     return %1 : tensor<4x1x8x0xbf16>
   }
 }

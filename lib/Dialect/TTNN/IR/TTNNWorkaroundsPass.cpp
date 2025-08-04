@@ -324,11 +324,12 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
-// Factory method to create a set of workarounds for dynamic slice op input operands.
-// ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
+// Factory method to create a set of workarounds for dynamic slice op input
+// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
 // ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(mlir::ArrayAttr step) {
+TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
+    mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
   // slice operation.
   bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
@@ -338,12 +339,10 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(mlir::Ar
 
   TTNNOperandWorkarounds BF16Workaround;
   if (isStridedSliceOp) {
-    BF16Workaround.tensorDataTypeWorkaround =
-        ttcore::DataType::BFloat16;
+    BF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
   TTNNOperandWorkarounds UInt32Workaround;
-  UInt32Workaround.tensorDataTypeWorkaround =
-      ttcore::DataType::UInt32;
+  UInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(BF16Workaround)

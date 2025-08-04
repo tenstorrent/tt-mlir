@@ -2160,6 +2160,80 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRDynamicSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DynamicSliceOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::DynamicSliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DynamicSliceOp srcOp,
+                  mlir::stablehlo::DynamicSliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Reshape start indices to 1D tensors for ConcatOp
+    ValueRange startIndicesRange = adaptor.getStartIndices();
+    SmallVector<Value> startIndicesValues1D;
+    auto startIndexElementType =
+        mlir::cast<RankedTensorType>(startIndicesRange[0].getType())
+            .getElementType();
+    auto singleElementTensorType =
+        RankedTensorType::get({1}, startIndexElementType);
+
+    for (Value startIndex : startIndicesRange) {
+      auto reshapedIndex = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp.getLoc(), singleElementTensorType.getShape(),
+          startIndexElementType, singleElementTensorType.getEncoding(),
+          startIndex, rewriter.getI32ArrayAttr({1}));
+      startIndicesValues1D.push_back(reshapedIndex);
+    }
+    // Create a single 1D tensor from start indices values using ConcatOp
+    auto startIndicesTensorType = RankedTensorType::get(
+        {static_cast<int64_t>(startIndicesValues1D.size())},
+        startIndexElementType);
+    auto startIndicesTensor =
+        ttir::utils::createDPSOp<mlir::tt::ttir::ConcatOp>(
+            rewriter, srcOp.getLoc(), startIndicesTensorType.getShape(),
+            startIndexElementType, startIndicesTensorType.getEncoding(),
+            startIndicesValues1D, /*dim=*/0);
+
+    // Convert slice_sizes to int32_t vector (single conversion for both uses)
+    auto sliceSizes = srcOp.getSliceSizes();
+    SmallVector<int32_t> sliceSizesInt32(sliceSizes.begin(), sliceSizes.end());
+
+    // Create a 1D constant tensor with slice_sizes values
+    auto sliceSizesTensorType = RankedTensorType::get(
+        {static_cast<int64_t>(sliceSizesInt32.size())}, rewriter.getI32Type());
+    auto sliceSizesAttr = mlir::DenseElementsAttr::get(
+        sliceSizesTensorType, llvm::ArrayRef<int32_t>(sliceSizesInt32));
+    auto sliceSizesConstant = rewriter.create<mlir::tt::ttir::ConstantOp>(
+        srcOp.getLoc(), sliceSizesTensorType, sliceSizesAttr);
+
+    // Create an add op that adds the slice sizes to start indices to get end
+    // indices
+    auto endIndices = ttir::utils::createDPSOp<mlir::tt::ttir::AddOp>(
+        rewriter, srcOp.getLoc(), startIndicesTensorType.getShape(),
+        startIndexElementType, startIndicesTensorType.getEncoding(),
+        startIndicesTensor, sliceSizesConstant);
+
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
+
+    auto sliceSizesArrayAttr = rewriter.getI32ArrayAttr(sliceSizesInt32);
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceDynamicOp>(
+        srcOp, outputType, adaptor.getOperand(), startIndicesTensor, endIndices,
+        outputTensor, sliceSizesArrayAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
 
@@ -2648,6 +2722,13 @@ static void addSliceOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addDynamicSliceOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDynamicSliceOpConversionPattern>(typeConverter,
+                                                               ctx);
+}
+
 static void addClampOpConversionPattern(MLIRContext *ctx,
                                         RewritePatternSet &patterns,
                                         TypeConverter &typeConverter) {
@@ -2716,6 +2797,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addCCLOpsConversionPattern(ctx, patterns, typeConverter);
   addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addDynamicSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
