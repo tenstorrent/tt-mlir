@@ -670,6 +670,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
+  options += "l1-interleaved-fallback-analysis-enabled=true ";
   options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
