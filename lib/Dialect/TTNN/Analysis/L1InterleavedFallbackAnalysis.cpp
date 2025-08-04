@@ -196,7 +196,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     producersL1OutputUsage += utils::getOpOutputL1Usage(inputLayout);
   }
 
-  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
+  llvm::Expected<op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, consumerConfig);
 
   if (!l1UsageExp) {
