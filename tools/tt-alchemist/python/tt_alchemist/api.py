@@ -64,11 +64,7 @@ class TTAlchemistAPI:
         self.lib.tt_alchemist_TTAlchemist_generatePython.restype = ctypes.c_bool
 
     def _load_library(self):
-        """Load the tt-alchemist shared library.
-
-        First tries to load from the package directory, then falls back to TT_MLIR_HOME.
-        """
-        # First try to load from the package directory
+        """Load the tt-alchemist shared library."""
         package_dir = os.path.dirname(os.path.abspath(__file__))
         lib_path = os.path.join(package_dir, "lib", "libtt-alchemist-lib.so")
 
