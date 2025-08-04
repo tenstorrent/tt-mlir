@@ -137,15 +137,11 @@ std::string getVersion(Flatbuffer binary) {
 }
 
 std::string getSchemaHash(Flatbuffer binary) {
-  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
-  std::string schema_string(schema.begin(), schema.end());
-  return schema_string;
+  return getBinary(binary)->schema_hash()->c_str();
 }
 
 std::string getTTMLIRGitHash(Flatbuffer binary) {
-  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
-  std::string git_hash_string(git_hash.begin(), git_hash.end());
-  return git_hash_string;
+  return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
 std::string asJson(Flatbuffer binary) {
@@ -267,15 +263,11 @@ std::string getVersion(Flatbuffer binary) {
 }
 
 std::string getSchemaHash(Flatbuffer binary) {
-  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
-  std::string schema_string(schema.begin(), schema.end());
-  return schema_string;
+  return getBinary(binary)->schema_hash()->c_str();
 }
 
 std::string getTTMLIRGitHash(Flatbuffer binary) {
-  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
-  std::string git_hash_string(git_hash.begin(), git_hash.end());
-  return git_hash_string;
+  return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
 std::string asJson(Flatbuffer binary) {
@@ -390,15 +382,11 @@ std::string getVersion(Flatbuffer binary) {
 }
 
 std::string getSchemaHash(Flatbuffer binary) {
-  std::string_view schema = getBinary(binary)->schema_hash()->c_str();
-  std::string schema_string(schema.begin(), schema.end());
-  return schema_string;
+  return getBinary(binary)->schema_hash()->c_str();
 }
 
 std::string getTTMLIRGitHash(Flatbuffer binary) {
-  std::string_view git_hash = getBinary(binary)->ttmlir_git_hash()->c_str();
-  std::string git_hash_string(git_hash.begin(), git_hash.end());
-  return git_hash_string;
+  return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
 std::string asJson(Flatbuffer binary) {
