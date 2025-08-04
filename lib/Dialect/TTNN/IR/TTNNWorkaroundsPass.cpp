@@ -533,12 +533,10 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds(
   wa::TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
-  // Check if input data type is already bfloat16 or int32
   mlir::Type inputElementType = inputType.getElementType();
   mlir::tt::ttcore::DataType inputDataType =
       mlir::tt::ttcore::elementTypeToDataType(inputElementType);
 
-  // Only apply data type workaround if input is not already bfloat16 or int32
   if (inputDataType != mlir::tt::ttcore::DataType::BFloat16 &&
       inputDataType != mlir::tt::ttcore::DataType::Int32) {
     inputWorkaround.tensorDataTypeWorkaround =
