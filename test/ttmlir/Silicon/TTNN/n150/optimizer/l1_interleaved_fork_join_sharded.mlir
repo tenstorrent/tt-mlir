@@ -38,8 +38,8 @@ module @L1InterleavedTestForkJoin attributes {} {
 // fork, not a single user -> dram
 // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
 
-// not immediately consumed, not backend supported -> dram
 // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
-// not backend supported -> dram
 // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
+
+// sharded inputs fit with the result in L1 -> L1
 // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
