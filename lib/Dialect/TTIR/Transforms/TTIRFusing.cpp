@@ -566,7 +566,7 @@ public:
     Location loc = batchNormOp.getLoc();
     RankedTensorType resultType = batchNormOp.getResult().getType();
 
-    // epsilon -> tensor
+    // Convert epsilon to a tensor
     auto epsilonTensor = rewriter.create<FullOp>(
         loc, variance.getType(),
         rewriter.getF32FloatAttr(epsilon.convertToFloat()));
@@ -576,57 +576,50 @@ public:
         rewriter, loc, variance.getType(), variance, epsilonTensor);
 
     // sqrt(variance + epsilon)
-    auto sqrtVariancePlusEpsilon = utils::createDPSOp<SqrtOp>(
-        rewriter, loc, variance.getType(), variancePlusEpsilon);
+    auto std = utils::createDPSOp<SqrtOp>(rewriter, loc, variance.getType(),
+                                          variancePlusEpsilon);
 
-    // Reshape the variance, mean, scale, and offset to match input shape
-    // We assume that the input is 4D tensor with shape (B, C, H, W) and
-    // the mean, variance, scale, and offset are 1D tensors with shape
-    // (C,). We reshape them to (1, C, 1, 1) to match the input shape.
-    // This is done to ensure that the operations can be broadcasted correctly.
-
-    SmallVector<int64_t> reshapeShape = {
-        1, sqrtVariancePlusEpsilon.getType().getShape()[0], 1, 1};
+    // Compute reshape shape: (1, C, 1, 1)
+    SmallVector<int64_t> reshapeShape = {1, std.getType().getShape()[0], 1, 1};
     SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                          reshapeShape.end());
 
-    auto reshapedSqrtVariance = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape,
-        sqrtVariancePlusEpsilon.getType().getElementType(),
-        sqrtVariancePlusEpsilon.getType().getEncoding(),
-        sqrtVariancePlusEpsilon, rewriter.getI32ArrayAttr(reshapeShapeI32));
-
-    auto reshapedMean = utils::createDPSOp<ReshapeOp>(
+    // Reshape all parameters to broadcast shape
+    auto meanReshaped = utils::createDPSOp<ReshapeOp>(
         rewriter, loc, reshapeShape, mean.getType().getElementType(),
         mean.getType().getEncoding(), mean,
         rewriter.getI32ArrayAttr(reshapeShapeI32));
 
-    auto reshapedScale = utils::createDPSOp<ReshapeOp>(
+    auto stdReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, std.getType().getElementType(),
+        std.getType().getEncoding(), std,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    auto scaleReshaped = utils::createDPSOp<ReshapeOp>(
         rewriter, loc, reshapeShape, scale.getType().getElementType(),
         scale.getType().getEncoding(), scale,
         rewriter.getI32ArrayAttr(reshapeShapeI32));
 
-    auto reshapedOffset = utils::createDPSOp<ReshapeOp>(
+    auto offsetReshaped = utils::createDPSOp<ReshapeOp>(
         rewriter, loc, reshapeShape, offset.getType().getElementType(),
         offset.getType().getEncoding(), offset,
         rewriter.getI32ArrayAttr(reshapeShapeI32));
 
     // (x - mean)
     auto inputMinusMean = utils::createDPSOp<SubtractOp>(
-        rewriter, loc, input.getType(), input, reshapedMean);
+        rewriter, loc, input.getType(), input, meanReshaped);
 
-    // (x - mean) / sqrt(variance + epsilon)
-    auto normalized =
-        utils::createDPSOp<DivOp>(rewriter, loc, inputMinusMean.getType(),
-                                  inputMinusMean, reshapedSqrtVariance);
+    // (x - mean) / std
+    auto normalized = utils::createDPSOp<DivOp>(
+        rewriter, loc, inputMinusMean.getType(), inputMinusMean, stdReshaped);
 
     // normalized * scale
-    auto scaledNormalized = utils::createDPSOp<MultiplyOp>(
-        rewriter, loc, normalized.getType(), normalized, reshapedScale);
+    auto scaled = utils::createDPSOp<MultiplyOp>(
+        rewriter, loc, normalized.getType(), normalized, scaleReshaped);
 
-    // scaled_normalized + offset
-    auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType,
-                                            scaledNormalized, reshapedOffset);
+    // scaled + offset
+    auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
+                                            offsetReshaped);
 
     rewriter.replaceOp(batchNormOp, result);
 
