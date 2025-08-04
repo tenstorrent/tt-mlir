@@ -331,11 +331,14 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
-  // slice operation.
-  bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
-    mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
-    return intAttr.getInt() > 1;
-  });
+  // slice operation. If step is null, assume non-strided operation.
+  bool isStridedSliceOp = false;
+  if (step) {
+    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+      return intAttr.getInt() > 1;
+    });
+  }
 
   TTNNOperandWorkarounds BF16Workaround;
   if (isStridedSliceOp) {

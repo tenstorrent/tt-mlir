@@ -680,7 +680,7 @@ public:
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
-        adaptor.getStep());
+        adaptor.getStepAttr());
     return success();
   }
 };

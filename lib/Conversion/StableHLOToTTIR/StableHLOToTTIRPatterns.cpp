@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <vector>
 
 using namespace mlir;
@@ -2222,11 +2223,9 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
         outputType.getEncoding());
 
-    auto sliceSizesArrayAttr = rewriter.getI32ArrayAttr(sliceSizesInt32);
-
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceDynamicOp>(
         srcOp, outputType, adaptor.getOperand(), startIndicesTensor, endIndices,
-        outputTensor, sliceSizesArrayAttr);
+        outputTensor, ArrayAttr());
 
     return success();
   }

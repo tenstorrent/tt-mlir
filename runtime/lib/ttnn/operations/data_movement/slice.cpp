@@ -41,13 +41,15 @@ static void runSliceDynamicOp(const ::tt::target::ttnn::SliceOp *op,
   const ::ttnn::Tensor &ends = tensorPool.getTTNNTensorAndValidate(
       op->params_as<target::ttnn::SliceDynamicOpParams>()->ends());
 
-  ::ttsl::SmallVector<uint32_t> step;
-  step.resize(op->step()->size());
-  std::transform(op->step()->begin(), op->step()->end(), step.begin(),
-                 [](int32_t v) { return static_cast<uint32_t>(v); });
+  std::optional<::ttsl::SmallVector<uint32_t>> step;
+  if (op->step() && op->step()->size() > 0) {
+    step = ::ttsl::SmallVector<uint32_t>();
+    step->resize(op->step()->size());
+    std::transform(op->step()->begin(), op->step()->end(), step->begin(),
+                   [](int32_t v) { return static_cast<uint32_t>(v); });
+  }
 
-  ::ttnn::Tensor out =
-      ::ttnn::slice(in, begins, ends, std::make_optional(step));
+  ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

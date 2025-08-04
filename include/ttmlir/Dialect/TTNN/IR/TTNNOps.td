@@ -1286,13 +1286,13 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$begins,
                          AnyRankedTensor:$ends,
-                         I32ArrayAttr:$step);
+                         OptionalAttr<I32ArrayAttr>:$step);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStep();
+        ::mlir::ArrayAttr step = getStepAttr();
         return wa::TTNNOperandsWorkaroundsFactory::
             createSliceDynamicOpOperandsWorkarounds(step);
       }

@@ -3919,7 +3919,7 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
                          AnyRankedTensor:$begins,
                          AnyRankedTensor:$ends,
                          AnyRankedTensor:$output,
-                         I32ArrayAttr:$step);
+                         OptionalAttr<I32ArrayAttr>:$step);
 
     let results = (outs AnyRankedTensor:$result);
 }
