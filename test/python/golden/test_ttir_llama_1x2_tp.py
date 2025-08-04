@@ -6,11 +6,12 @@ import torch
 import pytest
 
 from typing import List, Tuple
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.n300
-
 
 # utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
@@ -355,7 +356,7 @@ def test_llama_attention_1x2_tp_part1(
 
         return output83
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         model_part1,
         shapes,
         dtypes,
@@ -464,7 +465,7 @@ def test_llama_attention_1x2_tp_part2(
 
         return output115
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         model_part2,
         shapes,
         dtypes,
