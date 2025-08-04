@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-@file ttir_golden.py
-@brief Golden function mappings for TTIR operations.
+Golden function mappings for TTIR operations.
 
 This module provides a centralized mapping between TTIR operations and their
-corresponding PyTorch golden reference implementations.
+corresponding PyTorch golden reference implementations. Each golden function
+serves as a reference implementation that produces the expected output for
+comparison with TTIR operation results.
 """
 
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple
@@ -19,9 +20,17 @@ from ttmlir.ir import Attribute
 
 def cbrt_golden(x):
     """
-    @brief Custom golden function for cubic root.
-    @param x Input tensor
-    @return Tensor containing the cubic root of each element in the input tensor
+    Custom golden function for cubic root.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor containing the cubic root of each element in the input tensor
     """
     golden_sign = torch.sign(x)
     golden_cbrt = torch.pow(torch.abs(x), 1 / 3)
@@ -32,15 +41,29 @@ def conv2d_golden(
     input_tensor, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
 ):
     """
-    @brief Custom golden function for conv2d with layout transformation.
-    @param input_tensor Input tensor for convolution
-    @param weight Convolution weight tensor
-    @param bias Optional bias tensor (default: None)
-    @param stride Stride for convolution (default: 1)
-    @param padding Padding for convolution (default: 0)
-    @param dilation Dilation for convolution (default: 1)
-    @param groups Number of groups for grouped convolution (default: 1)
-    @return Result of 2D convolution with layout transformation
+    Custom golden function for conv2d with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for convolution
+    weight : torch.Tensor
+        Convolution weight tensor
+    bias : torch.Tensor, optional
+        Optional bias tensor (default: None)
+    stride : int, optional
+        Stride for convolution (default: 1)
+    padding : int, optional
+        Padding for convolution (default: 0)
+    dilation : int, optional
+        Dilation for convolution (default: 1)
+    groups : int, optional
+        Number of groups for grouped convolution (default: 1)
+
+    Returns
+    -------
+    torch.Tensor
+        Result of 2D convolution with layout transformation
     """
     # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
     if bias is not None:
@@ -65,15 +88,29 @@ def conv_transpose2d_golden(
     input_tensor, weight, stride, padding, output_padding, dilation, groups
 ):
     """
-    @brief Custom golden function for conv_transpose2d with layout transformation.
-    @param input_tensor Input tensor for transposed convolution
-    @param weight Convolution weight tensor
-    @param stride Stride for transposed convolution
-    @param padding Padding for transposed convolution
-    @param output_padding Additional size added to output shape
-    @param dilation Dilation of the kernel
-    @param groups Number of blocked connections from input to output channels
-    @return Result of 2D transposed convolution with layout transformation
+    Custom golden function for conv_transpose2d with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for transposed convolution
+    weight : torch.Tensor
+        Convolution weight tensor
+    stride : Union[int, List[int]]
+        Stride for transposed convolution
+    padding : Union[int, List[int]]
+        Padding for transposed convolution
+    output_padding : Union[int, List[int]]
+        Additional size added to output shape
+    dilation : Union[int, List[int]]
+        Dilation of the kernel
+    groups : int
+        Number of blocked connections from input to output channels
+
+    Returns
+    -------
+    torch.Tensor
+        Result of 2D transposed convolution with layout transformation
     """
     # Reorganize ttir_kwargs into golden_kwargs
     stride = list(stride) if not isinstance(stride, int) else int(stride)
@@ -104,14 +141,27 @@ def conv_transpose2d_golden(
 
 def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil_mode):
     """
-    @brief Custom golden function for max_pool2d with layout transformation.
-    @param input_tensor Input tensor for max pooling
-    @param kernel_size Size of the pooling kernel
-    @param stride Stride for pooling operation
-    @param padding Padding for pooling operation
-    @param dilation Dilation for pooling operation
-    @param ceil_mode Whether to use ceiling mode for pooling
-    @return Result of 2D max pooling with layout transformation
+    Custom golden function for max_pool2d with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for max pooling
+    kernel_size : Union[int, List[int]]
+        Size of the pooling kernel
+    stride : Union[int, List[int]]
+        Stride for pooling operation
+    padding : Union[int, List[int]]
+        Padding for pooling operation
+    dilation : Union[int, List[int]]
+        Dilation for pooling operation
+    ceil_mode : bool
+        Whether to use ceiling mode for pooling
+
+    Returns
+    -------
+    torch.Tensor
+        Result of 2D max pooling with layout transformation
     """
     # Convert padding from [top, left, bottom, right] format to PyTorch format
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
@@ -146,11 +196,21 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
 
 def argmax_golden(input_tensor, dim_arg, keep_dim=False):
     """
-    @brief Custom golden function for argmax.
-    @param input_tensor Input tensor to find argmax of
-    @param dim_arg List containing dimension to find argmax along
-    @param keep_dim Whether to keep the reduced dimension (default: False)
-    @return Indices of maximum values along specified dimension as int32 tensor
+    Custom golden function for argmax.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to find argmax of
+    dim_arg : List[int]
+        List containing dimension to find argmax along
+    keep_dim : bool, optional
+        Whether to keep the reduced dimension (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        Indices of maximum values along specified dimension as int32 tensor
     """
     result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
     return result.to(torch.int32)
@@ -158,13 +218,25 @@ def argmax_golden(input_tensor, dim_arg, keep_dim=False):
 
 def linear_golden(a, b, bias=None, transpose_a=False, transpose_b=False):
     """
-    @brief Custom golden function for linear transformation.
-    @param a First input tensor
-    @param b Second input tensor
-    @param bias Optional bias tensor (default: None)
-    @param transpose_a Whether to transpose tensor a (default: False)
-    @param transpose_b Whether to transpose tensor b (default: False)
-    @return Result of linear transformation with optional bias
+    Custom golden function for linear transformation.
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        First input tensor
+    b : torch.Tensor
+        Second input tensor
+    bias : torch.Tensor, optional
+        Optional bias tensor (default: None)
+    transpose_a : bool, optional
+        Whether to transpose tensor a (default: False)
+    transpose_b : bool, optional
+        Whether to transpose tensor b (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        Result of linear transformation with optional bias
     """
     a = torch.transpose(a, 0, 1) if transpose_a else a
     b = torch.transpose(b, 0, 1) if transpose_b else b
@@ -185,15 +257,29 @@ def dot_general_golden(
     lhs, rhs, out, batch_dims_lhs, contract_dims_lhs, batch_dims_rhs, contract_dims_rhs
 ):
     """
-    @brief Custom golden function for dot_general operation.
-    @param lhs Left-hand side tensor
-    @param rhs Right-hand side tensor
-    @param out Output tensor shape reference
-    @param batch_dims_lhs Batch dimensions for left tensor
-    @param contract_dims_lhs Contraction dimensions for left tensor
-    @param batch_dims_rhs Batch dimensions for right tensor
-    @param contract_dims_rhs Contraction dimensions for right tensor
-    @return Result of generalized dot product operation
+    Custom golden function for dot_general operation.
+
+    Parameters
+    ----------
+    lhs : torch.Tensor
+        Left-hand side tensor
+    rhs : torch.Tensor
+        Right-hand side tensor
+    out : torch.Tensor
+        Output tensor shape reference
+    batch_dims_lhs : List[int]
+        Batch dimensions for left tensor
+    contract_dims_lhs : List[int]
+        Contraction dimensions for left tensor
+    batch_dims_rhs : List[int]
+        Batch dimensions for right tensor
+    contract_dims_rhs : List[int]
+        Contraction dimensions for right tensor
+
+    Returns
+    -------
+    torch.Tensor
+        Result of generalized dot product operation
     """
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
     non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
@@ -224,24 +310,46 @@ def dot_general_golden(
 
 def quantize_golden(input_tensor, scale, zero_point, dtype):
     """
-    @brief Custom golden function for quantize operation.
-    @param input_tensor Input tensor to quantize
-    @param scale Scale factor for quantization
-    @param zero_point Zero point for quantization
-    @param dtype Target quantized data type
-    @return Quantized tensor as integer representation
+    Custom golden function for quantize operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to quantize
+    scale : float
+        Scale factor for quantization
+    zero_point : int
+        Zero point for quantization
+    dtype : torch.dtype
+        Target quantized data type
+
+    Returns
+    -------
+    torch.Tensor
+        Quantized tensor as integer representation
     """
     return torch.quantize_per_tensor(input_tensor, scale, zero_point, dtype).int_repr()
 
 
 def requantize_golden(input_tensor, scale, zero_point, dtype):
     """
-    @brief Custom golden function for requantize operation.
-    @param input_tensor Input quantized tensor to requantize
-    @param scale Scale factor for requantization
-    @param zero_point Zero point for requantization
-    @param dtype Target quantized data type
-    @return Requantized tensor
+    Custom golden function for requantize operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input quantized tensor to requantize
+    scale : float
+        Scale factor for requantization
+    zero_point : int
+        Zero point for requantization
+    dtype : torch.dtype
+        Target quantized data type
+
+    Returns
+    -------
+    torch.Tensor
+        Requantized tensor
     """
     return torch.quantize_per_tensor(
         torch.dequantize(input_tensor), scale, zero_point, dtype
@@ -250,11 +358,21 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
 
 def max_golden(input_tensor, dim_arg=None, keep_dim=True):
     """
-    @brief Custom golden function for max operation with conditional logic.
-    @param input_tensor Input tensor to find maximum of
-    @param dim_arg Dimension to find maximum along (default: None for all dimensions)
-    @param keep_dim Whether to keep the reduced dimension (default: True)
-    @return Maximum values along specified dimension or global maximum
+    Custom golden function for max operation with conditional logic.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to find maximum of
+    dim_arg : int, optional
+        Dimension to find maximum along (default: None for all dimensions)
+    keep_dim : bool, optional
+        Whether to keep the reduced dimension (default: True)
+
+    Returns
+    -------
+    torch.Tensor
+        Maximum values along specified dimension or global maximum
     """
     if dim_arg is not None:
         return torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
@@ -267,11 +385,21 @@ def max_golden(input_tensor, dim_arg=None, keep_dim=True):
 
 def prod_golden(input_tensor, dim_arg, keep_dim=False):
     """
-    @brief Custom golden function for prod operation with conditional logic.
-    @param input_tensor Input tensor to compute product of
-    @param dim_arg List of dimensions to compute product along
-    @param keep_dim Whether to keep the reduced dimension (default: False)
-    @return Product of tensor elements along specified dimensions
+    Custom golden function for prod operation with conditional logic.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to compute product of
+    dim_arg : List[int]
+        List of dimensions to compute product along
+    keep_dim : bool, optional
+        Whether to keep the reduced dimension (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        Product of tensor elements along specified dimensions
     """
     if len(dim_arg) == 1:
         return torch.prod(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
@@ -282,10 +410,19 @@ def prod_golden(input_tensor, dim_arg, keep_dim=False):
 
 def embedding_golden(indices_tensor, weight_tensor):
     """
-    @brief Custom golden function for embedding operation.
-    @param indices_tensor Tensor containing indices to look up
-    @param weight_tensor Weight tensor containing embedding vectors
-    @return Embedded vectors corresponding to input indices
+    Custom golden function for embedding operation.
+
+    Parameters
+    ----------
+    indices_tensor : torch.Tensor
+        Tensor containing indices to look up
+    weight_tensor : torch.Tensor
+        Weight tensor containing embedding vectors
+
+    Returns
+    -------
+    torch.Tensor
+        Embedded vectors corresponding to input indices
     """
     embedding = torch.nn.Embedding.from_pretrained(weight_tensor)
     golden_typecast = indices_tensor.to(torch.int32)
@@ -295,11 +432,21 @@ def embedding_golden(indices_tensor, weight_tensor):
 
 def pad_golden(input_tensor, padding, value):
     """
-    @brief Custom golden function for pad operation with dimension reformatting.
-    @param input_tensor Input tensor to pad
-    @param padding Padding specification
-    @param value Value to use for padding
-    @return Padded tensor
+    Custom golden function for pad operation with dimension reformatting.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to pad
+    padding : List[int]
+        Padding specification
+    value : Union[int, float]
+        Value to use for padding
+
+    Returns
+    -------
+    torch.Tensor
+        Padded tensor
     """
     # Reformatting padding dimensions for golden tensor:
     golden_padding = []
@@ -313,13 +460,25 @@ def pad_golden(input_tensor, padding, value):
 
 def select_golden(input_tensor, dim, begin, length, stride):
     """
-    @brief Custom golden function for select operation.
-    @param input_tensor Input tensor to select from
-    @param dim Dimension to select along
-    @param begin Starting index for selection
-    @param length Length of selection
-    @param stride Stride for selection
-    @return Selected tensor slice
+    Custom golden function for select operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to select from
+    dim : int
+        Dimension to select along
+    begin : int
+        Starting index for selection
+    length : int
+        Length of selection
+    stride : int
+        Stride for selection
+
+    Returns
+    -------
+    torch.Tensor
+        Selected tensor slice
     """
     end = begin + length - 1
     index = torch.tensor([begin, end])
@@ -328,13 +487,25 @@ def select_golden(input_tensor, dim, begin, length, stride):
 
 def index_golden(input_tensor, dim, begin, end, step):
     """
-    @brief Custom golden function for index operation.
-    @param input_tensor Input tensor to index
-    @param dim Dimension to index along
-    @param begin Starting index
-    @param end Ending index
-    @param step Step size for indexing
-    @return Indexed tensor
+    Custom golden function for index operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to index
+    dim : int
+        Dimension to index along
+    begin : int
+        Starting index
+    end : int
+        Ending index
+    step : int
+        Step size for indexing
+
+    Returns
+    -------
+    torch.Tensor
+        Indexed tensor
     """
     import math
 
@@ -348,22 +519,42 @@ def index_golden(input_tensor, dim, begin, end, step):
 
 def arange_golden(single_dim_tensor, repeats):
     """
-    @brief Custom golden function for arange operation.
-    @param single_dim_tensor Single dimension tensor specification
-    @param repeats Number of repeats for the range
-    @return Generated range tensor
+    Custom golden function for arange operation.
+
+    Parameters
+    ----------
+    single_dim_tensor : torch.Tensor
+        Single dimension tensor specification
+    repeats : int
+        Number of repeats for the range
+
+    Returns
+    -------
+    torch.Tensor
+        Generated range tensor
     """
     return single_dim_tensor.repeat(repeats)
 
 
 def slice_golden(input_tensor, begins, ends, step):
     """
-    @brief Custom golden function for slice operation.
-    @param input_tensor Input tensor to slice
-    @param begins Starting indices for each dimension
-    @param ends Ending indices for each dimension
-    @param step Step sizes for each dimension
-    @return Sliced tensor
+    Custom golden function for slice operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to slice
+    begins : List[int]
+        Starting indices for each dimension
+    ends : List[int]
+        Ending indices for each dimension
+    step : List[int]
+        Step sizes for each dimension
+
+    Returns
+    -------
+    torch.Tensor
+        Sliced tensor
     """
     # Build slice objects for each dimension
     slices = []
@@ -387,18 +578,35 @@ def gather_golden(
     indices_are_sorted=False,
 ):
     """
-    @brief Custom golden function for gather operation.
-    @param input_tensor Input tensor to gather from
-    @param start_indices_tensor Tensor containing starting indices
-    @param offset_dims Offset dimensions for gathering
-    @param collapsed_slice_dims Dimensions to collapse after slicing
-    @param operand_batching_dims Batching dimensions for operand
-    @param start_indices_batching_dims Batching dimensions for start indices
-    @param start_index_map Mapping of start indices
-    @param index_vector_dim Dimension containing index vectors
-    @param slice_sizes Sizes of slices to gather
-    @param indices_are_sorted Whether indices are sorted (default: False)
-    @return Gathered tensor
+    Custom golden function for gather operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to gather from
+    start_indices_tensor : torch.Tensor
+        Tensor containing starting indices
+    offset_dims : List[int]
+        Offset dimensions for gathering
+    collapsed_slice_dims : List[int]
+        Dimensions to collapse after slicing
+    operand_batching_dims : List[int]
+        Batching dimensions for operand
+    start_indices_batching_dims : List[int]
+        Batching dimensions for start indices
+    start_index_map : List[int]
+        Mapping of start indices
+    index_vector_dim : int
+        Dimension containing index vectors
+    slice_sizes : List[int]
+        Sizes of slices to gather
+    indices_are_sorted : bool, optional
+        Whether indices are sorted (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        Gathered tensor
     """
     # Simple gather implementation for basic cases
     if (
@@ -434,10 +642,19 @@ def gather_golden(
 
 def tilize_golden(input_tensor, tilize=True):
     """
-    @brief Custom golden function for tilize operation.
-    @param input_tensor Input tensor to tilize
-    @param tilize Tilize parameter (ignored, for compatibility)
-    @return Tilized tensor with proper tile layout transformation
+    Custom golden function for tilize operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to tilize
+    tilize : bool, optional
+        Tilize parameter (ignored, for compatibility) (default: True)
+
+    Returns
+    -------
+    torch.Tensor
+        Tilized tensor with proper tile layout transformation
     """
     shape = input_tensor.shape
     TILE_SIZE = 32
@@ -467,10 +684,19 @@ def tilize_golden(input_tensor, tilize=True):
 
 def untilize_golden(input_tensor, tilize=False):
     """
-    @brief Custom golden function for untilize operation.
-    @param input_tensor Input tensor to untilize
-    @param tilize Tilize parameter (ignored, for compatibility)
-    @return Untilized tensor with proper layout transformation
+    Custom golden function for untilize operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to untilize
+    tilize : bool, optional
+        Tilize parameter (ignored, for compatibility) (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        Untilized tensor with proper layout transformation
     """
     shape = input_tensor.shape
     TILE_SIZE = 32
@@ -502,12 +728,23 @@ def untilize_golden(input_tensor, tilize=False):
 
 def upsample2d_golden(in0, in1, scale_factor, mode="nearest"):
     """
-    @brief Custom golden function for upsample2d operation.
-    @param in0 Input tensor to upsample
-    @param in1 Output tensor specification
-    @param scale_factor Scaling factor for upsampling
-    @param mode Upsampling mode (default: "nearest")
-    @return Upsampled 2D tensor
+    Custom golden function for upsample2d operation.
+
+    Parameters
+    ----------
+    in0 : torch.Tensor
+        Input tensor to upsample
+    in1 : torch.Tensor
+        Output tensor specification
+    scale_factor : Union[int, List[int]]
+        Scaling factor for upsampling
+    mode : str, optional
+        Upsampling mode (default: "nearest")
+
+    Returns
+    -------
+    torch.Tensor
+        Upsampled 2D tensor
     """
     transposed_golden = torch.transpose(in0, 1, 3)
     golden_output_shape = in1.shape[1:-1]
@@ -519,10 +756,19 @@ def upsample2d_golden(in0, in1, scale_factor, mode="nearest"):
 
 def fill_cache_golden(cache_tensor, input_tensor):
     """
-    @brief Custom golden function for fill_cache operation.
-    @param cache_tensor Cache tensor to fill
-    @param input_tensor Input tensor data
-    @return Filled cache tensor
+    Custom golden function for fill_cache operation.
+
+    Parameters
+    ----------
+    cache_tensor : torch.Tensor
+        Cache tensor to fill
+    input_tensor : torch.Tensor
+        Input tensor data
+
+    Returns
+    -------
+    torch.Tensor
+        Filled cache tensor
     """
     result = cache_tensor.clone()
     result[:, :, : input_tensor.shape[2], :] = input_tensor
@@ -531,11 +777,21 @@ def fill_cache_golden(cache_tensor, input_tensor):
 
 def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
     """
-    @brief Custom golden function for update_cache operation.
-    @param cache_tensor Cache tensor to update
-    @param update_tensor Tensor containing update data
-    @param indices_tensor Tensor containing update indices
-    @return Updated cache tensor
+    Custom golden function for update_cache operation.
+
+    Parameters
+    ----------
+    cache_tensor : torch.Tensor
+        Cache tensor to update
+    update_tensor : torch.Tensor
+        Tensor containing update data
+    indices_tensor : torch.Tensor
+        Tensor containing update indices
+
+    Returns
+    -------
+    torch.Tensor
+        Updated cache tensor
     """
     result = cache_tensor.clone()
     # Simple update logic - this would need to be refined based on actual requirements
@@ -552,14 +808,27 @@ def mesh_shard_golden(
     shard_dims: List[int],
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing mesh_shard on the input.
-    @param input Input tensor to be sharded
-    @param mesh_shape Shape of the device mesh
-    @param shard_type Type of sharding operation
-    @param shard_direction Direction of sharding
-    @param shard_shape Shape of the shard
-    @param shard_dims Dimensions to shard along
-    @return Random tensor with correct output shape and type
+    Return a random torch.Tensor which has the correct shape and type after doing mesh_shard on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to be sharded
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    shard_type : Attribute
+        Type of sharding operation
+    shard_direction : Attribute
+        Direction of sharding
+    shard_shape : Tuple[int, int]
+        Shape of the shard
+    shard_dims : List[int]
+        Dimensions to shard along
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
     """
     out_shape = list(input.shape)
     if "devices" in str(shard_type).lower():
@@ -580,12 +849,23 @@ def all_gather_golden(
     cluster_axis: int,
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing all_gather on the input.
-    @param input Input tensor to gather from all devices
-    @param mesh_shape Shape of the device mesh
-    @param all_gather_dim Dimension to gather along
-    @param cluster_axis Axis of the cluster for gathering
-    @return Random tensor with correct output shape and type
+    Return a random torch.Tensor which has the correct shape and type after doing all_gather on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to gather from all devices
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    all_gather_dim : int
+        Dimension to gather along
+    cluster_axis : int
+        Axis of the cluster for gathering
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
     """
     out_shape = list(input.shape)
     out_shape[all_gather_dim] *= mesh_shape[cluster_axis]
@@ -599,12 +879,23 @@ def all_reduce_golden(
     reduce_type: Attribute,
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing all_reduce on the input.
-    @param input Input tensor to reduce across devices
-    @param mesh_shape Shape of the device mesh
-    @param cluster_axis Axis of the cluster for reduction
-    @param reduce_type Type of reduction operation
-    @return Random tensor with correct output shape and type
+    Return a random torch.Tensor which has the correct shape and type after doing all_reduce on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to reduce across devices
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    cluster_axis : int
+        Axis of the cluster for reduction
+    reduce_type : Attribute
+        Type of reduction operation
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
     """
     return torch.randn(input.shape, dtype=input.dtype)
 
@@ -617,13 +908,25 @@ def reduce_scatter_golden(
     cluster_axis: int,
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing reduce_scatter on the input.
-    @param input Input tensor to reduce and scatter
-    @param mesh_shape Shape of the device mesh
-    @param reduce_type Type of reduction operation
-    @param scatter_dim Dimension to scatter along
-    @param cluster_axis Axis of the cluster for operation
-    @return Random tensor with correct output shape and type
+    Return a random torch.Tensor which has the correct shape and type after doing reduce_scatter on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to reduce and scatter
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    reduce_type : Attribute
+        Type of reduction operation
+    scatter_dim : int
+        Dimension to scatter along
+    cluster_axis : int
+        Axis of the cluster for operation
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
     """
     out_shape = list(input.shape)
     out_shape[scatter_dim] //= mesh_shape[cluster_axis]
@@ -636,11 +939,21 @@ def collective_permute_golden(
     source_target_pairs: List[Tuple[int, int]],
 ) -> torch.Tensor:
     """
-    @brief Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
-    @param input Input tensor to permute across devices
-    @param mesh_shape Shape of the device mesh
-    @param source_target_pairs List of (source, target) device ID pairs for permutation
-    @return Random tensor with correct output shape and type
+    Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to permute across devices
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    source_target_pairs : List[Tuple[int, int]]
+        List of (source, target) device ID pairs for permutation
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
     """
     return torch.randn(input.shape, dtype=input.dtype)
 
@@ -653,7 +966,29 @@ def all_to_all_golden(
     split_count: int,
     replica_groups: List[List[int]],
 ) -> torch.Tensor:
-    # Return a random torch.Tensor which has the correct shape and type after doing all_gather on the input.
+    """
+    Return a random torch.Tensor which has the correct shape and type after doing all_to_all on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to perform all-to-all communication on
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    split_dim : int
+        Dimension to split the input tensor along
+    concat_dim : int
+        Dimension to concatenate the received tensors along
+    split_count : int
+        Number of splits to perform
+    replica_groups : List[List[int]]
+        Groups of replica devices for communication
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
+    """
     out_shape = list(input.shape)
     out_shape[split_dim] //= split_count
     out_shape[concat_dim] *= split_count
@@ -665,16 +1000,52 @@ def collective_broadcast_golden(
     mesh_shape: Tuple[int, int],
     replica_groups: List[Tuple[int, int]],
 ) -> torch.Tensor:
-    # Return a random torch.Tensor which has the correct shape and type after doing collective_broadcast on the input.
+    """
+    Return a random torch.Tensor which has the correct shape and type after doing collective_broadcast on the input.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to broadcast across devices
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    replica_groups : List[Tuple[int, int]]
+        Groups of replica devices for broadcasting
+
+    Returns
+    -------
+    torch.Tensor
+        Random tensor with correct output shape and type
+    """
     return torch.randn(input.shape, dtype=input.dtype)
 
 
-## @brief Dictionary mapping TTIR operation classes to their corresponding golden functions.
-##
-## This dictionary provides a centralized mapping between TTIR operation types and their
-## PyTorch-based golden reference implementations. Each key is a TTIR operation class
-## (e.g., ttir.AbsOp) and each value is the corresponding golden function that computes
-## the expected output for that operation.
+"""
+Dictionary mapping TTIR operation classes to their corresponding golden functions.
+
+This dictionary provides a centralized mapping between TTIR operation types and their
+PyTorch-based golden reference implementations. Each key is a TTIR operation class
+(e.g., ttir.AbsOp) and each value is the corresponding golden function that computes
+the expected output for that operation.
+
+The mapping supports:
+    - Elementwise unary operations (abs, ceil, cos, etc.)
+    - Elementwise binary operations (add, multiply, subtract, etc.)
+    - Elementwise ternary operations (where, select, etc.)
+    - Comparison operations (eq, ne, lt, gt, etc.)
+    - Bitwise operations (and, or, xor, not)
+    - Reduction operations (sum, mean, max, min, etc.)
+    - Tensor manipulation (transpose, concat, reshape, etc.)
+    - Neural network operations (matmul, embedding, conv2d, etc.)
+    - Layout operations (to_layout, view_layout)
+    - Quantization operations (quantize, dequantize, requantize)
+    - Collective communication operations (all_gather, all_reduce, etc.)
+
+Usage:
+    golden_fn = GOLDEN_MAPPINGS.get(ttir.AbsOp)
+    if golden_fn:
+        result = golden_fn(input_tensor)
+"""
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: torch.tensor,
@@ -805,10 +1176,19 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
-    @brief Get the golden function for a given TTIR operation class.
-    @param ttir_op_class The TTIR operation class (e.g., ttir.AbsOp)
-    @param kwargs Additional keyword arguments for specialized operation selection
-    @return The corresponding golden function, or None if not found
+    Get the golden function for a given TTIR operation class.
+
+    Parameters
+    ----------
+    ttir_op_class : type
+        The TTIR operation class (e.g., ttir.AbsOp)
+    **kwargs
+        Additional keyword arguments for specialized operation selection
+
+    Returns
+    -------
+    Optional[Callable]
+        The corresponding golden function, or None if not found
     """
     # Handle special cases with parameters
     if ttir_op_class == ttir.ToLayoutOp and "tilize" in kwargs:
