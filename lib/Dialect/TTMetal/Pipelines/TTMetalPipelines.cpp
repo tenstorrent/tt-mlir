@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -123,7 +122,6 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
-  pm.addPass(ttmetal::createApplyHostMemrefCallingConventionPass());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::emitc::createFormExpressionsPass());
