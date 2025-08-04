@@ -1188,11 +1188,11 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
 
-// SliceOp verification
-::mlir::LogicalResult mlir::tt::ttnn::SliceOp::verify() {
+// SliceStaticOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SliceStaticOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::mlir::ArrayAttr begins = getBeginsAttr();
