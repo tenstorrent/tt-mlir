@@ -262,89 +262,48 @@ std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   return opNames;
 }
 
-bool outputsDRAMLayout(Operation *op) {
-  // Check if the operation has a result type that is a tensor
+// Helper function to get TTNNLayoutAttr from operation's first result
+static std::optional<TTNNLayoutAttr> getTTNNLayoutAttrFromOp(Operation *op) {
   if (op->getNumResults() == 0) {
-    return false;
+    return std::nullopt;
   }
 
   auto resultType =
       mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
   if (!resultType) {
-    return false;
+    return std::nullopt;
   }
 
   auto encoding = resultType.getEncoding();
   if (!encoding) {
-    return false;
+    return std::nullopt;
   }
 
   if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.hasDRAMBufferType();
+    return ttnnLayout;
   }
 
-  return false;
+  return std::nullopt;
+}
+
+bool outputsTTNNLayoutEncoding(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout.has_value();
+}
+
+bool outputsDRAMLayout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->hasDRAMBufferType();
 }
 
 bool outputsL1Layout(Operation *op) {
-  // Check if the operation has a result type that is a tensor
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-
-  auto resultType =
-      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
-  if (!resultType) {
-    return false;
-  }
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.hasL1BufferType();
-  }
-
-  return false;
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->hasL1BufferType();
 }
 
-bool outputsTensorWithSetLayout(Operation *op) {
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-
-  auto resultType =
-      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
-  if (!resultType) {
-    return false;
-  }
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool isTiledTensorLayout(Operation *op) {
-  auto resultType =
-      mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType());
-
-  auto encoding = resultType.getEncoding();
-  if (!encoding) {
-    return false;
-  }
-  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    return ttnnLayout.isTiled();
-  }
-  return false;
+bool outputsTiledTensorLayout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->isTiled();
 }
 
 } // namespace mlir::tt::ttnn::utils
