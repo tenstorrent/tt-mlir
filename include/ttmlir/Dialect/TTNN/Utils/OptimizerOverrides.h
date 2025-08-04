@@ -24,6 +24,7 @@ public:
   // Enable/disable the memory configurations.
   void setMemoryReconfig(bool);
   void setEnableMemoryLayoutAnalysis(bool);
+  void setEnableL1InterleavedFallbackAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
   void setInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> &);
@@ -40,6 +41,7 @@ public:
   // Get the current state of the memory configurations.
   bool getMemoryReconfig() const;
   bool getEnableMemoryLayoutAnalysis() const;
+  bool getEnableL1InterleavedFallbackAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
   llvm::StringMap<InsertMemReconfigParams> getInsertMemReconfig() const;

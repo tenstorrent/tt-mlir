@@ -471,6 +471,19 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
   ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 }
 
+// Test the setEnableL1InterleavedFallbackAnalysis method
+TEST_F(TestOptimizerOverrideHandler,
+       TestSetEnableL1InterleavedFallbackAnalysis) {
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
+  ASSERT_TRUE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(false);
+  ASSERT_FALSE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+}
+
 // Test the setEnableMemoryLayoutAnalysisPolicy method
 TEST_F(TestOptimizerOverrideHandler, TestSetEnableMemoryLayoutAnalysisPolicy) {
 
@@ -666,6 +679,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(

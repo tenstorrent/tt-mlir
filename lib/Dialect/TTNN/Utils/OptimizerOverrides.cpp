@@ -16,6 +16,10 @@ void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
 }
+void OptimizerOverridesHandler::setEnableL1InterleavedFallbackAnalysis(
+    bool value) {
+  enableL1InterleavedFallbackAnalysis = value;
+}
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
     bool value) {
   enableMemoryLayoutAnalysisPolicy = value;
@@ -59,6 +63,9 @@ bool OptimizerOverridesHandler::getMemoryReconfig() const {
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
+}
+bool OptimizerOverridesHandler::getEnableL1InterleavedFallbackAnalysis() const {
+  return enableL1InterleavedFallbackAnalysis;
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const {
   return enableMemoryLayoutAnalysisPolicy;
