@@ -916,14 +916,20 @@ class TTKernelCompiler(ast.NodeVisitor):
             return memref.LoadOp(arr, idx)
 
     def visit_Attribute(self, node, func_args=[]):
-        # regex match for ttkernel.* and check if it has a PyKernelAttrBase subclass
-        pattern = r"ttkernel\.[a-zA-Z_][a-zA-Z0-9_]*"
+        # type name should be !ttkernel.* if it has attributes
         mlir_value = self.var_exists(node.value.id)[node.value.id]
-        match = re.search(pattern, str(mlir_value.type)).group()
-        if match and ClassRegistry.exists(match):
+        mlir_type = str(mlir_value.type)
+        if not mlir_type.startswith("!ttkernel."):
+            raise ValueError(
+                f"{node.value.id} is not a ttkernel type, thus can not have attributes."
+            )
+        # ignore the '!' at the start of the type name
+        type_name = mlir_type[1:]
+
+        if ClassRegistry.exists(type_name):
             # Instantiate class and call its emit_mlir method.
             func_args = [mlir_value] + func_args
-            attr_class = ClassRegistry.get(match)()
+            attr_class = ClassRegistry.get(type_name)()
             attr_class.emit_mlir(node.attr, func_args)
         else:
             raise ValueError(
