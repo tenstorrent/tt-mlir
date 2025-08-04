@@ -2995,6 +2995,101 @@ class TTIRBuilder(Builder):
             },
             unit_attrs=unit_attrs,
         )
+    def batch_norm(
+        self,
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        epsilon: float = 1e-5,
+        dimension: int = 1,
+        training: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.batch_norm``.
+
+        *Batch normalization operation.*
+
+        Applies batch normalization to the input tensor using the provided scale, offset,
+        mean, and variance. This operation normalizes the input tensor across the specified dimension: 
+        batch_norm(x, scale, offset, mean, variance, epsilon, dimension) = 
+         (x - mean) / sqrt(variance + epsilon) * scale + offset
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to normalize
+        scale : Operand
+            Scale tensor for normalization
+        offset : Operand
+            Offset tensor for normalization
+        mean : Operand
+            Mean tensor for normalization
+        variance : Operand
+            Variance tensor for normalization
+        epsilon : float, optional
+            Small value added to variance for numerical stability (default: 1e-5)
+        dimension : int, optional
+            Dimension along which to normalize (default: 1)
+        training : bool, optional
+            Whether the operation is in training mode (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after batch normalization
+        """
+        return self.op_proxy(
+            self.batch_norm_golden_function,
+            ttir.BatchNormOp,
+            [in0, scale, offset, mean, variance],
+            golden_kwargs={
+                "epsilon": epsilon,
+                "training": training,
+                "dim": dimension,
+            },
+            ttir_kwargs={
+                "epsilon": FloatAttr.get_f32(epsilon),
+                "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
+                "training": BoolAttr.get(training),
+            },
+            # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
+            unit_attrs=unit_attrs,
+        )
+
+    @autodoc_skip
+    def batch_norm_golden_function(
+        self,
+        input_tensor: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        epsilon: float = 1e-5,
+        training: bool = False,
+        momentum: float = 0.1,
+        dim: int = 1,
+    ) -> Operand:
+        perm = list(range(input_tensor.ndim))
+        perm[1], perm[dim] = perm[dim], perm[1]
+        input_tensor = input_tensor.permute(perm)
+        result = torch.nn.functional.batch_norm(
+            input_tensor,
+            running_mean=mean,
+            running_var=variance,
+            weight=scale,
+            bias=offset,
+            training=training,
+            momentum=momentum,
+            eps=epsilon,
+        )
+        inv_perm = [perm.index(i) for i in range(len(perm))]
+        result = result.permute(inv_perm)
+        return result
 
     def reshape(
         self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
