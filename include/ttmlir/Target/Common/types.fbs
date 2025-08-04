@@ -150,3 +150,8 @@ table DynamicLib {
   dylib_id: uint32;
   raw_file: [uint8];
 }
+
+table MLIR {
+  name: string;
+  source: string;
+}

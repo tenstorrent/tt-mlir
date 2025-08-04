@@ -15,15 +15,20 @@ def _parse_tensor_ref(ref):
     if type(ref) == list:
         tensors = (_parse_tensor_ref(r) for r in ref)
         return [t for l in tensors for t in l]
-    return [
-        {
-            "shape": ref["desc"]["shape"],
-            "data_type": ref["desc"]["layout"]["memory_desc"]["data_type"],
-            "memory_space": ref["desc"]["layout"]["memory_desc"]["memory_space"],
-            "memory_layout": ref["desc"]["layout"]["memory_desc"]["memory_layout"],
-            "core_range_set": ref["desc"]["layout"]["core_range_set"],
-        }
-    ]
+
+    returns = {
+        "shape": ref["desc"]["shape"],
+        "data_type": ref["desc"]["layout"]["memory_desc"]["data_type"],
+        "size": ref["desc"]["layout"]["memory_desc"]["size"],
+    }
+    if "memory_config" in ref["desc"]["layout"]["memory_desc"]:
+        returns["memory_config"] = ref["desc"]["layout"]["memory_desc"]["memory_config"]
+        if "shard_spec" in ref["desc"]["layout"]["memory_desc"]["memory_config"]:
+            returns["core_range_set"] = ref["desc"]["layout"]["memory_desc"][
+                "memory_config"
+            ]["shard_spec"]["core_range_set"]
+
+    return returns
 
 
 def _parse_inputs_outputs(operation):
@@ -47,6 +52,7 @@ def _parse_attributes(operation):
 def collect_op_stats(bin: Binary):
     assert bin.file_identifier == "TTNN", "Only supports TTNN binary files"
     programs = []
+    operations = []
     for program_index in range(bin.get_num_programs()):
         json_operations = json.loads(bin.get_program_ops_as_json(program_index))
 
@@ -69,8 +75,7 @@ def collect_op_stats(bin: Binary):
                 }
             )
         programs.append(operations)
-
-    return programs
+    return str(programs)
 
 
 def construct_op_stats_json(frontend: str, model: str, bin: Binary):
