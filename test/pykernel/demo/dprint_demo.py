@@ -35,21 +35,26 @@ class DPrintPyKernelOp(PyKernelOp):
         return self.create_program(kernels, [])
 
 
-# Set env var to enable dprint
-os.environ["TT_METAL_DPRINT_CORES"] = "0, 0"
-device = ttnn.open_device(device_id=0)
+def main(device):
+    shape = [1, 1, 32, 32]
+    data0 = torch.zeros(shape).to(torch.bfloat16)
 
-shape = [1, 1, 32, 32]
-data0 = torch.zeros(shape).to(torch.bfloat16)
+    dummy_tensor = ttnn.from_torch(
+        data0,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
 
-dummy_tensor = ttnn.from_torch(
-    data0,
-    dtype=ttnn.bfloat16,
-    layout=ttnn.TILE_LAYOUT,
-    device=device,
-    memory_config=ttnn.DRAM_MEMORY_CONFIG,
-)
+    # Must pass an input and output tensor to generic
+    dprint_op = DPrintPyKernelOp()
+    dprint_op(dummy_tensor, dummy_tensor)
 
-# Must pass an input and output tensor to generic
-dprint_op = DPrintPyKernelOp()
-dprint_op(dummy_tensor, dummy_tensor)
+
+if __name__ == "__main__":
+    # Set env var to enable dprint
+    os.environ["TT_METAL_DPRINT_CORES"] = "0,0"
+    device = ttnn.open_device(device_id=0)
+    main(device)
+    ttnn.close_device(device)
