@@ -550,7 +550,8 @@ public:
     }
     // Used only paired with convolution
     Operation *definingOp = batchNormOp->getOperand(0).getDefiningOp();
-    if (!definingOp || !isa<ConvolutionOp>(definingOp)) {
+    if (!definingOp ||
+        (!isa<ConvolutionOp>(definingOp) && !isa<Conv2dOp>(definingOp))) {
       return mlir::failure();
     }
 
