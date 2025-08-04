@@ -286,22 +286,22 @@ static std::optional<TTNNLayoutAttr> getTTNNLayoutAttrFromOp(Operation *op) {
   return std::nullopt;
 }
 
-bool outputsTTNNLayoutEncoding(Operation *op) {
+bool producesTTNNLayoutEncoding(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout.has_value();
 }
 
-bool outputsDRAMLayout(Operation *op) {
+bool producesDRAMLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->hasDRAMBufferType();
 }
 
-bool outputsL1Layout(Operation *op) {
+bool producesL1Layout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->hasL1BufferType();
 }
 
-bool outputsTiledTensorLayout(Operation *op) {
+bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
 }

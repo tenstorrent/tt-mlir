@@ -28,14 +28,14 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // Skip operations that have the row-major workaround later on in Optimizer
     // TODO(bmalesevic): remove this after manual row-major workaround is
     // removed
-    if (isa<ttnn::MaxPool2dOp>(op) || isa<ttnn::UpsampleOp>(op)) {
+    if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
       return;
     }
 
     // Skip operations whose consumers are MaxPool2dOp or UpsampleOp, also
     // because they have the row-major workaround later on in Optimizer.
     for (auto *user : op->getUsers()) {
-      if (isa<ttnn::MaxPool2dOp>(user) || isa<ttnn::UpsampleOp>(user)) {
+      if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(user)) {
         return;
       }
     }
@@ -45,7 +45,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
     // Skip if operation doesn't use DRAM layout
-    if (!utils::outputsDRAMLayout(op)) {
+    if (!utils::producesDRAMLayout(op)) {
       return;
     }
     // Skip if producer is not immediately consumed by consumer
@@ -60,7 +60,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     std::vector<OpConfig> opL1InterleavedConfigs =
         getL1InterleavedLayoutConfigs(op);
 
-    bool isCurrentlyTiled = utils::outputsTiledTensorLayout(op);
+    bool isCurrentlyTiled = utils::producesTiledTensorLayout(op);
 
     // Partition configs to prioritize those matching current tiling preference
     std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
@@ -268,7 +268,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   assert(nextConsumerOp && "Operation must have a consumer");
   // If next consumer has TTNN layout output encoding, verify both operations
   // can coexist in L1
-  if (utils::outputsTTNNLayoutEncoding(nextConsumerOp)) {
+  if (utils::producesTTNNLayoutEncoding(nextConsumerOp)) {
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 
