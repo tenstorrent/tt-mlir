@@ -154,8 +154,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   uint32_t numOperands = consumerOp->getNumOperands();
   // Discard DPS operand since it's not used in runtime.
   // TODO(odjuricic,#2088): Remove once fix this on MLIR / runtime side.
-  if (llvm::isa<DestinationStyleOpInterface>(consumerOp)) {
-    numOperands = numOperands - 1;
+  if (auto dpsOp = llvm::dyn_cast<DestinationStyleOpInterface>(consumerOp)) {
+    numOperands = dpsOp.getNumDpsInputs();
   }
 
   std::vector<TTNNLayoutAttr> inputLayouts;
