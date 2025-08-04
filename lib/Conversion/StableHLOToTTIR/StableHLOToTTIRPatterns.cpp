@@ -2174,7 +2174,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    // Reshape start indices to 1D tensors for ConcatOp
+    // Reshape start indices to 1D tensors for concat op
     ValueRange startIndicesRange = adaptor.getStartIndices();
     SmallVector<Value> startIndicesValues1D;
     auto startIndexElementType =
@@ -2190,7 +2190,7 @@ public:
           startIndex, rewriter.getI32ArrayAttr({1}));
       startIndicesValues1D.push_back(reshapedIndex);
     }
-    // Create a single 1D tensor from start indices values using ConcatOp
+    // Create a single 1D tensor from start indices values using concat op
     auto startIndicesTensorType = RankedTensorType::get(
         {static_cast<int64_t>(startIndicesValues1D.size())},
         startIndexElementType);
@@ -2200,11 +2200,9 @@ public:
             startIndexElementType, startIndicesTensorType.getEncoding(),
             startIndicesValues1D, /*dim=*/0);
 
-    // Convert slice_sizes to int32_t vector (single conversion for both uses)
+    // Create a 1D constant tensor with slice_sizes values
     auto sliceSizes = srcOp.getSliceSizes();
     SmallVector<int32_t> sliceSizesInt32(sliceSizes.begin(), sliceSizes.end());
-
-    // Create a 1D constant tensor with slice_sizes values
     auto sliceSizesTensorType = RankedTensorType::get(
         {static_cast<int64_t>(sliceSizesInt32.size())}, rewriter.getI32Type());
     auto sliceSizesAttr = mlir::DenseElementsAttr::get(
