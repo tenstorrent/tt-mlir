@@ -550,7 +550,27 @@ class ChiselContext:
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
-            tensor = torch.randn(shape, dtype=torch_dtype)
+            # Check if the dtype is an integer type
+            if torch_dtype in [
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+                torch.uint8,
+            ]:
+                # Generate random integer tensors
+                if torch_dtype == torch.uint8:
+                    tensor = torch.randint(0, 256, shape, dtype=torch_dtype)
+                elif torch_dtype == torch.int8:
+                    tensor = torch.randint(-128, 128, shape, dtype=torch_dtype)
+                elif torch_dtype == torch.int16:
+                    tensor = torch.randint(-32768, 32768, shape, dtype=torch_dtype)
+                elif torch_dtype == torch.int32:
+                    tensor = torch.randint(
+                        -2147483648, 2147483647, shape, dtype=torch_dtype
+                    )
+            else:
+                tensor = torch.randn(shape, dtype=torch_dtype)
             self.device_tensor_pool[arg_name] = TensorValue(
                 arg_name, tensor, ExecutionType.DEVICE
             )

@@ -529,5 +529,8 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+
+  nb::module_ atexit = nb::module_::import_("atexit");
+  atexit.attr("register")(m.attr("unregister_hooks"));
 }
 } // namespace tt::runtime::python

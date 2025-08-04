@@ -61,7 +61,7 @@ def parse_arguments():
         "--main-function",
         "-f",
         type=str,
-        default="transpose_matmul",
+        default="main",
         help="Name of the main function to execute",
     )
 
