@@ -618,6 +618,22 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
   return status;
 }
 
+// Construct a new MemoryConfigAttr
+//
+// This function creates new MemoryConfigAttr from given TTNNLayoutAttr.
+//
+// param layoutAttr The TTNNLayoutAttr to create MemoryConfigAttr from.
+// param deviceGrid Device grid to use for sharding spec.
+// return The constructed MemoryConfigAttr.
+MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
+                                       mlir::tt::ttcore::GridAttr deviceGrid) {
+  BufferTypeAttr bufferTypeAttr =
+      mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace());
+  return MemoryConfigAttr::get(
+      layoutAttr.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
+      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+}
+
 // Construct a new MemoryConfig
 //
 // This function creates a deep copy of the current MemoryConfigAttr and
