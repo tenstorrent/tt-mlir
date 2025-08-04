@@ -997,11 +997,12 @@ def test_all_to_all(
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "test_shape",
     [
-        (1, 1, 256, 4096),
-        (1, 1, 128, 256),
-        (1, 1, 64, 128),
+        (256, 128),
+        (32, 128, 64),
+        (8, 8, 32, 64),
+        (10, 10, 30, 60),
     ],
 )
 @pytest.mark.parametrize(
@@ -1015,33 +1016,23 @@ def test_all_to_all(
     ],
 )
 def test_collective_broadcast(
-    shape: Shape, mesh_shape: Tuple[int, int], replica_groups, request
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    replica_groups,
+    request,
+    shard_wrap_factory,
 ):
-    shard_shape = (1, 1) + mesh_shape
-
-    def collective_broadcast(in0: Operand, builder: TTIRBuilder):
-        sharded = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=(2, 3),
-        )
-        reduced = builder.collective_broadcast(
-            sharded,
+    def collective_broadcast(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.collective_broadcast(
+            sharded_in,
             replica_groups=replica_groups,
         )
-        return builder.mesh_shard(
-            reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=(2, 3),
-        )
+
+    input_shape, test_fn = shard_wrap_factory(collective_broadcast)
 
     compile_ttir_to_flatbuffer(
-        collective_broadcast,
-        [shape],
+        test_fn,
+        [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
