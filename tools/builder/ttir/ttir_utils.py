@@ -348,7 +348,7 @@ def run_ttir_pipeline(
     if argument_types_string:
         pipeline_options.append("enable-const-eval=true")
         tt_populate_argument_types(module, argument_types_string)
-    if (
+    if "TTMLIR_ENABLE_OPMODEL" in os.environ and (
         optimization_policy
         or builder._get_output_layout_params()
         or builder._get_conv2d_config_params()
