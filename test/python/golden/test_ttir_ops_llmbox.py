@@ -4,7 +4,7 @@
 import torch
 import pytest
 
-from typing import List, Tuple
+from typing import List, Tuple, Sequence
 from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
@@ -219,6 +219,108 @@ def test_collective_permute(
         [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def _make_shard_shape(
+    tensor_rank: int,
+    shard_dims: Sequence[int],
+    mesh_shape: Sequence[int],
+) -> List[int]:
+    assert len(shard_dims) == len(mesh_shape)
+    shard_shape = [1] * tensor_rank
+    for mesh_axis, tensor_dim in enumerate(shard_dims):
+        if tensor_dim >= 0:
+            shard_shape[tensor_dim] = mesh_shape[mesh_axis]
+    return shard_shape
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512)],
+        [(512, 32), (32, 256)],
+        [(1024, 16), (16, 512)],
+        [(1024, 8), (8, 512)],
+        [(1024, 8), (8, 512)],
+        [(256, 128), (128, 256)],
+    ],
+)
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [
+        (2, 4),
+        (4, 2),
+        (1, 8),
+        (8, 1),
+        (1, 2),
+        (2, 1),
+    ],
+)
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+def test_matmul_multi_2d(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("parallelism across 1 device is meaningless")
+
+    shard_dims_in = [1, 0] if cluster_axis == 0 else [0, 1]
+    shard_dims_wt = [0, -1] if cluster_axis == 0 else [-1, 0]
+
+    shard_shape_in = _make_shard_shape(len(shapes[0]), shard_dims_in, mesh_shape)
+    shard_shape_wt = _make_shard_shape(len(shapes[1]), shard_dims_wt, mesh_shape)
+
+    if mesh_shape[1 - cluster_axis] == 1:
+        # If the all_reduce result is fully replicated, unshard using the <replicate> type.
+        shard_dims_out = [-1]
+        shard_shape_out = [1]
+        unshard_type = "#ttcore.shard_type<replicate>"
+    else:
+        shard_dims_out = [-1, 0] if cluster_axis == 0 else [0, -1]
+        shard_shape_out = _make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
+        unshard_type = "#ttcore.shard_type<devices>"
+
+    def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        weight = builder._get_golden_tensor(in1)
+        golden_output = torch.matmul(input, weight)
+        builder.set_graph_input_output([input, weight], [golden_output])
+
+        sharded_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape_in,
+            shard_dims=shard_dims_in,
+        )
+        sharded_in1 = builder.mesh_shard(
+            in1,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape_wt,
+            shard_dims=shard_dims_wt,
+        )
+        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+        reduced = builder.all_reduce(
+            partial_matmul,
+            reduce_type="#ttcore.reduce_type<sum>",
+            cluster_axis=cluster_axis,
+        )
+        return builder.mesh_shard(
+            reduced,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type=unshard_type,
+            shard_shape=shard_shape_out,
+            shard_dims=shard_dims_out,
+        )
+
+    compile_ttir_to_flatbuffer(
+        matmul_multi,
+        shapes,
+        mesh_shape=mesh_shape,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
