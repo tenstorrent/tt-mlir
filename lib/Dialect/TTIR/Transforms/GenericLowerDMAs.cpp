@@ -188,7 +188,7 @@ public:
         builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,
             ValueRange /*args*/) {
-          SmallVector<Value> srcIndex =
+          SmallVector<Value> remoteIndices =
               llvm::to_vector(llvm::concat<Value>(streamIndex, iters));
 
           Value cfExpr = builder.create<arith::ConstantOp>(
@@ -233,9 +233,9 @@ public:
           auto thenBuilder = ifExpr.getThenBodyBuilder();
 
           auto srcIndices =
-              dma.isSrcRemote() ? srcIndex : llvm::to_vector(iters);
+              dma.isSrcRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dstIndices =
-              dma.isDstRemote() ? srcIndex : llvm::to_vector(iters);
+              dma.isDstRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dmaOp = thenBuilder.create<ttir::DMAOp>(
               dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
               coalescingFactor);
@@ -250,6 +250,42 @@ public:
     return loopNest;
   }
 
+  // Analyzes a DMA stream and returns a vector of stream indices, the
+  // underlying shard shape, and the max coalescing factor
+  static std::pair<SmallVector<Value>, size_t>
+  analyzeStream(PatternRewriter &rewriter, Location loc,
+                AffineMap dmaIndexingMap, MemRefType memref,
+                ViewOpInterface viewInterface, GenericOp genericParent) {
+    size_t elemSizeBytes = getElementSizeBytes(memref);
+    ttcore::DeviceLayoutInterface layout =
+        mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
+    ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
+    ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
+
+    unsigned outputOperandsIndex =
+        genericParent.getOutputs().getBeginOperandIndex();
+    // The output and the grid indexing must always be aligned.
+    AffineMap gridIndexingMap =
+        mlir::cast<AffineMapAttr>(
+            genericParent.getIndexingMaps()[outputOperandsIndex])
+            .getValue();
+
+    auto [streamIndices, indexBounds] = buildStreamIndex(
+        rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
+        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+
+    ttcore::DeviceAttr device = genericParent.getDevice();
+    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
+        viewInterface.applyViews();
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
+                                              0 /* use default page size*/);
+    size_t coalescingFactor =
+        calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
+                                  elemSizeBytes, indexBounds);
+
+    return {streamIndices, coalescingFactor};
+  }
+
   LogicalResult matchAndRewrite(DMAOp dma,
                                 PatternRewriter &rewriter) const final {
     if (!dma.isAffine()) {
@@ -257,67 +293,39 @@ public:
       return failure();
     }
 
-    // assert(dma.getSrcAffineMap() && "DMA src affine map expected");
+    auto affine_map =
+        dma.isSrcRemote() ? dma.getSrcAffineMap() : dma.getDstAffineMap();
+    auto memref =
+        dma.isSrcRemote() ? dma.getSrcMemRefType() : dma.getDstMemRefType();
+    auto defining_op = mlir::cast<ttir::ViewOpInterface>(
+        dma.isSrcRemote() ? dma.getSrc().getDefiningOp()
+                          : dma.getDst().getDefiningOp());
 
-    auto analyzeStream = [](PatternRewriter &rewriter, Location loc,
-                            AffineMap dmaIndexingMap, MemRefType memref,
-                            ViewOpInterface viewInterface,
-                            GenericOp genericParent) {
-      size_t elemSizeBytes = getElementSizeBytes(memref);
-      ttcore::DeviceLayoutInterface layout =
-          mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
-      ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
-      ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
+    // analyze remote stream (either src or dst) to extract a vec of stream
+    // indices and a max coalescing factor
+    auto [streamIndices, coalescingFactor] =
+        analyzeStream(rewriter, dma.getLoc(), *affine_map, memref, defining_op,
+                      dma->getParentOfType<ttir::GenericOp>());
 
-      unsigned outputOperandsIndex =
-          genericParent.getOutputs().getBeginOperandIndex();
-      // The output and the grid indexing must always be aligned.
-      AffineMap gridIndexingMap =
-          mlir::cast<AffineMapAttr>(
-              genericParent.getIndexingMaps()[outputOperandsIndex])
-              .getValue();
-
-      auto [streamIndex, indexBounds] = buildStreamIndex(
-          rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-          memrefShardShape, dmaIndexingMap, gridIndexingMap);
-
-      ttcore::DeviceAttr device = genericParent.getDevice();
-      std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-          viewInterface.applyViews();
-      AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
-                                                0 /* use default page size*/);
-      size_t coalescingFactor = calculateCoalescingFactor(
-          memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes,
-          indexBounds);
-      return std::make_tuple(streamIndex, memrefShardShape, coalescingFactor);
-    };
-
-    auto [streamIndex, memrefShardShape, coalescingFactor] =
-        dma.isSrcRemote()
-            ? analyzeStream(rewriter, dma.getLoc(), *dma.getSrcAffineMap(),
-                            dma.getSrcMemRefType(),
-                            mlir::cast<ttir::ViewOpInterface>(
-                                dma.getSrc().getDefiningOp()),
-                            dma->getParentOfType<ttir::GenericOp>())
-            : analyzeStream(rewriter, dma.getLoc(), *dma.getDstAffineMap(),
-                            dma.getDstMemRefType(),
-                            mlir::cast<ttir::ViewOpInterface>(
-                                dma.getDst().getDefiningOp()),
-                            dma->getParentOfType<ttir::GenericOp>());
+    ArrayRef<int64_t> memrefShardShape =
+        mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout())
+            .getShardShape(memref);
+    size_t shardVolume = ttmlir::utils::volume(memrefShardShape);
 
     Operation *newDma;
-    if (coalescingFactor ==
-        static_cast<size_t>(ttmlir::utils::volume(memrefShardShape))) {
+    if (coalescingFactor == shardVolume) {
       // Fully contiguous DMA; lower to a single operation
-      auto srcIndices = dma.isSrcRemote() ? streamIndex : SmallVector<Value>();
-      auto dstIndices = dma.isDstRemote() ? streamIndex : SmallVector<Value>();
+      auto srcIndices =
+          dma.isSrcRemote() ? streamIndices : SmallVector<Value>();
+      auto dstIndices =
+          dma.isDstRemote() ? streamIndices : SmallVector<Value>();
       newDma = rewriter.create<ttir::DMAOp>(
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
           dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
 
       scf::LoopNest loopNest =
-          buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndex,
+          buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndices,
                                    memrefShardShape, coalescingFactor);
       newDma = loopNest.loops.front();
     }
