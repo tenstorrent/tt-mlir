@@ -174,6 +174,28 @@ class Builder:
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo], seed: int
     ) -> torch.Tensor:
+        """
+        Generates a random tensor for testing purposes.
+
+        *Creates random tensors with specified shape and data type.*
+
+        Generates random tensors with the given shape and data type, using the provided seed
+        for reproducibility. Supports both regular PyTorch dtypes and quantized types.
+
+        Parameters
+        ----------
+        shape : Shape
+            Shape of the tensor to generate
+        dtype : Union[torch.dtype, TypeInfo]
+            Data type for the tensor. Can be a PyTorch dtype or TypeInfo for quantized types
+        seed : int
+            Random seed for reproducible generation
+
+        Returns
+        -------
+        torch.Tensor
+            Random tensor with specified shape and data type
+        """
         if isinstance(dtype, TypeInfo):
             float_tensor = torch.randn(
                 shape, generator=torch.manual_seed(seed), dtype=torch.float32
@@ -195,9 +217,46 @@ class Builder:
             )
 
     def _get_default_dtype(self) -> Type:
+        """
+        Gets the default MLIR data type.
+
+        *Returns the default floating-point type for tensor operations.*
+
+        Returns the default MLIR type used when no specific data type is provided.
+        Currently returns a 32-bit floating-point type.
+
+        Returns
+        -------
+        Type
+            Default MLIR data type (F32Type)
+        """
         return F32Type.get(self._ctx)
 
     def _get_type(self, input: Operand):
+        """
+        Extracts the MLIR type from an operand.
+
+        *Gets the tensor type from various operand types.*
+
+        Extracts the MLIR RankedTensorType from different types of operands including
+        MLIR Values, OpViews, and Operations. Validates that the operand represents
+        a ranked tensor.
+
+        Parameters
+        ----------
+        input : Operand
+            Input operand (Value, OpView, or Operation)
+
+        Returns
+        -------
+        RankedTensorType
+            The tensor type of the operand
+
+        Raises
+        ------
+        TypeError
+            If the input is not a supported operand type or is not a ranked tensor
+        """
         if isinstance(input, Value):
             typ = input.type
         elif isinstance(input, OpView):
@@ -240,6 +299,29 @@ class Builder:
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
+        """
+        Creates a RankedTensorType with specified shape and data type.
+
+        *Creates MLIR RankedTensorType for tensor operations.*
+
+        Creates an MLIR RankedTensorType with the given shape and data type. If no data type
+        is provided, uses the default floating-point type. The shape should be a sequence of
+        integers, and the data_type should be an MLIR Type.
+
+        Parameters
+        ----------
+        shape : Shape
+            Shape of the tensor as a sequence of integers
+        data_type : Optional[Type], optional
+            MLIR data type for the tensor. If None, uses default type
+        encoding : Optional[Attribute], optional
+            Optional encoding attribute for the tensor type
+
+        Returns
+        -------
+        RankedTensorType
+            MLIR RankedTensorType with specified shape and data type
+        """
         dtype = data_type if data_type is not None else self._get_default_dtype()
 
         with self._ctx, self._loc:
@@ -251,6 +333,37 @@ class Builder:
         scale: Optional[float] = None,
         zero_point: Optional[float] = None,
     ) -> Type:
+        """
+        Converts PyTorch data types to MLIR types.
+
+        *Maps PyTorch dtypes to corresponding MLIR types.*
+
+        Converts PyTorch data types (torch.dtype) to their corresponding MLIR types.
+        Supports both regular PyTorch dtypes and quantized types. For quantized types,
+        scale and zero_point parameters can be provided to create TypeInfo objects.
+
+        Parameters
+        ----------
+        dtype : Union[torch.dtype, TypeInfo]
+            PyTorch data type or TypeInfo for quantized types
+        scale : Optional[float], optional
+            Scale factor for quantized types
+        zero_point : Optional[float], optional
+            Zero point for quantized types
+
+        Returns
+        -------
+        Type
+            Corresponding MLIR type
+
+        Raises
+        ------
+        ValueError
+            If TypeInfo is required for qint32 but not provided, or if scale/zero_point
+            are missing for quantized types
+        TypeError
+            If the dtype is not supported
+        """
         if scale is not None and zero_point is not None:
             dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
