@@ -65,7 +65,9 @@ handle_attr_type = {
     ir.DenseIntElementsAttr: handle_dense_elements_attr,
     ir.IntegerAttr: lambda x: x.value,
     ir.BoolAttr: lambda x: x.value,
+    ir.FloatAttr: lambda x: x.value,
     ir.DenseI64ArrayAttr: lambda x: [x[i] for i in range(len(x))],
+    ir.DenseI32ArrayAttr: lambda x: [x[i] for i in range(len(x))],
     ir.DenseFPElementsAttr: handle_dense_elements_attr,
     ir.ArrayAttr: lambda x: [x[i].value for i in range(len(x))],
     ir.StringAttr: lambda x: x.value,
@@ -366,6 +368,12 @@ def custom_fill_cache(
     result[:, :, batch_offset : input.shape[-2]] = input
     return result
 
+def custom_full(*args, **kwargs):
+    shape = kwargs["size"]
+    fill_value = kwargs["fill_value"]
+    print(f"Debug: custom_full {shape} {fill_value}")
+    return torch.full(shape, fill_value)
+
 
 def custom_update_cache(
     cache: torch.Tensor,
@@ -445,6 +453,7 @@ ttir_to_torch_mapping = {
     ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
+    "ttir.full": OpMapping(custom_full, {"shape": "size", "fill_value": "fill_value"}, unpack_inputs=False),
     "ttir.embedding": OpMapping(torch.nn.functional.embedding),
     "ttir.fill_cache": OpMapping(
         custom_fill_cache,
