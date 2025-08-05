@@ -36,9 +36,10 @@ on:
         type: boolean
 
 permissions:
+  actions: write
+  contents: read
   packages: write
   checks: write
-  contents: write
 
 jobs:
   trigger:
