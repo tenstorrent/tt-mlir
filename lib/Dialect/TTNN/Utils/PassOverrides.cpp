@@ -48,7 +48,7 @@ bool parseBool(StringRef param, bool &result) {
 } // namespace
 
 // Full Example:
-// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
 // Partial Example:
 // conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16
 bool Conv2dConfigOverrideParser::parse(
@@ -242,17 +242,6 @@ bool Conv2dConfigOverrideParser::parse(
           return true;
         }
         params.enableSplitReader = enableSplitReader;
-      } else if (paramName == "enable_subblock_padding") {
-        bool enableSubblockPadding;
-        if (parseBool(paramValue, enableSubblockPadding)) {
-          opt.error("Invalid enable_subblock_padding: " + paramValue);
-          return true;
-        }
-        if (params.enableSubblockPadding.has_value()) {
-          opt.error("Duplicate enable_subblock_padding: " + paramValue);
-          return true;
-        }
-        params.enableSubblockPadding = enableSubblockPadding;
       } else {
         opt.error("Invalid override parameter: " + paramName);
         return true;
@@ -325,10 +314,6 @@ std::string Conv2dConfigOverrideParser::toString(
     if (params.enableSplitReader.has_value()) {
       rso << "enable_split_reader#"
           << (params.enableSplitReader.value() ? "true" : "false") << ":";
-    }
-    if (params.enableSubblockPadding.has_value()) {
-      rso << "enable_subblock_padding#"
-          << (params.enableSubblockPadding.value() ? "true" : "false") << ":";
     }
     rso.flush();
     // Remove the last ':' if there are parameters

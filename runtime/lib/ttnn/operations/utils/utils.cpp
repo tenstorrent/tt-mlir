@@ -321,10 +321,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
     conv2dConfig.enable_split_reader = *config->enable_split_reader();
   }
 
-  if (config->enable_subblock_padding()) {
-    conv2dConfig.enable_subblock_padding = *config->enable_subblock_padding();
-  }
-
   if (config->in_place()) {
     conv2dConfig.in_place = *config->in_place();
   }

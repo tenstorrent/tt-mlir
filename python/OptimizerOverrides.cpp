@@ -241,9 +241,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
                   enableWeightsDoubleBuffer)
       .def_rw("enable_split_reader",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSplitReader)
-      .def_rw(
-          "enable_subblock_padding",
-          &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSubblockPadding)
       .def("set_weights_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
@@ -340,11 +337,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
              obj.enableSplitReader = (value == "True");
-           })
-      .def("set_enable_subblock_padding_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             obj.enableSubblockPadding = (value == "True");
            })
       .def("empty", &mlir::tt::ttnn::Conv2dConfigOverrideParams::empty);
 }

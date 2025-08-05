@@ -62,15 +62,14 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out =
-      ::ttnn::operations::conv::conv2d::prepare_conv_bias<::ttnn::MeshDevice>(
-          weightTensor, *inputMemoryConfig,
-          ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
-          op->in_channels(), op->out_channels(), op->batch_size(),
-          op->input_height(), op->input_width(), kernelSize, stride, padding,
-          dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
-          conv2dConfig,
-          /*compute_config_=*/std::nullopt);
+  ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_bias(
+      weightTensor, *inputMemoryConfig,
+      ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
+      op->in_channels(), op->out_channels(), op->batch_size(),
+      op->input_height(), op->input_width(), kernelSize, stride, padding,
+      dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
+      conv2dConfig,
+      /*compute_config_=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

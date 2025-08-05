@@ -1114,7 +1114,7 @@ class Run:
                             self.logging.debug(f"{tensor}\n")
 
                         # Dump the perf data before deallocating buffers
-                        device.dump_device_profile_results()
+                        device.read_device_profiler_results()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:

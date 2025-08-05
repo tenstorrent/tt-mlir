@@ -46,8 +46,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "output_layout#row_major:"
                     "enable_act_double_buffer#false:"
                     "enable_weights_double_buffer#false:"
-                    "enable_split_reader#false:"
-                    "enable_subblock_padding#false";
+                    "enable_split_reader#false:";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
                              "override-conv2d-config", arg, parsedOverride);
@@ -84,8 +83,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_FALSE(params.enableWeightsDoubleBuffer.value());
   ASSERT_TRUE(params.enableSplitReader.has_value());
   ASSERT_FALSE(params.enableSplitReader.value());
-  ASSERT_TRUE(params.enableSubblockPadding.has_value());
-  ASSERT_FALSE(params.enableSubblockPadding.value());
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
@@ -114,7 +111,6 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   ASSERT_FALSE(params.enableActDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableWeightsDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableSplitReader.has_value());
-  ASSERT_FALSE(params.enableSubblockPadding.has_value());
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
