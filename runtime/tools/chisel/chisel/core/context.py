@@ -550,11 +550,21 @@ class ChiselContext:
         """
         for arg in self.device_ir_module.get_function_inputs():
             arg_name = arg.get_name()
+
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
-            tensor = torch.randn(shape, dtype=torch_dtype)
+            print(arg_name)
+            if torch_dtype.is_floating_point:
+                tensor = torch.randn(shape, dtype=torch_dtype)
+            else:
+                tensor = torch.randint(0, 10, shape)
             self.device_tensor_pool[arg_name] = TensorValue(
                 arg_name, tensor, ExecutionType.DEVICE
             )
             self.device_tensor_pool[arg_name].set_execution_data()
+
+            self.golden_tensor_pool[arg_name] = TensorValue(
+                arg_name, tensor, ExecutionType.GOLDEN
+            )
+            self.golden_tensor_pool[arg_name].set_execution_data()

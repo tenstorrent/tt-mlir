@@ -1285,7 +1285,8 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
+    tensorRefs = {opContext.type_as_EmbeddingOp()->input(),
+                  opContext.type_as_EmbeddingOp()->weight()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {

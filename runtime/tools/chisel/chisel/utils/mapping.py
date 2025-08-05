@@ -17,6 +17,7 @@ ttir_dtype_maps = {
     "i1": torch.bool,
     "bf16": torch.bfloat16,
     "f16": torch.float16,
+    "ui32": torch.uint32,
 }
 
 ttrt_dtype_maps = {
@@ -368,6 +369,7 @@ def custom_fill_cache(
     result[:, :, batch_offset : input.shape[-2]] = input
     return result
 
+
 def custom_full(*args, **kwargs):
     shape = kwargs["size"]
     fill_value = kwargs["fill_value"]
@@ -387,6 +389,10 @@ def custom_update_cache(
     idx = update_index.to(dtype=torch.long)
     result[..., idx, :] = input
     return result
+
+
+def custom_embeding(input, weight):
+    return torch.nn.functional.embedding(input.long(), weight)
 
 
 ttir_to_torch_mapping = {
@@ -453,8 +459,10 @@ ttir_to_torch_mapping = {
     ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
-    "ttir.full": OpMapping(custom_full, {"shape": "size", "fill_value": "fill_value"}, unpack_inputs=False),
-    "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.full": OpMapping(
+        custom_full, {"shape": "size", "fill_value": "fill_value"}, unpack_inputs=False
+    ),
+    "ttir.embedding": OpMapping(custom_embeding),
     "ttir.fill_cache": OpMapping(
         custom_fill_cache,
         {"batch_offset": "batch_offset"},
@@ -476,6 +484,7 @@ ttir_to_torch_mapping = {
     "ttir.relu": OpMapping(torch.nn.functional.relu, unpack_inputs=False),
     "ttir.neg": OpMapping(torch.neg, unpack_inputs=False),
     "ttir.abs": OpMapping(torch.abs, unpack_inputs=False),
+    "ttir.sign": OpMapping(torch.sign, unpack_inputs=False),
     "ttir.eq": OpMapping(torch.eq),
     "ttir.conv2d": OpMapping(
         custom_conv2d,

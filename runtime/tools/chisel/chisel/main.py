@@ -10,6 +10,7 @@ from chisel.core.compile_pipeline import chisel_pipeline
 from chisel.core.context import ChiselContext
 from chisel.core.enums import ExecutionType
 from ttmlir.ir import Operation
+from ttmlir.passes import ttnn_to_flatbuffer_file
 
 
 def parse_arguments():
@@ -61,7 +62,7 @@ def parse_arguments():
         "--main-function",
         "-f",
         type=str,
-        default="transpose_matmul",
+        default="main",
         help="Name of the main function to execute",
     )
 
@@ -144,6 +145,8 @@ def main():
         ttir_module, ttnn_module = chisel_pipeline(args.input_file)
     except Exception as e:
         raise RuntimeError(f"Failed to compile TTIR pipeline: {e}")
+
+    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path))
 
     print("TTIR compilation completed successfully")
 
