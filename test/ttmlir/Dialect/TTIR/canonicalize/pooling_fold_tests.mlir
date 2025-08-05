@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // Test case: AvgPool2d with identity configuration should be folded
+  // Test case: AvgPool2d with identity configuration should be folded.
   func.func @avg_pool2d_identity_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32> {
     // CHECK-LABEL: @avg_pool2d_identity_fold
     // CHECK-NOT: ttir.avg_pool2d
@@ -18,7 +18,7 @@ module {
     return %1 : tensor<1x32x32x16xf32>
   }
 
-  // Test case: MaxPool2d with identity configuration should be folded
+  // Test case: MaxPool2d with identity configuration should be folded.
   func.func @max_pool2d_identity_fold(%arg0: tensor<1x64x64x32xf32>) -> tensor<1x64x64x32xf32> {
     // CHECK-LABEL: @max_pool2d_identity_fold
     // CHECK-NOT: ttir.max_pool2d
@@ -34,7 +34,7 @@ module {
     return %1 : tensor<1x64x64x32xf32>
   }
 
-  // Test case: AvgPool2d with non-identity configuration should NOT be folded
+  // Test case: AvgPool2d with non-identity configuration should NOT be folded.
   func.func @avg_pool2d_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32> {
     // CHECK-LABEL: @avg_pool2d_no_fold
     // CHECK: ttir.avg_pool2d
@@ -49,7 +49,7 @@ module {
     return %1 : tensor<1x16x16x16xf32>
   }
 
-  // Test case: MaxPool2d with padding should NOT be folded
+  // Test case: MaxPool2d with padding should NOT be folded.
   func.func @max_pool2d_with_padding_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x33x16xf32> {
     // CHECK-LABEL: @max_pool2d_with_padding_no_fold
     // CHECK: ttir.max_pool2d
@@ -64,7 +64,7 @@ module {
     return %1 : tensor<1x32x33x16xf32>
   }
 
-  // Test case: Pooling with identity configuration for MAX should be folded
+  // Test case: Pooling with identity configuration for Max should be folded.
   func.func @pooling_max_identity_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32> {
     // CHECK-LABEL: @pooling_max_identity_fold
     // CHECK-NOT: ttir.pooling
@@ -82,7 +82,7 @@ module {
     return %1 : tensor<1x32x32x16xf32>
   }
 
-  // Test case: Pooling with identity configuration for AVG should be folded
+  // Test case: Pooling with identity configuration for Average should be folded.
   func.func @pooling_avg_identity_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32> {
     // CHECK-LABEL: @pooling_avg_identity_fold
     // CHECK-NOT: ttir.pooling
@@ -100,7 +100,7 @@ module {
     return %1 : tensor<1x32x32x16xf32>
   }
 
-  // Test case: Pooling with non-identity window should NOT be folded
+  // Test case: Pooling with non-identity window should NOT be folded.
   func.func @pooling_non_identity_window_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32> {
     // CHECK-LABEL: @pooling_non_identity_window_no_fold
     // CHECK: ttir.pooling
@@ -117,7 +117,7 @@ module {
     return %1 : tensor<1x16x16x16xf32>
   }
 
-  // Test case: Pooling with padding should NOT be folded
+  // Test case: Pooling with padding should NOT be folded.
   func.func @pooling_with_padding_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32> {
     // CHECK-LABEL: @pooling_with_padding_no_fold
     // CHECK: ttir.pooling
@@ -134,7 +134,7 @@ module {
     return %1 : tensor<1x32x32x16xf32>
   }
 
-  // Test case: AvgPool2d with stride != 1 should NOT be folded
+  // Test case: AvgPool2d with stride != 1 should NOT be folded.
   func.func @avg_pool2d_stride_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32> {
     // CHECK-LABEL: @avg_pool2d_stride_no_fold
     // CHECK: ttir.avg_pool2d
@@ -149,7 +149,7 @@ module {
     return %1 : tensor<1x16x16x16xf32>
   }
 
-  // Test case: MaxPool2d with dilation != 1 should NOT be folded
+  // Test case: MaxPool2d with dilation != 1 should NOT be folded.
   func.func @max_pool2d_dilation_no_fold(%arg0: tensor<1x32x32x16xf32>) -> tensor<1x32x32x16xf32> {
     // CHECK-LABEL: @max_pool2d_dilation_no_fold
     // CHECK: ttir.max_pool2d

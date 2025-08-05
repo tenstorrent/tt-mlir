@@ -1109,9 +1109,9 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 // Pooling helper functions
 //===----------------------------------------------------------------------===//
 
-// Check if a AvgPool2dOp or MaxPool2dOp operation is identity
-// Identity operation folding: kernel=[1,1], stride=[1,1], dilation=[1,1],
-// padding=[0,0,0,0]
+// Checks if a AvgPool2dOp or MaxPool2dOp operation is an identity operation.
+// Identity operations can be folded away when kernel=[1,1], stride=[1,1],
+// dilation=[1,1], and padding=[0,0,0,0].
 template <typename Pool2dOp>
 static bool isIdentityPool2d(Pool2dOp op) {
   auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op.getKernel());
@@ -1133,9 +1133,9 @@ static bool isIdentityPool2d(Pool2dOp op) {
          llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
-// Check if a PoolingOp is identity
-// Identity operation folding: all dimensions=1, strides=1, dilations=1,
-// padding=0
+// Checks if a PoolingOp is an identity operation.
+// Identity operations can be folded away when all window dimensions=1,
+// strides=1, dilations=1, and padding=0.
 static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
   return llvm::all_of(op.getWindowDimensions(),
                       [](int64_t dim) { return dim == 1; }) &&
@@ -1239,6 +1239,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   return newOp.getOperation();
 }
 
+// Folds PoolingOp when it is an identity operation.
 ::mlir::LogicalResult
 mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
                                 SmallVectorImpl<OpFoldResult> &results) {
@@ -1306,7 +1307,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return verifyPooling2dOp(this);
 }
 
-// AvgPool2dOp folder
+// Folds AvgPool2dOp when it is an identity operation.
 ::mlir::OpFoldResult mlir::tt::ttir::AvgPool2dOp::fold(FoldAdaptor adaptor) {
   if (isIdentityPool2d(*this)) {
     return getInput();
@@ -1318,7 +1319,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
-// MaxPool2dOp folder
+// Folds MaxPool2dOp when it is an identity operation.
 ::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
   if (isIdentityPool2d(*this)) {
     return getInput();
