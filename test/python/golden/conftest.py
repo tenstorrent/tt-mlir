@@ -5,11 +5,11 @@ import pytest
 import ttrt
 import json
 import platform
-from functools import reduce
+from functools import reduce, wraps
 import operator
 import torch
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -432,3 +432,69 @@ def pytest_collection_modifyitems(config, items):
     # Report deselected items to pytest
     if deselected:
         config.hook.pytest_deselected(items=deselected)
+
+
+# ------------------------------------------------------------
+# Internal helper
+# ------------------------------------------------------------
+def _calc_shard_args(
+    mesh_shape: Tuple[int, ...], test_shape: Tuple[int]
+) -> Tuple[List[int], List[int], List[int]]:
+    """
+    Derive shard_shape / shard_dims and expand input_shape so that
+    each sharded dim is multiplied by its mesh factor.
+    """
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = [1] * rank_in
+    for d, factor in zip(shard_dims, mesh_shape):
+        shard_shape[d] = factor
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    return shard_shape, shard_dims, full_input_shape
+
+
+# ------------------------------------------------------------
+# Fixture
+# ------------------------------------------------------------
+@pytest.fixture
+def shard_wrap_factory(test_shape, mesh_shape):
+    """
+    Factory fixture:
+        mesh_wrap_factory(fn) -> (input_shape, wrapped_fn)
+
+    wrapped_fn sharding, calls `fn`, then unsharding.
+    """
+    shard_shape, shard_dims, full_input_shape = _calc_shard_args(mesh_shape, test_shape)
+
+    def _factory(test_fn):
+        @wraps(test_fn)  # keep original name for debugging
+        def wrapped_fn(in0, builder):
+            # sharding
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            # op under test
+            out_shard = test_fn(in_shard, builder)
+            # unsharding
+            return builder.mesh_shard(
+                out_shard,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+        return full_input_shape, wrapped_fn
+
+    return _factory
