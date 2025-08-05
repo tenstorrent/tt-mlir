@@ -226,10 +226,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for zeros op operands.
-  static TTNNOperandsWorkarounds
-  createZerosOpOperandsWorkarounds(RankedTensorType outputType);
-
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);

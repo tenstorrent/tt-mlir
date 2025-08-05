@@ -1790,12 +1790,6 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
-
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(getType());
-    }
-  }];
 }
 
 def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
