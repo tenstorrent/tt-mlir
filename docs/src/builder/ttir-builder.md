@@ -645,11 +645,11 @@ The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-
 
 ## Optimizer Overrides
 
-The optimizer is the main component of tt-mlir responsible for performance. Documentation can be found [here](../optimizer.md) and more detail on many of the attributes implemented in these overrides can be found in the dropdown descriptions of the [ttnn ops](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTNNOp.html). There are three types of overrides the optimizer exposes as pipeline options - optimization policy, output layout overrides, and conv2d config overrides - all of which are designed only to be used in ttnn. `ttir-builder` supports all three, providing APIs to configure the respective pipeline options and add them to the pipeline run.
+The optimizer is the main component of tt-mlir responsible for performance. Documentation can be found [here](../optimizer.md) and more detail on many of the attributes implemented in these overrides can be found in the dropdown descriptions of the [ttnn ops](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTNNOp.html). There are three types of overrides the optimizer exposes as pipeline options - optimization policy, output layout overrides, and conv2d config overrides - all of which are designed only to be used in ttnn. `ttir-builder` supports all three, providing APIs to configure the respective pipeline options and add them to the pipeline run. To use overrides, tt-mlir must be built with `-DTTMLIR_ENABLE_OPMODEL=ON`; without it, optimizer overrides will not be applied to the pipeline.
 
 ### Optimization policy
 
-Optimization policies instruct the optimizer how to shard tensors and/or allocate memory. Supported policies include `"DF Sharding"`, `"Greedy L1 Interleaved"`, and `"BF Interleaved"`. Each string can be passed into `compile_to_flatbuffer()` using the `optimization_policy` argument.
+Optimization policies instruct the optimizer how to shard tensors and/or allocate memory. The only supported policies at the moment are `"DF Sharding"` and `"BF Interleaved"`. Each string can be passed into `compile_to_flatbuffer()` using the `optimization_policy` argument.
 For example, `"BF Interleaved"` will produce the following pipeline options:
 
 ```bash
