@@ -123,6 +123,9 @@ def pytest_collection_modifyitems(config, items):
     # Update the items list (collected tests)
     items[:] = valid_items
 
+    # Sort tests alphabetically by their nodeid to ensure consistent ordering.
+    items.sort(key=lambda x: x.nodeid)
+
     # Report deselected items to pytest
     if deselected:
         config.hook.pytest_deselected(items=deselected)
