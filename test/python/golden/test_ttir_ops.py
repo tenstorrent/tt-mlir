@@ -1252,8 +1252,8 @@ def test_conv2d_batch_norm_fusing(
         conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
         
         # Create batch norm parameters
-        bn_scale_data = torch.full(shapes[4], torch.randn(1).item(), dtype=dtypes[4])
-        bn_offset_data = torch.full(shapes[5], torch.randn(1).item(), dtype=dtypes[5])
+        bn_scale_data = torch.randn(shapes[4], dtype=dtypes[4])
+        bn_offset_data = torch.randn(shapes[5], dtype=dtypes[5])
         bn_mean_data = torch.randn(shapes[6], dtype=dtypes[6])
         bn_variance_data = torch.abs(torch.randn(shapes[7], dtype=dtypes[7])) + 1e-5  # Ensure positive variance
 

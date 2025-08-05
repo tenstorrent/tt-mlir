@@ -613,13 +613,24 @@ public:
     auto normalized = utils::createDPSOp<DivOp>(
         rewriter, loc, inputMinusMean.getType(), inputMinusMean, stdReshaped);
 
+    SmallVector<int64_t> broadcastDims =
+        ttmlir::utils::getBroadcastDimensions<int64_t>(
+            scaleReshaped.getType().getShape(),
+            normalized.getType().getShape());
+
+    auto scaleBroadcasted = utils::createDPSOp<BroadcastOp>(
+        rewriter, loc, normalized.getType(), scaleReshaped, broadcastDims);
+
     // normalized * scale
     auto scaled = utils::createDPSOp<MultiplyOp>(
-        rewriter, loc, normalized.getType(), normalized, scaleReshaped);
+        rewriter, loc, normalized.getType(), normalized, scaleBroadcasted);
+
+    auto offsetBroadcasted = utils::createDPSOp<BroadcastOp>(
+        rewriter, loc, scaled.getType(), offsetReshaped, broadcastDims);
 
     // scaled + offset
     auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
-                                            offsetReshaped);
+                                            offsetBroadcasted);
 
     rewriter.replaceOp(batchNormOp, result);
 
