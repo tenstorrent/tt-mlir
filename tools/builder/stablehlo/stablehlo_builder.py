@@ -24,6 +24,15 @@ class StableHLOBuilder(Builder):
         super().__init__(ctx, location)
 
     # ----- Private Methods ----
+    def _create_mesh_attr_from_ordered_dict(
+        self,
+        mesh_dict: OrderedDict[str, int],
+    ) -> sdy.MeshAttr:
+        axes = [
+            self.mesh_axis_attr(name=axis_name, size=size)
+            for axis_name, size in mesh_dict.items()
+        ]
+        return self.mesh_attr(axes)
 
     def _op_proxy(
         self,
@@ -116,45 +125,65 @@ class StableHLOBuilder(Builder):
     def add(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
-        """
-        Creates ``stablehlo.add``.
-
-        *Elementwise addition operation.*
-
-        Performs elementwise addition between two tensors.
-        For each pair of corresponding elements, adds the element in the second
-        tensor to the element in the first tensor.
-
-        Mathematical definition: add(x, y) = x + y
-
-        .. code-block:: mlir
-
-            // Add corresponding elements
-            %result = stablehlo.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.0, 2.0, -4.4]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise sum of the inputs
-        """
-
         return self._eltwise_proxy(
             torch.add,
             stablehlo.AddOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
+
+    # ----- Public Shardy Attribute Generators ----
+
+    def mesh_axis_attr(
+        self,
+        name: str,
+        size: int,
+    ) -> sdy.MeshAxisAttr:
+        return sdy.MeshAxisAttr.get(name, size)
+
+    def mesh_attr(
+        self,
+        axes: List[sdy.MeshAxisAttr],
+    ) -> MeshAttr:
+        return sdy.MeshAttr.get(axes)
+
+    def axis_ref_attr(
+        self,
+        name: str,
+        sub_axis_info_attr: Optional[sdy.AxisRefAttr] = None,
+    ) -> sdy.AxisRefAttr:
+        return sdy.AxisRefAttr.get(name, sub_axis_info_attr)
+
+    def dimension_sharding_attr(
+        self,
+        axes: List[sdy.AxisRefAttr],
+        is_closed: bool,
+        priority: Optional[int] = None,
+    ) -> sdy.DimensionShardingAttr:
+        return sdy.DimensionShardingAttr.get(axes, is_closed, priority)
+
+    def tensor_sharding_attr(
+        self,
+        mesh_name: str,
+        dimension_shardings: List[sdy.DimensionShardingAttr],
+        replicated_axes: List[sdy.AxisRefAttr] = [],
+        unreduced_axes: List[sdy.AxisRefAttr] = [],
+    ) -> sdy.TensorShardingAttr:
+        return sdy.TensorShardingAttr.get(
+            mesh_name,
+            dimension_shardings,
+            replicated_axes,
+            unreduced_axes,
+        )
+
+    # ----- Public Shardy Op Generators ----
+
+    def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
+        return sdy.MeshOp(sym_name=mesh_name, mesh=mesh_attr)
+
+    def sharding_constraint(
+        self,
+        in0: Operand,
+        tensor_sharding_attr: sdy.TensorShardingAttr,
+    ) -> sdy.ShardingConstraintOp:
+        return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
