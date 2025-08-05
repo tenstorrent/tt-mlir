@@ -71,11 +71,6 @@ void createTTIRToTTMetalFrontendPipeline(
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toTTIRGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
-<<<<<<< HEAD
-=======
-    toTTIRGenericOptions.maxDstRegisterSizeTiles =
-        options.maxDstRegisterSizeTiles;
->>>>>>> 343c00414 (working, need to cleanup comments and so on)
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(mlir::createCanonicalizerPass());

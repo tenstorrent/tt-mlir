@@ -661,26 +661,20 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
   return shardShape;
 }
 
-static llvm::SmallVector<int64_t>
-applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
-                                     mlir::DenseIntElementsAttr intervals,
-                                     llvm::ArrayRef<int64_t> alignments) {
-
+static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
+    llvm::ArrayRef<int64_t> shape, llvm::ArrayRef<int64_t> normalizedIntervals,
+    llvm::ArrayRef<int64_t> alignments) {
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
   llvm::SmallVector<int64_t> resultShape;
-
   // Process with collapse intervals.
   assert(normalizedIntervals.size() % 2 == 0);
   int64_t numIntervals = normalizedIntervals.size() / 2;
-
   int64_t currentIdx = 0;
-
   for (int64_t i = 0; i < numIntervals; ++i) {
     int64_t start = normalizedIntervals[i * 2];
     int64_t end = normalizedIntervals[i * 2 + 1];
-
     // Handle Python-like negative indexing.
     if (start < 0) {
       start = shape.size() + start;
@@ -688,12 +682,10 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
     if (end < 0) {
       end = shape.size() + end;
     }
-
     assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
            "Start index out of bounds");
     assert(end >= start && static_cast<size_t>(end) <= shape.size() &&
            "End index out of bounds");
-
     if (end - start == 1) {
       // Single dimension - apply alignment.
       auto alignedValue =
@@ -733,10 +725,18 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::errs() << "getPhysicalShape() tile shape:";
   llvm::interleaveComma(tileShape, llvm::errs());
   llvm::errs() << "\n";
+
+  llvm::errs() << "getDimAlignments() tile shape:";
+  llvm::interleaveComma(getDimAlignments(), llvm::errs());
+  llvm::errs() << "\n";
+
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
-          getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
+          getLogicalShape(), normalizedIntervals, getDimAlignments());
+  llvm::errs() << "getPhysicalShape() physical shape:";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "\n";
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -842,11 +842,16 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
   // Handle the last two intervals (which will map to tiles) with
   // grid-aware alignments.
   assert(deviceGridShape.size() >= 2);
-  for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
-       idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
+  assert(logicalShape.size() >= deviceGridShape.size());
+  for (int64_t tileIdx = 0; tileIdx < 2; ++tileIdx) {
 
-    const int64_t intervalStart = normalizedIntervals[idx * 2];
-    const int64_t intervalEnd = normalizedIntervals[idx * 2 + 1];
+    // If logical rank > grid rank, we want to apply
+    const int64_t intervalIdx = normalizedIntervals.size() - 4 + 2 * tileIdx;
+
+    const int64_t gridIdx = deviceGridShape.size() - 2 + tileIdx;
+
+    const int64_t intervalStart = normalizedIntervals[intervalIdx];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx + 1];
 
     // Calculate collapsed size for this interval.
     int64_t collapsedSize = 1;
@@ -855,10 +860,8 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     }
 
     // Determine which tile dimension corresponds with this interval.
-    const int64_t tileIdx =
-        (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
     const int64_t tileDim = tileShape[tileIdx];
-    const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
+    const int64_t gridAlignmentThreshold = deviceGridShape[gridIdx] * tileDim;
 
     // Determine alignment based on collapsed size.
     // If size > gridAlignmentThreshold, align to grid boundary, else align to

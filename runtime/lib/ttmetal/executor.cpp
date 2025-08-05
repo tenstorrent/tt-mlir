@@ -352,7 +352,6 @@ void MCQExecutor::execute(
     }
     LOG_INFO("  [", i, "]=", float_src[i]);
   }
->>>>>>> 567c0a05b (debug)
 }
 
 void MCQExecutor::execute(

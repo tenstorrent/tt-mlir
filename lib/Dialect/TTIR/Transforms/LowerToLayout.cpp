@@ -22,7 +22,6 @@ public:
 
   static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
                                          ToLayoutOp op) {
-    op->dump();
     assert(false &&
            "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
   }
@@ -290,8 +289,11 @@ public:
 
     // Create new layout preserving collapse intervals from base
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), workerGridShape,
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
+        ctx, baseLayout.getLogicalShape(),
+        gridShape, // Use the grid shape directly - it should already be correct
+                   // rank
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
+        baseLayout.getDimAlignments());
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled

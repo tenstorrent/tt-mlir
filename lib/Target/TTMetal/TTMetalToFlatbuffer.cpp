@@ -30,10 +30,10 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include "llvm/ADT/STLExtras.h"
 #include <memory>
 #include <vector>
 
@@ -210,20 +210,26 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
-  // Calculate ShardSpec
+  // FIX: Use actual shape information, not stride
+  // The innermost dimension of the shard should come from memrefShardShape
   assert(stride[stride.size() - 1] % elementSize == 0);
-  int32_t shardXElements = stride[stride.size() - 2] / elementSize;
-  assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
-  int32_t collapsedShardYElements =
-      (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
-  // Shard shape is the fully collapsed shard down to 2D, so:
-  //   [d0 * ... * dN-2, dN-1]
+  int32_t shardXElements = memrefShardShape[memrefShardShape.size() - 1];
+
+  // Calculate total elements per shard
+  int64_t elementsPerShard = 1;
+  for (auto dim : memrefShardShape) {
+    elementsPerShard *= dim;
+  }
+
+  assert(elementsPerShard % shardXElements == 0);
+  int32_t collapsedShardYElements = elementsPerShard / shardXElements;
+
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
                            shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  // Calculate ShardSpecBuffer
+  // Rest of the function remains the same...
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
@@ -234,7 +240,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
-  // Calculate ShardedBufferConfig
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
