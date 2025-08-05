@@ -239,14 +239,11 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden_data = [self._get_golden_tensor(in0).size(dimension)]
         return self._op_proxy(
             ttir.GetDimensionSizeOp,
             [in0],
-            golden_kwargs={"data": golden_data, "dtype": torch.int32},
             ttir_kwargs={"dimension": dimension},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            organize_golden_args=lambda i: 0,
             output_type=self._get_type_from_torch_dtype(torch.int32),
             unit_attrs=unit_attrs,
         )
@@ -3655,7 +3652,7 @@ class TTIRBuilder(Builder):
                 "arange_dimension": arange_dimension,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
-            organize_golden_args=lambda i: [i[1]],
+            # organize_golden_args=lambda i: [i[1]],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(
                 self._get_golden_tensor(result).dtype
