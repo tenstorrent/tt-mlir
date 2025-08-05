@@ -806,9 +806,30 @@ public:
   LogicalResult
   matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Extract input tensor type
+    // Extract tensor types
+    ::mlir::RankedTensorType outputType =
+        mlir::cast<::mlir::RankedTensorType>(op.getType());
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    
+    // Skip if this is the specific pattern that UnsqueezeTo4DOpConversionPattern handles.
+    // REVIEW COMMENT: is there some better way to do this? Can we give UnsqueezeTo4DOpConversionPattern a higher priority or something?
+    // Regardless, we shouldn't duplicate the logic here.
+    if (outputType.getRank() == 4) {
+      auto inputShape = inputType.getShape();
+      auto outputShape = outputType.getShape();
+      int64_t numLeadingDims = 4 - inputType.getRank();
+      
+      // Check if all leading dimensions are 1 and trailing dimensions match.
+      bool isUnsqueezeTo4DPattern = 
+          llvm::all_of(llvm::ArrayRef(outputShape).take_front(numLeadingDims),
+                       [](int64_t dim) { return dim == 1; }) &&
+          llvm::equal(inputShape, llvm::ArrayRef(outputShape).drop_front(numLeadingDims));
+      
+      if (isUnsqueezeTo4DPattern) {
+        return failure();
+      }
+    }
 
     // Get the unsqueeze dimension
     int32_t dim = adaptor.getDim();
@@ -843,6 +864,51 @@ public:
         adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
+  }
+};
+} // namespace
+
+namespace {
+class UnsqueezeTo4DOpConversionPattern
+    : public OpConversionPattern<ttir::UnsqueezeOp> {
+public:
+  using OpConversionPattern<ttir::UnsqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ::mlir::RankedTensorType outputType =
+        mlir::cast<::mlir::RankedTensorType>(op.getType());
+
+    // Check if we can use unsqueeze_to_4D.
+    if (outputType.getRank() == 4) {
+      ::mlir::RankedTensorType inputType =
+          mlir::cast<::mlir::RankedTensorType>(op.getInput().getType());      
+      auto inputShape = inputType.getShape();
+      auto outputShape = outputType.getShape();
+      
+      // Check that leading dimensions are all 1.
+      int64_t numLeadingDims = 4 - inputType.getRank();
+      bool leadingDimensionsValid = llvm::all_of(
+          llvm::ArrayRef(outputShape).take_front(numLeadingDims),
+          [](int64_t dim) { return dim == 1; });
+      
+      // Check that trailing dimensions match.
+      bool trailingDimensionsValid = llvm::equal(
+          inputShape,
+          llvm::ArrayRef(outputShape).drop_front(numLeadingDims));
+      
+      if (leadingDimensionsValid && trailingDimensionsValid) {
+        rewriter.replaceOpWithNewOp<ttnn::UnsqueezeTo4DOp>(
+            op, this->getTypeConverter()->convertType(op.getType()),
+            adaptor.getInput(), /*memory_config=*/nullptr);
+        return success();
+      }
+    }
+
+    // Fail the conversion so the regular UnsqueezeOpConversionPattern can
+    // handle this case by emitting a reshape.
+    return failure();
   }
 };
 } // namespace
@@ -1800,6 +1866,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern,
            SqueezeOpConversionPattern,
+           UnsqueezeTo4DOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,

@@ -1609,6 +1609,21 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::UnsqueezeTo4DOp>
+createUnsqueezeTo4DOp(FlatbufferObjectCache &cache, UnsqueezeTo4DOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateUnsqueezeTo4DOp(
+      *cache.fbb, in, out,
+      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
+}
+
 template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
@@ -2243,6 +2258,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString, locInfo);
+  }
+  // REVIEW COMMENT: why do all these if-statements check xOp twice? 
+  // Maybe all these can be updated as a future NFC?
+  if (auto unsqueezeTo4DOp = dyn_cast<UnsqueezeTo4DOp>(op)) {
+    return createOperation(cache, createUnsqueezeTo4DOp(cache, unsqueezeTo4DOp),
                            debugString, locInfo);
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {

@@ -1194,6 +1194,27 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
     let hasVerifier = 1;
 }
 
+def TTNN_UnsqueezeTo4DOp : TTNN_Op<"unsqueeze_to_4D", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+    let summary = "Unsqueezes to 4D op.";
+    let description = [{
+      Transforms a tensor of any rank to a 4D tensor by adding dimensions of size 1.
+
+      Examples:
+      - Input shape [32, 128] -> Output shape [1, 1, 32, 128]
+      - Input shape [8, 32, 128] -> Output shape [1, 8, 32, 128]
+      - Input shape [2, 8, 32, 128] -> Output shape [2, 8, 32, 128]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let summary = "Repeat op.";
     let description = [{

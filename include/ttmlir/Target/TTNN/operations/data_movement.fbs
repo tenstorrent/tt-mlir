@@ -48,6 +48,12 @@ table ReshapeOp {
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+table UnsqueezeTo4DOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
 table SliceOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
