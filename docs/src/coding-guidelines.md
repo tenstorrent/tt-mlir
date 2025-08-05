@@ -88,6 +88,11 @@ counter++;
 
 Ensure comments are accurate and reflect the current state of the code. Outdated or misleading comments can be worse than no comments at all.
 
+All TODO comments should be marked with an alias as follows:
+``` c++
+// TODO (your-alias): Refactor this loop for clarity.
+```
+
 ## Code Denesting (Inversion)
 
 Strive to minimize unnecessary indentation without compromising code clarity. One effective way to achieve this is by using early exits and the continue keyword in long loops.
