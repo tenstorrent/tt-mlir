@@ -5,8 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTMETAL_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTMETAL_TRANSFORMS_PASSES_H
 
-#include "ttmlir/Dialect/TTMetal/Transforms/ApplyHostMemrefCallingConvention.h"
-
 namespace mlir::tt::ttmetal {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
