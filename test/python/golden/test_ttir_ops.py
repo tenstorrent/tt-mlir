@@ -1168,7 +1168,7 @@ def test_batch_norm(
             unit_attrs=unit_attrs,
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         batch_norm,
         shapes,
         dtypes,
@@ -1280,7 +1280,7 @@ def test_conv2d_batch_norm_fusing(
             unit_attrs=unit_attrs,
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         conv2d_batch_norm_fusing,
         shapes,
         dtypes,

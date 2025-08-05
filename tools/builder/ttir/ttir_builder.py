@@ -3024,8 +3024,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Output tensor after batch normalization
         """
-        return self.op_proxy(
-            self.batch_norm_golden_manual,
+        return self._op_proxy(
             ttir.BatchNormOp,
             [in0, scale, offset, mean, variance],
             golden_kwargs={
@@ -3042,78 +3041,7 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    @autodoc_skip
-    def batch_norm_golden_function(
-        self,
-        input_tensor: Operand,
-        scale: Operand,
-        offset: Operand,
-        mean: Operand,
-        variance: Operand,
-        epsilon: float = 1e-5,
-        training: bool = False,
-        dim: int = 1,
-    ) -> Operand:
-        perm = list(range(input_tensor.ndim))
-        perm[1], perm[dim] = perm[dim], perm[1]
-        input_tensor = input_tensor.permute(perm)
-        result = torch.nn.functional.batch_norm(
-            input_tensor,
-            running_mean=mean,
-            running_var=variance,
-            weight=scale,
-            bias=offset,
-            training=training,
-            eps=epsilon,
-        )
-        inv_perm = [perm.index(i) for i in range(len(perm))]
-        result = result.permute(inv_perm)
-        return result
     
-    def batch_norm_golden_manual(
-        self,
-        input_tensor: Operand,
-        scale: Operand,
-        offset: Operand,
-        mean: Operand,
-        variance: Operand,
-        epsilon: float = 1e-5,
-        training: bool = False,  # ignored in inference-only mode
-        dim: int = 1,
-    ) -> Operand:
-        """
-        Manual implementation of batch normalization using basic tensor operations.
-
-        Formula:
-            y = (x - mean) / sqrt(variance + epsilon) * scale + offset
-
-        Broadcasting is done by reshaping mean, variance, scale, and offset
-        to (1, C, 1, 1) assuming input is (N, C, H, W).
-        """
-
-        # Determine broadcast shape, e.g., (1, C, 1, 1)
-        channel_dim = input_tensor.shape[dim]
-        broadcast_shape = [1] * input_tensor.ndim
-        broadcast_shape[dim] = channel_dim
-
-        # Reshape operands for broadcasting
-        mean = mean.view(*broadcast_shape)
-        variance = variance.view(*broadcast_shape)
-        scale = scale.view(*broadcast_shape)
-        offset = offset.view(*broadcast_shape)
-
-        # Compute batch norm: (x - mean) / sqrt(variance + epsilon) * scale + offset
-        epsilon_tensor = epsilon  
-
-        var_plus_eps = variance + epsilon_tensor
-        std = var_plus_eps.sqrt()
-        normalized = (input_tensor - mean) / std
-        scaled = normalized * scale
-        result = scaled + offset
-
-        return result
-
-
     def reshape(
         self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
