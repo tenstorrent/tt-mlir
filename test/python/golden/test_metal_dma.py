@@ -17,6 +17,34 @@ from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 
+def compile_dma_test(test_func, shape, request, write_mlir_to_file=None):
+
+    if write_mlir_to_file is not None:
+        with open(write_mlir_to_file, "w") as f:
+            f.write(str(build_mlir_module(test_func, [shape])[0]))
+
+    # Back to back tolayout ops are normally folded during canonicalization into
+    # a single ToLayoutOp representing the final result. The option
+    # 'disable-tolayout-folding' prevents this
+    pipeline_options = "{disable-tolayout-folding=1}"
+    pipeline = ",".join(
+        [
+            "ttir-lower-to-layout",
+            f"ttir-to-ttmetal-me-pipeline{pipeline_options}",
+            f"ttir-to-ttmetal-be-pipeline{pipeline_options}",
+        ]
+    )
+    compile_to_flatbuffer(
+        test_func,
+        [shape],
+        target="ttmetal",
+        custom_pipeline=pipeline,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.skip
 @pytest.mark.parametrize(
     "shape", [(x, y) for x in (32, 128) for y in (32, 64, 128)] + [(256, 256)]
@@ -52,34 +80,23 @@ def test_dram_tilize(shape: Shape, request):
 
         return untilize_out
 
-    # Back to back tolayout ops are normally folded during canonicalization into
-    # a single ToLayoutOp representing the final result. The option
-    # 'disable-tolayout-folding' prevents this
-    pipeline_options = "{disable-tolayout-folding=1}"
-    pipeline = ",".join(
-        [
-            "ttir-lower-to-layout",
-            f"ttir-to-ttmetal-me-pipeline{pipeline_options}",
-            f"ttir-to-ttmetal-be-pipeline{pipeline_options}",
-        ]
-    )
-    compile_to_flatbuffer(
-        tilize,
-        [shape],
-        target="ttmetal",
-        custom_pipeline=pipeline,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
+    compile_dma_test(tilize, shape, request, write_mlir_to_file=None)
 
 
 @pytest.mark.parametrize(
     "shape",
     [(256, 256)],
 )
-@pytest.mark.parametrize("grid", [(1, 1), (2, 2), (1, 2)])
-def test_dram_write(shape: Shape, grid: tuple[int, int], request):
+@pytest.mark.parametrize("start_grid", [(1, 1), (2, 2), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
+def test_dram_write(
+    shape: Shape,
+    start_grid: tuple[int, int],
+    end_grid: tuple[int, int],
+    memory_space: ttcore.MemorySpace,
+    request,
+):
     def dram_write(
         in0: Operand,
         builder: TTIRBuilder,
@@ -94,65 +111,51 @@ def test_dram_write(shape: Shape, grid: tuple[int, int], request):
             unit_attrs=unit_attrs,
         )
 
-        # derive sharded shape for DRAM
+        # derive sharded shapes
         assert (
-            (shape[0] % grid[0] == 0) and (shape[1] % grid[1] == 0),
+            (shape[0] % start_grid[0] == 0) and (shape[1] % start_grid[1] == 0),
             "shape must be divisible by grid",
         )
-        dram_sharded_shape = (shape[0] // grid[0], shape[1] // grid[1])
+        start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
 
-        # write L1 to DRAM
-        to_device_dram = builder.to_layout(
+        assert (
+            (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
+            "start_shard_shape must be divisible by end_grid",
+        )
+        end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
+
+        # WRITE L1 to initial shard layout
+        tensor_layoutA = builder.to_layout(
             to_device,
             output_type=builder.metal_tensor_layout(
-                dram_sharded_shape,
+                start_shard_shape,
                 tiled=False,
-                memorySpace=ttcore.MemorySpace.DeviceDRAM,
-                grid=grid,
+                memorySpace=memory_space,
+                grid=start_grid,
             ),
             unit_attrs=unit_attrs,
         )
-        print("dram_sharded_shape: ", dram_sharded_shape)
 
-        to_device_l1 = builder.to_layout(
-            to_device_dram,
+        # READ sharded layout to final sharded layout
+        tensor_layoutB = builder.to_layout(
+            tensor_layoutA,
             output_type=builder.metal_tensor_layout(
-                dram_sharded_shape,
+                end_shard_shape,
                 tiled=False,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
-                grid=grid,
+                grid=end_grid,
             ),
             unit_attrs=unit_attrs,
         )
 
         system_out = builder.to_layout(
-            to_device_l1,
+            tensor_layoutB,
             output_type=in0.type,
             unit_attrs=unit_attrs,
         )
 
         return system_out
 
-    with open(f"test_dram_write_{grid[0]}x{grid[1]}.mlir", "w") as f:
-        f.write(str(build_mlir_module(dram_write, [shape])[0]))
-
-    # Back to back tolayout ops are normally folded during canonicalization into
-    # a single ToLayoutOp representing the final result. The option
-    # 'disable-tolayout-folding' prevents this
-    pipeline_options = "{disable-tolayout-folding=1}"
-    pipeline = ",".join(
-        [
-            "ttir-lower-to-layout",
-            f"ttir-to-ttmetal-me-pipeline{pipeline_options}",
-            f"ttir-to-ttmetal-be-pipeline{pipeline_options}",
-        ]
-    )
-    compile_to_flatbuffer(
-        dram_write,
-        [shape],
-        target="ttmetal",
-        custom_pipeline=pipeline,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
+    out_filename = None
+    # out_filename = f"test_dram_write_{start_grid[0]}x{start_grid[1]}_to_{end_grid[0]}x{end_grid[1]}_{memory_space}.mlir"
+    compile_dma_test(dram_write, shape, request, write_mlir_to_file=out_filename)
