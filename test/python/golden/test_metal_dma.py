@@ -47,9 +47,11 @@ def compile_dma_test(test_func, shape, request, write_mlir_to_file=None):
 
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("start_grid", [(1, 4), (4, 1), (2, 4), (4, 2)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (4, 4)])
-@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceL1])
-def test_dram_tilize(
+@pytest.mark.parametrize("end_grid", [(1, 1), (4, 4), (2, 4), (4, 2)])
+@pytest.mark.parametrize(
+    "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
+)
+def test_roundtrip_dma_tiled(
     shape: Shape,
     start_grid: tuple[int, int],
     end_grid: tuple[int, int],
@@ -120,19 +122,19 @@ def test_dram_tilize(
         tilize,
         shape,
         request,
-        write_mlir_to_file=f"test_dram_tilize_{start_grid[0]}x{start_grid[1]}_to_{end_grid[0]}x{end_grid[1]}_{memory_space}.mlir",
     )
 
 
-@pytest.mark.skip
 @pytest.mark.parametrize(
     "shape",
     [(256, 256)],
 )
-@pytest.mark.parametrize("start_grid", [(1, 1), (2, 2), (1, 2), (2, 1), (4, 4)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1), (4, 4)])
-@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceL1])
-def test_dram_write(
+@pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize(
+    "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
+)
+def test_roundtrip_dma_rowmajor(
     shape: Shape,
     start_grid: tuple[int, int],
     end_grid: tuple[int, int],
@@ -198,6 +200,4 @@ def test_dram_write(
 
         return system_out
 
-    out_filename = None
-    # out_filename = f"test_dram_write_{start_grid[0]}x{start_grid[1]}_to_{end_grid[0]}x{end_grid[1]}_{memory_space}.mlir"
-    compile_dma_test(dram_write, shape, request, write_mlir_to_file=out_filename)
+    compile_dma_test(dram_write, shape, request)
