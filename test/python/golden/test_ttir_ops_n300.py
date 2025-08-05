@@ -6,10 +6,11 @@ import torch
 import pytest
 
 from typing import List, Tuple
+from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.n300
 
@@ -73,7 +74,8 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         all_gather,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -139,7 +141,8 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         all_reduce,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         module_dump=True,
         output_root=request.config.getoption("--path"),
@@ -212,7 +215,8 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         reduce_scatter,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -271,7 +275,8 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         collective_permute,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -331,7 +336,8 @@ def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         matmul_1x2,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -386,7 +392,8 @@ def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         neg_1x2_dim_3,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -441,7 +448,8 @@ def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
     compile_ttir_to_flatbuffer(
         neg_1x2_dim_1,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -499,7 +507,8 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     compile_ttir_to_flatbuffer(
         eltwise_multidevice,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -557,7 +566,8 @@ def test_matmul_and_binary_op(
     compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -612,7 +622,8 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -705,7 +716,8 @@ def test_matmul_and_binary_op_2(
     compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -799,7 +811,8 @@ def all_to_all_test(
     compile_ttir_to_flatbuffer(
         all_to_all,
         [input_shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -933,7 +946,8 @@ def test_collective_broadcast(
     compile_ttir_to_flatbuffer(
         collective_broadcast,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -12,15 +12,15 @@
 ttrt query --save-artifacts
 ```
 
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `builder.ttir.ttir_utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `builder.base.builder_utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
 
 ## Getting started
 
-`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The python package `builder` contains everything needed to create ops through a `TTIRBuilder` object. `builder.ttir.ttir_utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The python package `builder` contains everything needed to create ops through a `TTIRBuilder` object. `builder.base.builder_utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
 
 ```python
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 ```
 
 ## Creating a TTIR module
@@ -32,7 +32,8 @@ def build_ttir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    mesh_shape: Optional[Tuple[int, int]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
@@ -44,7 +45,7 @@ def build_ttir_module(
 ```python
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import build_ttir_module
+from builder.base.builder_utils import build_ttir_module
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -86,7 +87,8 @@ def run_ttir_pipeline(
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
-    mesh_shape: Optional[Tuple[int, int]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
 )
 ```
@@ -99,7 +101,7 @@ Let's expand on our previous example
 from ttmlir.passes import ttir_to_ttnn_backend_pipeline
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import build_ttir_module, run_ttir_pipeline
+from builder.base.builder_utils import build_ttir_module, run_ttir_pipeline
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -447,7 +449,8 @@ def compile_ttir_to_flatbuffer(
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal"] = "ttnn",
-    mesh_shape: Optional[Tuple[int, int]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Union[Callable, str] = None,
@@ -464,7 +467,7 @@ Let's use our previous model function.
 ```python
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -549,7 +552,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 
 ### Getting golden data
 
-Unless otherwise specified in the `GoldenCheckLevel`, all input and output tensors will generate and store a golden in `TTIRBuilder` as a `Golden` type. The `TTIRBuilder` class has an API to print stored goldens if you want access to the data they contain: `print_goldens(self)`.
+Unless otherwise specified in the `GoldenCheckLevel`, all input and output tensors will generate and store a golden in `TTIRBuilder` as a `Golden` type.
 
 The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects.
 

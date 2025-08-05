@@ -11,7 +11,7 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
