@@ -48,7 +48,7 @@ module @max_pool2d attributes {} {
   }
 
   // Kernel size = 1; Stride = 1; Padding = 0
-  func.func @test_maxpool2d_kernel_1x1_stride_1x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x28x28xbf16> {
+  func.func @test_maxpool2d_kernel_1x1_stride_1x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x30x30xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x1_stride_1x1_padding_0(
     %cst = stablehlo.constant dense<0xFF80> : tensor<bf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"(%arg0)
@@ -67,29 +67,29 @@ module @max_pool2d attributes {} {
     // CHECK-SAME: input_height = 28 : si32,
     // CHECK-SAME: input_width = 28 : si32,
     // CHECK-SAME: kernel_size = array<i32: 1, 1>,
-    // CHECK-SAME: padding = array<i32: 0, 0>,
+    // CHECK-SAME: padding = array<i32: 1, 1>,
     // CHECK-SAME: stride = array<i32: 1, 1>
     // CHECK-SAME: tensor<1x1x784x192xbf16
-    // CHECK-SAME: -> tensor<1x1x784x192xbf16
-    %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<0> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> ({
+    // CHECK-SAME: -> tensor<1x1x900x192xbf16
+    %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<[[0, 0], [0, 0], [1, 1], [1, 1]]> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
       %1 = stablehlo.maximum %arg1, %arg2 : tensor<bf16>
       stablehlo.return %1 : tensor<bf16>
-    }) : (tensor<1x192x28x28xbf16>, tensor<bf16>) -> tensor<1x192x28x28xbf16>
+    }) : (tensor<1x192x28x28xbf16>, tensor<bf16>) -> tensor<1x192x30x30xbf16>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
-    // CHECK-SAME: shape = [1 : i32, 28 : i32, 28 : i32, 192 : i32]
-    // CHECK-SAME: tensor<1x1x784x192xbf16
-    // CHECK-SAME: -> tensor<1x28x28x192xbf16
+    // CHECK-SAME: shape = [1 : i32, 30 : i32, 30 : i32, 192 : i32]
+    // CHECK-SAME: tensor<1x1x900x192xbf16
+    // CHECK-SAME: -> tensor<1x30x30x192xbf16
     // CHECK: %[[RET:[0-9]+]] = "ttnn.permute"(%[[RESHAPE]])
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
-    // CHECK-SAME: tensor<1x28x28x192xbf16
-    // CHECK-SAME: -> tensor<1x192x28x28xbf16
-    // CHECK: return %[[RET]] : tensor<1x192x28x28xbf16
-    return %0 : tensor<1x192x28x28xbf16>
+    // CHECK-SAME: tensor<1x30x30x192xbf16
+    // CHECK-SAME: -> tensor<1x192x30x30xbf16
+    // CHECK: return %[[RET]] : tensor<1x192x30x30xbf16
+    return %0 : tensor<1x192x30x30xbf16>
   }
 
   // Kernel size = (1, 2) ; Stride = (3, 1); Padding = 0
-  func.func @test_maxpool2d_kernel_1x2_stride_3x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x10x27xbf16> {
+  func.func @test_maxpool2d_kernel_1x2_stride_3x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x10x29xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x2_stride_3x1_padding_0(
     %cst = stablehlo.constant dense<0xFF80> : tensor<bf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"(%arg0)
@@ -108,24 +108,24 @@ module @max_pool2d attributes {} {
     // CHECK-SAME: input_height = 28 : si32,
     // CHECK-SAME: input_width = 28 : si32,
     // CHECK-SAME: kernel_size = array<i32: 1, 2>,
-    // CHECK-SAME: padding = array<i32: 0, 0>,
+    // CHECK-SAME: padding = array<i32: 1, 1>,
     // CHECK-SAME: stride = array<i32: 3, 1>
     // CHECK-SAME: tensor<1x1x784x192xbf16
-    // CHECK-SAME: -> tensor<1x1x270x192xbf16
-    %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<0> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 2>, window_strides = array<i64: 1, 1, 3, 1>}> ({
+    // CHECK-SAME: -> tensor<1x1x290x192xbf16
+    %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<[[0, 0], [0, 0], [1, 1], [1, 1]]> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 2>, window_strides = array<i64: 1, 1, 3, 1>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
       %1 = stablehlo.maximum %arg1, %arg2 : tensor<bf16>
       stablehlo.return %1 : tensor<bf16>
-    }) : (tensor<1x192x28x28xbf16>, tensor<bf16>) -> tensor<1x192x10x27xbf16>
+    }) : (tensor<1x192x28x28xbf16>, tensor<bf16>) -> tensor<1x192x10x29xbf16>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
-    // CHECK-SAME: shape = [1 : i32, 10 : i32, 27 : i32, 192 : i32]
-    // CHECK-SAME: tensor<1x1x270x192xbf16
-    // CHECK-SAME: -> tensor<1x10x27x192xbf16
+    // CHECK-SAME: shape = [1 : i32, 10 : i32, 29 : i32, 192 : i32]
+    // CHECK-SAME: tensor<1x1x290x192xbf16
+    // CHECK-SAME: -> tensor<1x10x29x192xbf16
     // CHECK: %[[RET:[0-9]+]] = "ttnn.permute"(%[[RESHAPE]])
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
-    // CHECK-SAME: tensor<1x10x27x192xbf16
-    // CHECK-SAME: -> tensor<1x192x10x27xbf16
-    // CHECK: return %[[RET]] : tensor<1x192x10x27xbf16
-    return %0 : tensor<1x192x10x27xbf16>
+    // CHECK-SAME: tensor<1x10x29x192xbf16
+    // CHECK-SAME: -> tensor<1x192x10x29xbf16
+    // CHECK: return %[[RET]] : tensor<1x192x10x29xbf16
+    return %0 : tensor<1x192x10x29xbf16>
   }
 }

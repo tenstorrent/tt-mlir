@@ -3558,6 +3558,8 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
   let results = (outs Variadic<AnyRankedTensor>);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
@@ -3624,6 +3626,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
@@ -3691,6 +3694,8 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
