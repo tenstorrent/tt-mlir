@@ -220,6 +220,68 @@ public:
   }
 };
 
+// This pattern detects and fuses a sequence of operations that implement
+// relu. If a zeros op is consumed by a maximum op, we can fuse the zeros and
+// maximum op into a relu op.
+
+// Input pattern:
+// %0 = "ttir.zeros"() or %0 = "ttir.full"(fill_value = 0)
+// %1 = ttir.empty()
+// %2 = "ttir.maximum"(%arg0, %0, %1)
+//
+// Output pattern:
+// %0 = ttir.empty()
+// %1 = "ttir.relu"(%arg0, %0)
+class ReluFusionPattern : public mlir::OpRewritePattern<MaximumOp> {
+  using mlir::OpRewritePattern<MaximumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MaximumOp maximumOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    Value input;
+
+    if (isCreatingZeros(maximumOp.getLhs())) {
+      input = maximumOp.getRhs();
+    } else if (isCreatingZeros(maximumOp.getRhs())) {
+      input = maximumOp.getLhs();
+    } else {
+      return mlir::failure();
+    }
+
+    rewriter.setInsertionPoint(maximumOp);
+    utils::replaceOpWithNewDPSOp<ReluOp>(
+        rewriter, maximumOp, maximumOp.getResult().getType(), input);
+
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is zero.
+  bool isFillValueZero(FullOp op) const {
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().isZero();
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().isZero();
+    }
+    llvm_unreachable("Fill value should be integer or float");
+  }
+
+  bool isCreatingZeros(mlir::Value value) const {
+    if (auto creationOp = value.getDefiningOp<ZerosOp>()) {
+      return true;
+    }
+    if (auto creationOp = value.getDefiningOp<FullOp>()) {
+      return isFillValueZero(creationOp);
+    }
+
+    return false;
+  }
+};
+
 class Conv2dWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -1120,6 +1182,9 @@ public:
       patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
+
+      patterns.add<ReluFusionPattern>(&getContext());
+
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
