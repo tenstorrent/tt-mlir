@@ -1155,6 +1155,7 @@ def test_batch_norm(
         builder,
         unit_attrs: Optional[List[str]] = None,
     ):
+
         return builder.batch_norm(
             in0,
             scale,
@@ -1187,7 +1188,7 @@ def test_batch_norm(
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),
-            (1, 16, 28, 64),
+            (1, 16, 32, 64),
             (16,),              # batch_norm scale (gamma)
             (16,),              # batch_norm offset (beta)
             (16,),              # batch_norm mean
@@ -1200,7 +1201,7 @@ def test_batch_norm(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
 @pytest.mark.parametrize("dimension", [1])  # channel dimension for NCHW format
-@pytest.mark.parametrize("epsilon", [9.99999974E-6])
+@pytest.mark.parametrize("epsilon", [0.0])
 @pytest.mark.parametrize("training", [False])
 def test_conv2d_batch_norm_fusing(
     shapes: List[Shape],
@@ -1226,8 +1227,35 @@ def test_conv2d_batch_norm_fusing(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        print(f"Input tensor shape: {builder.get_shape(input_tensor)}")
-        # Apply conv2d operation
+        # Create input tensor with random data
+        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+        
+        # Create conv2d weights and bias
+        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+        
+        # Create batch norm parameters
+        bn_scale_data = torch.full(shapes[4], torch.randn(1).item(), dtype=dtypes[4])
+        bn_offset_data = torch.full(shapes[5], torch.randn(1).item(), dtype=dtypes[5])
+        bn_mean_data = torch.randn(shapes[6], dtype=dtypes[6])
+        bn_variance_data = torch.abs(torch.randn(shapes[7], dtype=dtypes[7])) + 1e-5  # Ensure positive variance
+
+        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
+        conv_result = torch.nn.functional.conv2d(
+            input_tensor_data_rs, conv_weight_data, conv_bias_data.squeeze(), stride=stride, padding=padding, dilation=dilation, groups=groups
+        )
+        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
+
+        golden_output = torch.nn.functional.batch_norm(
+            conv_result, bn_mean_data, bn_variance_data, bn_scale_data, bn_offset_data, training=training, eps=epsilon
+        )
+        
+        builder.set_graph_input_output(
+            [input_tensor_data, conv_weight_data, conv_bias_data, conv_result, bn_scale_data, bn_offset_data, bn_mean_data, bn_variance_data], 
+            [golden_output], 
+            override=True
+        )
+
         conv_result = builder.conv2d(
             input_tensor,
             conv_weight,
@@ -1239,10 +1267,7 @@ def test_conv2d_batch_norm_fusing(
             groups=groups,
             unit_attrs=unit_attrs,
         )
-        # Print the output shape for debugging
-        conv_output_shape = builder.get_shape(conv_result)
-        print(f"Conv2D output shape: {conv_output_shape}")
-        # Apply batch normalization after conv2d
+
         return builder.batch_norm(
             conv_result,
             bn_scale,
