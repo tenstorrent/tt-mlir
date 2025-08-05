@@ -1297,6 +1297,8 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
             createSliceDynamicOpOperandsWorkarounds(step);
       }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTNN_LinearOp : TTNN_Op<"linear",

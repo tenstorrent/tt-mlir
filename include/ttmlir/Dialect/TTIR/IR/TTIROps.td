@@ -3922,6 +3922,8 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
                          OptionalAttr<I32ArrayAttr>:$step);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
