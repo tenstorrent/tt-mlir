@@ -1414,7 +1414,7 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MorehCumSumOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 MorehCumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -1429,9 +1429,8 @@ MorehCumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpConstraints,
-      *this, deviceGrid, inputShape, inputs[0], getDim(),
-      opConfig.outputLayout);
+      op_model::OpModel<MorehCumSumOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1442,15 +1441,15 @@ MorehCumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::MorehCumSumOp>::getOpRuntime,
-      *this, inputShape, inputs[0], getDim(), opConfig.outputLayout);
+      op_model::OpModel<MorehCumSumOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 RepeatInterleaveOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -1465,9 +1464,8 @@ RepeatInterleaveOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<
-          mlir::tt::ttnn::RepeatInterleaveOp>::getOpConstraints,
-      *this, deviceGrid, inputShape, inputs[0], getRepeats(), getDim(),
+      op_model::OpModel<RepeatInterleaveOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getRepeats(), getDim(),
       opConfig.outputLayout);
 }
 
@@ -1479,16 +1477,15 @@ RepeatInterleaveOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::RepeatInterleaveOp>::getOpRuntime,
-      *this, inputShape, inputs[0], getRepeats(), getDim(),
-      opConfig.outputLayout);
+      op_model::OpModel<RepeatInterleaveOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getRepeats(), getDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
 // RepeatOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 RepeatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -1503,9 +1500,8 @@ RepeatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::RepeatOp>::getOpConstraints,
-      *this, deviceGrid, inputShape, inputs[0], getRepeatDims().getShape(),
-      opConfig.outputLayout);
+      op_model::OpModel<RepeatOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1516,15 +1512,15 @@ RepeatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::RepeatOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
+      op_model::OpModel<RepeatOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getRepeatDims().getShape(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
 // PadOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 PadOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -1539,9 +1535,9 @@ PadOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getPadding(), getValue(),
-      getUseMulticore(), opConfig.outputLayout);
+      op_model::OpModel<PadOp>::getOpConstraints, *this, deviceGrid, inputShape,
+      inputs[0], getPadding(), getValue(), getUseMulticore(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1552,16 +1548,15 @@ PadOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::PadOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getPadding(), getValue(), getUseMulticore(),
-      opConfig.outputLayout);
+      op_model::OpModel<PadOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getPadding(), getValue(), getUseMulticore(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
 // SortOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
+llvm::Expected<op_model::OpConstraints>
 SortOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -1576,8 +1571,8 @@ SortOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::SortOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getDim(), getDescending(), getStable(),
+      op_model::OpModel<SortOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getDim(), getDescending(), getStable(),
       opConfig.outputLayout);
 }
 
@@ -1589,9 +1584,8 @@ SortOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::ttnn::OpModel<mlir::tt::ttnn::SortOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getDim(), getDescending(), getStable(),
-      opConfig.outputLayout);
+      op_model::OpModel<SortOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getDim(), getDescending(), getStable(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2091,6 +2085,43 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpRuntime, *this, inputShape,
       inputs[0], getMin(), getMax(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// ClampTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ClampTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ClampTensorOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getMin().getType().getShape(), inputs[1],
+      getMax().getType().getShape(), inputs[2], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ClampTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ClampTensorOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getMin().getType().getShape(), inputs[1],
+      getMax().getType().getShape(), inputs[2], opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

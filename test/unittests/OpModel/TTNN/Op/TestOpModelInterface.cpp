@@ -1468,7 +1468,7 @@ TEST_F(OpModelBase, repeatOp) {
 
   std::vector<int64_t> repeatDimsVec = {2, 1};
   llvm::ArrayRef<int64_t> repeatDims(repeatDimsVec);
-  auto repeatDimsAttr = ::mlir::tt::ttnn::ShapeAttr::get(&context, repeatDims);
+  auto repeatDimsAttr = ShapeAttr::get(&context, repeatDims);
 
   auto repeat = builder.create<RepeatOp>(
       builder.getUnknownLoc(), output.getType(), input, repeatDimsAttr);
@@ -1536,7 +1536,7 @@ TEST_F(OpModelBase, sortOp) {
 
   auto input = createEmptyTensor(tensorShapeA);
   auto sortedValues = createEmptyTensor(tensorShapeA); // Same shape as input
-  auto indices = createEmptyTensor(tensorShapeA);      // Same shape as input
+  auto indices = createEmptyTensor(tensorShapeA);
 
   // SortOp returns 2 tensors: sorted values and indices
   auto sort = builder.create<SortOp>(
@@ -1550,7 +1550,6 @@ TEST_F(OpModelBase, sortOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    // SortOp uses stub implementation, so all values are 0
     EXPECT_EQ(cbSize, 33792);
     EXPECT_EQ(peakSize, 8192);
     EXPECT_EQ(outputSize, 2048);
@@ -2488,6 +2487,42 @@ TEST_F(OpModelBase, clampScalarOp) {
   op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampScalarOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, clampTensorOp) {
+  // Create ClampScalarOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto min = createEmptyTensor(tensorShape);
+  auto max = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  ClampTensorOp clampTensorOp = builder.create<ClampTensorOp>(
+      builder.getUnknownLoc(), outputType, input, min, max);
+  clampTensorOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(clampTensorOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(clampTensorOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
