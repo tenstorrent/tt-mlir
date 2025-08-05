@@ -238,7 +238,7 @@ public:
               dma.isDstRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dmaOp = thenBuilder.create<ttir::DMAOp>(
               dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-              coalescingFactor);
+              dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
           thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
