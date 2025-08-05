@@ -49,5 +49,5 @@ def program_outputs_as_dict(bin, index):
     return json_string_as_dict(bin.get_program_outputs_as_json(index))
 
 
-def program_mlir_as_dict(bin, index):
-    return json_string_as_dict(bin.get_program_mlir_as_json(index))
+def mlir_as_dict(bin, index):
+    return json_string_as_dict(bin.get_mlir_as_json())
