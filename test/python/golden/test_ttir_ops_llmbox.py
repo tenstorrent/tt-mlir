@@ -469,328 +469,71 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "input_rank, shard_dims",
     [
-        (1, 64, 16, 128),
-        (1, 64, 16, 124),
-        (1, 64, 16, 120),
-        (1, 64, 16, 132),
-        (1, 64, 16, 136),
-        (1, 62, 16, 128),
-        (1, 60, 16, 128),
-        (1, 66, 16, 128),
-        (1, 68, 16, 128),
-        (1, 64, 7, 128),
-        (1, 18, 3, 36),
-        (1, 2, 1, 4),
+        (5, (1, 4)),
+        (5, (4, 1)),
+        (5, (2, 4)),
+        (5, (1, 4)),
+        (5, (-1, 3)),
+        (5, (4, -1)),
+        (5, (-1, 4)),
+        (5, (-1, 0)),
+        (4, (1, 3)),
+        (4, (3, 1)),
+        (4, (2, 3)),
+        (4, (3, 2)),
+        (4, (0, 2)),
+        (4, (1, 0)),
+        (4, (-1, 3)),
+        (4, (3, -1)),
+        (4, (-1, 1)),
+        (4, (1, -1)),
+        (3, (1, 2)),
+        (3, (2, 1)),
+        (3, (0, 1)),
+        (3, (1, 0)),
+        (3, (-1, 2)),
+        (3, (2, -1)),
+        (3, (-1, 1)),
+        (3, (0, -1)),
+        (2, (0, 1)),
+        (2, (1, 0)),
+        (2, (-1, 1)),
+        (2, (1, -1)),
+        (2, (-1, 0)),
+        (2, (0, -1)),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_2x4(in0: Operand, builder: TTIRBuilder):
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1)])
+def test_mesh_shard_devices(
+    input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
+):
+    shard_shape = _make_shard_shape(input_rank, shard_dims, mesh_shape)
+    if all(x == 1 for x in shard_shape):
+        pytest.skip("sharding is meaningless, skipping test.")
+    input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
+
+    def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 2, 1, 4),
-            shard_dims=(1, 3),
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 2, 1, 4),
-            shard_dims=(1, 3),
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
         )
 
     compile_ttir_to_flatbuffer(
-        neg_2x4,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 64, 16, 128),
-        (1, 64, 16, 124),
-        (1, 64, 16, 120),
-        (1, 64, 16, 132),
-        (1, 64, 16, 136),
-        (1, 62, 16, 128),
-        (1, 60, 16, 128),
-        (1, 66, 16, 128),
-        (1, 68, 16, 128),
-        (1, 64, 7, 128),
-        (1, 18, 3, 36),
-        (1, 2, 1, 4),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_2x4_cluster_0(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 2, 1, 1),
-            shard_dims=(1, -1),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 2, 1, 1),
-            shard_dims=(1, -1),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_2x4_cluster_0,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 64, 16, 128),
-        (1, 64, 16, 124),
-        (1, 64, 16, 120),
-        (1, 64, 16, 132),
-        (1, 64, 16, 136),
-        (1, 62, 16, 128),
-        (1, 60, 16, 128),
-        (1, 66, 16, 128),
-        (1, 68, 16, 128),
-        (1, 64, 7, 128),
-        (1, 18, 3, 36),
-        (1, 2, 1, 4),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_2x4_cluster_1(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 4),
-            shard_dims=(1, 3),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 4),
-            shard_dims=(1, 3),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_2x4_cluster_1,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 128, 16, 64),
-        (1, 124, 16, 64),
-        (1, 120, 16, 64),
-        (1, 132, 16, 64),
-        (1, 136, 16, 64),
-        (1, 128, 16, 62),
-        (1, 128, 16, 60),
-        (1, 128, 16, 66),
-        (1, 128, 16, 68),
-        (1, 128, 7, 64),
-        (1, 36, 3, 18),
-        (1, 4, 1, 2),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_2x4_reversed_cluster(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 4, 1, 2),
-            shard_dims=(3, 1),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 4, 1, 2),
-            shard_dims=(3, 1),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_2x4_reversed_cluster,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 128, 16, 64),
-        (1, 124, 16, 64),
-        (1, 120, 16, 64),
-        (1, 132, 16, 64),
-        (1, 136, 16, 64),
-        (1, 128, 16, 62),
-        (1, 128, 16, 60),
-        (1, 128, 16, 66),
-        (1, 128, 16, 68),
-        (1, 128, 7, 64),
-        (1, 36, 3, 18),
-        (1, 4, 1, 2),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_2x4_reversed_cluster_0(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 2),
-            shard_dims=(3, -1),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 2),
-            shard_dims=(3, -1),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_2x4_reversed_cluster_0,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 128, 16, 64),
-        (1, 16, 16, 64),
-        (1, 15, 16, 64),
-        (1, 7, 16, 64),
-        (1, 16, 16, 136),
-        (1, 16, 16, 128),
-        (1, 16, 16, 40),
-        (1, 16, 7, 64),
-        (1, 7, 7, 64),
-        (1, 10, 3, 64),
-        (1, 1, 1, 64),
-        (1, 1, 1, 24),
-        (1, 1, 1, 8),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(1, 8)])
-def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_1x8_dim_3(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 8),
-            shard_dims=(-1, 3),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 1, 1, 8),
-            shard_dims=(-1, 3),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_1x8_dim_3,
-        [shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (1, 64, 16, 128),
-        (1, 64, 16, 16),
-        (1, 64, 16, 15),
-        (1, 64, 16, 7),
-        (1, 136, 16, 16),
-        (1, 128, 16, 16),
-        (1, 40, 16, 16),
-        (1, 64, 7, 16),
-        (1, 64, 7, 7),
-        (1, 64, 3, 10),
-        (1, 64, 1, 1),
-        (1, 24, 1, 1),
-        (1, 8, 1, 1),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(1, 8)])
-def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
-    def neg_1x8_dim_1(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 8, 1, 1),
-            shard_dims=(-1, 1),
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(1, 8, 1, 1),
-            shard_dims=(-1, 1),
-        )
-
-    compile_ttir_to_flatbuffer(
-        neg_1x8_dim_1,
-        [shape],
+        mesh_shard_devices,
+        [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
