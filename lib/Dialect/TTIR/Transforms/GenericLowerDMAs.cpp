@@ -308,16 +308,12 @@ public:
     Operation *newDma;
     if (coalescingFactor ==
         static_cast<size_t>(ttmlir::utils::volume(memrefShardShape))) {
-      // Fully coalesced, we can trivially lower.
-      if (dma.isSrcRemote()) {
-        newDma = rewriter.create<ttir::DMAOp>(
-            dma.getLoc(), dma.getSrc(), streamIndex, dma.getDst(),
-            dma.getMcastStartIndex(), dma.getMcastShape());
-      } else {
-        newDma = rewriter.create<ttir::DMAOp>(
-            dma.getLoc(), dma.getSrc(), ValueRange(), dma.getDst(), streamIndex,
-            dma.getMcastStartIndex(), dma.getMcastShape());
-      }
+      // Fully contiguous DMA; lower to a single operation
+      auto srcIndices = dma.isSrcRemote() ? streamIndex : SmallVector<Value>();
+      auto dstIndices = dma.isDstRemote() ? streamIndex : SmallVector<Value>();
+      newDma = rewriter.create<ttir::DMAOp>(
+          dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
+          dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
 
       scf::LoopNest loopNest =
