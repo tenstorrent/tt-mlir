@@ -232,17 +232,14 @@ public:
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
 
-          if (dma.isSrcRemote()) {
-            auto dmaOp = thenBuilder.create<ttir::DMAOp>(
-                dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
-                coalescingFactor);
-            thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
-          } else {
-            auto dmaOp = thenBuilder.create<ttir::DMAOp>(
-                dma.getLoc(), dma.getSrc(), iters, dma.getDst(), srcIndex,
-                coalescingFactor);
-            thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
-          }
+          auto srcIndices =
+              dma.isSrcRemote() ? srcIndex : llvm::to_vector(iters);
+          auto dstIndices =
+              dma.isDstRemote() ? srcIndex : llvm::to_vector(iters);
+          auto dmaOp = thenBuilder.create<ttir::DMAOp>(
+              dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
+              coalescingFactor);
+          thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
           elseBuilder.create<scf::YieldOp>(dma.getLoc(), nulltx->getResult(0));
@@ -289,7 +286,6 @@ public:
           viewInterface.applyViews();
       AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                                 0 /* use default page size*/);
-      llvm::dbgs() << "memoryMap: " << memoryMap << "\n";
       size_t coalescingFactor = calculateCoalescingFactor(
           memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes,
           indexBounds);
