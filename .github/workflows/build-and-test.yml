@@ -182,6 +182,7 @@ jobs:
           {runs-on: n300,         sh-run: true,  name: "run",  suite: "unit",           image: "tracy",  type: "unit"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttnn_standalone", path: "tools/ttnn-standalone"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: p150,         sh-run: false,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero --disable-eth-dispatch"},
           {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,         sh-run: false, name: "perf", suite: "optimizer",      image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/optimizer"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "emitc",          image: "tracy",  type: "ttrt",            path: "EmitC",                       flags: "--emitc"},

@@ -1,6 +1,9 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// UNSUPPORTED: Blackhole
+// Update cache test fails on blackhole architecture due to the following metal issue:
+// https://github.com/tenstorrent/tt-metal/issues/25249
 module {
   func.func @forward(%arg0: tensor<1x32x64x512xbf16>, %arg1: tensor<1x32x1x512xbf16>) -> tensor<1x32x64x512xbf16> {
     // CHECK: "ttnn.update_cache"

@@ -77,23 +77,48 @@ if config.system_desc_path:
 
 # set targets based on the system (default = n150)
 """
-available_targets:
+available_targets for Wormhole_b0:
 - n150
 - n300
 - llmbox
 - tg
+available_targets for Blackhole:
+- p150
+- p300
 """
 config.targets = {"n150"}
 
 if system_desc != None:
-    if len(system_desc["chip_desc_indices"]) == 1:
-        config.targets = {"n150"}
-    elif len(system_desc["chip_desc_indices"]) == 2:
-        config.targets = {"n300"}
-    elif len(system_desc["chip_desc_indices"]) == 8:
-        config.targets = {"llmbox"}
-    elif len(system_desc["chip_desc_indices"]) == 32:
-        config.targets = {"tg"}
+    if system_desc["chip_descs"][0]["arch"] == "Blackhole":
+        if len(system_desc["chip_desc_indices"]) == 1:
+            config.targets = {"p150"}
+        elif len(system_desc["chip_desc_indices"]) == 2:
+            config.targets = {"p300"}
+        else:
+            raise ValueError(
+                "Not supported number of chips for Blackhole architecture: "
+                + str(len(system_desc["chip_desc_indices"]))
+            )
+    elif system_desc["chip_descs"][0]["arch"] == "Wormhole_b0":
+        if len(system_desc["chip_desc_indices"]) == 1:
+            config.targets = {"n150"}
+        elif len(system_desc["chip_desc_indices"]) == 2:
+            config.targets = {"n300"}
+        elif len(system_desc["chip_desc_indices"]) == 8:
+            config.targets = {"llmbox"}
+        elif len(system_desc["chip_desc_indices"]) == 32:
+            config.targets = {"tg"}
+        else:
+            raise ValueError(
+                "Not supported number of chips for Wormhole_b0 architecture: "
+                + str(len(system_desc["chip_desc_indices"]))
+            )
+    else:
+        raise ValueError(
+            "Unsupported architecture: "
+            + system_desc["chip_descs"][0]["arch"]
+            + ". Supported architectures are: Blackhole, Wormhole_b0."
+        )
 
 for target in config.targets:
     config.available_features.add(target)
