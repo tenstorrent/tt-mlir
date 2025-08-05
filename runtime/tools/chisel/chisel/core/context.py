@@ -303,9 +303,11 @@ class ChiselContext:
                 device_tensor.tensor_ref = tensor_ref
                 self.function_argument_bridge(programContext, input_name)
             else:
+                tensor_data = retrieve_tensor_from_pool(programContext, tensor_ref)
+                data = get_torch_tensor(tensor_data)
                 # Create new tensor value if it doesn't exist
                 self.device_tensor_pool[input_name] = TensorValue(
-                    input_name, None, ExecutionType.DEVICE, tensor_ref=tensor_ref
+                    input_name, data, ExecutionType.DEVICE, tensor_ref=tensor_ref
                 )
 
     @debug_wrap(debug=DEBUG)
