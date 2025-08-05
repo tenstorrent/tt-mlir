@@ -361,7 +361,7 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
-    ::tt::tt_metal::DumpMeshDeviceProfileResults(context->getMeshDevice());
+    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
     counter = 0;
   }
 #endif
