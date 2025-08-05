@@ -72,8 +72,9 @@ public:
     bool isDstDram =
         outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
 
-    // if src or dst is dram they must be remote; otherwise if both operands are
-    // L1 then assume src is remote and dst is local
+    // If src or dst operand is DRAM they must be remote
+    // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
+    // local)
     bool isSrcRemote =
         isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
     bool isDstRemote = isDstDram;
@@ -88,7 +89,6 @@ public:
                       .getResult();
     }
 
-    // this signals that dram output is remote to dma lowering pass
     Value viewOutput = op.getOutput();
     if (isDstRemote) {
       viewOutput = rewriter
