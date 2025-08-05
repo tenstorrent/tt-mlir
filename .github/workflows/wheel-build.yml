@@ -94,7 +94,7 @@ jobs:
             -f test_filter=${{ inputs.test_filter || '' }} \
             -f sh-runner=${{ inputs.sh-runner || false }}
           sleep 1
-          url=$(gh run list --workflow perf-benchmark.yml --limit 1 --repo tenstorrent/tt-forge-fe --json url | jq -r '.[0].url')
+          url=$(gh run list --workflow=perf-benchmark.yml --limit 1 --repo tenstorrent/tt-forge-fe --json url | jq -r '.[0].url')
           echo "TT-FORGE-FE build triggered: $url"
           echo "TT-FORGE-FE build triggered: $url" >> $GITHUB_STEP_SUMMARY
       - name: Trigger Torch build
@@ -109,6 +109,6 @@ jobs:
             -f test_filter=${{ inputs.test_filter || '' }} \
             -f sh-runner=${{ inputs.sh-runner || false }}
           sleep 1
-          url=$(gh run list --workflow perf-benchmark.yml --limit 1 --repo tenstorrent/tt-torch --json url | jq -r '.[0].url')
+          url=$(gh run list --workflow=perf-benchmark.yml --limit 1 --repo tenstorrent/tt-torch --json url | jq -r '.[0].url')
           echo "TT-TORCH build triggered: $url"
           echo "TT-TORCH build triggered: $url" >> $GITHUB_STEP_SUMMARY
