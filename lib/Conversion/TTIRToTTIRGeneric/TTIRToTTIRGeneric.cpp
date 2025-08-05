@@ -94,16 +94,23 @@ protected:
     }
 
     DenseIntElementsAttr emptyCollapseIntervals;
+    ttcore::MetalLayoutAttr layout;
     if (!collapseTensors) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
       emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
+      layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, targetGridShape,
+          ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
+    } else {
+      // Default collapse intervals will collapse to 2D.
+      layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(), logicalShape,
+                                            targetGridShape,
+                                            ttcore::OOBVal::Undef, memSpace);
     }
-    auto layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, targetGridShape,
-        ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =

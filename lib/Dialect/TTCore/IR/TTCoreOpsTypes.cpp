@@ -19,7 +19,6 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -720,21 +719,21 @@ static llvm::SmallVector<int64_t>
 applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
                                      mlir::DenseIntElementsAttr intervals,
                                      llvm::ArrayRef<int64_t> alignments) {
-
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
   llvm::SmallVector<int64_t> resultShape;
 
   // Process with collapse intervals.
-  assert(normalizedIntervals.size() % 2 == 0);
-  int64_t numIntervals = normalizedIntervals.size() / 2;
+  auto values = intervals.getValues<int64_t>();
+  assert(intervals && intervals.getType().getShape()[1] == 2);
+  auto numIntervals = intervals.getType().getShape()[0];
 
   int64_t currentIdx = 0;
 
   for (int64_t i = 0; i < numIntervals; ++i) {
-    int64_t start = normalizedIntervals[i * 2];
-    int64_t end = normalizedIntervals[i * 2 + 1];
+    int64_t start = values[i * 2];
+    int64_t end = values[i * 2 + 1];
 
     // Handle Python-like negative indexing.
     if (start < 0) {
@@ -751,12 +750,8 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
     if (end - start == 1) {
       // Single dimension - apply alignment.
-      auto alignedValue =
-          ttmlir::utils::alignUp(shape[start], alignments[start]);
-      llvm::errs() << "Interval [" << start << "," << end << "): pushing shape["
-                   << start << "]=" << shape[start] << " aligned to "
-                   << alignedValue << "\n";
-      resultShape.push_back(alignedValue);
+      resultShape.push_back(
+          ttmlir::utils::alignUp(shape[start], alignments[start]));
     } else if (end > start) {
       // Start by aligning the innermost dimension.
       int64_t collapsedDim =
@@ -786,10 +781,6 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
-  llvm::errs() << "getPhysicalShape() tile shape:";
-  llvm::interleaveComma(tileShape, llvm::errs());
-  llvm::errs() << "\n";
-  llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
@@ -801,9 +792,6 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
-  llvm::errs() << "getPhysicalShape() result:";
-  llvm::interleaveComma(physicalShape, llvm::errs());
-  llvm::errs() << "\n";
   return physicalShape;
 }
 
@@ -816,16 +804,8 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
-  llvm::errs() << "physical shape: ";
-  llvm::interleaveComma(physicalShape, llvm::errs());
-  llvm::errs() << "\n";
-
-  llvm::errs() << "grid shape: ";
-  llvm::interleaveComma(gridShape, llvm::errs());
-  llvm::errs() << "\n";
-
   assert(physicalShape.size() == gridShape.size() &&
-         "Grid rank must equal collapsed tensor rank");
+         "Grid rank must equalcollapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];
