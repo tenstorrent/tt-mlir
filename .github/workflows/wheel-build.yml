@@ -56,6 +56,8 @@ jobs:
           echo "mlir_sha=$mlir_sha" >> $GITHUB_OUTPUT
       - name: Trigger XLA build
         if: ${{ inputs.build_xla }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Triggering tt-xla build"
           gh workflow run perf-bench-tt-forge.yml --ref main --repo tenstorrent/tt-xla \
@@ -68,6 +70,8 @@ jobs:
           echo "TT-XLA build triggered: $url" >> $GITHUB_STEP_SUMMARY
       - name: Trigger Forge-fe build
         if: ${{ inputs.build_forge_fe }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Triggering tt-forge-fe build"
           gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-forge-fe \
@@ -80,6 +84,8 @@ jobs:
           echo "TT-FORGE-FE build triggered: $url" >> $GITHUB_STEP_SUMMARY
       - name: Trigger Torch build
         if: ${{ inputs.build_torch }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Triggering tt-torch build"
           gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-torch \
