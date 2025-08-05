@@ -843,7 +843,9 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
-def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
+def TTNN_ArgMaxOp : TTNN_Op<"argmax",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Argmax reduction op.";
   let description = [{
     Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
@@ -891,7 +893,9 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ProdOp : TTNN_Op<"prod"> {
+def TTNN_ProdOp : TTNN_Op<"prod",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Product reduction op.";
   let description = [{
     This op computes the product of all elements of the tensor (full product)

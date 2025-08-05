@@ -1589,6 +1589,97 @@ SortOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  std::optional<int32_t> dim;
+  if (getDim()) {
+    dim = getDim();
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], dim, getKeepDim(), getUseMulticore(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  std::optional<int32_t> dim;
+  if (getDim()) {
+    dim = getDim();
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
+      dim, getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// ProdOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  std::optional<int64_t> dim;
+  if (getDimArg()) {
+    dim = getDimArg();
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ProdOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], dim, getKeepDim(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  std::optional<int64_t> dim;
+  if (getDimArg()) {
+    dim = getDimArg();
+  }
+
+  return opRuntimeCache().getOrCompute(op_model::OpModel<ProdOp>::getOpRuntime,
+                                       *this, inputShape, inputs[0], dim,
+                                       getKeepDim(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
