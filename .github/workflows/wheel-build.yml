@@ -58,7 +58,7 @@ jobs:
       - name: Trigger XLA build
         if: ${{ inputs.build_xla }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "Triggering tt-xla build"
           gh workflow run perf-bench-tt-forge.yml --ref main --repo tenstorrent/tt-xla \
@@ -72,7 +72,7 @@ jobs:
       - name: Trigger Forge-fe build
         if: ${{ inputs.build_forge_fe }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "Triggering tt-forge-fe build"
           gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-forge-fe \
@@ -86,7 +86,7 @@ jobs:
       - name: Trigger Torch build
         if: ${{ inputs.build_torch }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "Triggering tt-torch build"
           gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-torch \
