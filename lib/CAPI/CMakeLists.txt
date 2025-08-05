@@ -1,6 +1,7 @@
 add_mlir_public_c_api_library(TTMLIRCAPI
   Dialects.cpp
   TTCoreAttrs.cpp
+  TTIRAttrs.cpp
   TTKernelTypes.cpp
   TTNNAttrs.cpp
   TTTypes.cpp
