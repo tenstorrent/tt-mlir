@@ -527,7 +527,7 @@ void closeMeshDevice(Device parentMesh) {
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
   ttnnMeshDevice.close();
 }
@@ -656,7 +656,7 @@ void dumpMemoryReport(Device deviceHandle) {
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
 }
 
-void dumpDeviceProfileResults(Device deviceHandle) {
+void readDeviceProfilerResults(Device deviceHandle) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
@@ -664,7 +664,7 @@ void dumpDeviceProfileResults(Device deviceHandle) {
              "Mesh device must be a parent mesh");
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
 }
 
