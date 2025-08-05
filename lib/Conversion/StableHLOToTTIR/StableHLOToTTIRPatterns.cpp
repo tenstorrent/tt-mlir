@@ -2031,7 +2031,37 @@ public:
       return err;
     }
 
-    auto callTargetName = adaptor.getCallTargetNameAttr();
+    StringAttr callTargetName = adaptor.getCallTargetNameAttr();
+
+    if (callTargetName == "mark_input") {
+      Value input = adaptor.getOperands()[0];
+      mlir::BlockArgument blockArg =
+          llvm::dyn_cast_or_null<mlir::BlockArgument>(input);
+      if (!blockArg) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "mark_input custom call must have a block argument input.");
+      }
+
+      mlir::func::FuncOp funcOp = mlir::dyn_cast_or_null<mlir::func::FuncOp>(
+          blockArg.getOwner()->getParentOp());
+      if (!funcOp) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "mark_input custom call must have a func op parent.");
+      }
+
+      llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
+      newArgAttrs.emplace_back(
+          mlir::StringAttr::get(getContext(),
+                                tt::ttcore::ArgumentTypeAttr::name),
+          tt::ttcore::ArgumentTypeAttr::get(getContext(),
+                                            tt::ttcore::ArgumentType::Input));
+      funcOp.setArgAttrs(blockArg.getArgNumber(),
+                         mlir::DictionaryAttr::get(getContext(), newArgAttrs));
+
+      rewriter.replaceOp(srcOp, input);
+
+      return success();
+    }
 
     // There are three call target names that we handle:
     // 1. `@Sharding` - This is the custom call for sharding
