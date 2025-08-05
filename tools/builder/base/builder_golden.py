@@ -439,31 +439,61 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
     )
 
 
-def max_golden(input_tensor, dim_arg=None, keep_dim=True):
+def max_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
-    Custom golden function for max operation with conditional logic.
+    Golden function for max operation.
 
     Parameters
     ----------
     input_tensor : torch.Tensor
-        Input tensor to find maximum of
-    dim_arg : int, optional
-        Dimension to find maximum along (default: None for all dimensions)
-    keep_dim : bool, optional
-        Whether to keep the reduced dimension (default: True)
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - golden_dim_arg: int, optional - Dimension to reduce over (default: None, reduces over all dimensions)
+        - keep_dim: bool, optional - If True, retains reduced dimensions with length 1 (default: True)
 
     Returns
     -------
     torch.Tensor
-        Maximum values along specified dimension or global maximum
+        Tensor with maximum values
     """
-    if dim_arg is not None:
-        return torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
+    dim_arg = kwargs.get("golden_dim_arg", None)
+    keep_dim = kwargs.get("keep_dim", True)
+
+    if dim_arg is None:
+        return torch.max(input_tensor)
     else:
-        # For all dimensions reduction, reshape to match expected output
-        result = torch.max(input_tensor)
-        output_shape = [1] * input_tensor.dim()
-        return result.reshape(*output_shape)
+        return torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
+
+
+def min_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for min operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim_arg: int, optional - Dimension to reduce over (default: None, reduces over all dimensions)
+        - keep_dim: bool, optional - If True, retains reduced dimensions with length 1 (default: True)
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with minimum values
+    """
+    dim_arg = kwargs.get("dim_arg", None)
+    keep_dim = kwargs.get("keep_dim", True)
+
+    if dim_arg is None:
+        return torch.min(input_tensor)
+    else:
+        # Extract the first dimension if dim_arg is a list
+        if isinstance(dim_arg, list) and len(dim_arg) > 0:
+            dim_arg = dim_arg[0]
+        return torch.min(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
 def prod_golden(input_tensor, dim_arg, keep_dim=False):
@@ -837,7 +867,7 @@ def upsample2d_golden(in0, in1, scale_factor, mode="nearest"):
     return torch.transpose(output, 1, 3)
 
 
-def fill_cache_golden(cache_tensor, input_tensor):
+def fill_cache_golden(cache_tensor, input_tensor, **kwargs):
     """
     Custom golden function for fill_cache operation.
 
@@ -847,6 +877,8 @@ def fill_cache_golden(cache_tensor, input_tensor):
         Cache tensor to fill
     input_tensor : torch.Tensor
         Input tensor data
+    **kwargs : dict
+        Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
@@ -858,7 +890,7 @@ def fill_cache_golden(cache_tensor, input_tensor):
     return result
 
 
-def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
+def update_cache_golden(cache_tensor, update_tensor, indices_tensor, **kwargs):
     """
     Custom golden function for update_cache operation.
 
@@ -870,6 +902,8 @@ def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
         Tensor containing update data
     indices_tensor : torch.Tensor
         Tensor containing update indices
+    **kwargs : dict
+        Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
@@ -1752,7 +1786,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SumOp: sum_golden,
     ttir.MeanOp: mean_golden,
     ttir.MaxOp: max_golden,
-    ttir.MinOp: torch.min,
+    ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
     ttir.ReduceAndOp: reduce_and_golden,
     ttir.ReduceOrOp: reduce_or_golden,

@@ -108,6 +108,9 @@ class TTIRBuilder(Builder):
                 "Top of callstack to builder funcs must be outside this file"
             )
 
+        if not golden_kwargs:
+            golden_kwargs = ttir_kwargs
+
         if organize_ttir_args is None:
             organize_ttir_args = self._organize_eltwise_ttir
 
@@ -292,17 +295,15 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        kwargs = {
-            "batch_dims_lhs": batch_dims_lhs,
-            "contract_dims_lhs": contract_dims_lhs,
-            "batch_dims_rhs": batch_dims_rhs,
-            "contract_dims_rhs": contract_dims_rhs,
-        }
         return self._op_proxy(
             ttir.DotGeneralOp,
             [in0, in1, out0],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
+            ttir_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             output_type=self._get_type_from_torch_dtype(
                 self._get_golden_tensor(in0).dtype
@@ -2034,17 +2035,15 @@ class TTIRBuilder(Builder):
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        golden_kwargs = {}
+        golden_kwargs = {"keep_dim": True, "dim_arg": dim_arg}
         ttir_kwargs = {"keep_dim": True}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
         if dim_arg is not None:
-            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": True}
             ttir_kwargs["dim_arg"] = [dim_arg]
             output_shape = input_shape.copy()
             output_shape[dim_arg] = 1
         else:
-            golden_kwargs = {"dim_arg": None, "keep_dim": True}
             output_shape = [1] * ndim
 
         return self._op_proxy(
@@ -2087,11 +2086,9 @@ class TTIRBuilder(Builder):
             Tensor with minimum values
         """
         # Handle ttir and golden function arguments for edge cases
-        golden_kwargs = {}
         ttir_kwargs = {"keep_dim": keep_dim}
         output_shape = [1] * len(self.get_shape(in0))
         if dim_arg:
-            golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
             ttir_kwargs["dim_arg"] = [dim_arg]
         if not keep_dim:
             output_shape = torch.Size([1])
@@ -2099,7 +2096,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MinOp,
             [in0],
-            golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
@@ -3644,15 +3640,14 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
-            golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
                 "step": step,
                 "arange_dimension": arange_dimension,
+                "repeats": tuple(repeat_dims),
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
-            # organize_golden_args=lambda i: [i[1]],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(
                 self._get_golden_tensor(result).dtype
