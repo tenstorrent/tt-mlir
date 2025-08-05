@@ -4,8 +4,11 @@
 from .base.builder import Builder, Operand, Shape, TypeInfo, Golden, GoldenCheckLevel
 from .ttir.ttir_builder import TTIRBuilder
 from .stablehlo.stablehlo_builder import StableHLOBuilder
-from .ttir import ttir_utils
-from .stablehlo import stablehlo_utils
+from .base.builder_utils import (
+    build_ttir_module,
+    compile_ttir_to_flatbuffer,
+    build_stablehlo_module,
+)
 
 __all__ = [
     "Builder",
@@ -16,6 +19,7 @@ __all__ = [
     "GoldenCheckLevel",
     "TTIRBuilder",
     "StableHLOBuilder",
-    "ttir_utils",
-    "stablehlo_utils",
+    "build_ttir_module",
+    "compile_ttir_to_flatbuffer",
+    "build_stablehlo_module",
 ]

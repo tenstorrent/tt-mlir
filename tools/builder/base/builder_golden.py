@@ -3,18 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Golden function mappings for TTIR operations.
+Golden function mappings for TTIR and StableHLO operations.
 
-This module provides a centralized mapping between TTIR operations and their
+This module provides a centralized mapping between TTIR and StableHLO operations and their
 corresponding PyTorch golden reference implementations. Each golden function
 serves as a reference implementation that produces the expected output for
-comparison with TTIR operation results.
+comparison with TTIR or StableHLO operation results.
 """
 
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir
+from ttmlir.dialects import ttir, stablehlo
 from ttmlir.ir import Attribute
 
 
@@ -1164,6 +1164,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: torch.nn.functional.leaky_relu,
+    stablehlo.AddOp: torch.add,
 }
 
 

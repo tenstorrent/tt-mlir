@@ -9,7 +9,7 @@ from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import Marks, shape_str
 
 

@@ -6,10 +6,11 @@ import torch
 import pytest
 
 from typing import List, Tuple
+from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.n300
 
@@ -361,7 +362,8 @@ def test_llama_attention_1x2_tp_part1(
         shapes,
         dtypes,
         target=target,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -470,7 +472,8 @@ def test_llama_attention_1x2_tp_part2(
         shapes,
         dtypes,
         target=target,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

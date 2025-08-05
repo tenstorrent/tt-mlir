@@ -9,7 +9,7 @@ import re
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 import os
 
 
