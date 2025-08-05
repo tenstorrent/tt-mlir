@@ -1142,15 +1142,6 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                                 expectedTypeMsg);
     }
   }
-  if constexpr (std::is_same_v<AttrType, int32_t>) {
-    // typecast first op for per-tensor zp
-    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
-      firstInput = typeCastOp.getInput();
-    } else {
-      llvm_unreachable(
-          "Expected ttnn.typecast as defining op for per-tensor zp.");
-    }
-  }
   ttnn::FullOp fullOp =
       mlir::dyn_cast<ttnn::FullOp>(firstInput.getDefiningOp());
   assert(fullOp &&
