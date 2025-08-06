@@ -636,8 +636,8 @@ class TTIRBuilder(Builder):
         """
 
         # TODO: remove this once golden function is implemented
-        # golden = self._get_golden_tensor(in0)
-        # golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LogicalNotOp,
             [in0],
@@ -3484,11 +3484,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LinearOp,
             [in0, in1],
-            # golden_kwargs={
-            #     "transpose_a": transpose_a,
-            #     "transpose_b": transpose_b,
-            #     "bias": golden_bias,
-            # },
             ttir_kwargs={
                 "transpose_a": transpose_a,
                 "transpose_b": transpose_b,

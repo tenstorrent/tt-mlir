@@ -1806,6 +1806,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Elementwise binary operations
     ttir.AddOp: torch.add,
     ttir.MultiplyOp: torch.multiply,
+    ttir.SubtractOp: torch.subtract,
     ttir.DivOp: torch.div,
     ttir.MaximumOp: torch.maximum,
     ttir.MinimumOp: torch.minimum,
