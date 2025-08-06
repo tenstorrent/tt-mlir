@@ -13,8 +13,7 @@ struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
                         bool traceImplicitFromDevice = true,
-                        bool blackholeWorkarounds = true,
-                        bool d2mReturnEvent = false);
+                        bool blackholeWorkarounds = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -40,22 +39,15 @@ struct Env {
   // host for now.
   bool blackholeWorkarounds;
 
-  // TODO(bug #4181): d2mReturnEvent is to create MeshEvent at
-  // EnqueueReturnCommand. This is currently set to false due to the issue in
-  // tt metal MeshEvent and should be removed once the issue is fixed.
-  bool d2mReturnEvent;
-
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool traceImplicitFromDevice, bool blackholeWorkarounds,
-                bool d2mReturnEvent)
+                bool traceImplicitFromDevice, bool blackholeWorkarounds)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         traceImplicitFromDevice(traceImplicitFromDevice),
-        blackholeWorkarounds(blackholeWorkarounds),
-        d2mReturnEvent(d2mReturnEvent) {}
+        blackholeWorkarounds(blackholeWorkarounds) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -69,8 +61,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "\t"
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
-  os << "\t"
-     << "d2mReturnEvent: " << env.d2mReturnEvent << "\n";
   os << "}";
   return os;
 }
