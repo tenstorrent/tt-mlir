@@ -208,7 +208,6 @@ class TTIRBuilder(Builder):
                 i[0],
                 o,
             ),
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
         )
 
@@ -1160,7 +1159,6 @@ class TTIRBuilder(Builder):
             A tensor containing the leaky ReLU activation values
         """
         ttir_kwargs = {"parameter": parameter}
-        golden_kwargs = {"negative_slope": parameter}
         return self._op_proxy(
             ttir.LeakyReluOp,
             [in0],
@@ -1909,7 +1907,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArgMaxOp,
             [in0],
-            golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
@@ -1960,7 +1957,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SumOp,
             [in0],
-            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -1999,7 +1995,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MeanOp,
             [in0],
-            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -2459,7 +2454,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.RepeatOp,
             [in0],
-            golden_kwargs={"repeats": dims},
             ttir_kwargs={"repeat_dimensions": dims},
             unit_attrs=unit_attrs,
         )
@@ -2751,33 +2745,30 @@ class TTIRBuilder(Builder):
         """
         if not bias:
             bias = None
+        # Convert parameters to MLIR attributes
+        ttir_kwargs = {
+            "stride": (
+                IntegerAttr.get(IntegerType.get_signed(32), stride)
+                if isinstance(stride, int)
+                else DenseI32ArrayAttr.get(stride)
+            ),
+            "padding": (
+                IntegerAttr.get(IntegerType.get_signed(32), padding)
+                if isinstance(padding, int)
+                else DenseI32ArrayAttr.get(padding)
+            ),
+            "dilation": (
+                IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                if isinstance(dilation, int)
+                else DenseI32ArrayAttr.get(dilation)
+            ),
+            "groups": groups,
+        }
+
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
-            golden_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "dilation": dilation,
-                "groups": groups,
-            },
-            ttir_kwargs={
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "groups": groups,
-            },
+            ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
         )
@@ -2849,13 +2840,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ConvTranspose2dOp,
             [in0, weight],
-            golden_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "output_padding": output_padding,
-                "dilation": dilation,
-                "groups": groups,
-            },
             ttir_kwargs={
                 "stride": (
                     IntegerAttr.get(IntegerType.get_signless(32), stride)
@@ -3397,6 +3381,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LinearOp,
             [in0, in1],
+            golden_kwargs={
+                "transpose_a": transpose_a,
+                "transpose_b": transpose_b,
+                "bias": golden_bias,
+            },
             ttir_kwargs={
                 "transpose_a": transpose_a,
                 "transpose_b": transpose_b,
