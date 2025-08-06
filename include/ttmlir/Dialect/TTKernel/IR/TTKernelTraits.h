@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELTRAITS_H
 #define TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELTRAITS_H
 
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsResources.h"
+
 #include "mlir/IR/OpDefinition.h"
 
 namespace mlir::tt::ttkernel {

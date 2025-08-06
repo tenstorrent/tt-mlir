@@ -8,14 +8,14 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir::tt::ttkernel {
-struct ExpInitState
-    : public ::mlir::SideEffects::Resource::Base<ExpInitState> {
-  static ExpInitState *get() {
-    static ExpInitState instance;
+struct HWInitState
+    : public ::mlir::SideEffects::Resource::Base<HWInitState> {
+  static HWInitState *get() {
+    static HWInitState instance;
     return &instance;
   }
 
-  llvm::StringRef getName() override { return "ExpInitState"; }
+  llvm::StringRef getName() override { return "HWInitState"; }
 };
 } // namespace mlir::tt::ttkernel
 

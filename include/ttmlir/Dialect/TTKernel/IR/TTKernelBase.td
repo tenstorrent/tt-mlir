@@ -6,6 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTKERNEL_TTKERNELDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // TTKernel dialect definition.
@@ -56,6 +57,22 @@ def TTKernel_BinaryOpTrait : TTKernel_Trait<"TTKernelBinaryOpTrait", []>;
 def TTKernel_TernaryOpTrait : TTKernel_Trait<"TTKernelTernaryOpTrait", []>;
 
 //===----------------------------------------------------------------------===//
+// TTKernel Memory Effects Resources & Traits.
+//===----------------------------------------------------------------------===//
+
+def HWInitState : Resource<"HWInitState">;
+
+class TTKernel_HWInitOpTraitGroup {
+        list<Trait> Traits = [
+                AlwaysSpeculatable,
+                MemoryEffects<[MemInit<HWInitState>]>
+        ];
+}
+
+def TTKernel_HWInitOpTraits : TTKernel_HWInitOpTraitGroup;
+
+
+//===----------------------------------------------------------------------===//
 // Base TTKernel operation definitions.
 //===----------------------------------------------------------------------===//
 
@@ -69,7 +86,7 @@ class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = []> :
         TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait] # traits>;
 
 class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
-        TTKernel_Op<mnemonic, [TTKernel_InitOpTrait] # traits>;
+        TTKernel_Op<mnemonic, !listconcat([TTKernel_InitOpTrait], TTKernel_HWInitOpTraits.Traits) # traits>;
 
 
 #endif

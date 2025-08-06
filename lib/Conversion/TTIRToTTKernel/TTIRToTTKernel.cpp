@@ -387,12 +387,7 @@ public:
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    if constexpr (std::is_same_v<InitOp, ttkernel::ExpTileInitOp> ) {
-      rewriter.create<InitOp>(op->getLoc(), adaptor.getInput());
-    }
-    else {
-      rewriter.create<InitOp>(op->getLoc());
-    }
+    rewriter.create<InitOp>(op->getLoc());
     if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =

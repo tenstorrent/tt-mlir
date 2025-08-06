@@ -18,8 +18,6 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
 def IndexLike: AnyTypeOf<[Index, I32]>;
 
-def ExpInitState : Resource<"ExpInitState">;
-
 //===----------------------------------------------------------------------===//
 // TTKernel Compute Kernel Hardware Startup operation
 //===----------------------------------------------------------------------===//
@@ -652,23 +650,20 @@ def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_B
 }
 
 
-def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init", [SameOperandsAndResultType, MemoryEffects<[MemWrite<ExpInitState>]>, Idempotent]> {
+def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
     }];
   
-    // idempotent trait requires an output
-    // for some reason something requires that we have SameOperandsAndResultType
-    let arguments = (ins I32:$dummy_in);
-    let results = (outs I32:$dummy_out);
+    let arguments = (ins);
 
     let assemblyFormat = [{
-      `(` $dummy_in `)` attr-dict `:` functional-type(operands, results)
+      `(` `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait, MemoryEffects<[MemRead<ExpInitState>]>]> {
+def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Exp operation";
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
@@ -680,7 +675,7 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait, Mem
     let arguments = (ins IndexLike:$tile_index);
 
     let assemblyFormat = [{
-      `(` $tile_index `,` $dummy_in `)` attr-dict `:` functional-type(operands, results)
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

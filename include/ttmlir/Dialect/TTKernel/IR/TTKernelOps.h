@@ -7,7 +7,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsResources.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelTraits.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
