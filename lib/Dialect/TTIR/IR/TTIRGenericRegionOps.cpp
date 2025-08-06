@@ -221,11 +221,13 @@ bool mlir::tt::ttir::DMAOp::bufferizesToMemoryWrite(
 
 mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
     mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options) {
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
   Value src = nullptr;
   // NOLINTNEXTLINE
   if (isSrcRemote()) {
-    auto maybeSrc = mlir::bufferization::getBuffer(rewriter, getSrc(), options);
+    auto maybeSrc =
+        mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
     if (failed(maybeSrc)) {
       return maybeSrc;
     }
@@ -237,7 +239,8 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   Value dst = nullptr;
   // NOLINTNEXTLINE
   if (isDstRemote()) {
-    auto maybeDst = mlir::bufferization::getBuffer(rewriter, getDst(), options);
+    auto maybeDst =
+        mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
     if (failed(maybeDst)) {
       return maybeDst;
     }
@@ -264,6 +267,7 @@ mlir::bufferization::AliasingValueList mlir::tt::ttir::DMAOp::getAliasingValues(
 
 mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::DMAOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
   return ttir::getBufferType(rankedTensorType, /*isView=*/true);
