@@ -7,78 +7,14 @@ import inspect
 import functools
 import textwrap
 import os
+from typing import Callable
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc, tensor
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 from .types import *
 from .kernel_types import *
-
-
-def get_supported_nodes():
-    return [
-        # Variables
-        ast.Name,
-        ast.Load,
-        ast.Store,
-        # control-flow
-        ast.If,
-        ast.For,
-        ast.While,
-        ast.Break,
-        ast.Continue,
-        # Literals
-        ast.Constant,
-        # Expressions
-        ast.Attribute,
-        ast.Expr,
-        ast.IfExp,
-        ast.Call,
-        ast.UnaryOp,
-        ast.UAdd,
-        ast.USub,
-        ast.Not,
-        ast.Invert,
-        ast.BinOp,
-        ast.Add,
-        ast.Sub,
-        ast.Mult,
-        ast.Div,
-        ast.FloorDiv,
-        ast.Mod,
-        ast.Pow,
-        ast.LShift,
-        ast.RShift,
-        ast.BitOr,
-        ast.BitXor,
-        ast.BitAnd,
-        ast.BoolOp,
-        ast.And,
-        ast.Or,
-        ast.Compare,
-        ast.Eq,
-        ast.NotEq,
-        ast.Lt,
-        ast.LtE,
-        ast.Gt,
-        ast.GtE,
-        # Subscripting
-        ast.Subscript,
-        ast.Attribute,
-        ast.List,
-        # Statements
-        ast.Pass,
-        ast.Assign,
-        ast.AugAssign,
-        ast.AnnAssign,
-        # Function-and-class-definitions
-        ast.Module,
-        ast.FunctionDef,
-        ast.Return,
-        ast.arguments,
-        ast.arg,
-    ]
 
 
 class TTKernelCompiler(ast.NodeVisitor):
@@ -129,16 +65,77 @@ class TTKernelCompiler(ast.NodeVisitor):
         "tensor_accessor_is_local_shard": ttkernel.tensor_accessor_is_local_shard,
     }
 
-    def __init__(self, name, kernel_type=None, *args, **kwargs):
+    supported_nodes = [
+        ### Variables
+        ast.Name,
+        # ast.Load,
+        # ast.Store,
+        ### control-flow
+        ast.If,
+        ast.For,
+        # ast.While,
+        # ast.Break,
+        # ast.Continue,
+        ### Literals
+        ast.Constant,
+        ### Expressions
+        ast.Attribute,
+        ast.Expr,
+        ast.IfExp,
+        ast.Call,
+        ast.UnaryOp,
+        ast.UAdd,
+        ast.USub,
+        ast.Not,
+        ast.Invert,
+        ast.BinOp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.LShift,
+        ast.RShift,
+        ast.BitOr,
+        ast.BitXor,
+        ast.BitAnd,
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ### Subscripting
+        ast.Subscript,
+        ast.Attribute,
+        ast.List,
+        # Statements
+        # ast.Pass,
+        ast.Assign,
+        ast.AugAssign,
+        ast.AnnAssign,
+        # Function-and-class-definitions
+        ast.Module,
+        ast.FunctionDef,
+        ast.Return,
+        ast.arguments,
+        # ast.arg,
+    ]
+
+    def __init__(self, kernel_type=None, *args, **kwargs):
         assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
-        self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.func_entry = None
         self.symbol_tables = []
-        self.supported_nodes = get_supported_nodes()
         self.kernel_type = kernel_type
 
         self.args = args
@@ -282,7 +279,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                 self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
             )
 
-        func_sym_table = {}
+        # func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=([], []))
         # Supply cb_args as ct_args, use rt_args and ct_args "normally"
         arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
@@ -463,12 +460,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         #     scf.YieldOp(while_body_bb.arguments)
         #     self.symbol_tables.pop()
         raise NotImplementedError("While loops not supported yet")
-
-    def visit_Break():
-        raise NotImplementedError("Break not supported yet")
-
-    def visit_Continue():
-        raise NotImplementedError("Continue not supported yet")
 
     # Statements
     def visit_Name(self, node):
@@ -1081,7 +1072,11 @@ class TTKernelCompiler(ast.NodeVisitor):
 
 
 def ttkernel_compile(
-    kernel_type=None, verbose: bool = False, optimize: bool = False, thread_type=""
+    kernel_type=None,
+    verbose: bool = False,
+    optimize: bool = False,
+    thread_type="",
+    Compiler: Callable = TTKernelCompiler,
 ):
     def _decorator(f):
         @functools.wraps(f)
@@ -1101,7 +1096,7 @@ def ttkernel_compile(
                 kwargs["_source_code"] = source_code.splitlines()
                 kwargs["_verbose"] = True
             m = ast.parse(source_code)
-            b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
+            b = Compiler(kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
