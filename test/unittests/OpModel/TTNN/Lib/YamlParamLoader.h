@@ -66,6 +66,72 @@ struct Conv2dParams {
         groups(groups), expectedResult(std::move(expectedResult)) {}
 };
 
+struct ConvTranspose2dParams {
+  detail::TestTensor input;
+  detail::TestTensor weight;
+  detail::TestTensor output;
+  uint32_t inChannels;
+  uint32_t outChannels;
+  uint32_t batchSize;
+  uint32_t inputHeight;
+  uint32_t inputWidth;
+  llvm::SmallVector<int32_t> kernelSize;
+  llvm::SmallVector<int32_t> stride;
+  llvm::SmallVector<int32_t> padding;
+  llvm::SmallVector<int32_t> outputPadding;
+  llvm::SmallVector<int32_t> dilation;
+  uint32_t groups;
+  detail::ExpectedResult expectedResult;
+
+  ConvTranspose2dParams(detail::TestTensor input, detail::TestTensor weight,
+                        detail::TestTensor output, uint32_t inChannels,
+                        uint32_t outChannels, uint32_t batchSize,
+                        uint32_t inputHeight, uint32_t inputWidth,
+                        llvm::SmallVector<int32_t> kernelSize,
+                        llvm::SmallVector<int32_t> stride,
+                        llvm::SmallVector<int32_t> padding,
+                        llvm::SmallVector<int32_t> outputPadding,
+                        llvm::SmallVector<int32_t> dilation, uint32_t groups,
+                        detail::ExpectedResult expectedResult)
+      : input(std::move(input)), weight(std::move(weight)),
+        output(std::move(output)), inChannels(inChannels),
+        outChannels(outChannels), batchSize(batchSize),
+        inputHeight(inputHeight), inputWidth(inputWidth),
+        kernelSize(std::move(kernelSize)), stride(std::move(stride)),
+        padding(std::move(padding)), outputPadding(std::move(outputPadding)),
+        dilation(std::move(dilation)), groups(groups),
+        expectedResult(std::move(expectedResult)) {}
+};
+
+struct MaxPool2dParams {
+  detail::TestTensor input;
+  detail::TestTensor output;
+  uint32_t batchSize;
+  uint32_t inputHeight;
+  uint32_t inputWidth;
+  uint32_t inputChannels;
+  llvm::SmallVector<int32_t> kernelSize;
+  llvm::SmallVector<int32_t> stride;
+  llvm::SmallVector<int32_t> padding;
+  llvm::SmallVector<int32_t> dilation;
+  bool ceilMode;
+  bool expectedLegal;
+
+  MaxPool2dParams(detail::TestTensor input, detail::TestTensor output,
+                  uint32_t batchSize, uint32_t inputHeight, uint32_t inputWidth,
+                  uint32_t inputChannels, llvm::SmallVector<int32_t> kernelSize,
+                  llvm::SmallVector<int32_t> stride,
+                  llvm::SmallVector<int32_t> padding,
+                  llvm::SmallVector<int32_t> dilation, bool ceilMode,
+                  bool expectedLegal)
+      : input(std::move(input)), output(std::move(output)),
+        batchSize(batchSize), inputHeight(inputHeight), inputWidth(inputWidth),
+        inputChannels(inputChannels), kernelSize(std::move(kernelSize)),
+        stride(std::move(stride)), padding(std::move(padding)),
+        dilation(std::move(dilation)), ceilMode(ceilMode),
+        expectedLegal(expectedLegal) {}
+};
+
 namespace yaml_utils {
 
 /// Parse tensor layout string to enum
@@ -79,7 +145,11 @@ YAML::Node parseYamlFile(const std::string &yamlFilePath);
 
 /// Returns Conv2dParams object matching OpModelConv2dParam test parameter
 /// structure
-Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams);
+Conv2dParams parseConv2dParams(const YAML::Node &node);
+
+ConvTranspose2dParams parseConvTranspose2dParams(const YAML::Node &node);
+
+MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node);
 
 } // namespace yaml_utils
 

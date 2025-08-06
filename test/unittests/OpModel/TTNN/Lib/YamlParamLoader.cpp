@@ -101,28 +101,28 @@ YAML::Node parseYamlFile(const std::string &yamlFilePath) {
   return config;
 }
 
-Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams) {
+Conv2dParams parseConv2dParams(const YAML::Node &node) {
   // Parse tensor parameters
-  auto inputTensor = parseTestTensor(conv2dParams["input"]);
-  auto weightTensor = parseTestTensor(conv2dParams["weight"]);
-  auto outputTensor = parseTestTensor(conv2dParams["output"]);
+  auto inputTensor = parseTestTensor(node["input"]);
+  auto weightTensor = parseTestTensor(node["weight"]);
+  auto outputTensor = parseTestTensor(node["output"]);
 
   // Parse scalar parameters
-  uint32_t inChannels = conv2dParams["in_channels"].as<uint32_t>();
-  uint32_t outChannels = conv2dParams["out_channels"].as<uint32_t>();
-  uint32_t batchSize = conv2dParams["batch_size"].as<uint32_t>();
-  uint32_t inputHeight = conv2dParams["input_height"].as<uint32_t>();
-  uint32_t inputWidth = conv2dParams["input_width"].as<uint32_t>();
-  uint32_t groups = conv2dParams["groups"].as<uint32_t>();
+  uint32_t inChannels = node["in_channels"].as<uint32_t>();
+  uint32_t outChannels = node["out_channels"].as<uint32_t>();
+  uint32_t batchSize = node["batch_size"].as<uint32_t>();
+  uint32_t inputHeight = node["input_height"].as<uint32_t>();
+  uint32_t inputWidth = node["input_width"].as<uint32_t>();
+  uint32_t groups = node["groups"].as<uint32_t>();
 
   // Parse vector parameters
-  auto kernelSize = parseIntVector(conv2dParams["kernel_size"]);
-  auto stride = parseIntVector(conv2dParams["stride"]);
-  auto padding = parseIntVector(conv2dParams["padding"]);
-  auto dilation = parseIntVector(conv2dParams["dilation"]);
+  auto kernelSize = parseIntVector(node["kernel_size"]);
+  auto stride = parseIntVector(node["stride"]);
+  auto padding = parseIntVector(node["padding"]);
+  auto dilation = parseIntVector(node["dilation"]);
 
   // Parse expected result
-  auto expectedResult = parseExpectedResult(conv2dParams["expected_result"]);
+  auto expectedResult = parseExpectedResult(node["expected_result"]);
 
   return Conv2dParams(inputTensor, weightTensor, outputTensor, inChannels,
                       outChannels, batchSize, inputHeight, inputWidth,
@@ -130,6 +130,61 @@ Conv2dParams parseConv2dParams(const YAML::Node &conv2dParams) {
                       expectedResult);
 }
 
+ConvTranspose2dParams parseConvTranspose2dParams(const YAML::Node &node) {
+  // Parse tensor parameters
+  auto inputTensor = parseTestTensor(node["input"]);
+  auto weightTensor = parseTestTensor(node["weight"]);
+  auto outputTensor = parseTestTensor(node["output"]);
+
+  // Parse scalar parameters
+  uint32_t inChannels = node["in_channels"].as<uint32_t>();
+  uint32_t outChannels = node["out_channels"].as<uint32_t>();
+  uint32_t batchSize = node["batch_size"].as<uint32_t>();
+  uint32_t inputHeight = node["input_height"].as<uint32_t>();
+  uint32_t inputWidth = node["input_width"].as<uint32_t>();
+  uint32_t groups = node["groups"].as<uint32_t>();
+
+  // Parse vector parameters
+  auto kernelSize = parseIntVector(node["kernel_size"]);
+  auto stride = parseIntVector(node["stride"]);
+  auto padding = parseIntVector(node["padding"]);
+  auto outputPadding = parseIntVector(node["output_padding"]);
+  auto dilation = parseIntVector(node["dilation"]);
+
+  // Parse expected result
+  auto expectedResult = parseExpectedResult(node["expected_result"]);
+
+  return ConvTranspose2dParams(inputTensor, weightTensor, outputTensor,
+                               inChannels, outChannels, batchSize, inputHeight,
+                               inputWidth, kernelSize, stride, padding,
+                               outputPadding, dilation, groups, expectedResult);
+}
+
+MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node) {
+  // Parse tensor parameters
+  auto inputTensor = parseTestTensor(node["input"]);
+  auto outputTensor = parseTestTensor(node["output"]);
+
+  // Parse scalar parameters
+  uint32_t batchSize = node["batch_size"].as<uint32_t>();
+  uint32_t inputHeight = node["input_height"].as<uint32_t>();
+  uint32_t inputWidth = node["input_width"].as<uint32_t>();
+  uint32_t inputChannels = node["input_channels"].as<uint32_t>();
+
+  // Parse vector parameters
+  auto kernelSize = parseIntVector(node["kernel_size"]);
+  auto stride = parseIntVector(node["stride"]);
+  auto padding = parseIntVector(node["padding"]);
+  auto dilation = parseIntVector(node["dilation"]);
+  bool ceilMode = node["ceil_mode"].as<bool>();
+
+  // Parse expected result
+  auto expectedResult = parseExpectedResult(node["expected_result"]);
+
+  return MaxPool2dParams(inputTensor, outputTensor, batchSize, inputHeight,
+                         inputWidth, inputChannels, kernelSize, stride, padding,
+                         dilation, ceilMode, expectedResult.expectedLegal);
+}
 } // namespace yaml_utils
 
 } // namespace mlir::tt::ttnn::op_model
