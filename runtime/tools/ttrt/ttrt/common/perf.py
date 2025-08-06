@@ -142,10 +142,10 @@ class Perf:
         )
         Perf.register_arg(
             name="--benchmark",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+            type=float,
+            default=None,
+            choices=None,
+            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache). Optionally specify maximum allowed duration threshold in milliseconds - command will fail if e2e duration exceeds this threshold (default: 0, no threshold check)",
         )
         Perf.register_arg(
             name="binary",
@@ -419,8 +419,11 @@ class Perf:
                             f" --dump-device-rate {self['--dump-device-rate']} "
                         )
 
-                    if self["--benchmark"]:
-                        command_options += " --benchmark "
+                    if self["--benchmark"] is not None:
+                        if self["--benchmark"] > 0:
+                            command_options += f" --benchmark {self['--benchmark']} "
+                        else:
+                            command_options += " --benchmark "
 
                     if self["--ignore-version"]:
                         command_options += " --ignore-version "
@@ -896,6 +899,16 @@ class Perf:
                 perf_parser.add_argument(
                     f"{name}",
                     action="store_true",
+                    help=attributes["help"],
+                )
+            elif name == "--benchmark":
+                # Special handling for benchmark flag to accept optional float value
+                perf_parser.add_argument(
+                    f"{name}",
+                    type=attributes["type"],
+                    nargs="?",
+                    const=0,  # Default value when flag is used without argument
+                    default=attributes["default"],
                     help=attributes["help"],
                 )
             else:
