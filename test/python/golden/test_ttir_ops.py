@@ -1954,6 +1954,57 @@ def test_hoisted_where(shapes, request, target: str):
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # [input_shape, output_shape]
+        # Flatten cases
+        [(2, 3, 4), (24,)],
+        [(128, 128), (16384,)],
+        # Reshape to different dimensions
+        [(24,), (2, 3, 4)],
+        [(24,), (4, 6)],
+        [(2, 3, 4), (6, 4)],
+        [(2, 3, 4), (2, 12)],
+        [(6, 4), (2, 3, 4)],
+        # Same total elements, different arrangements
+        [(128, 128), (256, 64)],
+        [(128, 128), (64, 256)],
+        [(128, 128), (128, 2, 64)],
+        [(128, 128), (4, 32, 128)],
+        # Edge cases
+        [(1,), (1, 1, 1)],
+        [(1, 1, 1), (1,)],
+        [(10,), (10,)],
+        [(5, 5), (25,)],
+        # Common ML patterns
+        [(32, 3, 224, 224), (32, 150528)],
+        [(64, 512), (64, 1, 512)],
+        [(64, 1, 512), (64, 512)],
+        [(16, 32, 64), (16, 2048)],
+        # Power of 2 cases (common in ML)
+        [(256, 256), (512, 128)],
+        [(512, 128), (64, 1024)],
+        [(1024,), (32, 32)],
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_reshape(shapes, dtype: torch.dtype, request):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+        return builder.reshape(in0, output_shape)
+
+    compile_ttir_to_flatbuffer(
+        reshape_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @x86_only
 @pytest.mark.parametrize(
     "shapes",
