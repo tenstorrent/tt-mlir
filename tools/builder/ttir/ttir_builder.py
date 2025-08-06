@@ -2975,6 +2975,7 @@ class TTIRBuilder(Builder):
             },
             unit_attrs=unit_attrs,
         )
+
     def batch_norm(
         self,
         in0: Operand,
@@ -2993,8 +2994,8 @@ class TTIRBuilder(Builder):
         *Batch normalization operation.*
 
         Applies batch normalization to the input tensor using the provided scale, offset,
-        mean, and variance. This operation normalizes the input tensor across the specified dimension: 
-        batch_norm(x, scale, offset, mean, variance, epsilon, dimension) = 
+        mean, and variance. This operation normalizes the input tensor across the specified dimension:
+        batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
          (x - mean) / sqrt(variance + epsilon) * scale + offset
 
         Parameters
@@ -3040,7 +3041,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    
     def reshape(
         self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
