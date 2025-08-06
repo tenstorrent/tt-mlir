@@ -1152,6 +1152,60 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 }
 
 //===----------------------------------------------------------------------===//
+// UnsqueezeTo4DOp
+//===----------------------------------------------------------------------===//
+
+// Verify UnsqueezeTo4DOp.
+::mlir::LogicalResult mlir::tt::ttnn::UnsqueezeTo4DOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Output must be 4D.
+  if (outputType.getRank() != 4) {
+    return emitOpError() << "Output tensor must be 4D, but has rank "
+                         << outputType.getRank();
+  }
+
+  // Input rank must be <= 4.
+  if (inputType.getRank() > 4) {
+    return emitOpError() << "Input tensor rank " << inputType.getRank()
+                         << " is greater than 4";
+  }
+
+  // Verify that the operation preserves the trailing dimensions.
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  int64_t inputRank = inputType.getRank();
+  
+  // The last inputRank dimensions of output should match input dimensions.
+  for (int64_t i = 0; i < inputRank; ++i) {
+    int64_t outputIdx = 4 - inputRank + i;
+    if (inputShape[i] != outputShape[outputIdx]) {
+      return emitOpError() << "Input dimension " << i << " with size "
+                           << inputShape[i] << " does not match output dimension "
+                           << outputIdx << " with size " << outputShape[outputIdx];
+    }
+  }
+
+  // The leading (4 - inputRank) dimensions should all be 1.
+  for (int64_t i = 0; i < 4 - inputRank; ++i) {
+    if (outputShape[i] != 1) {
+      return emitOpError() << "Leading dimension " << i
+                           << " must be 1, but is " << outputShape[i];
+    }
+  }
+
+  // Verify element count is preserved.
+  if (inputType.getNumElements() != outputType.getNumElements()) {
+    return emitOpError() << "Input and output tensors must have the same number "
+                         << "of elements. Input has " << inputType.getNumElements()
+                         << ", output has " << outputType.getNumElements();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
 

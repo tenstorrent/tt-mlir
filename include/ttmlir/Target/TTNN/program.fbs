@@ -75,6 +75,7 @@ union OpType {
   RepeatInterleaveOp,
   RepeatOp,
   ReshapeOp,
+  UnsqueezeTo4DOp,
   SliceOp,
   SoftmaxOp,
   SortOp,
