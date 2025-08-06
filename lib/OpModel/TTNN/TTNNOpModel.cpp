@@ -2632,4 +2632,94 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+    TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> inGradientShape,
+    TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+
+  auto inGradientSpecExp =
+      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout);
+  if (!inGradientSpecExp) {
+    return inGradientSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inGradientSpec = inGradientSpecExp.get();
+
+  auto embeddingBackwardOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     embeddingBackwardOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> inGradientShape, TTNNLayoutAttr inGradientLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+
+  auto inGradientSpecExp =
+      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout);
+  if (!inGradientSpecExp) {
+    return inGradientSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inGradientSpec = inGradientSpecExp.get();
+
+  auto embeddingBackwardOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(embeddingBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

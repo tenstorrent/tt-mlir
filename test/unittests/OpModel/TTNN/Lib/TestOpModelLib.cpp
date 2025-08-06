@@ -14,7 +14,6 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <optional>
 #include <tuple>
@@ -2170,6 +2169,37 @@ INSTANTIATE_TEST_SUITE_P(
             detail::TestTensor{
                 {512, 256}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
             detail::ExpectedResult{true, 32768, 16384, 8192})));
+
+TEST_F(OpModelTest, EmbeddingBackwardOp) {
+  llvm::SmallVector<int64_t> inputShape = {2, 1024};
+  llvm::SmallVector<int64_t> weightShape = {3200, 4096};
+  llvm::SmallVector<int64_t> inGradientShape = {1, 1, 2048, 4096};
+
+  auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+  auto weightLayout = CreateRowMajorLayout(weightShape, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+  auto inGradientLayout = CreateTiledLayout(inGradientShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayout(inGradientShape, BufferType::L1,
+                                        TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<EmbeddingBackwardOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      inGradientShape, inGradientLayout, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 12400);
+  EXPECT_EQ(peakSize, 409600);
+  EXPECT_EQ(outputSize, 409600);
+
+  auto runtimeExp = OpModel<EmbeddingBackwardOp>::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, inGradientShape,
+      inGradientLayout, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
 
 TEST_F(OpModelTest, Where) {
   const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
