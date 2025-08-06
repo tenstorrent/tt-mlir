@@ -46,7 +46,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
 
 void createOptimizationPasses(OpPassManager &pm) {
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  // pm.addPass(mlir::createLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createSCCPPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
@@ -118,7 +118,8 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
-  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  // pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   pm.addPass(ttmetal::createApplyHostMemrefCallingConventionPass());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(mlir::createCanonicalizerPass());
