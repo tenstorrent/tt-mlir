@@ -6,6 +6,7 @@
 # REQUIRES: pykernel
 
 from pykernel.ast import *
+from pykernel.ttir_ast import *
 
 # NOTE: The FileCheck directives in this file use CHECK-LABEL to find function definitions
 # regardless of their order in the output. This makes the tests more robust against
@@ -465,3 +466,51 @@ test_multidim_arrays()
 test_array_with_expressions()
 test_attributes()
 test_print()
+
+
+@ttir_compile()
+def test_ttir_binary(a: Tensor, b: Tensor):
+    a + b
+    a - b
+    a * b
+    a / b
+    a % b
+    a**b
+    a & b
+    a | b
+    a ^ b
+    a == b
+    a < b
+    a <= b
+    a > b
+    a >= b
+    a != b
+    return
+
+
+@ttir_compile()
+def test_ttir_matmul(a, b):
+    a @ b
+    return
+
+
+@ttir_compile()
+def test_ttir_unary(a: Tensor):
+    -a
+    ~a
+    not a
+    return
+
+
+input_tensor = Tensor(
+    [1, 2, 3, 4], shape=[1, 1, 1, 4], data_type=ttnn.float32, layout=ttnn.TILE_LAYOUT
+)
+input_tensor2 = Tensor(
+    [1, 2, 3, 4], shape=[1, 1, 4, 1], data_type=ttnn.float32, layout=ttnn.TILE_LAYOUT
+)
+
+test_ttir_binary(input_tensor, input_tensor)
+test_ttir_unary(input_tensor)
+
+# matmul doesn't work yet
+# test_ttir_matmul(input_tensor, input_tensor2)
