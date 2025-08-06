@@ -7,7 +7,7 @@ import inspect
 import subprocess
 import torch
 import pytest
-from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
+from typing import Callable, List, Optional, Tuple, Union, Literal, Dict, Sequence
 
 from ttmlir.dialects import func
 from ttmlir.ir import *
@@ -76,3 +76,33 @@ def shape_str(shape):
         String representation of the shape (e.g., '32x32' for shape (32, 32))
     """
     return "x".join(map(str, shape))
+
+
+def make_shard_shape(
+    tensor_rank: int,
+    shard_dims: Sequence[int],
+    mesh_shape: Sequence[int],
+) -> List[int]:
+    """
+    Create a shard shape from a tensor rank, shard dimensions, and mesh shape.
+
+    Parameters
+    ----------
+    tensor_rank : int
+        Rank of the tensor
+    shard_dims : Sequence[int]
+        Shard dimensions, where -1 indicates no shard along that dimension
+    mesh_shape : Sequence[int]
+        Mesh shape, where each element represents the number of devices along that dimension
+
+    Returns
+    -------
+    List[int]
+        Shard shape, where each element represents the number of shards along that dimension
+    """
+    assert len(shard_dims) == len(mesh_shape)
+    shard_shape = [1] * tensor_rank
+    for mesh_axis, tensor_dim in enumerate(shard_dims):
+        if tensor_dim >= 0:
+            shard_shape[tensor_dim] = mesh_shape[mesh_axis]
+    return shard_shape
