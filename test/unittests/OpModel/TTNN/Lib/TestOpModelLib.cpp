@@ -121,6 +121,75 @@ protected:
       llvm::consumeError(runtimeExp.takeError());
     }
   }
+
+  void RunTestInt32() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<2>(params);
+
+    TTNNLayoutAttr inputLayout;
+    TTNNLayoutAttr outputLayout;
+
+    // BitwiseNot requires Int32 data type - create layouts manually
+    auto int32DataType = ttcore::DataType::Int32;
+    auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
+    auto grid = CreateGrid(&context, inputBufferType, inputTensorLayout,
+                           inputVirtualGrid.value_or(GetVirtualGridShape(
+                               inputShape, inputTensorLayout)),
+                           GetPhysicalGridSize());
+    auto memLayoutAttr =
+        inputBufferType == BufferType::SystemMemory
+            ? TensorMemoryLayoutAttr{}
+            : TensorMemoryLayoutAttr::get(&context, inputTensorLayout);
+
+    inputLayout = TTNNLayoutAttr::get(&context, inputShape, tileType,
+                                      inputBufferType, grid, memLayoutAttr);
+
+    auto outputGrid = CreateGrid(&context, outputBufferType, outputTensorLayout,
+                                 outputVirtualGrid.value_or(GetVirtualGridShape(
+                                     outputShape, outputTensorLayout)),
+                                 GetPhysicalGridSize());
+    auto outputMemLayoutAttr =
+        outputBufferType == BufferType::SystemMemory
+            ? TensorMemoryLayoutAttr{}
+            : TensorMemoryLayoutAttr::get(&context, outputTensorLayout);
+
+    outputLayout =
+        TTNNLayoutAttr::get(&context, outputShape, tileType, outputBufferType,
+                            outputGrid, outputMemLayoutAttr);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+
+      bool useGreaterThan = std::is_same_v<OpTy, BitwiseNotOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp =
+        OpModel<OpTy>::getOpRuntime(inputShape, inputLayout, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
 };
 
 // Type aliases for unary operations
@@ -149,6 +218,7 @@ using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
 using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
 using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
 using OpModelCbrtParam = OpModelUnaryEltwiseParam<CbrtOp>;
+using OpModelBitwiseNotParam = OpModelUnaryEltwiseParam<BitwiseNotOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -175,6 +245,7 @@ TEST_P(OpModelRsqrtParam, RsqrtOp) { RunTest(); }
 TEST_P(OpModelLog1pParam, Log1pOp) { RunTest(); }
 TEST_P(OpModelExpm1Param, Expm1Op) { RunTest(); }
 TEST_P(OpModelCbrtParam, CbrtOp) { RunTest(); }
+TEST_P(OpModelBitwiseNotParam, BitwiseNotOp) { RunTestInt32(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -290,6 +361,9 @@ INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelBitwiseNotParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
