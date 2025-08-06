@@ -15,7 +15,7 @@ from typing import Dict, Callable, Any, Optional, Union, List, Tuple
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo
-from ttmlir.ir import Attribute
+from ttmlir.ir import Attribute, ArrayAttr, IntegerAttr, IntegerType, BoolAttr, DenseI32ArrayAttr
 
 
 def cbrt_golden(x):
@@ -38,8 +38,11 @@ def cbrt_golden(x):
 
 
 def conv2d_golden(
-    input_tensor, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
-):
+    input_tensor: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> torch.Tensor:
     """
     Custom golden function for conv2d with layout transformation.
 
@@ -51,14 +54,12 @@ def conv2d_golden(
         Convolution weight tensor
     bias : torch.Tensor, optional
         Optional bias tensor (default: None)
-    stride : int, optional
-        Stride for convolution (default: 1)
-    padding : int, optional
-        Padding for convolution (default: 0)
-    dilation : int, optional
-        Dilation for convolution (default: 1)
-    groups : int, optional
-        Number of groups for grouped convolution (default: 1)
+    **kwargs : dict
+        Keyword arguments containing:
+        - stride: Union[int, List[int]] - Stride for convolution (default: 1)
+        - padding: Union[int, List[int]] - Padding for convolution (default: 0)
+        - dilation: Union[int, List[int]] - Dilation for convolution (default: 1)
+        - groups: int - Number of groups for grouped convolution (default: 1)
 
     Returns
     -------
@@ -69,7 +70,29 @@ def conv2d_golden(
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 
-    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes.
+    # Get parameters from ttir_kwargs
+    stride = kwargs.get("stride", 1)
+    padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    groups = kwargs.get("groups", 1)
+
+    # Convert MLIR attributes to Python values
+    def unpack_mlir_attr(stride_attr):
+        if isinstance(stride_attr, IntegerAttr):
+            # If it's an IntegerAttr, simply get its integer value
+            return stride_attr.value
+        elif isinstance(stride_attr, DenseI32ArrayAttr):
+            # If it's a DenseI32ArrayAttr, convert to a list
+            return list(stride_attr)
+        else:
+            # Handle any other unexpected types
+            raise ValueError(f"Unexpected stride attribute type: {type(stride_attr)}")
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
 
     if input_tensor.is_quantized:
@@ -114,8 +137,11 @@ def conv2d_golden(
 
 
 def conv_transpose2d_golden(
-    input_tensor, weight, stride, padding, output_padding, dilation, groups
-):
+    input_tensor: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> torch.Tensor:
     """
     Custom golden function for conv_transpose2d with layout transformation.
 
@@ -125,31 +151,45 @@ def conv_transpose2d_golden(
         Input tensor for transposed convolution
     weight : torch.Tensor
         Convolution weight tensor
-    stride : Union[int, List[int]]
-        Stride for transposed convolution
-    padding : Union[int, List[int]]
-        Padding for transposed convolution
-    output_padding : Union[int, List[int]]
-        Additional size added to output shape
-    dilation : Union[int, List[int]]
-        Dilation of the kernel
-    groups : int
-        Number of blocked connections from input to output channels
+    bias : Optional[torch.Tensor]
+        Optional bias tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - stride: Union[int, List[int]] - Stride for transposed convolution
+        - padding: Union[int, List[int]] - Padding for transposed convolution
+        - output_padding: Union[int, List[int]] - Additional size added to output shape
+        - dilation: Union[int, List[int]] - Dilation of the kernel
+        - groups: int - Number of blocked connections from input to output channels
 
     Returns
     -------
     torch.Tensor
         Result of 2D transposed convolution with layout transformation
     """
-    # Reorganize ttir_kwargs into golden_kwargs
-    stride = list(stride) if not isinstance(stride, int) else int(stride)
-    padding = list(padding) if not isinstance(padding, int) else int(padding)
-    output_padding = (
-        list(output_padding)
-        if not isinstance(output_padding, int)
-        else int(output_padding)
-    )
-    dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
+    # Get parameters from ttir_kwargs
+    stride = kwargs.get("stride", 1)
+    padding = kwargs.get("padding", 0)
+    output_padding = kwargs.get("output_padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    groups = kwargs.get("groups", 1)
+
+    # Convert MLIR attributes to Python values
+    def unpack_mlir_attr(attr):
+        if isinstance(attr, IntegerAttr):
+            # If it's an IntegerAttr, simply get its integer value
+            return attr.value
+        elif isinstance(attr, DenseI32ArrayAttr):
+            # If it's a DenseI32ArrayAttr, convert to a list
+            return list(attr)
+        else:
+            # Handle any other unexpected types
+            raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    output_padding = unpack_mlir_attr(output_padding)
+    dilation = unpack_mlir_attr(dilation)
+    groups = unpack_mlir_attr(groups)
     golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
     # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -1195,15 +1235,19 @@ def sum_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     input_tensor : torch.Tensor
         Input tensor to sum
     **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
+        Keyword arguments containing:
+        - dim_arg: List[int] - Dimensions to reduce over (default: [0])
+        - keep_dim: bool - If True, retains reduced dimensions with length 1 (default: True)
 
     Returns
     -------
     torch.Tensor
         Summed tensor
     """
+    # Get parameters from ttir_kwargs
     dim_arg = kwargs.get("dim_arg", [0])
     keep_dim = kwargs.get("keep_dim", True)
+    # Convert to torch.sum format
     return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
@@ -1270,46 +1314,26 @@ def reduce_or_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
 
 
-def prod_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+def argmax_golden(input_tensor, dim_arg, keep_dim=False):
     """
-    Golden function for prod operation with TTIR parameter names.
+    Custom golden function for argmax.
 
     Parameters
     ----------
     input_tensor : torch.Tensor
-        Input tensor to compute product of
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
+        Input tensor to find argmax of
+    dim_arg : List[int]
+        List containing dimension to find argmax along
+    keep_dim : bool, optional
+        Whether to keep the reduced dimension (default: False)
 
     Returns
     -------
     torch.Tensor
-        Product tensor
+        Indices of maximum values along specified dimension as int32 tensor
     """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", False)
-    return torch.prod(input_tensor, dim=dim_arg, keepdim=keep_dim)
-
-
-def argmax_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-    """
-    Golden function for argmax operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : torch.Tensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor containing indices of maximum values
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", False)
-    return torch.argmax(input_tensor, dim=dim_arg, keepdim=keep_dim)
+    result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    return result.to(torch.int32)
 
 
 def transpose_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1356,6 +1380,7 @@ def concat_golden(input_tensors: torch.Tensor, **kwargs) -> torch.Tensor:
         return torch.concat([input_tensors], dim=dim)
 
 
+# Investigate how repeat works in torch
 def repeat_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Golden function for repeat operation with TTIR parameter names.
@@ -1373,7 +1398,7 @@ def repeat_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         Repeated tensor
     """
     repeat_dimensions = kwargs.get("repeat_dimensions", [1])
-    return input_tensor.repeat(*repeat_dimensions)
+    return torch.Tensor.repeat(input_tensor, repeats=repeat_dimensions)
 
 
 def reshape_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
