@@ -2033,7 +2033,7 @@ public:
 
     StringAttr callTargetName = adaptor.getCallTargetNameAttr();
 
-    if (callTargetName == "mark_input") {
+    if (callTargetName == "mark_input" || callTargetName == "mark_param") {
       Value input = adaptor.getOperands()[0];
       mlir::BlockArgument blockArg =
           llvm::dyn_cast_or_null<mlir::BlockArgument>(input);
@@ -2053,8 +2053,10 @@ public:
       newArgAttrs.emplace_back(
           mlir::StringAttr::get(getContext(),
                                 tt::ttcore::ArgumentTypeAttr::name),
-          tt::ttcore::ArgumentTypeAttr::get(getContext(),
-                                            tt::ttcore::ArgumentType::Input));
+          tt::ttcore::ArgumentTypeAttr::get(
+              getContext(), callTargetName == "mark_input"
+                                ? tt::ttcore::ArgumentType::Input
+                                : tt::ttcore::ArgumentType::Parameter));
       funcOp.setArgAttrs(blockArg.getArgNumber(),
                          mlir::DictionaryAttr::get(getContext(), newArgAttrs));
 

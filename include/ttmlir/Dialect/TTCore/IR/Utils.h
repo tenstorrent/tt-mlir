@@ -53,9 +53,10 @@ inline bool isConstOrParamArg(mlir::BlockArgument blockArg,
   if (auto typeAttr = funcOp.getArgAttrOfType<ArgumentTypeAttr>(
           blockArg.getArgNumber(), ArgumentTypeAttr::name)) {
     auto argTypeValue = typeAttr.getValue();
-    return argTypeValue != ArgumentType::Input;
+    return argTypeValue == ArgumentType::Parameter ||
+           argTypeValue == ArgumentType::Constant;
   }
-  return true;
+  return false;
 }
 
 // Filters out the constant parameters from the function signature.
