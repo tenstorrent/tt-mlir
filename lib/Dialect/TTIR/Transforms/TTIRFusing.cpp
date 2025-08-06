@@ -221,11 +221,14 @@ public:
   }
 };
 
-// This pattern detects and fuses numerically stable softmax:
+// This pattern detects and fuses numerically stable softmax operations:
 // softmax(x - max(x)) -> softmax(x, numericStable=true)
-// The subtraction of max(x) is the standard numerical stability technique
-// that should be handled internally by the softmax operation when
-// numericStable=true
+//
+// The pattern matches the following sequence:
+// 1. max(x) along a dimension with keep_dim=true
+// 2. broadcast the max value
+// 3. subtract: x - broadcasted_max
+// 4. softmax(x - broadcasted_max)
 class NumericStableSoftmaxFusionPattern
     : public mlir::OpRewritePattern<SoftmaxOp> {
   using mlir::OpRewritePattern<SoftmaxOp>::OpRewritePattern;

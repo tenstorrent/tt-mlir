@@ -2273,7 +2273,11 @@ class TTIRBuilder(Builder):
         )
 
     def softmax(
-        self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dimension: int = 1,
+        numeric_stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.softmax``.
@@ -2287,8 +2291,10 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        dim : int, optional
-            Dimension along which Softmax will be computed (default: -1)
+        dimension : int, optional
+            Dimension along which Softmax will be computed (default: 1)
+        numeric_stable : bool, optional
+            Whether to use numerically stable softmax computation (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -2301,7 +2307,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
-            ttir_kwargs={"dimension": dimension},
+            golden_kwargs={"dim": dimension},
+            ttir_kwargs={
+                "dimension": dimension,
+                "numericStable": numeric_stable,
+            },  # Add as keyword args
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],

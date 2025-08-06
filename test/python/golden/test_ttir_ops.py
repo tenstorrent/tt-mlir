@@ -1543,19 +1543,23 @@ def softmax(
     in0: Operand,
     builder: TTIRBuilder,
     dimension: int = -1,
+    numeric_stable: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
+    return builder.softmax(
+        in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
+    )
 
 
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
-def test_softmax(shape: Shape, dimension: int, request):
+@pytest.mark.parametrize("numeric_stable", [False, True])
+def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
     # Create a wrapper function that captures dimension
     def softmax_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return softmax(in0, builder, dimension, unit_attrs)
+        return softmax(in0, builder, dimension, numeric_stable, unit_attrs)
 
     # Set the name for better test identification
     softmax_wrapper.__name__ = "softmax"
