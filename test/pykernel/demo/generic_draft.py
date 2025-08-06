@@ -6,11 +6,34 @@ from pykernel.ast import *
 
 @ttkernel_compile(
     kernel_type="generic",
-    grid=[1, 1],
+    grid=[1, 1],  # can this be inferred from tensor?
+    block_factors=[1, 1],  # this is just defaulted, are we even using this
     index_maps=[],
+    iterator_types=[],  # can we abstract this away? if rank < 2, we can just use parallel?
+    threads=[],  # abstract this away?
+    num_regions=1,  # default to 1, but will need +1 for each fused op i think
 )
 def eltwise_add(lhs, rhs, out):
     out = lhs + rhs
+    out2 = out * rhs
+
+
+"""
+module {
+    func.func @eltwise_add(%lhs: tensor<64x128xf32>, %rhs: tensor<64x128xf32>, %out: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_add ...
+                    linalg.yield %result
+            }
+        }
+    }
+}
+"""
 
 
 @ttkernel_compile(
@@ -27,8 +50,16 @@ def eltwise_add_block(lhs_block, rhs_block, out_block):
         for x in lhs_block.shape[1]:
             out_block[y, x] = lhs_block[y, x] + rhs_block[y, x]
 
-
 """
+module {
+    func.func @eltwise_add_block( ??? ) {
+        scf.for {
+            scf.for  {
+                %result = ttir.tile_add ...         # <- does datamovement get generated here w/o the generic
+            }
+        }
+    }
+}
 """
 
 
@@ -42,6 +73,59 @@ def cosh(input, output):
 
 
 """
+module {
+    func.func @cosh(%input: tensor<64x128xf32>, %output: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_exp ...
+                    linalg.yield %result
+            }
+        }
+        %1 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_negative ...
+                    linalg.yield %result
+            }
+        }
+        %2 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_exp ...
+                    linalg.yield %result
+            }
+        }
+        %3 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_add ...
+                    linalg.yield %result
+            }
+        }
+        %4 = ttir.generic {
+            ...
+            ^bb0
+            linalg.generic {
+                ...
+                ^bb0
+                    %result = ttir.tile_div ...
+                    linalg.yield %result
+            }
+        }
+}
 """
 
 
