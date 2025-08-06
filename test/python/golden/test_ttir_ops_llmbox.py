@@ -15,6 +15,79 @@ pytestmark = [pytest.mark.llmbox, pytest.mark.frontend("ttir")]
 
 
 @pytest.mark.parametrize(
+    "input_rank, shard_dims",
+    [
+        (5, (1, 4)),
+        (5, (4, 1)),
+        (5, (2, 4)),
+        (5, (1, 4)),
+        (5, (-1, 3)),
+        (5, (4, -1)),
+        (5, (-1, 4)),
+        (5, (-1, 0)),
+        (4, (1, 3)),
+        (4, (3, 1)),
+        (4, (2, 3)),
+        (4, (3, 2)),
+        (4, (0, 2)),
+        (4, (1, 0)),
+        (4, (-1, 3)),
+        (4, (3, -1)),
+        (4, (-1, 1)),
+        (4, (1, -1)),
+        (3, (1, 2)),
+        (3, (2, 1)),
+        (3, (0, 1)),
+        (3, (1, 0)),
+        (3, (-1, 2)),
+        (3, (2, -1)),
+        (3, (-1, 1)),
+        (3, (0, -1)),
+        (2, (0, 1)),
+        (2, (1, 0)),
+        (2, (-1, 1)),
+        (2, (1, -1)),
+        (2, (-1, 0)),
+        (2, (0, -1)),
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1)])
+def test_mesh_shard_devices(
+    input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
+):
+    shard_shape = _make_shard_shape(input_rank, shard_dims, mesh_shape)
+    if all(x == 1 for x in shard_shape):
+        pytest.skip("sharding is meaningless, skipping test.")
+    input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
+
+    def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
+        sharded_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+        neg_output = builder.neg(sharded_in0)
+        return builder.mesh_shard(
+            neg_output,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+
+    compile_ttir_to_flatbuffer(
+        mesh_shard_devices,
+        [input_shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
     "test_shape",
     [
         (1, 32, 32, 32),
@@ -219,6 +292,106 @@ def test_collective_permute(
         [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (256, 128),
+        (32, 64, 128),
+        (8, 8, 64, 64),
+    ],
+)
+@pytest.mark.parametrize("split_dim", range(4))
+@pytest.mark.parametrize("concat_dim", range(4))
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
+        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
+        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
+        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
+        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
+    ],
+)
+def test_all_to_all(
+    test_shape: Shape,
+    split_dim,
+    concat_dim,
+    mesh_shape,
+    replica_groups,
+    request,
+    shard_wrap_factory,
+):
+    split_count = len(replica_groups[0])
+    if split_dim >= len(test_shape):
+        pytest.skip("Split dimension is out of range")
+    if concat_dim >= len(test_shape):
+        pytest.skip("Concat dimension is out of range")
+
+    def all_to_all(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.all_to_all(
+            sharded_in,
+            split_dim=split_dim,
+            concat_dim=concat_dim,
+            split_count=split_count,
+            replica_groups=replica_groups,
+        )
+
+    input_shape, test_fn = shard_wrap_factory(all_to_all)
+
+    compile_ttir_to_flatbuffer(
+        test_fn,
+        [input_shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (256, 128),
+        (32, 128, 64),
+        (8, 8, 32, 64),
+        (10, 10, 30, 60),
+    ],
+)
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((2, 4), [(0, 1, 2, 3), (4, 5, 6, 7)]),
+        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
+        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
+        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
+        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
+    ],
+)
+def test_collective_broadcast(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    replica_groups,
+    request,
+    shard_wrap_factory,
+):
+    def collective_broadcast(sharded_in: Operand, builder: TTIRBuilder):
+        return builder.collective_broadcast(
+            sharded_in,
+            replica_groups=replica_groups,
+        )
+
+    input_shape, test_fn = shard_wrap_factory(collective_broadcast)
+
+    compile_ttir_to_flatbuffer(
+        test_fn,
+        [input_shape],
+        mesh_shape=mesh_shape,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -469,80 +642,6 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 
 
 @pytest.mark.parametrize(
-    "input_rank, shard_dims",
-    [
-        (5, (1, 4)),
-        (5, (4, 1)),
-        (5, (2, 4)),
-        (5, (1, 4)),
-        (5, (-1, 3)),
-        (5, (4, -1)),
-        (5, (-1, 4)),
-        (5, (-1, 0)),
-        (4, (1, 3)),
-        (4, (3, 1)),
-        (4, (2, 3)),
-        (4, (3, 2)),
-        (4, (0, 2)),
-        (4, (1, 0)),
-        (4, (-1, 3)),
-        (4, (3, -1)),
-        (4, (-1, 1)),
-        (4, (1, -1)),
-        (3, (1, 2)),
-        (3, (2, 1)),
-        (3, (0, 1)),
-        (3, (1, 0)),
-        (3, (-1, 2)),
-        (3, (2, -1)),
-        (3, (-1, 1)),
-        (3, (0, -1)),
-        (2, (0, 1)),
-        (2, (1, 0)),
-        (2, (-1, 1)),
-        (2, (1, -1)),
-        (2, (-1, 0)),
-        (2, (0, -1)),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1)])
-def test_mesh_shard_devices(
-    input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
-):
-    shard_shape = _make_shard_shape(input_rank, shard_dims, mesh_shape)
-    if all(x == 1 for x in shard_shape):
-        pytest.skip("sharding is meaningless, skipping test.")
-    input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
-
-    def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        neg_output = builder.neg(sharded_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-
-    compile_ttir_to_flatbuffer(
-        mesh_shard_devices,
-        [input_shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
     "shapes",
     [
         [(512, 1024), (512, 1024)],
@@ -776,108 +875,6 @@ def test_matmul_and_binary_op_2(
     compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "test_shape",
-    [
-        (256, 128),
-        (32, 64, 128),
-        (8, 8, 64, 64),
-    ],
-)
-@pytest.mark.parametrize("split_dim", range(4))
-@pytest.mark.parametrize("concat_dim", range(4))
-@pytest.mark.parametrize(
-    "mesh_shape, replica_groups",
-    [
-        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
-        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
-        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
-        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
-    ],
-)
-def test_all_to_all(
-    test_shape: Shape,
-    split_dim,
-    concat_dim,
-    mesh_shape,
-    replica_groups,
-    request,
-    shard_wrap_factory,
-):
-    split_count = len(replica_groups[0])
-    if split_dim >= len(test_shape):
-        pytest.skip("Split dimension is out of range")
-    if concat_dim >= len(test_shape):
-        pytest.skip("Concat dimension is out of range")
-
-    def all_to_all(sharded_in: Operand, builder: TTIRBuilder):
-        return builder.all_to_all(
-            sharded_in,
-            split_dim=split_dim,
-            concat_dim=concat_dim,
-            split_count=split_count,
-            replica_groups=replica_groups,
-        )
-
-    input_shape, test_fn = shard_wrap_factory(all_to_all)
-
-    compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "test_shape",
-    [
-        (256, 128),
-        (32, 128, 64),
-        (8, 8, 32, 64),
-        (10, 10, 30, 60),
-    ],
-)
-@pytest.mark.parametrize(
-    "mesh_shape, replica_groups",
-    [
-        ((2, 4), [(0, 1, 2, 3), (4, 5, 6, 7)]),
-        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
-        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
-        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
-        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
-    ],
-)
-def test_collective_broadcast(
-    test_shape: Shape,
-    mesh_shape: Tuple[int, int],
-    replica_groups,
-    request,
-    shard_wrap_factory,
-):
-    def collective_broadcast(sharded_in: Operand, builder: TTIRBuilder):
-        return builder.collective_broadcast(
-            sharded_in,
-            replica_groups=replica_groups,
-        )
-
-    input_shape, test_fn = shard_wrap_factory(collective_broadcast)
-
-    compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
