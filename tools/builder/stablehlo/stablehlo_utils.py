@@ -8,8 +8,9 @@ import subprocess
 import torch
 import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
+from collections import OrderedDict
 
-from ttmlir.dialects import func
+from ttmlir.dialects import func, sdy
 
 from builder.base.builder import *
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -31,50 +32,12 @@ def build_stablehlo_module(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
 ):
-    """
-    Define a MLIR module specified as a python function.
-
-    It will wrap `fn` in a MLIR FuncOp and then wrap that in a MLIR
-    module, and finally tie arguments of that FuncOp to test function inputs. It will
-    also pass a `StableHLOBuilder` object as the last argument of test function.
-
-    Parameters
-    ----------
-    fn : Callable
-        Python function to be converted to MLIR
-
-    inputs_shapes : *List[Shape]*
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
-        Data types of the input tensors
-
-    module_dump : bool
-        Set to True to print out generated MLIR module.
-
-    base : *Optional[str]*
-        Output file name
-
-    output_root: str = ".",
-        Output file path
-
-    Returns
-    -------
-    Module
-        MLIR module containing MLIR op graph defined by `fn`
-
-    Example
-    -------
-    >>> def test_add(in0: Operand, in1: Operand, builder: StableHLOBuilder):
-    ...     return builder.add(in0, in1)
-    ...
-    >>> build_stablehlo_module(test_add, ((32, 32), (32, 32)))
-    """
-
     ctx = Context()
 
     # Grab the location of the test function in python for later debugging
@@ -112,6 +75,15 @@ def build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
+        module.body.append(
+            stablehlo_builder.mesh(
+                mesh_name=mesh_name,
+                mesh_attr=stablehlo_builder._create_mesh_attr_from_ordered_dict(
+                    mesh_dict
+                ),
+            )
+        )
+
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
