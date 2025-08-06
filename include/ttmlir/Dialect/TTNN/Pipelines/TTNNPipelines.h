@@ -197,6 +197,18 @@ struct TTIRToTTNNBackendPipelineOptions
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
 
+  // Option to override maximum percent of L1 storage that can be used
+  // by tensors in L1 interleaved fallback analysis.
+  // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
+  // storage can be used by tensors.
+  // The default value is 0.8.
+  //
+  Option<float> tensorL1UsageCap{
+      *this, OptionNames::tensorL1UsageCap,
+      llvm::cl::desc("Override tensor L1 usage cap in L1 interleaved fallback "
+                     "analysis. [0.0-1.0]"),
+      llvm::cl::init(0.8f)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> layoutWorkaroundsEnabled{

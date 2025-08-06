@@ -113,6 +113,7 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
+    tensorL1UsageCap = std::move(options.tensorL1UsageCap);
   }
 
 protected:
@@ -163,6 +164,12 @@ protected:
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
+  ::mlir::Pass::Option<float> tensorL1UsageCap{
+      *this, OptionNames::tensorL1UsageCap,
+      ::llvm::cl::desc(
+          "Override tensor L1 usage cap in L1 interleaved fallback."
+          "analysis. [0.0-1.0]"),
+      ::llvm::cl::init(0.8f)};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -495,7 +502,7 @@ public:
             getAnalysis<L1InterleavedFallbackAnalysis>();
         l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
             l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-            chipDesc.getUsableL1Size()));
+            chipDesc.getUsableL1Size(), tensorL1UsageCap));
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 

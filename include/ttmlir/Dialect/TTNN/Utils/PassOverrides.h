@@ -33,6 +33,7 @@ struct OptionNames {
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
+  static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;
