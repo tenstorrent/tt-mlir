@@ -439,6 +439,34 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
     )
 
 
+# def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+#     """
+#     Golden function for logical_not operation.
+
+#     Parameters
+#     ----------
+#     input_tensor : torch.Tensor
+#         Input tensor
+#     **kwargs : dict
+#         Keyword arguments containing:
+#         - out: torch.Tensor, optional - Output tensor to write results to
+
+#     Returns
+#     -------
+#     torch.Tensor
+#         Tensor with logical NOT of input tensor
+#     """
+
+#     golden = ttir_builder._get_golden_tensor(in0)
+#     golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+
+#     # out = kwargs.get("out", None)
+#     if out is not None:
+#         return torch.logical_not(input_tensor, out=golden_output)
+#     else:
+#         return torch.logical_not(input_tensor)
+
+
 def max_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Golden function for max operation.
@@ -1650,6 +1678,27 @@ def arange_golden(**kwargs) -> torch.Tensor:
     return torch.arange(repeats[0] if repeats else 1)
 
 
+def cumsum_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for cumsum operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim: int - Dimension along which to compute cumulative sum
+
+    Returns
+    -------
+    torch.Tensor
+        Cumulative sum of input tensor along specified dimension
+    """
+    dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
+    return torch.cumsum(input_tensor, dim=dim)
+
+
 def repeat_interleave_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Golden function for repeat_interleave operation with TTIR parameter names.
@@ -1757,7 +1806,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Elementwise binary operations
     ttir.AddOp: torch.add,
     ttir.MultiplyOp: torch.multiply,
-    ttir.SubtractOp: torch.subtract,
     ttir.DivOp: torch.div,
     ttir.MaximumOp: torch.maximum,
     ttir.MinimumOp: torch.minimum,
@@ -1802,6 +1850,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.PermuteOp: permute_golden,
     ttir.ClampScalarOp: clamp_scalar_golden,
     ttir.ClampTensorOp: torch.clamp,
+    ttir.CumSumOp: cumsum_golden,
     ttir.BroadcastOp: torch.broadcast_to,
     ttir.PadOp: pad_golden,
     ttir.IndexSelectOp: select_golden,
@@ -1812,7 +1861,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: torch.matmul,
     ttir.EmbeddingOp: embedding_golden,
-    ttir.CumSumOp: torch.cumsum,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormOp: batch_norm_golden,
     # Type operations
