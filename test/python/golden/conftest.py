@@ -22,6 +22,19 @@ x86_only = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(scope="session", autouse=True)
+def log_global_env_facts(record_testsuite_property, pytestconfig):
+    """Log details about the environment into the XML report
+
+    This autouse fixture logs the following properties:
+        - card: from `get_board_id()`, the type of card these tests are running on
+    """
+    system_desc = ttrt.binary.fbb_as_dict(
+        ttrt.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+    )["system_desc"]
+    record_testsuite_property("card", get_board_id(system_desc))
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--path",
