@@ -135,9 +135,6 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     Operation *consumerOp, const OpConfig &consumerConfig,
     const Operation *upgradedProducerOp,
     const TTNNLayoutAttr upgradedProducerLayout) const {
-  // Figure out this const based on exec data, but will be replaced
-  // with API.
-  constexpr float tensorL1UsageCap = 0.8;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {
@@ -225,8 +222,9 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    consumerOp->getName().getStringRef().data());
   }
 
-  bool l1UsageValid = (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
-                      tensorL1UsageCap * analysisInput.usableL1CacheSize;
+  bool l1UsageValid =
+      (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
+      analysisInput.tensorL1UsageCap * analysisInput.usableL1CacheSize;
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

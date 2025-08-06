@@ -61,6 +61,11 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("set_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::setMeshShape)
       .def("get_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::getMeshShape)
 
+      .def("set_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::setTensorL1UsageCap)
+      .def("get_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::getTensorL1UsageCap)
+
       .def("get_insert_memreconfig", &tt::ttnn::OptimizerOverridesHandler::
                                          getInsertMemReconfigNanobindWrapper)
       .def("get_output_layout_overrides",

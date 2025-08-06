@@ -93,6 +93,7 @@ void createTTNNPipelineAnalysisPasses(
         options.memoryLayoutAnalysisPolicy;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+    optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());

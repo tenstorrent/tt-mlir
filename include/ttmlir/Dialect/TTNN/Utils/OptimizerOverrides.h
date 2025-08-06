@@ -35,6 +35,8 @@ public:
   // Set the maximum number of legal layouts for grid analysis.
   void setMaxLegalLayouts(int64_t);
   void setMeshShape(std::vector<int64_t>);
+  // Set the tensor L1 usage cap.
+  void setTensorL1UsageCap(float tensorL1UsageCap);
 
   // Get the current state of the optimizer passes.
   bool getEnableOptimizer() const;
@@ -51,6 +53,8 @@ public:
   // Get the current maximum number of legal layouts for grid analysis.
   int64_t getMaxLegalLayouts() const;
   std::vector<int64_t> getMeshShape() const;
+  // Get the current tensor L1 usage cap.
+  float getTensorL1UsageCap() const;
 
   std::string toString() const;
 
@@ -102,6 +106,9 @@ private:
   int64_t maxLegalLayouts = 0;
 
   std::vector<int64_t> meshShape;
+
+  // Tensor L1 usage cap
+  float tensorL1UsageCap = 0;
 
 }; // class OptimizerOverridesHandler
 

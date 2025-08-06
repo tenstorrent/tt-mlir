@@ -48,6 +48,9 @@ void OptimizerOverridesHandler::setMaxLegalLayouts(int64_t value) {
 void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) {
   meshShape = value;
 }
+void OptimizerOverridesHandler::setTensorL1UsageCap(float tensorL1UsageCap) {
+  this->tensorL1UsageCap = tensorL1UsageCap;
+}
 
 void OptimizerOverridesHandler::setConv2dConfigOverrides(
     llvm::StringMap<Conv2dConfigOverrideParams> &value) {
@@ -83,6 +86,9 @@ int64_t OptimizerOverridesHandler::getMaxLegalLayouts() const {
 }
 std::vector<int64_t> OptimizerOverridesHandler::getMeshShape() const {
   return meshShape;
+}
+float OptimizerOverridesHandler::getTensorL1UsageCap() const {
+  return tensorL1UsageCap;
 }
 
 llvm::StringMap<InsertMemReconfigParams>
@@ -202,6 +208,11 @@ std::string OptimizerOverridesHandler::toString() const {
 
   if (options[options.size() - 1] == ' ') {
     options.pop_back();
+  }
+
+  if (tensorL1UsageCap > 0) {
+    options += OptionNames::tensorL1UsageCap.str() + "=" +
+               std::to_string(tensorL1UsageCap) + " ";
   }
 
   return options;

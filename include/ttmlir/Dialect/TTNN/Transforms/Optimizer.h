@@ -27,6 +27,7 @@ struct TTNNOptimizerOptions {
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
+  float tensorL1UsageCap = 0.8f; // Default to 80% of L1 usage.
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
