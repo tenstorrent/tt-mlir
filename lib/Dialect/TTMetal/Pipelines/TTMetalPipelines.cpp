@@ -118,8 +118,8 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
-  // pm.addPass(mlir::createLoopInvariantCodeMotionPass());
-  pm.addPass(ttkernel::createTTKernelHoistInits());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  // pm.addPass(ttkernel::createTTKernelHoistInits());
   pm.addPass(ttmetal::createApplyHostMemrefCallingConventionPass());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(mlir::createCanonicalizerPass());
