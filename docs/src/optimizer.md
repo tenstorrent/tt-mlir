@@ -26,7 +26,7 @@ The optimizer provides additional configuration options:
   - Enables the optimizer pass
   - Must be set to `true` to use any other optimizer options
 
-- **`memory-layout-analysis-enabled`** (default: `true`)
+- **`memory-layout-analysis-enabled`** (default: `false`)
   - Enables memory layout optimization
   - Shards tensors to maximize usage of fast L1 memory instead of DRAM
 

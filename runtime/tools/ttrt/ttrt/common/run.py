@@ -304,10 +304,10 @@ class Run:
         )
         Run.register_arg(
             name="--benchmark",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+            type=float,
+            default=None,
+            choices=None,
+            help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache). Optionally specify maximum allowed duration threshold in milliseconds - command will fail if e2e duration exceeds this threshold (default: 0, no threshold check)",
         )
         Run.register_arg(
             name="binary",
@@ -370,7 +370,7 @@ class Run:
         self.torch_initializer = Run.TorchInitializer(self)
 
         # If benchmark mode is enabled, set certain defaults
-        if self["--benchmark"]:
+        if self["--benchmark"] is not None:
             self["--loops"] = 2
             self["--enable-program-cache"] = True
             self["--disable-golden"] = True
@@ -1023,9 +1023,34 @@ class Run:
                             self.logging.info(
                                 f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
                             )
-                            self.logging.info(
-                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
+                            total_e2e_duration = (
+                                e2e_duration_nanoseconds_submit
+                                + e2e_duration_nanoseconds_output
                             )
+                            self.logging.info(
+                                f"total_e2e_duration_nanoseconds_submit_plus_output = {total_e2e_duration}"
+                            )
+
+                            # Check benchmark threshold if enabled and this is the last loop
+                            if (
+                                self["--benchmark"] is not None
+                                and loop == self["--loops"] - 1
+                            ):
+                                total_e2e_duration_ms = total_e2e_duration / 1_000_000
+                                self.logging.info(
+                                    f"total_e2e_duration_ms = {total_e2e_duration_ms}"
+                                )
+
+                                if self["--benchmark"] > 0:
+                                    if total_e2e_duration_ms > self["--benchmark"]:
+                                        raise Exception(
+                                            f"Benchmark threshold check failed: total e2e duration {total_e2e_duration_ms} ms is above threshold {self['--benchmark']} ms"
+                                        )
+                                    else:
+                                        self.logging.info(
+                                            f"Benchmark threshold check passed: total e2e duration {total_e2e_duration_ms} ms is within threshold {self['--benchmark']} ms"
+                                        )
+
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
@@ -1169,6 +1194,10 @@ class Run:
                             ttrt.runtime.FabricConfig.DISABLED
                         )
 
+        if not self.ttnn_binaries and not self.ttmetal_binaries:
+            self.logging.error(f"no binaries found to run - returning early")
+            raise Exception(f"no binaries found to run - returning early")
+
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
         self.logging.debug(f"finished executing ttnn binaries")
@@ -1268,6 +1297,16 @@ class Run:
                 run_parser.add_argument(
                     f"{name}",
                     action="store_true",
+                    help=attributes["help"],
+                )
+            elif name == "--benchmark":
+                # Special handling for benchmark flag to accept optional float value
+                run_parser.add_argument(
+                    f"{name}",
+                    type=attributes["type"],
+                    nargs="?",
+                    const=0,  # Default value when flag is used without argument
+                    default=attributes["default"],
                     help=attributes["help"],
                 )
             else:

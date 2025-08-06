@@ -1,9 +1,8 @@
-// REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o mnist_sharding_ttnn.mlir %s
-// RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
-// XFAIL: *
-// TODO(rpavlovicTT): #https://github.com/tenstorrent/tt-metal/issues/21846 re-enable
+// REQUIRES: opmodel, perf
+// RUN: mkdir -p %t
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s -o %t/ttnn.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer  %t/ttnn.mlir > %t/out.ttnn
+// RUN: ttrt run %t/out.ttnn --result-file %t/run_results.json --benchmark 1
 
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {

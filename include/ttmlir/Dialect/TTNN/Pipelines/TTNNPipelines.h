@@ -179,7 +179,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc("Override maximum number of sharded layouts for legal "
                      "layout analysis."),
-      llvm::cl::init(64)};
+      llvm::cl::init(16)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
