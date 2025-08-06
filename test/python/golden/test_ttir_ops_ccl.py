@@ -5,14 +5,14 @@ import pytest
 
 from typing import List, Tuple
 from collections import OrderedDict
+from functools import reduce
+import operator
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import make_shard_shape
 
-
-pytestmark = pytest.mark.llmbox
 
 
 @pytest.mark.parametrize(
@@ -52,7 +52,7 @@ pytestmark = pytest.mark.llmbox
         (2, (0, -1)),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1), (1, 2), (2, 1)])
 def test_mesh_shard_devices(
     input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
 ):
@@ -106,7 +106,7 @@ def test_mesh_shard_devices(
         (128, 256),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 @pytest.mark.parametrize("all_gather_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_all_gather(
@@ -161,7 +161,7 @@ def test_all_gather(
         ),  # https://github.com/tenstorrent/tt-metal/issues/21987
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_all_reduce(
     test_shape: Shape,
@@ -210,7 +210,7 @@ def test_all_reduce(
         pytest.param((1, 1, 256, 128), marks=pytest.mark.run_error),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_reduce_scatter(
@@ -261,13 +261,14 @@ def test_reduce_scatter(
         (1, 256, 512, 1),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 @pytest.mark.parametrize(
-    "pairs",
+    "source_target_pairs",
     [
         pytest.param(
             [(0, 1)], marks=pytest.mark.fails_golden
         ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+        [(0, 1), (1, 0)],
         [(0, 1), (1, 2), (2, 3), (3, 0)],
         [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)],
         [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)],
@@ -279,14 +280,18 @@ def test_reduce_scatter(
 def test_collective_permute(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
-    pairs: List[Tuple[int, int]],
+    source_target_pairs: List[Tuple[int, int]],
     request,
     shard_wrap_factory,
 ):
+    max_id = reduce(operator.mul, mesh_shape, 1)
+    if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
+        pytest.skip("Source and target pairs are out of range")
+
     def collective_permute(sharded_in: Operand, builder: TTIRBuilder):
         return builder.collective_permute(
             sharded_in,
-            source_target_pairs=pairs,
+            source_target_pairs=source_target_pairs,
         )
 
     input_shape, test_fn = shard_wrap_factory(collective_permute)
@@ -320,6 +325,8 @@ def test_collective_permute(
         ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
         ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
         ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
+        ((1, 2), ((0, 1),)),
+        ((2, 1), ((0, 1),)),
     ],
 )
 def test_all_to_all(
@@ -376,6 +383,8 @@ def test_all_to_all(
         ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
         ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
         ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
+        ((1, 2), ((0, 1),)),
+        ((2, 1), ((0, 1),)),
     ],
 )
 def test_collective_broadcast(
