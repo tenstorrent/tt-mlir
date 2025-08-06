@@ -148,12 +148,13 @@ public:
           loc, rewriter.getIndexType(),
           rewriter.getIndexAttr(grid.getShape()[dim] - 1));
       if (iteratorType == ttcore::IteratorType::Parallel) {
-        args.mcastCoreIndex.push_back(Value(core));
         if (mcastBothDims) {
           args.senderCoreIndex.push_back(zero);
+          args.mcastCoreIndex.push_back(zero);
           args.mcastShape.push_back(gridDim);
           args.mcastVolume *= grid.getShape()[dim];
         } else {
+          args.mcastCoreIndex.push_back(Value(core));
           args.senderCoreIndex.push_back(Value(core));
           args.mcastShape.push_back(one);
         }
@@ -161,15 +162,17 @@ public:
         int64_t dimShape = grid.getShape()[dim];
         int64_t dimShapeMinusOne = dimShape - 1;
         assert(iteratorType == ttcore::IteratorType::Reduction);
-        args.mcastCoreIndex.push_back(one);
         if (mcastBothDims) {
           args.senderCoreIndex.push_back(zero);
+          args.mcastCoreIndex.push_back(zero);
           args.mcastShape.push_back(gridDim);
+          args.mcastVolume *= dimShape;
         } else {
           args.senderCoreIndex.push_back(zero);
+          args.mcastCoreIndex.push_back(one);
           args.mcastShape.push_back(gridDimMinusOne);
+          args.mcastVolume *= dimShapeMinusOne;
         }
-        args.mcastVolume *= dimShapeMinusOne;
 
         Value condition = rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
