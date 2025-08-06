@@ -17,7 +17,6 @@ import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo
 from ttmlir.ir import Attribute, ArrayAttr, IntegerAttr, IntegerType, BoolAttr, DenseI32ArrayAttr
 
-
 def cbrt_golden(x):
     """
     Custom golden function for cubic root.
@@ -208,7 +207,7 @@ def conv_transpose2d_golden(
     return result
 
 
-def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil_mode):
+def max_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
@@ -216,22 +215,40 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
     ----------
     input_tensor : torch.Tensor
         Input tensor for max pooling
-    kernel_size : Union[int, List[int]]
-        Size of the pooling kernel
-    stride : Union[int, List[int]]
-        Stride for pooling operation
-    padding : Union[int, List[int]]
-        Padding for pooling operation
-    dilation : Union[int, List[int]]
-        Dilation for pooling operation
-    ceil_mode : bool
-        Whether to use ceiling mode for pooling
+    **kwargs : dict
+        Keyword arguments containing:
+        - kernel_size: Union[int, List[int]] - Size of the pooling kernel
+        - stride: Union[int, List[int]] - Stride for pooling operation
+        - padding: Union[int, List[int]] - Padding for pooling operation
+        - dilation: Union[int, List[int]] - Dilation for pooling operation
+        - ceil_mode: bool - Whether to use ceiling mode for pooling
 
     Returns
     -------
     torch.Tensor
         Result of 2D max pooling with layout transformation
     """
+    # Get parameters from ttir_kwargs
+    kernel_size = kwargs.get("kernel")
+    stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
+    padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    ceil_mode = kwargs.get("ceil_mode", False)
+
+    # Convert MLIR attributes to Python values
+    def unpack_mlir_attr(attr):
+        if isinstance(attr, IntegerAttr):
+            return attr.value
+        elif isinstance(attr, DenseI32ArrayAttr):
+            return list(attr)
+        else:
+            raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+    kernel_size = unpack_mlir_attr(kernel_size)
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+
     # Convert padding from [top, left, bottom, right] format to PyTorch format
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
         # PyTorch MaxPool2d expects symmetric padding: (height_padding, width_padding)
@@ -698,23 +715,24 @@ def index_golden(input_tensor, dim, begin, end, step):
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
-def arange_golden(single_dim_tensor, repeats):
+def arange_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Custom golden function for arange operation.
 
     Parameters
     ----------
-    single_dim_tensor : torch.Tensor
+    input_tensor : torch.Tensor
         Single dimension tensor specification
-    repeats : int
-        Number of repeats for the range
+    **kwargs : dict
+        Keyword arguments including 'repeats'
 
     Returns
     -------
     torch.Tensor
         Generated range tensor
     """
-    return single_dim_tensor.repeat(repeats)
+    repeats = kwargs.get("repeats")
+    return input_tensor.repeat(repeats)
 
 
 def slice_golden(input_tensor, begins, ends, step):
@@ -1491,17 +1509,31 @@ def permute_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     input_tensor : torch.Tensor
         Input tensor
     **kwargs : dict
-        Keyword arguments including 'dims'
+        Keyword arguments including 'permutation' as MLIR attribute
 
     Returns
     -------
     torch.Tensor
         Permuted tensor
     """
-    dims = kwargs.get("dims", None)
-    if dims is None:
+
+    def unpack_mlir_attr(stride_attr):
+        if isinstance(stride_attr, IntegerAttr):
+            # If it's an IntegerAttr, simply get its integer value
+            return stride_attr.value
+        elif isinstance(stride_attr, DenseI64ArrayAttr):
+            # If it's a DenseI32ArrayAttr, convert to a list
+            return list(stride_attr)
+        else:
+            # Handle any other unexpected types
+            raise ValueError(f"Unexpected stride attribute type: {type(stride_attr)}")
+
+    permutation = kwargs.get("permutation", None)
+    if permutation is None:
         return input_tensor
-    return torch.permute(input_tensor, dims)
+
+    permutation = unpack_mlir_attr(permutation)
+    return torch.permute(input_tensor, tuple(permutation))
 
 
 def leaky_relu_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1542,27 +1574,6 @@ def softmax_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     dimension = kwargs.get("dimension", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
-
-
-def pad_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-    """
-    Golden function for pad operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : torch.Tensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'padding' and 'value'
-
-    Returns
-    -------
-    torch.Tensor
-        Padded tensor
-    """
-    padding = kwargs.get("padding", [0])
-    value = kwargs.get("value", 0)
-    return torch.nn.functional.pad(input_tensor, padding, value=value)
 
 
 def index_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1641,7 +1652,7 @@ def zeros_golden(**kwargs) -> torch.Tensor:
     torch.Tensor
         Zero tensor
     """
-    size = kwargs.get("size", [1])
+    size = kwargs.get("shape", [1])
     return torch.zeros(size)
 
 
@@ -1659,7 +1670,7 @@ def ones_golden(**kwargs) -> torch.Tensor:
     torch.Tensor
         Ones tensor
     """
-    size = kwargs.get("size", [1])
+    size = kwargs.get("shape", [1])
     return torch.ones(size)
 
 
@@ -1679,7 +1690,7 @@ def reverse_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     torch.Tensor
         Reversed tensor
     """
-    dims = kwargs.get("dims", [0])
+    dims = kwargs.get("dimensions", [0])
     return torch.flip(input_tensor, dims)
 
 
