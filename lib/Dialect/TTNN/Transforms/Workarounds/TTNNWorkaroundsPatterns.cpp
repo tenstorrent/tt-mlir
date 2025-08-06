@@ -357,6 +357,11 @@ public:
 
   LogicalResult matchAndRewrite(ttnn::AllReduceOp op,
                                 PatternRewriter &rewriter) const override {
+    if (true) {
+      auto deviceDesc = ttcore::lookupDevice(op);
+      return rewriteAsAllGatherLocalReduce(op, deviceDesc.getMeshShape(),
+                                           rewriter);
+    }
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op.getInput().getType());
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
