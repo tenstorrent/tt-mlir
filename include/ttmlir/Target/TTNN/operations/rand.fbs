@@ -6,8 +6,8 @@ namespace tt.target.ttnn;
 table RandOp {
   size: [int64];
   device: tt.target.DeviceRef;
-  dtype: tt.target.DataType = null;
-  layout: tt.target.TensorLayout = null;
+  dtype: tt.target.DataType;
+  layout: tt.target.TensorLayout;
   memcfg: tt.target.ttnn.MemoryConfig;
   low: float;
   high: float;

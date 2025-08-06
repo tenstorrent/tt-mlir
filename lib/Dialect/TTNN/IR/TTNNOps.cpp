@@ -81,6 +81,17 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
     return emitOpError() << "'low' value must be < 'high' value.";
   }
 
+  auto layout =
+      mlir::cast<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())
+          .getLayout();
+  if (getLayout() != layout) {
+    return emitOpError() << "Layout argument does not match with output tensor "
+                            "encoding. [Layout = ("
+                         << stringifyEnum(getLayout())
+                         << "), output tensor encoding = ("
+                         << stringifyEnum(layout) << ")].";
+  }
+
   if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
     return emitOpError()
            << "Size argument does not match with output tensor shape. [Size = ("

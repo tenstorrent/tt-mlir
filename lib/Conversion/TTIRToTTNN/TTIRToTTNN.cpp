@@ -1471,8 +1471,7 @@ public:
                                     bufferTypeAttr, std::nullopt);
 
     ttnn::ShapeAttr sizeAttr = ttnn::ShapeAttr::get(
-        rewriter.getContext(),
-        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+        rewriter.getContext(), op.getResult().getType().getShape());
 
     rewriter.replaceOpWithNewOp<ttnn::RandOp>(
         op, this->getTypeConverter()->convertType(op.getType()), sizeAttr,

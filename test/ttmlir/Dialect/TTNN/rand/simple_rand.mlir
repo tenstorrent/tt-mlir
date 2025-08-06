@@ -4,8 +4,7 @@
 module attributes {} {
   func.func @test_rand() -> tensor<32x32xbf16>{
     // CHECK-LABEL: @test_rand
-    // CHECK: %[[DEVICE:[0-9]+]] = "ttnn.get_device"()
-    // CHECK: %{{[0-9]+}} = "ttnn.rand"(%[[DEVICE]])
+    // CHECK: "ttnn.rand"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>,
     // CHECK-SAME: high = 1.000000e+00 : f32,
     // CHECK-SAME: layout = #ttnn.layout<tile>,

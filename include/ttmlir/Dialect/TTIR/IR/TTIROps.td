@@ -4704,20 +4704,20 @@ def TTIR_FullOp : TTIR_CreationOp<"full",
 def TTIR_RandOp : TTIR_CreationOp<"rand"> {
   let summary = "Random number generation operation.";
   let description = [{
-    Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Defaul: [0, 1)].
+    Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
 
     Example:
       %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
 
     Attributes:
-    - `size` (Array of Integer): The shape of the tensor to create.
-    - `dtype` (mlir:Type): Data type of the returned tensor.
-    - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
-    - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
-    - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
+      - `size` (Array of Integer): The shape of the tensor to create.
+      - `dtype` (mlir:Type): Data type of the returned tensor.
+      - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
+      - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
+      - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
 
     Outputs:
-    - `result` (Tensor): The generated tensor containing the random values.
+      - `result` (Tensor): The generated tensor containing the random values.
   }];
 
   let arguments = (ins I32ArrayAttr:$size,
