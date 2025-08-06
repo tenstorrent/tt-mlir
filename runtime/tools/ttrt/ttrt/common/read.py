@@ -27,7 +27,6 @@ class Read:
         "version",
         "system_desc",
         "mlir",
-        "cpp",
         "inputs",
         "outputs",
         "op_stats",
@@ -78,6 +77,13 @@ class Read:
             help="test file to save results to",
         )
         Read.register_arg(
+            name="--read-file",
+            type=str,
+            default="read_sections.json",
+            choices=None,
+            help="json file to save read flatbuffer sections to",
+        )
+        Read.register_arg(
             name="--ignore-version",
             type=bool,
             default=False,
@@ -126,6 +132,7 @@ class Read:
         self.ttmetal_binaries = []
         self.system_desc_binaries = []
         self.results = Results(self.logger, self.file_manager)
+        self.read_sections = []
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing read API")
@@ -218,7 +225,9 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.read_action_functions[self["--section"]](bin)
+                self.read_sections.append(
+                    self.read_action_functions[self["--section"]](bin)
+                )
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -238,7 +247,9 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.read_action_functions[self["--section"]](bin)
+                self.read_sections.append(
+                    self.read_action_functions[self["--section"]](bin)
+                )
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -258,7 +269,9 @@ class Read:
                 self.logging.info(
                     f"reading section={self['--section']} from binary={bin.file_path}"
                 )
-                self.read_action_functions[self["--section"]](bin)
+                self.read_sections.append(
+                    self.read_action_functions[self["--section"]](bin)
+                )
             except Exception as e:
                 test_result = {
                     "file_path": bin.file_path,
@@ -270,7 +283,6 @@ class Read:
                 self.logging.error(
                     f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
                 )
-                self.results.add_result(test_result)
                 bin.test_result = "error"
 
         self.logging.debug(f"------finished executing read API")
@@ -284,6 +296,12 @@ class Read:
 
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
+
+        if not self["--read-file"] == "":
+            with open(self["--read-file"], "w") as read_file:
+                json.dump(self.read_sections, read_file, indent=2)
+
+            self.logging.info(f"Saved read sections to {self['--read-file']}")
 
         for bin in self.system_desc_binaries:
             if bin.test_result == "pass":
@@ -426,29 +444,9 @@ class Read:
         )
 
     def mlir(self, *binaries):
-        def _get_mlir(binary):
-            results = []
-            for index in range(binary.fbb.get_num_programs()):
-                mlir = ttrt.binary.program_mlir_as_dict(binary.fbb, index)
-                results.append({mlir["name"]: mlir["source"]})
-            return results
-
-        return self._operate_on_binary(binaries, _get_mlir)
-
-    def cpp(self, *binaries):
-        def _get_cpp(binary):
-            results = []
-            for index in range(binary.fbb.get_num_programs()):
-                results.append(
-                    {
-                        binary.fbb.get_program_name(index): binary.fbb.get_program_cpp(
-                            index
-                        )
-                    }
-                )
-            return results
-
-        return self._operate_on_binary(binaries, _get_cpp)
+        return self._operate_on_binary(
+            binaries, lambda binary: ttrt.binary.mlir_as_dict(binary.fbb)
+        )
 
     def inputs(self, *binaries):
         return self._operate_on_binary(
@@ -457,7 +455,7 @@ class Read:
                 {
                     binary.fbb.get_program_name(
                         index
-                    ): ttrt.binary.program_inputs_as_json(binary.fbb, index)
+                    ): ttrt.binary.program_inputs_as_dict(binary.fbb, index)
                 }
                 for index in range(binary.fbb.get_num_programs())
             ],
@@ -470,7 +468,7 @@ class Read:
                 {
                     binary.fbb.get_program_name(
                         index
-                    ): ttrt.binary.program_outputs_as_json(binary.fbb, index)
+                    ): ttrt.binary.program_outputs_as_dict(binary.fbb, index)
                 }
                 for index in range(binary.fbb.get_num_programs())
             ],

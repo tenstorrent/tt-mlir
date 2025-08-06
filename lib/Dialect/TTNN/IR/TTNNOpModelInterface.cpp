@@ -122,7 +122,6 @@ getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getFirst().getType().getShape();
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
-  const auto outputShape = op.getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
   if (!check) {
@@ -133,7 +132,7 @@ getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], inputShapeC, inputs[2], outputShape,
+      inputs[0], inputShapeB, inputs[1], inputShapeC, inputs[2],
       opConfig.outputLayout);
 }
 
@@ -146,12 +145,10 @@ getTernaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getFirst().getType().getShape();
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
-  const auto outputShape = op.getType().getShape();
 
-  return opRuntimeCache().getOrCompute(op_model::OpModel<OpT>::getOpRuntime, op,
-                                       inputShapeA, inputs[0], inputShapeB,
-                                       inputs[1], inputShapeC, inputs[2],
-                                       outputShape, opConfig.outputLayout);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShapeA, inputs[0],
+      inputShapeB, inputs[1], inputShapeC, inputs[2], opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -1657,6 +1654,47 @@ EmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<EmbeddingOp>::getOpRuntime, *this, inputShape,
       inputs[0], weightShape, inputs[1], opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+EmbeddingBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  const auto inGradientShape = getInGradient().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<EmbeddingBackwardOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], weightShape, inputs[1],
+      inGradientShape, inputs[2], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+EmbeddingBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  const auto inGradientShape = getInGradient().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<EmbeddingBackwardOp>::getOpRuntime, *this, inputShape,
+      inputs[0], weightShape, inputs[1], inGradientShape, inputs[2],
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

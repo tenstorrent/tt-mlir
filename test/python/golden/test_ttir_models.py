@@ -6,8 +6,9 @@ import torch
 import pytest
 from typing import List
 
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
 
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
@@ -18,7 +19,7 @@ def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         model,
         shapes,
         dtypes,
@@ -74,7 +75,7 @@ def test_mnist(
         return builder.softmax(add_6, dimension=1)
 
     # TODO: figure out a better way to name these tests for filename purposes
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         model,
         shapes,
         dtypes,
@@ -201,7 +202,7 @@ def test_llama_attention(
 
         return output115
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         model,
         shapes,
         dtypes,

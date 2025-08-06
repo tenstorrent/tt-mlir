@@ -35,7 +35,7 @@ endif()
 # Configure sphinx-apidoc command
 set(SPHINX_APIDOC_COMMAND ${SPHINX_APIDOC_EXECUTABLE}
     -o ${SPHINX_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}/python_packages/ttir_builder
+    ${CMAKE_BINARY_DIR}/python_packages/builder
 )
 
 set(SPHINX_BUILD_COMMAND ${SPHINX_EXECUTABLE}
@@ -52,7 +52,7 @@ add_custom_target(sphinx
   COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C ${SPHINX_BUILD_COMMAND}
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    TTIRBuilderModules
+    BuilderPythonModules
     TTMLIRPythonModules
     copy-docs-dir mlir-doc
   COMMENT "Generating Sphinx documentation"

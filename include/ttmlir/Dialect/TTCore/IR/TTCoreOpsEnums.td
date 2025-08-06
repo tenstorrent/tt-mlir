@@ -106,16 +106,16 @@ def TTCore_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
-def TTCore_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
-def TTCore_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 1, "host_mmio">;
+def TTCore_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 0, "host_mmio">;
 
 def TTCore_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
                            [
-                            TTCore_ChipCapabilityPCIE,
                             TTCore_ChipCapabilityHostMMIO,
                            ]> {
   let genSpecializedAttr = 1;
   let cppNamespace = "::mlir::tt::ttcore";
+  let separator = "|";
+  let printBitEnumPrimaryGroups = 1;
 }
 
 def TTCore_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;

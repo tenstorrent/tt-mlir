@@ -230,10 +230,6 @@ public:
   static TTNNOperandsWorkarounds
   createZerosOpOperandsWorkarounds(RankedTensorType outputType);
 
-  // Create workarounds for full op operands.
-  static TTNNOperandsWorkarounds
-  createFullOpOperandsWorkarounds(RankedTensorType outputType);
-
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);

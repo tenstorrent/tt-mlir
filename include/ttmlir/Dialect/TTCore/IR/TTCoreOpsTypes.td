@@ -96,17 +96,6 @@ def TTCore_TileSizeAttr : TTCore_Attr<"TileSize", "tile_size"> {
   let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
-
-def TTCore_ChipPhysicalHelperCoresAttr : TTCore_Attr<"ChipPhysicalHelperCores", "chip_physical_helper_cores"> {
-  let summary = "TT chip_physical_helper_cores attribute";
-  let description = [{
-    TT chip_physical_helper_cores attribute containing arrays of physical helper cores by core type in order of logical cores.
-  }];
-
-  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
-}
-
 def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
   let summary = "TT chip_desc attribute";
   let description = [{
@@ -126,7 +115,6 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$eriscL1UnreservedBase,
                     "unsigned":$dramUnreservedBase,
                     "unsigned":$dramUnreservedEnd,
-                    "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
                     "unsigned":$dstRegisterSizeTiles,
@@ -146,7 +134,6 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
-                             `physical_helper_cores` `=` $chipPhysicalHelperCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
                              `dst_register_size_tiles` `=` $dstRegisterSizeTiles `,`
@@ -340,21 +327,29 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     uint64_t deviceGridRank,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace);
+
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals = {},
-                                     ArrayRef<int64_t> dimAlignments = {});
+                                     DenseIntElementsAttr collapseIntervals);
+
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
 
     // Derive the physical tensor shape from logical shape and grid.
-    static llvm::SmallVector<int64_t> derivePhysicalShape(
-        ArrayRef<int64_t> logicalShape,
-        ArrayRef<int64_t> gridShape,
-        ArrayRef<int64_t> tileShape,
-        DenseIntElementsAttr collapseIntervals,
-        ArrayRef<int64_t> dimAlignments);
+    llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
-    // Returns gridShape eltwise-mul shardShape
-    static llvm::SmallVector<int64_t> getUnshardedShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape);
+    static llvm::SmallVector<int64_t> computeAlignments(ArrayRef<int64_t> logicalShape,
+                                   ArrayRef<int64_t> deviceGridShape,
+                                   ArrayRef<int64_t> normIntervals);
+
+    llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
     // Get the corresponding memref type (essentially just drops grid dimensions).
     static MemRefType getMemRefType(RankedTensorType tensorType);

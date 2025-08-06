@@ -117,41 +117,34 @@ struct UnaryEltwiseWithFastApproxModeOpModel {
 };
 
 template <>
-struct OpModel<mlir::tt::ttnn::RsqrtOp>
-    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::RsqrtOp> {};
+struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
 
 template <>
-struct OpModel<mlir::tt::ttnn::GeluOp>
-    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::GeluOp> {};
+struct OpModel<GeluOp> : UnaryEltwiseWithFastApproxModeOpModel<GeluOp> {};
 
 template <>
-struct OpModel<mlir::tt::ttnn::ExpOp>
-    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ExpOp> {};
+struct OpModel<ExpOp> : UnaryEltwiseWithFastApproxModeOpModel<ExpOp> {};
 
 template <>
-struct OpModel<mlir::tt::ttnn::ErfOp>
-    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ErfOp> {};
+struct OpModel<ErfOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfOp> {};
 
 template <>
-struct OpModel<mlir::tt::ttnn::ErfcOp>
-    : UnaryEltwiseWithFastApproxModeOpModel<mlir::tt::ttnn::ErfcOp> {};
+struct OpModel<ErfcOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfcOp> {};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<mlir::tt::ttnn::SigmoidOp> {
+struct OpModel<SigmoidOp> {
   static llvm::Expected<OpConstraints>
-  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+  getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -159,16 +152,17 @@ struct OpModel<mlir::tt::ttnn::SigmoidOp> {
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<mlir::tt::ttnn::LeakyReluOp> {
-  static llvm::Expected<OpConstraints> getOpConstraints(
-      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-      mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat slope,
-      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+struct OpModel<LeakyReluOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, llvm::APFloat slope,
+                   TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-               mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat slope,
-               mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             llvm::APFloat slope,
+                                             TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -243,14 +237,12 @@ struct TernaryEltwiseOpModel {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, llvm::ArrayRef<int64_t> inputShapeC,
-      TTNNLayoutAttr inputLayoutC, llvm::ArrayRef<int64_t> outputShape,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr inputLayoutC, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
                llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
-               llvm::ArrayRef<int64_t> outputShape,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -643,6 +635,25 @@ struct OpModel<EmbeddingOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
                TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<EmbeddingBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+      TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> inGradientShape,
+      TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> inGradientShape,
+               TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

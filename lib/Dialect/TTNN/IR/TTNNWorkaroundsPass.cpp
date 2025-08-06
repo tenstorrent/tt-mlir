@@ -194,23 +194,6 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
       .addOutputOperandWorkaround(fullOpOutputWorkarounds);
 }
 
-// Factory method to create a set of workarounds for full op output operand.
-// ttnn::full does not support output dtype int32. If the output data type of
-// full is int32, we override to float32 and typecast separately.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
-    RankedTensorType outputType) {
-  wa::TTNNOperandWorkarounds fullOpOutputWorkarounds;
-  mlir::tt::ttcore::DataType dataType =
-      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
-  if (dataType == mlir::tt::ttcore::DataType::Int32) {
-    fullOpOutputWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::Float32;
-  }
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(fullOpOutputWorkarounds);
-}
-
 // Factory method to create a set of workarounds for mesh shard op input
 // operand. ttnn::MeshShardOp supports host tensors only
 TTNNOperandsWorkarounds

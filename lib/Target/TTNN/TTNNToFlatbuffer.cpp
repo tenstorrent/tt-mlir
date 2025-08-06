@@ -1142,15 +1142,6 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                                 expectedTypeMsg);
     }
   }
-  if constexpr (std::is_same_v<AttrType, int32_t>) {
-    // typecast first op for per-tensor zp
-    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
-      firstInput = typeCastOp.getInput();
-    } else {
-      llvm_unreachable(
-          "Expected ttnn.typecast as defining op for per-tensor zp.");
-    }
-  }
   ttnn::FullOp fullOp =
       mlir::dyn_cast<ttnn::FullOp>(firstInput.getDefiningOp());
   assert(fullOp &&
@@ -2372,13 +2363,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
+  flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
+      toMLIR(fbb, "ttnn", rootModule);
 
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               module->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
+      debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2469,7 +2462,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
-      ::ttmlir::getGitHash(), systemDesc, &programs);
+      ::ttmlir::getGitHash(), systemDesc, binaryMLIR, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
