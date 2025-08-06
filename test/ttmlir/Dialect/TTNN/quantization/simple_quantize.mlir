@@ -6,10 +6,8 @@ module {
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 2.000000e-02 : f32
-    // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: {output_dtype = #ttcore.supportedDataTypes<si32>}
     // CHECK-SAME: tensor<1x3x224x224xf32
@@ -28,7 +26,6 @@ module {
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: axis = 1 : i32
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<si32>
