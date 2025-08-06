@@ -49,6 +49,7 @@ protected:
 
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
+      assert(dim > 0);
       // Find largest grid dimension that divides evenly
       for (int64_t g = targetGridShape[i]; g > 0; g--) {
         if (dim % g == 0) {
@@ -58,6 +59,8 @@ protected:
       }
     }
 
+    assert(grid.size() == physicalShape.size());
+
     return grid;
   }
 
@@ -66,12 +69,13 @@ protected:
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto logicalShape = tensorType.getShape();
+    ArrayRef<int64_t> logicalShape = tensorType.getShape();
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
     if (tiled) {
-      auto defaultShape = ttcore::TileType::getDefaultShape();
+      constexpr std::array<int64_t, 2> defaultShape =
+          ttcore::TileType::getDefaultShape();
       tileShape.assign(defaultShape.begin(), defaultShape.end());
       elementType = ttcore::TileType::get(elementType, tileShape);
     }

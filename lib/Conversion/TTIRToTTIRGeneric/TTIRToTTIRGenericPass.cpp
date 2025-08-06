@@ -102,8 +102,8 @@ struct TTIRToTTIRGenericPass final
     }
 
     // Get from device if no override given.
-    auto moduleOp = getOperation();
-    auto device = ttcore::lookupDevice(moduleOp);
+    mlir::ModuleOp moduleOp = getOperation();
+    ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
     assert(device && "Device not found");
     return llvm::to_vector(device.getWorkerGrid().getShape());
   }

@@ -903,7 +903,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
              oobVal, memorySpace);
 }
 
-// Getteer with explicit collapsedIntervals and dimAlignments.
+// Getter with explicit collapsedIntervals and dimAlignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
