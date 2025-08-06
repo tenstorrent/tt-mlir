@@ -60,7 +60,7 @@ with ctx, ir.Location.unknown():
                 indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
                 threads=threads,
-                num_regions=1,
+                num_regions=0,
             )
 
             # Add region body
