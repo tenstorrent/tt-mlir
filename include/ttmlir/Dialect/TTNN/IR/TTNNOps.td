@@ -1842,12 +1842,6 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
     OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device)>
   ];
 
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      auto outputType = getType();
-      return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
-    }
-  }];
 }
 
 def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {
