@@ -62,20 +62,6 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
-// Helper function to convert a tensor type to dynamic dimensions while
-// preserving rank
-static mlir::Type makeTensorTypeDynamic(mlir::Type type) {
-  if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type)) {
-    // Create a shape with all dimensions set to ShapedType::kDynamic
-    llvm::SmallVector<int64_t> dynamicShape(tensorType.getRank(),
-                                            mlir::ShapedType::kDynamic);
-    return mlir::RankedTensorType::get(
-        dynamicShape, tensorType.getElementType(), tensorType.getEncoding());
-  }
-  // Non-tensor types remain unchanged
-  return type;
-}
-
 // Tag bufferization access options based on operand semantics.
 static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
                                    mlir::Operation *origOp,
@@ -108,7 +94,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Convert operands and gather types for function signature
   llvm::SmallVector<mlir::Type> operandTypes;
-  llvm::SmallVector<mlir::Type> dynamicOperandTypes; // For CPU module
   llvm::SmallVector<mlir::Value> convertedOperands;
 
   for (auto operand : opToHoist->getOperands()) {
@@ -119,7 +104,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
         auto f32TensorType = RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding());
         operandTypes.push_back(f32TensorType);
-        dynamicOperandTypes.push_back(makeTensorTypeDynamic(f32TensorType));
 
         // Create converted tensor value
         auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
@@ -129,42 +113,34 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
         convertedOperands.push_back(converted->getResult(0));
       } else {
         operandTypes.push_back(tensorType);
-        dynamicOperandTypes.push_back(makeTensorTypeDynamic(tensorType));
         convertedOperands.push_back(operand);
       }
     } else {
       operandTypes.push_back(operand.getType());
-      dynamicOperandTypes.push_back(
-          operand.getType()); // Non-tensors stay the same
       convertedOperands.push_back(operand);
     }
   }
 
   // Gather result types for function signature
   llvm::SmallVector<mlir::Type> resultTypes;
-  llvm::SmallVector<mlir::Type> dynamicResultTypes; // For CPU module
   for (auto result : opToHoist->getResultTypes()) {
     if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
       if (!tensorType.getElementType().isF32()) {
-        auto f32TensorType = RankedTensorType::get(
-            tensorType.getShape(), f32Type, tensorType.getEncoding());
-        resultTypes.push_back(f32Type);
-        dynamicResultTypes.push_back(makeTensorTypeDynamic(f32TensorType));
+        resultTypes.push_back(RankedTensorType::get(
+            tensorType.getShape(), f32Type, tensorType.getEncoding()));
       } else {
         resultTypes.push_back(tensorType);
-        dynamicResultTypes.push_back(makeTensorTypeDynamic(tensorType));
       }
     } else {
       resultTypes.push_back(result);
-      dynamicResultTypes.push_back(result); // Non-tensors stay the same
     }
   }
 
   // Create function types
   mlir::FunctionType localFuncType =
       mlir::FunctionType::get(context, operandTypes, resultTypes);
-  mlir::FunctionType dynamicFuncType =
-      mlir::FunctionType::get(context, dynamicOperandTypes, dynamicResultTypes);
+  mlir::FunctionType funcType =
+      mlir::FunctionType::get(context, operandTypes, resultTypes);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
   llvm::SmallString<16> localFunctionName = functionName;
@@ -175,9 +151,9 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
-    // Insert the function with DYNAMIC types in the CPU module
-    auto hoistedFunc = func::FuncOp::create(opToHoist->getLoc(), functionName,
-                                            dynamicFuncType);
+    // Insert the function and the terminator
+    auto hoistedFunc =
+        func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
     targetModule.push_back(hoistedFunc);
 
     // Add a basic block to the function.
@@ -206,31 +182,26 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     // Clone the operation but modify its type if needed
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update operand types to dynamic f32 for tensor types
-    for (size_t i = 0; i < clonedOp->getNumOperands(); ++i) {
-      auto operand = clonedOp->getOperand(i);
+    // Update operand types to f32 for tensor types
+    for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         if (!tensorType.getElementType().isF32()) {
-          auto dynamicType = makeTensorTypeDynamic(RankedTensorType::get(
-              tensorType.getShape(), f32Type, tensorType.getEncoding()));
-          operand.setType(dynamicType);
-        } else {
-          operand.setType(makeTensorTypeDynamic(tensorType));
+          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
+                                               tensorType.getEncoding());
+          operand.setType(newType);
         }
       }
     }
 
-    // Update result types to dynamic f32 for tensor types
+    // Update result types to f32 for tensor types
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
         if (!tensorType.getElementType().isF32()) {
-          auto dynamicType = makeTensorTypeDynamic(RankedTensorType::get(
-              tensorType.getShape(), f32Type, tensorType.getEncoding()));
-          result.setType(dynamicType);
-        } else {
-          result.setType(makeTensorTypeDynamic(tensorType));
+          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
+                                               tensorType.getEncoding());
+          result.setType(newType);
         }
       }
     }
@@ -256,7 +227,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
                                          clonedOp->getResults());
 
-    // Declare the function prototype in the source module with STATIC types
+    // Declare the function prototype in the source module.
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
                                      localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
