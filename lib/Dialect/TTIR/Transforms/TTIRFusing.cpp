@@ -248,8 +248,18 @@ public:
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
 
-    // Check if the subtracted value is a max operation on the same input
-    auto maxOp = subtractedValue.getDefiningOp<MaxOp>();
+    // Handle broadcast operation (always present with keep_dim=true)
+    mlir::Value maxValue = subtractedValue;
+    auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
+    if (broadcastOp) {
+      maxValue = broadcastOp.getInput();
+    } else {
+      // If no broadcast, this might not be the pattern we're looking for
+      return mlir::failure();
+    }
+
+    // Check if the broadcasted value is a max operation
+    auto maxOp = maxValue.getDefiningOp<MaxOp>();
     if (!maxOp) {
       return mlir::failure();
     }
@@ -276,10 +286,10 @@ public:
       return mlir::failure();
     }
 
-    // Check usage patterns to ensure we can safely fuse:
-    // - subtract should have exactly 1 user (the softmax)
-    // - max should have exactly 1 user (the subtract)
-    if (!subOp.getResult().hasOneUse() || !maxOp.getResult().hasOneUse()) {
+    // Check usage patterns to ensure we can safely fuse
+    if (!subOp.getResult().hasOneUse() ||
+        !broadcastOp.getResult().hasOneUse() ||
+        !maxOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
