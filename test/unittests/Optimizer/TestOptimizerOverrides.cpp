@@ -666,6 +666,13 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMeshShape) {
   ASSERT_EQ(optimizerOverridesHandler.getMeshShape()[1], meshShape[1]);
 }
 
+// Test the setTensorL1UsageCap method
+TEST_F(TestOptimizerOverrideHandler, TestSetTensorL1UsageCap) {
+
+  optimizerOverridesHandler.setTensorL1UsageCap(1);
+  ASSERT_EQ(optimizerOverridesHandler.getTensorL1UsageCap(), 1);
+}
+
 // Test the toString method
 TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
