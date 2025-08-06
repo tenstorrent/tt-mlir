@@ -1122,15 +1122,16 @@ def test_max_pool2d(
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
+
 @pytest.mark.parametrize(
     "shapes",
     [
         [
             (1, 64, 32, 32),  # input tensor: (N, C, H, W)
-            (64,),           # scale (gamma)
-            (64,),           # offset (beta)
-            (64,),           # mean
-            (64,),           # variance
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
         ]
     ],
 )
@@ -1176,6 +1177,7 @@ def test_batch_norm(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
 
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
@@ -2709,4 +2711,3 @@ def test_hoisted_dot_general(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-

@@ -193,6 +193,7 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
     result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
+
 def batch_norm_golden(
     input_tensor,
     scale,
