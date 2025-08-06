@@ -3308,6 +3308,8 @@ class TTIRBuilder(Builder):
         ----------
         shape : Shape
             Shape of the output tensor
+        data_type : *Optional[Type]*, optional
+            Optional data type of the output tensor
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3316,8 +3318,8 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor of zeros with specified shape
         """
-        output = self._create_ranked_tensor_type(shape)
-        dtype = data_type if data_type is not None else self._default_type
+        dtype = self._get_type_from_torch_dtype(data_type)
+        output = self._create_ranked_tensor_type(shape, dtype)
         return self._op_proxy(
             ttir.ZerosOp,
             [],

@@ -1204,13 +1204,17 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
 
 # TODO (ctod): These three nullary tensor creation ops can probably be combined in some way.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_zeros(shape: Shape, request):
+@pytest.mark.parametrize(
+    "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
+)
+def test_zeros(shape: Shape, dtype: torch.dtype, request):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.zeros(shape, unit_attrs=unit_attrs)
+        return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         zeros,
         inputs_shapes=[],
+        inputs_types=[],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1539,7 +1543,19 @@ def embedding(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.qint32])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.qint32,
+        pytest.param(
+            torch.qint8,
+            marks=pytest.mark.skip(
+                reason="qint8 quantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 def test_quantize(
     shape: Shape, scale: float, zero_point: int, dtype: torch.dtype, request
 ):
@@ -1548,22 +1564,32 @@ def test_quantize(
     ):
         return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         quantize,
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("input_dtype", [TypeInfo(torch.qint32, 0.1, 0)])
+@pytest.mark.parametrize(
+    "input_dtype",
+    [
+        TypeInfo(torch.qint32, 0.1, 0),
+        pytest.param(
+            TypeInfo(torch.qint8, 0.1, 0),
+            marks=pytest.mark.skip(
+                reason="qint8 dequantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_dequantize(
     shape: Shape,
     input_dtype: TypeInfo,
@@ -1577,7 +1603,6 @@ def test_dequantize(
     ):
         return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         dequantize,
         [shape],
@@ -1585,15 +1610,34 @@ def test_dequantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("input_dtype", [TypeInfo(torch.qint32, 0.1, 0)])
+@pytest.mark.parametrize(
+    "input_dtype",
+    [
+        TypeInfo(torch.qint32, 0.1, 0),
+        pytest.param(
+            TypeInfo(torch.qint8, 0.1, 0),
+            marks=pytest.mark.skip(
+                reason="qint8 requantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.qint32])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.qint32,
+        pytest.param(
+            torch.qint8, marks=pytest.mark.skip(reason="qint8 quantize not supported")
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 def test_requantize(
     shape: Shape,
     input_dtype: TypeInfo,
@@ -1607,7 +1651,6 @@ def test_requantize(
     ):
         return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         requantize,
         [shape],
@@ -1615,7 +1658,6 @@ def test_requantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
