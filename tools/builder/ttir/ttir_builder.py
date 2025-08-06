@@ -2030,7 +2030,6 @@ class TTIRBuilder(Builder):
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        # golden_kwargs = {"keep_dim": True, "dim_arg": dim_arg}
         ttir_kwargs = {"keep_dim": True}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
@@ -2129,7 +2128,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceAndOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -2168,7 +2166,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceOrOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args)},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -2206,7 +2203,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ProdOp,
             [in0],
-            golden_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             unit_attrs=unit_attrs,
         )
@@ -2912,39 +2908,35 @@ class TTIRBuilder(Builder):
             Output tensor after max pooling
         """
 
+        # Convert parameters to MLIR attributes
+        ttir_kwargs = {
+            "kernel": (
+                IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                if isinstance(kernel, int)
+                else DenseI32ArrayAttr.get(kernel)
+            ),
+            "stride": (
+                IntegerAttr.get(IntegerType.get_signed(32), stride)
+                if isinstance(stride, int)
+                else DenseI32ArrayAttr.get(stride)
+            ),
+            "dilation": (
+                IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                if isinstance(dilation, int)
+                else DenseI32ArrayAttr.get(dilation)
+            ),
+            "padding": (
+                IntegerAttr.get(IntegerType.get_signed(32), padding)
+                if isinstance(padding, int)
+                else DenseI32ArrayAttr.get(padding)
+            ),
+            "ceil_mode": ceil_mode,
+        }
+
         return self._op_proxy(
             ttir.MaxPool2dOp,
             [in0],
-            golden_kwargs={
-                "kernel_size": kernel,
-                "stride": stride,
-                "dilation": dilation,
-                "padding": padding,
-                "ceil_mode": ceil_mode,
-            },
-            ttir_kwargs={
-                "kernel": (
-                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
-                    if isinstance(kernel, int)
-                    else DenseI32ArrayAttr.get(kernel)
-                ),
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "ceil_mode": ceil_mode,
-            },
+            ttir_kwargs=ttir_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3027,7 +3019,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.PadOp,
             [in0, in1],
-            # golden_kwargs={"padding": padding, "value": value},
             ttir_kwargs={"padding": padding, "value": value},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
@@ -3269,7 +3260,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shape},
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
@@ -3300,7 +3290,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.OnesOp,
             [],
-            golden_kwargs={"size": shape},
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             unit_attrs=unit_attrs,
@@ -3334,7 +3323,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReverseOp,
             [in0],
-            golden_kwargs={"dims": dims},
             ttir_kwargs={"dimensions": dims},
             unit_attrs=unit_attrs,
         )
@@ -3441,7 +3429,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.PermuteOp,
             [in0, in1],
-            golden_kwargs={"dims": tuple(permutation)},
             ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
@@ -3520,20 +3507,84 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
+            golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
                 "step": step,
                 "arange_dimension": arange_dimension,
-                "repeats": tuple(repeat_dims),
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+            organize_golden_args=lambda i: [],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(
                 self._get_golden_tensor(result).dtype
             ),
             unit_attrs=unit_attrs,
         )
+
+    # MINE
+
+    # def arange(
+    #     self,
+    #     result: Operand,
+    #     start: int,
+    #     end: int,
+    #     step: int,
+    #     arange_dimension: int,
+    #     unit_attrs: Optional[List[str]] = None,
+    # ) -> OpView:
+    #     """
+    #     Creates ``ttir.arange``.
+
+    #     *Creates a 1-D tensor of sequential values.*
+
+    #     Returns a 1-D tensor of size (end - start) / step with values from start to end taken with common difference step.
+
+    #     Parameters
+    #     ----------
+    #     start : int
+    #         Starting value
+    #     end : int
+    #         Ending value (exclusive)
+    #     step : int, optional
+    #         Step size between values (default: 1)
+    #     unit_attrs : *Optional[List[str]]*
+    #         Optional list of unit attributes
+
+    #     Returns
+    #     -------
+    #     (*OpView*)
+    #         1-D tensor with sequential values
+    #     """
+    #     single_dim_tensor = torch.arange(
+    #         start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+    #     )
+    #     shape = self.get_shape(result)
+    #     repeat_dims = []
+    #     for i in range(len(shape)):
+    #         if i == arange_dimension:
+    #             repeat_dims.append(int(shape[i] / ((end - start) / step)))
+    #         else:
+    #             repeat_dims.append(shape[i])
+
+    #     return self._op_proxy(
+    #         ttir.ArangeOp,
+    #         [result, single_dim_tensor],
+    #         ttir_kwargs={
+    #             "start": start,
+    #             "end": end,
+    #             "step": step,
+    #             "arange_dimension": arange_dimension,
+    #             "repeats": tuple(repeat_dims),
+    #         },
+    #         organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+    #         output_shape=shape,
+    #         output_type=self._get_type_from_torch_dtype(
+    #             self._get_golden_tensor(result).dtype
+    #         ),
+    #         unit_attrs=unit_attrs,
+    #     )
 
     # TTIR top level generic ops
     # class TTIR_GenericElementwiseUnaryOp
