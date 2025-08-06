@@ -34,6 +34,7 @@ test/lit.site.cfg.py
 /ttir/
 /ttnn/
 /ttmetal/
+/ttnn-standalone/
 
 # TTNN and TTMetal flatbuffers
 *.ttnn
