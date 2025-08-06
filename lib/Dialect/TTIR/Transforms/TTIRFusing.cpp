@@ -544,14 +544,9 @@ public:
   mlir::LogicalResult
   matchAndRewrite(BatchNormOp batchNormOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Check if the batch norm op has exactly one use
-    if (!batchNormOp.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
     // Used only paired with convolution
-    Operation *definingOp = batchNormOp->getOperand(0).getDefiningOp();
-    if (!definingOp ||
-        (!isa<ConvolutionOp>(definingOp) && !isa<Conv2dOp>(definingOp))) {
+    Operation *definingOp = batchNormOp.getOperand().getDefiningOp();
+    if (!definingOp || (!isa<ConvolutionOp, Conv2dOp>(definingOp))) {
       return mlir::failure();
     }
 
@@ -566,60 +561,53 @@ public:
     Location loc = batchNormOp.getLoc();
     RankedTensorType resultType = batchNormOp.getResult().getType();
 
+    RankedTensorType scalarType =
+        RankedTensorType::get({1}, variance.getType().getElementType(),
+                              variance.getType().getEncoding());
+
     // Convert epsilon to a tensor
     auto epsilonTensor = rewriter.create<FullOp>(
-        loc, variance.getType(),
-        rewriter.getF32FloatAttr(epsilon.convertToFloat()));
+        loc, scalarType, rewriter.getF32FloatAttr(epsilon.convertToFloat()));
 
     // variance + epsilon
     auto variancePlusEpsilon = utils::createDPSOp<AddOp>(
         rewriter, loc, variance.getType(), variance, epsilonTensor);
 
-    // sqrt(variance + epsilon)
+    // std = sqrt(variance + epsilon)
     auto std = utils::createDPSOp<SqrtOp>(rewriter, loc, variance.getType(),
                                           variancePlusEpsilon);
+    // alpha = scale / std
+    auto alpha =
+        utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
 
-    // Compute reshape shape: (1, C, 1, 1)
+    // beta = offset - alpha * mean
+    auto alphaMean = utils::createDPSOp<MultiplyOp>(
+        rewriter, loc, mean.getType(), mean, alpha);
+
+    auto beta = utils::createDPSOp<AddOp>(rewriter, loc, offset.getType(),
+                                          offset, alphaMean);
+
+    // Reshape all parameters from (C) to (1, C, 1, 1) to match the input shape
+    // of (N, C, H, W)
     SmallVector<int64_t> reshapeShape = {1, std.getType().getShape()[0], 1, 1};
     SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                          reshapeShape.end());
-
-    // Reshape all parameters to broadcast shape
-    auto meanReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, mean.getType().getElementType(),
-        mean.getType().getEncoding(), mean,
+    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+        alpha.getType().getEncoding(), alpha,
         rewriter.getI32ArrayAttr(reshapeShapeI32));
 
-    auto stdReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, std.getType().getElementType(),
-        std.getType().getEncoding(), std,
+    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, beta.getType().getElementType(),
+        beta.getType().getEncoding(), beta,
         rewriter.getI32ArrayAttr(reshapeShapeI32));
 
-    auto scaleReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, scale.getType().getElementType(),
-        scale.getType().getEncoding(), scale,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
-
-    auto offsetReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, offset.getType().getElementType(),
-        offset.getType().getEncoding(), offset,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
-
-    // (x - mean)
-    auto inputMinusMean = utils::createDPSOp<SubtractOp>(
-        rewriter, loc, input.getType(), input, meanReshaped);
-
-    // (x - mean) / std
-    auto normalized = utils::createDPSOp<DivOp>(
-        rewriter, loc, inputMinusMean.getType(), inputMinusMean, stdReshaped);
-
-    // normalized * scale
-    auto scaled = utils::createDPSOp<MultiplyOp>(
-        rewriter, loc, normalized.getType(), normalized, scaleReshaped);
-
-    // scaled + offset
+    // alpha * x
+    auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
+                                                 input, alphaReshaped);
+    // alpha * x + beta
     auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
-                                            offsetReshaped);
+                                            betaReshaped);
 
     rewriter.replaceOp(batchNormOp, result);
 
