@@ -193,6 +193,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 }
 
 const ExpectedResult expected{true, 8192, 2048, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -283,6 +284,11 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
 };
+const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CbrtOp>(loc, type, ops).getOperation();
+};
+
 //===---------------------------------------------------------===
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
@@ -299,6 +305,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
     {"Reciprocal", createReciprocal, expected},
+    {"Cbrt", createCbrt, cbrtExpected},
     {"Gelu", createGelu, expected},
     {"IsFinite", createIsFinite, expected},
     {"LogicalNot", createLogicalNot, expected},

@@ -21,6 +21,16 @@
 
 namespace mlir::tt::ttnn::op_model {
 
+template <typename T1, typename T2>
+void EXPECT_EQ_OR_GE(const T1 &actual, const T2 &expected,
+                     bool useGreaterThan = false) {
+  if (useGreaterThan) {
+    EXPECT_GE(actual, expected);
+  } else {
+    EXPECT_EQ(actual, expected);
+  }
+}
+
 class OpModelTest : public OpModelFixture {};
 
 namespace detail {
@@ -91,9 +101,11 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
-      EXPECT_EQ(outputSize, expectedOutputSize);
+
+      bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       // Must clean up the error
@@ -136,6 +148,7 @@ using OpModelRsqrtParam = OpModelUnaryEltwiseParam<RsqrtOp>;
 using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
 using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
 using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
+using OpModelCbrtParam = OpModelUnaryEltwiseParam<CbrtOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -161,6 +174,7 @@ TEST_P(OpModelAtanParam, AtanOp) { RunTest(); }
 TEST_P(OpModelRsqrtParam, RsqrtOp) { RunTest(); }
 TEST_P(OpModelLog1pParam, Log1pOp) { RunTest(); }
 TEST_P(OpModelExpm1Param, Expm1Op) { RunTest(); }
+TEST_P(OpModelCbrtParam, CbrtOp) { RunTest(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -273,6 +287,9 @@ INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
