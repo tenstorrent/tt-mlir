@@ -4,8 +4,6 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
-#include "llvm/ADT/APFloat.h"
-#include <ttnn/types.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -21,6 +19,7 @@
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 

@@ -12,12 +12,11 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 
 namespace mlir::tt::ttnn {
