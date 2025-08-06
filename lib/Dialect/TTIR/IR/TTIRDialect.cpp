@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
