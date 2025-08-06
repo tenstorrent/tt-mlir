@@ -13,7 +13,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         InsertDstRegisterAccess.cpp
         GenericApplyInterchange.cpp
         GenericTileComputeLoops.cpp
-        OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
         LowerToLayout.cpp
