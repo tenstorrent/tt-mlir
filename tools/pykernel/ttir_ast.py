@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import ast
 import inspect
 import functools
@@ -9,18 +10,13 @@ import textwrap
 
 from ttmlir.ir import *
 from ttmlir.dialects import (
-    ttcore,
     ttir,
-    ttkernel,
     func,
-    scf,
-    arith,
-    memref,
-    emitc,
     tensor,
 )
+from ttmlir.passes import ttir_to_ttmetal_backend_pipeline, ttmetal_to_flatbuffer_file
 
-from .ast import TTKernelCompiler, ttkernel_compile
+from .ast import TTKernelCompiler
 
 try:
     import ttnn
@@ -33,13 +29,45 @@ Tensor = ttnn.Tensor
 
 
 class TTIRCompiler(TTKernelCompiler):
-    ttkernel_fn_map = {}
+    ttkernel_fn_map = {
+        ### Unary ops ###
+        "abs": ttir.abs,
+        "cbrt": ttir.cbrt,
+        "cos": ttir.cos,
+        "floor": ttir.floor,
+        # gelu:
+        "isfinite": ttir.isfinite,
+        "tan": ttir.tan,
+        "atan": ttir.atan,
+        "tanh": ttir.tanh,
+        "reciprocal": ttir.reciprocal,
+        # ttir.relu
+        "rsqrt": ttir.rsqrt,
+        # ttir.sigmoid
+        # ttir.sign
+        "sin": ttir.sin,
+        "sqrt": ttir.sqrt,
+        # ttir.typecast
+        "log": ttir.log,
+        "log1p": ttir.log1p,
+        "expm1": ttir.expm1,
+        "exp": ttir.exp,
+        "erf": ttir.erf,
+        "erfc": ttir.erfc,
+        ### Binary ops ###
+        # ttir.logical_and
+        # ttir.logical_or
+        # ttir.logical_xor
+        # "min" : ttir.min,  # -> doesn't work
+        # "max" : ttir.max,  # edge case of passing min/max(input, output, ... other args)
+        "atan2": ttir.atan2,
+    }
     supported_nodes = [
         ### Variables
         ast.Name,
-        ### control-flow
-        ast.If,
-        ast.For,
+        ### Control-flow
+        # ast.If,
+        # ast.For,
         ### Literals
         ast.Constant,
         ### Expressions
@@ -95,7 +123,7 @@ class TTIRCompiler(TTKernelCompiler):
         # TODO: how to dynamically figure out output shape?
         output_types = [input_types[0]]
 
-        self.func_entry = func.FuncOp(name=node.name, type=(input_types, []))
+        self.func_entry = func.FuncOp(name=node.name, type=(input_types, output_types))
         func_bb = self.func_entry.add_entry_block()
 
         symbol_table = {}
@@ -109,29 +137,43 @@ class TTIRCompiler(TTKernelCompiler):
 
         self.symbol_tables.pop()
 
-    def visit_Return(self, node):
-        if node.value:
-            # Visit the return value and return it
-            return_value = self.visit(node.value)
-            func.ReturnOp([return_value])
-        else:
-            # Empty return
-            func.ReturnOp([])
+    def visit_Call(self, node):
+        # Assumption: first arg is always a tensor, and shape is same for input/output
+        # input params usually look like (result_type, input1, input2, output, *other_args)
+        # edge of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg
+        arg = self.visit(node.args[0])
+        result_type = arg.type
+        output = ttir.empty(result_type)
+        return super().visit_Call(node, [result_type], [output])
 
     # Expressions
-    # !! BEDMAS !!
+    # I don't think this respects BEDMAS..
     def visit_BinOp(self, node):
-        lhs = self.visit(node.left)
-        rhs = self.visit(node.right)
+        lconst = isinstance(node.left, ast.Constant)
+        rconst = isinstance(node.right, ast.Constant)
+        assert not (lconst or rconst), "Unable to handle binops with constants (yet)."
+        shape = None
+        lhs = None
+        rhs = None
+        if lconst:
+            rhs = self.visit(node.right)
+            shape = rhs.type.shape
+            lhs = self.visit(node.left, tensor_shape=shape)
+        elif rconst:
+            lhs = self.visit(node.left)
+            shape = lhs.type.shape
+            rhs = self.visit(node.right, tensor_shape=shape)
+        else:
+            lhs = self.visit(node.left)
+            rhs = self.visit(node.right)
+            assert (
+                lhs.type == rhs.type
+            ), "We don't know how to figure out output shape yet :("
+
         if not lhs or not rhs:
             raise ValueError("Binary operands not found")
-        print(lhs, rhs)
 
         # TODO: Once again, how do we get the output type shape?
-        print(lhs.type, rhs.type)
-        assert (
-            lhs.type == rhs.type
-        ), "We don't know how to figure out output shape yet :("
         result_type = lhs.type
         output = ttir.empty(result_type)
         match node.op:
@@ -165,7 +207,6 @@ class TTIRCompiler(TTKernelCompiler):
                 raise NotImplementedError(f"Unsupported binary operator: {node.op}")
 
     def visit_UnaryOp(self, node):
-        print("Hello", node.op)
         operand = self.visit(node.operand)
         if not operand:
             raise ValueError("Unary operand not found")
@@ -174,7 +215,7 @@ class TTIRCompiler(TTKernelCompiler):
             # case ast.UAdd():
             # return ttir.add(operand.type, operand, operand, output)
             case ast.USub():
-                return ttir.neg(operand.type, operand, operand, output)
+                return ttir.neg(operand.type, operand, output)
             case ast.Not():
                 return ttir.logical_not(operand.type, operand, output)
             case ast.Invert():
@@ -207,11 +248,19 @@ class TTIRCompiler(TTKernelCompiler):
 
     # Statements
     def visit_Assign(self, node):
-        # need to handle tensor assignments
-        pass
+        # If there is any sort of scope change (control flow), this will just break.
+        assert len(node.targets) == 1, "Only single assignments supported"
+        name = node.targets[0].id
+        value = self.visit(node.value)
+
+        if isinstance(value, BlockArgument):
+            raise ValueError("Why are you assigning a block argument?")
+
+        sym_table = self.symbol_tables[-1]
+        sym_table[name] = value
 
 
-def ttir_compile(verbose: bool = False):
+def ttir_compile(verbose: bool = False, to_flatbuffer_file=""):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
@@ -240,13 +289,29 @@ def ttir_compile(verbose: bool = False):
 
             # Parse and compile
             m = ast.parse(source_code)
-            print(ast.dump(m, indent=2) + "\n")
+            if verbose:
+                print(ast.dump(m, indent=2) + "\n")
             b = TTIRCompiler(None, *args, **kwargs)
             b.visit(m)
 
             # Check if generated IR is valid
-            print(b.module)
-            b.module.operation.verify()
+            ir = b.module
+            if verbose:
+                print(ir)
+            ir.operation.verify()
+
+            system_desc_path = os.getenv("SYSTEM_DESC_PATH")
+            ttir_to_ttmetal_backend_pipeline(
+                ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
+            )
+            if verbose:
+                print("---- After ttir_to_ttmetal_backend_pipeline ----")
+                print(ir)
+
+            if to_flatbuffer_file:
+                ttmetal_to_flatbuffer_file(ir, to_flatbuffer_file, {}, [])
+
+            return ir
 
         if inspect.ismethod(f):
             return staticmethod(_wrapper)
