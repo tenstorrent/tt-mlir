@@ -5,7 +5,6 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
-#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -88,6 +87,10 @@ using OptionalMeshDevice =
 namespace conv::conv2d {
 struct Conv2dConfig;
 } // namespace conv::conv2d
+
+namespace reduction {
+enum class ReduceType;
+} // namespace reduction
 } // namespace operations
 } // namespace ttnn
 
@@ -288,6 +291,12 @@ struct TypeName<::ttnn::BufferType> {
 template <>
 struct TypeName<::ttnn::Shape> {
   inline static const std::string value = "::ttnn::Shape";
+};
+
+template <>
+struct TypeName<::ttnn::operations::reduction::ReduceType> {
+  inline static const std::string value =
+      "::ttnn::operations::reduction::ReduceType";
 };
 
 template <>
@@ -744,6 +753,48 @@ struct EmitCTypeConverter<::ttnn::Shape> {
   }
 };
 
+template <>
+struct EmitCTypeConverter<ttcore::ReduceType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto reduceTypeAttr =
+            mlir::dyn_cast_if_present<ttcore::ReduceTypeAttr>(attr)) {
+      return convert(reduceTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttcore::ReduceTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttcore::ReduceType attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::reduction::ReduceType> << "::";
+    switch (attr) {
+    case ttcore::ReduceType::Sum:
+      rso << "SUM";
+      break;
+    case ttcore::ReduceType::Mean:
+      rso << "MEAN";
+      break;
+    case ttcore::ReduceType::Max:
+      rso << "MAX";
+      break;
+    case ttcore::ReduceType::Min:
+      rso << "MIN";
+      break;
+    case ttcore::ReduceType::Std:
+      rso << "STD";
+      break;
+    case ttcore::ReduceType::Var:
+      rso << "VAR";
+      break;
+    }
+    return buf;
+  }
+};
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {
@@ -1330,6 +1381,10 @@ struct IsMLIRType {
 template <typename T>
 static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 
+// Name for the function that creates a std::vector from a variadic number of
+// `ttnn::Tensor`s.
+inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -1654,15 +1709,12 @@ public:
 
 private:
   mlir::Value createVector(ValueRange operands) {
-    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
-
     return rewriter
         .create<emitc::CallOpaqueOp>(
             op.getLoc(),
             emitc::OpaqueType::get(rewriter.getContext(),
                                    TypeNameV<std::vector<::ttnn::Tensor>>),
-            tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-            nullptr, operands)
+            kCreateVectorFunctionName, nullptr, nullptr, operands)
         ->getResult(0);
   }
 
