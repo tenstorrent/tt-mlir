@@ -131,36 +131,10 @@ protected:
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
                 expectedOutputSize] = std::get<2>(params);
 
-    TTNNLayoutAttr inputLayout;
-    TTNNLayoutAttr outputLayout;
-
-    // BitwiseNot requires Int32 data type - create layouts manually
-    auto int32DataType = ttcore::DataType::Int32;
-    auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
-    auto grid = CreateGrid(&context, inputBufferType, inputTensorLayout,
-                           inputVirtualGrid.value_or(GetVirtualGridShape(
-                               inputShape, inputTensorLayout)),
-                           GetPhysicalGridSize());
-    auto memLayoutAttr =
-        inputBufferType == BufferType::SystemMemory
-            ? TensorMemoryLayoutAttr{}
-            : TensorMemoryLayoutAttr::get(&context, inputTensorLayout);
-
-    inputLayout = TTNNLayoutAttr::get(&context, inputShape, tileType,
-                                      inputBufferType, grid, memLayoutAttr);
-
-    auto outputGrid = CreateGrid(&context, outputBufferType, outputTensorLayout,
-                                 outputVirtualGrid.value_or(GetVirtualGridShape(
-                                     outputShape, outputTensorLayout)),
-                                 GetPhysicalGridSize());
-    auto outputMemLayoutAttr =
-        outputBufferType == BufferType::SystemMemory
-            ? TensorMemoryLayoutAttr{}
-            : TensorMemoryLayoutAttr::get(&context, outputTensorLayout);
-
-    outputLayout =
-        TTNNLayoutAttr::get(&context, outputShape, tileType, outputBufferType,
-                            outputGrid, outputMemLayoutAttr);
+    const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
