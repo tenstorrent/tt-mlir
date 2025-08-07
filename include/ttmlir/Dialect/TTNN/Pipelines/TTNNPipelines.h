@@ -208,7 +208,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::tensorL1UsageCap,
       llvm::cl::desc("Override tensor L1 usage cap in L1 interleaved fallback "
                      "analysis. [0.0-1.0]"),
-      llvm::cl::init(0.8f)};
+      llvm::cl::init(1.0f)};
 
   // Option to enable/disable the workaround pass.
   //
