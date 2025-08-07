@@ -2305,6 +2305,104 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRSortOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SortOp> {
+
+  using OpConversionPattern<mlir::stablehlo::SortOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SortOp srcOp,
+                  mlir::stablehlo::SortOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    SmallVector<Type> outputTypes;
+    llvm::SmallVector<mlir::Value> outputTensors;
+    for (auto type : srcOp->getResultTypes()) {
+      RankedTensorType outputType =
+          mlir::cast<RankedTensorType>(getTypeConverter()->convertType(type));
+      outputTypes.push_back(outputType);
+      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
+          srcOp->getLoc(), outputType.getShape(), outputType.getElementType(),
+          outputType.getEncoding()));
+    }
+
+    auto dim = srcOp.getDimension();
+    auto isStable = srcOp.getIsStable();
+    auto isDescending = getSortDirection(srcOp);
+    if (!isDescending) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Unable to determine sort direction.");
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SortOp>(
+        srcOp, mlir::TypeRange{outputTypes}, adaptor.getInputs().front(),
+        mlir::ValueRange{outputTensors}, rewriter.getSI32IntegerAttr(dim),
+        rewriter.getBoolAttr(*isDescending), rewriter.getBoolAttr(isStable));
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::SortOp &srcOp,
+                          mlir::stablehlo::SortOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    if (!hasValidInputs(srcOp.getInputs())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Invalid inputs. Expecting two inputs (values, indices).");
+    }
+    if (srcOp->getResults().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Invalid number of outputs. Expected to generate two outputs "
+                 "(sorted values and indices).");
+    }
+
+    return success();
+  }
+
+  // Validate the inputs.
+  // SortOp has two inputs:
+  // 1) values,
+  // 2) indices (created with stablehlo.iota op).
+  bool hasValidInputs(mlir::OperandRange inputs) const {
+    if (inputs.size() != 2) {
+      return false;
+    }
+
+    mlir::Value value = inputs.back();
+    Operation *valueDef = value.getDefiningOp();
+
+    // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
+    while (
+        isa_and_nonnull<mlir::stablehlo::BroadcastInDimOp,
+                        mlir::stablehlo::ReshapeOp, mlir::stablehlo::ConvertOp>(
+            valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+
+    return isa_and_nonnull<mlir::stablehlo::IotaOp>(valueDef);
+  }
+
+  // Determine if sort is performed in ascending or descending order.
+  std::optional<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
+    mlir::Block &compare = srcOp.getComparator().getBlocks().front();
+    auto compareOp =
+        mlir::cast<mlir::stablehlo::CompareOp>(compare.getOperations().front());
+    if (!compareOp) {
+      return std::nullopt;
+    }
+    return compareOp.getComparisonDirection() ==
+           mlir::stablehlo::ComparisonDirection::GT;
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpReverseOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReverseOp> {
 
@@ -2832,6 +2930,11 @@ static void addErfOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOErfOpMHLOConversionPattern>(typeConverter, ctx);
 }
 
+static void addSortOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
+}
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2863,6 +2966,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
+  addSortOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
