@@ -74,7 +74,7 @@ class Query:
             help="test file to save results to",
         )
 
-    def __init__(self, args={}, logger=None, artifacts=None):
+    def __init__(self, args={}, logger=None, artifacts=None, silent=False):
         for name, attributes in Query.registered_args.items():
             if type(args) == dict:
                 if name in args.keys():
@@ -89,7 +89,9 @@ class Query:
                     converted_name = converted_name.replace("-", "_")
                 self[name] = getattr(args, converted_name)
 
-        self.logger = logger if logger != None else Logger(self["--log-file"])
+        self.logger = (
+            logger if logger != None else Logger(self["--log-file"], silent=silent)
+        )
         self.logging = self.logger.get_logger()
         self.globals = Globals(self.logger)
         self.file_manager = FileManager(self.logger)

@@ -221,22 +221,29 @@ def parse_fabric_config(fabric_config_str: str):
 
 
 class Logger:
-    def __init__(self, file_name=""):
+    def __init__(self, file_name="", silent=False):
         import logging
 
         self.logging = logging
         self.file_name = file_name
-        LEVEL = self.logging.INFO
+        self.silent = silent
 
-        if "TTRT_LOGGER_LEVEL" in os.environ:
-            if os.environ["TTRT_LOGGER_LEVEL"] == "CRITICAL":
-                LEVEL = self.logging.CRITICAL
-            elif os.environ["TTRT_LOGGER_LEVEL"] == "ERROR":
-                LEVEL = self.logging.ERROR
-            elif os.environ["TTRT_LOGGER_LEVEL"] == "WARNING":
-                LEVEL = self.logging.WARNING
-            elif os.environ["TTRT_LOGGER_LEVEL"] == "DEBUG":
-                LEVEL = self.logging.DEBUG
+        if silent:
+            LEVEL = (
+                self.logging.CRITICAL + 1
+            )  # Set level higher than CRITICAL to suppress all
+        else:
+            LEVEL = self.logging.INFO
+
+            if "TTRT_LOGGER_LEVEL" in os.environ:
+                if os.environ["TTRT_LOGGER_LEVEL"] == "CRITICAL":
+                    LEVEL = self.logging.CRITICAL
+                elif os.environ["TTRT_LOGGER_LEVEL"] == "ERROR":
+                    LEVEL = self.logging.ERROR
+                elif os.environ["TTRT_LOGGER_LEVEL"] == "WARNING":
+                    LEVEL = self.logging.WARNING
+                elif os.environ["TTRT_LOGGER_LEVEL"] == "DEBUG":
+                    LEVEL = self.logging.DEBUG
 
         self.logging.basicConfig(
             filename=self.file_name,
@@ -245,7 +252,8 @@ class Logger:
             level=LEVEL,
         )
 
-        self.logging.info(f"set log file={self.file_name}")
+        if not silent:
+            self.logging.info(f"set log file={self.file_name}")
 
     def get_logger(self):
         return self.logging

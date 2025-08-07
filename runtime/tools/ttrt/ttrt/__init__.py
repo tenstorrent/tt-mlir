@@ -37,6 +37,9 @@ def main():
         "-V", "--version", action="version", version=f"ttrt {version('ttrt')}"
     )
     parser.add_argument("--gdb", action="store_true", help="launch ttrt with gdb")
+    parser.add_argument(
+        "--silent", "-s", action="store_true", help="suppress all logging output"
+    )
     subparsers = parser.add_subparsers(required=True)
 
     API.initialize_apis()
@@ -48,7 +51,7 @@ def main():
     except SystemExit:
         return 1
 
-    request_api = args.api(args)
+    request_api = args.api(args, silent=getattr(args, "silent", False))
     result_code, results = request_api()
 
     return result_code
