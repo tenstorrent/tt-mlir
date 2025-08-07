@@ -460,6 +460,30 @@ private:
 } // namespace
 
 namespace {
+class TTKernelInvokeSFPIOpRewriter
+    : public OpConversionPattern<ttkernel::InvokeSFPIOp> {
+public:
+  using OpConversionPattern<ttkernel::InvokeSFPIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::InvokeSFPIOp op,
+                  ttkernel::InvokeSFPIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    assert(op.getRegion().hasOneBlock());
+    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
+                                       "experimental::invoke_sfpi([=]() {");
+    auto endScope = rewriter.create<emitc::VerbatimOp>(op->getLoc(), "});");
+    rewriter.inlineBlockBefore(&op.getRegion().front(), endScope);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  std::string opaque;
+};
+} // namespace
+
+namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelToEmitCPassthroughRewriter : public OpConversionPattern<Op> {
 public:
@@ -820,6 +844,9 @@ public:
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
+
+    patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
+                                               funcOp.getContext());
 
     patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
         typeConverter, funcOp.getContext(), "my_x[noc_index]");

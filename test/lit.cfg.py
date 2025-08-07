@@ -55,6 +55,9 @@ if config.enable_opmodel:
 if lit_config.params.get("TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS", "") == "1":
     config.available_features.add("perf")
 
+if os.path.exists("/opt/tenstorrent/sfpi/compiler/bin/riscv32-tt-elf-g++"):
+    config.available_features.add("sfpi")
+
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 

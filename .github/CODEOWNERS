@@ -74,6 +74,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /include/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/SFPIToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
 /include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
