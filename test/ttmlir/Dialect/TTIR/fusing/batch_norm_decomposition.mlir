@@ -1,12 +1,53 @@
 // RUN: ttmlir-opt --ttir-fusing %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
-module{
-func.func @convolution_batch_norm(%arg0: tensor<1x3x224x224xbf16>, %arg1: tensor<64x3x7x7xbf16>, %arg2: tensor<64xbf16>, %arg3: tensor<64xbf16>, %arg4: tensor<64xbf16>, %arg5: tensor<64xbf16>) -> tensor<1x64x112x112xbf16> {
-    %0 = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: ttir.convolution
-    %1 = "ttir.convolution"(%arg0, %arg1, %0) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xbf16>, tensor<64x3x7x7xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
-    %2 = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK-NOT: ttir.batch_norm
-    %3 = "ttir.batch_norm"(%1, %arg2, %arg3, %arg4, %arg5, %2) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32, training = false}> : (tensor<1x64x112x112xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
-    return %3 : tensor<1x64x112x112xbf16>
-}}
+
+// Batch norm should be decomposed only if it is following conv2d that doesn't have outher users
+module {
+    // CHECK-LABEL: func.func @conv_batch_norm
+    func.func @conv_batch_norm(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg4: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg5: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg6: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+    // CHECK: "ttir.conv2d"
+    // CHECK-NOT: "ttir.batch_norm"
+    %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %1 = "ttir.conv2d"(%arg0, %arg1, %0)
+            <{
+              stride = 1: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    %18 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %19 = "ttir.batch_norm"(%1, %arg3, %arg4, %arg5, %arg6, %18) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32, training = false}> : (tensor<1x30x30x64xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    return %19: tensor<1x30x30x64xbf16>
+    }
+}
+module {
+    // CHECK-LABEL: func.func @batch_norm_only
+    func.func @batch_norm_only(%arg0: tensor<1x30x30x64xbf16>, %arg1: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg4: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+        // CHECK: "ttir.batch_norm"
+        %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+        %1 = "ttir.batch_norm"(%arg0, %arg1, %arg2, %arg3, %arg4, %0) <{dimension = 3 : i32, epsilon = 9.99999974E-6 : f32, training = false}> : (tensor<1x30x30x64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+        return %1: tensor<1x30x30x64xbf16>
+    }
+}
+module {
+    // CHECK-LABEL: func.func @conv_batch_norm_multiple_uses
+    func.func @conv_batch_norm_multiple_uses(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg4: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg5: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg6: tensor<30xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) {
+    // CHECK: "ttir.conv2d"
+    // CHECK: "ttir.add"
+    // CHECK: "ttir.batch_norm"
+    %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %1 = "ttir.conv2d"(%arg0, %arg1, %0)
+            <{
+              stride = 1: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %3 = "ttir.add"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %5 = "ttir.batch_norm"(%1, %arg3, %arg4, %arg5, %arg6, %4) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32, training = false}> : (tensor<1x30x30x64xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<30xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    return %3, %5 : tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>
+    }
+}
