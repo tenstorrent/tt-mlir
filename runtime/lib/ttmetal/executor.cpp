@@ -220,19 +220,25 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   const auto *bufferDesc = command->dst()->desc();
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
-  std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
-                                   bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type(),
-                  utils::tileAlignment(bufferDesc->data_type()));
-  size_t size = desc.sizeBytes();
-  size_t size_unaligned = desc.sizeBytesUnaligned();
-  auto data = std::shared_ptr<void>(std::malloc(size), std::free);
+  const std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
+                                         bufferDesc->shape()->end());
+  const std::vector<std::uint32_t> dimAlignments(
+      bufferDesc->dim_alignments()->begin(),
+      bufferDesc->dim_alignments()->end());
+  assert(shape.size() == dimAlignments.size());
+  const auto dataType = bufferDesc->data_type();
+  TensorDesc desc(shape, dataType, utils::dataTypeElementSize(dataType),
+                  utils::calculateStride(shape), dimAlignments);
+  const size_t size = desc.sizeBytes();
+
+  // Default zero-fill & align to the largest supported data type.
+  auto data = utils::callocShared(size);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
   if (command->data() != nullptr) {
-    assert(command->data()->size() == size_unaligned);
-    std::memcpy(data.get(), command->data()->data(), size_unaligned);
+    assert(command->data()->size() == size);
+    std::memcpy(data.get(), command->data()->data(), size);
   }
 
   auto meshShape = meshDevice->shape();

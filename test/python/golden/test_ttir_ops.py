@@ -2498,6 +2498,68 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
+unaligned_shapes = [
+    (5, 3),
+    (32, 1),
+    (31, 7),
+    (1, 32),
+    (13, 29),
+    (64, 1),
+    (61, 3),
+    (61, 37),
+    (1, 64),
+    (5, 67),
+    (43, 67),
+    (2, 3, 5),
+    (3, 17, 37),
+    (9, 43, 7),
+    (5, 61, 49),
+    (51, 19, 23),
+    (677, 1, 1),
+    (2, 3, 5, 7),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
+    (41, 7, 43, 11),
+    (7, 41, 43, 11),
+    (1, 23, 1, 1),
+    (23, 1, 1, 1),
+]
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_neg_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, request):
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        neg,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_add_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, request):
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        add,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [

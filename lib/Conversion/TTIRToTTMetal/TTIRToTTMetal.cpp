@@ -195,16 +195,23 @@ public:
     assert((inputMemorySpaceSet != outputMemorySpaceSet) &&
            "expected either input or output to have memory space");
 
-    // No memoryspace implicitly means host
+    // Rewrite the op and relay the metal_layout for generating host_layout in a
+    // later pass. No memoryspace implicitly means host.
     if (inputMemorySpace) {
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
-                                                                output);
+      auto newOp = rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(
+          op, input, output);
+      if (auto hostLayout = op.getLayoutAttr()) {
+        newOp->setAttr(ttcore::HostLayoutAttr::name, hostLayout);
+      }
       // Insert global barrier to ensure the read completes before subsequent
       // ops use it.
       rewriter.create<ttmetal::FinishOp>(op->getLoc());
     } else {
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
-                                                                 output);
+      auto newOp = rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(
+          op, input, output);
+      if (auto hostLayout = op.getLayoutAttr()) {
+        newOp->setAttr(ttcore::HostLayoutAttr::name, hostLayout);
+      }
     }
     return success();
   }

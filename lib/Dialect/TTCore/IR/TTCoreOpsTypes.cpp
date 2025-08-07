@@ -577,6 +577,50 @@ ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
   return get(getContext(), getAffineMap().compose(g.getAffineMap()));
 }
 
+mlir::AffineMap HostLayoutAttr::getAffineMap() const {
+  auto *context = getContext();
+  const int64_t rank = getShape().size();
+  SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+
+  // Pass-through each index dimension.
+  for (int64_t i = 0; i < rank; i++) {
+    mapExprs[i] = getAffineDimExpr(i, context);
+  }
+
+  SmallVector<int64_t> strides;
+  int64_t offset = 0;
+  [[maybe_unused]] auto ret = getStridesAndOffset(getShape(), strides, offset);
+
+  // Last map is for generating linearized/flattened offsets.
+  mapExprs[rank] = getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    auto dim = getAffineDimExpr(i, context);
+    auto stride = getAffineConstantExpr(strides[i], context);
+    mapExprs[rank] = dim * stride + mapExprs[rank];
+  }
+
+  return mlir::AffineMap::get(rank, 0, mapExprs, context);
+}
+
+LogicalResult
+HostLayoutAttr::getStridesAndOffset(ArrayRef<int64_t> shape,
+                                    SmallVectorImpl<int64_t> &strides,
+                                    int64_t &offset) const {
+  const int64_t rank = getDimAlignments().size();
+  assert(rank == static_cast<int64_t>(shape.size()));
+  strides.resize_for_overwrite(rank);
+
+  // TODO(wenbinlyuTT): extract runtime util's calculateAlignedStride()
+  int64_t sliceElems = 1;
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    strides[i] = sliceElems;
+    sliceElems *= ttmlir::utils::alignUp(shape[i], getDimAlignments()[i]);
+  }
+
+  offset = 0;
+  return success();
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -711,9 +755,8 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
       // Process remaining dimensions from inner to outer w/ multplication.
       for (int64_t j = end - 2; j >= start; --j) {
-        // For outer dimensions, multiply then align the product.
-        collapsedDim =
-            ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
+        // For outer dimensions, align and then multiply the product.
+        collapsedDim *= ttmlir::utils::alignUp(shape[j], alignments[j]);
       }
 
       resultShape.push_back(collapsedDim);
@@ -829,44 +872,109 @@ MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
   return map;
 }
 
+// When the height of the physical 2D shape is collapsed from multiple logical
+// dimensions, we record two separate alignment requirements:
+// - One for the 2nd last logical dim (intervalEnd), and it's always the height
+// of a tile.
+// - One for the outermost logical dim (intervalStart), it should be the minimum
+// value such that:
+// - After appling both alignments to their corresponding dims, the entire
+// collapsed dim is tile/grid-aligned, depending on the need.
+//
+// For example, tensor<4x43x7> + grid<8x8> + tile<32x32> gives:
+// - Tile-aligned logical shape 4x64x32.
+// - Collapsed physical 2D shape 256x32.
+// - Dim alignments 1x32x32.
+// - Unsharded device shape 256x32.
+// - Grid & shard is 256x32 / 32x32 = 8x1.
+// - Tiled device shape 8x1x1x1x!tile<32x32>.
+// So there will be 8 workers, each handling a shard made of a single tile.
+// This achieves high worker utilization, and ensures the majority of the
+// padding are at the end of the tensor buffer so the memory access strides are
+// small.
+//
+// However, this strategy has issues around sharding. Consider the same example
+// as above but with tensor<9x43x7>:
+// - Tile-aligned logical shape 9x64x32.
+// - Collapsed physical 2D shape 576x32.
+// - Dim alignments 4x32x32.
+// - Unsharded device shape [alignUp(9,4)*64]x32=768x32
+// - Grid & shard is 768x32 / 32x32 = 24x1.
+// - Tiled device shape 8x1x3x1x!tile<32x32>.
+// Similar to the example above, both result in 'unnatural' shard shapes like
+// 1x1x!tile<32x32> and 3x1x!tile<32x32>. The 'natural' shard shape is
+// 2x1x!tile<32x32>, which has the potential to save some NoC traffic (e.g.
+// reduction of 4x43x7 -> 4x1x7 is now worker-local).
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
-  llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
+  const int64_t logicalRank = logicalShape.size();
+  const int64_t deviceGridRank = deviceGridShape.size();
+
+  assert(logicalRank >= 2);
+  assert(deviceGridRank == 2);
+  assert(deviceGridRank * 2 ==
+         static_cast<int64_t>(normalizedIntervals.size()));
+
+  llvm::SmallVector<int64_t> dimAlignments(logicalRank, 1);
   // Handle the last two intervals (which will map to tiles) with
   // grid-aware alignments.
-  assert(deviceGridShape.size() >= 2);
-  for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
-       idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
-
-    const int64_t intervalStart = normalizedIntervals[idx * 2];
-    const int64_t intervalEnd = normalizedIntervals[idx * 2 + 1];
-
-    // Calculate collapsed size for this interval.
-    int64_t collapsedSize = 1;
-    for (int64_t j = intervalStart; j < intervalEnd; ++j) {
-      collapsedSize *= logicalShape[j];
-    }
-
-    // Determine which tile dimension corresponds with this interval.
-    const int64_t tileIdx =
-        (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
+  for (int64_t idx = -1; idx >= -2; idx--) {
+    const int64_t tileIdx = tileShape.size() + idx;
     const int64_t tileDim = tileShape[tileIdx];
-    const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
+
+    const int64_t gridIdx = deviceGridRank + idx;
+    const int64_t gridDim = deviceGridShape[gridIdx];
+
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+
+    const int64_t intervalStart = normalizedIntervals[gridIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[gridIdx * 2 + 1] - 1;
+
+    // Calculate collapsed physical height/width for this interval.
+    int64_t collapsedSize = 1;
+    int64_t outermostAlignment = gridAlignmentThreshold;
+    for (int64_t i = intervalEnd; i >= intervalStart; i--) {
+      int64_t dimSize = 0;
+      if (i >= logicalRank - 2) {
+        // Always tile-align the last two dimensions.
+        dimSize = ttmlir::utils::alignUp(logicalShape[i], tileDim);
+      } else {
+        dimSize = logicalShape[i];
+      }
+      collapsedSize *= dimSize;
+      if (i == intervalStart && outermostAlignment % dimSize == 0) {
+        outermostAlignment = 1;
+      } else {
+        // Remove overlapping factors so the alignment is kept at minimum.
+        outermostAlignment /= std::gcd(outermostAlignment, dimSize);
+      }
+    }
 
     // Determine alignment based on collapsed size.
     // If size > gridAlignmentThreshold, align to grid boundary, else align to
     // tile boundary.
-    int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
-                            ? gridAlignmentThreshold
-                            : tileDim;
+    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
+    const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
 
-    // Set alignment on the first dimension of the interval.
-    dimAlignmentsVec[intervalStart] = alignment;
+    // Set alignment on the last dimension of the interval, as we need to align
+    // the innertwo dimensions to tiles first.
+    if (intervalEnd == intervalStart) {
+      dimAlignments[intervalEnd] = alignment;
+    } else {
+      assert(idx == -2);
+      dimAlignments[intervalEnd] = tileDim;
+      // gridAlignmentThreshold could have prime factors that are not present in
+      // collapsedSize and they will reach here, but they are not needed if we
+      // don't actually need to align up to the grid.
+      dimAlignments[intervalStart] = alignToGrid ? outermostAlignment : 1;
+    }
   }
-  return dimAlignmentsVec;
+  assert(dimAlignments[logicalRank - 1] % tileShape[1] == 0);
+  assert(dimAlignments[logicalRank - 2] % tileShape[0] == 0);
+  return dimAlignments;
 }
 
 // Getter with no intervals or alignments, we calculate them both.

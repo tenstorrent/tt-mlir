@@ -403,7 +403,7 @@ Flatbuffer Flatbuffer::loadFromPath(const char *path) {
   LOG_ASSERT(fbb.is_open(), "Failed to open file: ", path);
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
-  auto buffer = ::tt::runtime::utils::malloc_shared(size);
+  auto buffer = ::tt::runtime::utils::mallocShared(size);
   fbb.read(static_cast<char *>(buffer.get()), size);
   return Flatbuffer(buffer);
 }
@@ -412,7 +412,7 @@ Flatbuffer Flatbuffer::loadFromMemory(const void *memory, size_t size) {
   // load a flatbuffer from memory
   LOG_ASSERT(memory != nullptr, "Memory pointer is null");
   LOG_ASSERT(size > 0, "Size must be greater than zero");
-  auto buffer = ::tt::runtime::utils::malloc_shared(size);
+  auto buffer = ::tt::runtime::utils::mallocShared(size);
   std::memcpy(buffer.get(), memory, size);
   return Flatbuffer(buffer);
 }
