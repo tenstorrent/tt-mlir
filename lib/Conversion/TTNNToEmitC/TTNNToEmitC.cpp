@@ -1659,6 +1659,40 @@ private:
 };
 } // namespace
 
+// Rand op conversion pattern
+//
+namespace {
+class RandOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RandOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RandOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSize()),
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getLow()),
+        emitter.emit(srcOp.getHigh()),
+        emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
 namespace {
@@ -2359,7 +2393,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
+               RandOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
