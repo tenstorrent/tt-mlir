@@ -546,7 +546,9 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
     // Used only paired with convolution
     Operation *definingOp = batchNormOp.getOperand().getDefiningOp();
-    if (!definingOp || (!isa<ConvolutionOp, Conv2dOp>(definingOp))) {
+
+    if (!definingOp ||
+        !(isa<Conv2dOp>(definingOp) && definingOp->hasOneUse())) {
       return mlir::failure();
     }
 
