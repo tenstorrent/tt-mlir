@@ -23,23 +23,23 @@ getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                                    op->execute_program_id())};
 }
 
-// static void
-// copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
-//            const ::ttnn::Tensor &srcTensor, ::ttnn::Tensor &dstTensor,
-//            const ::ttnn::QueueId &queueId = ::ttnn::DefaultQueueId) {
+static void
+copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
+           const ::ttnn::Tensor &srcTensor, ::ttnn::Tensor &dstTensor,
+           const ::ttnn::QueueId &queueId = ::ttnn::DefaultQueueId) {
 
-//   if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-//     ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false,
-//                                  queueId);
-//     return;
-//   }
+  if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
+    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false,
+                                 queueId);
+    return;
+  }
 
-//   LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
-//              "traceImplicitFromDevice workaround must be enabled.");
-//   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-//   ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false,
-//                                queueId);
-// }
+  LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
+             "traceImplicitFromDevice workaround must be enabled.");
+  ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
+  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false,
+                               queueId);
+}
 
 static void runTraceProgramAndCaptureTrace(
     const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
@@ -133,30 +133,30 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
              "Mismatched number of outputs, expected: ", op->outputs()->size(),
              " got: ", traceData.outputTensors.size());
 
-  // for (size_t i = 0; i < op->inputs()->size(); i++) {
-  //   const ::tt::target::ttnn::TensorRef *input = op->inputs()->Get(i);
-  //   const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
-  //       context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
+  for (size_t i = 0; i < op->inputs()->size(); i++) {
+    const ::tt::target::ttnn::TensorRef *input = op->inputs()->Get(i);
+    const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
+        context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
 
-  //   ::tt::runtime::ttnn::TTNNTensorWrapper &inputSlotWrapper =
-  //       traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-  //           DeviceRuntime::TTNN);
+    ::tt::runtime::ttnn::TTNNTensorWrapper &inputSlotWrapper =
+        traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+            DeviceRuntime::TTNN);
 
-  //   // If the input tensor versions match (i.e. has been constant since the
-  //   // previous trace) then we can skip the copy
-  //   // TODO (#3606): We should model this in the compiler somehow. Currently
-  //   // it's done implicitly by the runtime.
-  //   if (inputTensorWrapper.getVersion() == inputSlotWrapper.getVersion()) {
-  //     continue;
-  //   }
+    // If the input tensor versions match (i.e. has been constant since the
+    // previous trace) then we can skip the copy
+    // TODO (#3606): We should model this in the compiler somehow. Currently
+    // it's done implicitly by the runtime.
+    if (inputTensorWrapper.getVersion() == inputSlotWrapper.getVersion()) {
+      continue;
+    }
 
-  //   copyTensor(input, inputTensorWrapper.getTensor(),
-  //              inputSlotWrapper.getTensor());
+    copyTensor(input, inputTensorWrapper.getTensor(),
+               inputSlotWrapper.getTensor());
 
-  //   // Input slot will now contain identical data as the input tensor
-  //   // Thus we can syncronize their versions
-  //   inputSlotWrapper.syncVersion(inputTensorWrapper);
-  // }
+    // Input slot will now contain identical data as the input tensor
+    // Thus we can syncronize their versions
+    inputSlotWrapper.syncVersion(inputTensorWrapper);
+  }
 
   ::ttnn::Tensor traceIdTensor =
       ::tt::runtime::ttnn::utils::createTTNNTensor<uint32_t>(
