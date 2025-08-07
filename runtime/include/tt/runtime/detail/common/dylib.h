@@ -48,7 +48,8 @@ std::vector<common::WrappedTensor> inline packTensors(
     const TensorRefType *out,
     std::function<void *(const TensorRefType *)> getTensorDataPtr,
     std::vector<std::vector<int64_t>> &allSizesAndStrides) {
-
+  // Do I need to fix this? This doesn't seem to be executed.
+  fprintf(stderr, "!! %s\n", __PRETTY_FUNCTION__);
   allSizesAndStrides.reserve(ins->size() + 1);
   std::vector<common::WrappedTensor> packedTensors;
   packedTensors.reserve(ins->size());
@@ -64,6 +65,8 @@ std::vector<common::WrappedTensor> inline packTensors(
     }
 
     std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+    fprintf(stderr, "!!!! In%zu shape [%ld %ld] stride [%u %u]\n", i, sizes[0],
+            sizes[1], strides[0], strides[1]);
     allSizesAndStrides.emplace_back(2 * rank);
     std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
     std::transform(strides.begin(), strides.end(),

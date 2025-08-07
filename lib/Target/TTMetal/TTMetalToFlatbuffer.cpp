@@ -164,6 +164,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   ArrayRef<int64_t> stride = shardLayout.getStride();
+  // Is this relevant?
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
   auto memrefShardShape = shardLayout.getShardShape(memref);
@@ -237,6 +238,8 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::DeviceAttr device) {
+  fprintf(stderr, "!! memrefTypeToFlatbuffer: ");
+  memref.dump();
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -264,6 +267,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       circularBufferConfig =
           memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
 
+  fprintf(stderr, "!! elementShape [%d %d]\n", elementShape.y(),
+          elementShape.x());
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
       memorySpace, shardedBufferConfig, circularBufferConfig);

@@ -30,25 +30,14 @@ using MetalTensor = std::variant<TensorDesc, MeshBuffer>;
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
-inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
-  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
-             "Creating owned tensor with unsupported data type: " +
-                 std::string(target::EnumNameDataType(desc.dataType)) +
-                 "is not implemented for the TTMetal runtime");
-  std::shared_ptr<void> owned = utils::malloc_shared(desc.sizeBytes());
-  std::memcpy(owned.get(), data, desc.sizeBytes());
-  return ttmetal::createBorrowedHostTensor(owned, desc);
-}
-
-inline Tensor createOwnedHostTensor(std::shared_ptr<void> data,
-                                    const TensorDesc &desc) {
-  return ttmetal::createOwnedHostTensor(data.get(), desc);
-}
-
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ttmetal::createBorrowedHostTensor(utils::unsafe_borrow_shared(data),
                                            desc);
 }
+
+Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc);
+
+std::array<size_t, 2> computePhysicalShape2D(const TensorDesc &desc);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

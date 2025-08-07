@@ -529,13 +529,16 @@ class Run:
                     )
                 return inputs_converted
 
-            # Create 'owned tensor' in case of empty tensor;
+            # Create 'owned tensor' for empty or non-tile-aligned tensors;
             # otherwise create 'borrowed tensor'.
             def create_tensor(tensor):
                 # Empty tensor if any of the dim is zero.
                 isEmptyTensor = not all(tensor.shape)
+                # Align & pad if the two innermost dims aren't aligned
+                isUnAlignedRows = len(tensor.shape) > 0 and tensor.shape[-1] % 32 != 0
+                isUnAlignedCols = len(tensor.shape) > 1 and tensor.shape[-2] % 32 != 0
 
-                if isEmptyTensor:
+                if isEmptyTensor or isUnAlignedRows or isUnAlignedCols:
                     return ttrt.runtime.create_owned_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
@@ -877,12 +880,18 @@ class Run:
                                         )
                                     elif not isEmptyTensor and len(data_buffer) > 0:
                                         # Create regular tensor.
+                                        print(
+                                            "** Before torch tensor creation & reshape"
+                                        )
                                         output_tensor_torch = torch.frombuffer(
                                             data_buffer,
                                             dtype=ttrt_datatype_to_torch_dtype(
                                                 outputs[i].get_dtype()
                                             ),
                                         ).reshape(outputs[i].get_shape())
+                                        print(
+                                            "** After torch tensor creation & reshape"
+                                        )
                                     else:
                                         raise Exception(
                                             f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."

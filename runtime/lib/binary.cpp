@@ -154,6 +154,8 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
   const auto *program = getBinary(binary)->programs()->Get(programIndex);
+  fprintf(stderr, "-- getProgramInputs(%s TensorRef->TensorDesc):",
+          program->name()->c_str());
   for (const auto *input : *program->inputs()) {
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
@@ -162,8 +164,11 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
+    fprintf(stderr, " {sz %lu shape[%u %u] stride [%u %u]}", input->size(),
+            desc.shape[0], desc.shape[1], desc.stride[0], desc.stride[1]);
     inputs.push_back(desc);
   }
+  fprintf(stderr, "\n");
   return inputs;
 }
 
@@ -171,6 +176,8 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
   std::vector<TensorDesc> outputs;
   const auto *program = getBinary(binary)->programs()->Get(programIndex);
+  fprintf(stderr, "-- getProgramOutputs(%s TensorRef->TensorDesc):",
+          program->name()->c_str());
   for (const auto *output : *program->outputs()) {
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
@@ -179,8 +186,11 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();
+    fprintf(stderr, " {sz %lu shape[%u %u] stride [%u %u]}", output->size(),
+            desc.shape[0], desc.shape[1], desc.stride[0], desc.stride[1]);
     outputs.push_back(desc);
   }
+  fprintf(stderr, "\n");
   return outputs;
 }
 

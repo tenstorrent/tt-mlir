@@ -164,30 +164,54 @@ struct TensorDesc {
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
-  std::int64_t alignment = 1;
+
+  // Members below are for metal tensors only.
+  std::array<size_t, 2> alignments = {32, 32};
+  std::array<size_t, 2> logicalShape2D = {1, 1};
+  std::array<size_t, 2> physicalShape2D = {1, 1};
+  // physicalStride?
 
   TensorDesc() = default;
+
   TensorDesc(const std::vector<std::uint32_t> &shape,
              const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+             ::tt::target::DataType dataType,
+             const std::array<size_t, 2> &physicalShape)
       : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
-        alignment(alignment) {}
+        physicalShape2D(physicalShape) {
+    if (shape.size() > 0) {
+      logicalShape2D[1] *= shape[shape.size() - 1];
+    }
+    for (size_t i = 0; i < shape.size() - 1; i++) {
+      logicalShape2D[0] *= shape[i];
+    }
+  }
+
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+             ::tt::target::DataType dataType)
+      : TensorDesc(shape, stride, itemsize, dataType, {1, volume()}) {}
+
   TensorDesc(const std::vector<std::uint32_t> &shape,
              const std::vector<std::uint32_t> &stride,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+             ::tt::target::DataType dataType)
       : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
-                   dataType, alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
+                   dataType) {}
 
-  std::int64_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                           std::multiplies<int64_t>());
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             ::tt::target::DataType dataType)
+      : TensorDesc(shape, utils::calculateStride(shape), dataType) {}
+
+  size_t volume() const {
+    return std::accumulate(shape.begin(), shape.end(), static_cast<size_t>(1),
+                           std::multiplies<size_t>());
   }
-  std::int64_t sizeBytes() const {
-    return utils::alignUp(volume() * itemsize, alignment);
+
+  size_t physicalVolume() const {
+    return physicalShape2D[0] * physicalShape2D[1];
   }
+
+  size_t sizeBytes() const { return physicalVolume() * itemsize; }
 };
 
 struct MemoryView {

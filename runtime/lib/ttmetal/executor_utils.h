@@ -107,6 +107,11 @@ createMeshBufferFromBufferRef(
     const DeviceAddressValidator &deviceAddressValidator) {
 
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
+  fprintf(stderr,
+          "-- createMeshBufferFromBufferR(BufferRef-BufferDesc-MeshBuffer):");
+  fprintf(stderr, " BufferDesc Shape [%d %d] TileShape [%d %d]\n",
+          (*bufferDesc->shape())[0], (*bufferDesc->shape())[1],
+          bufferDesc->tile_shape()->y(), bufferDesc->tile_shape()->x());
   const target::metal::ShardedBufferConfig *shardedBufferConfig =
       bufferDesc->sharded_buffer_config();
   const target::metal::ShardSpecBuffer *shardSpecBuffer =
@@ -129,6 +134,11 @@ createMeshBufferFromBufferRef(
       static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
       static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
   };
+  fprintf(stderr,
+          "-- createMeshBufferFromBufferRef: shardShape [%u %u] pageShape [%u "
+          "%u] tensorShapeInPages [%u %u]\n",
+          shardShape[0], shardShape[1], pageShape[0], pageShape[1],
+          tensorShapeInPages[0], tensorShapeInPages[1]);
   tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
                                                  tensorShapeInPages);
 

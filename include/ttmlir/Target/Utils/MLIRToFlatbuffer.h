@@ -85,6 +85,16 @@ inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
   goldenKVList.reserve(goldenMap.size());
 
   for (const auto &[key, value] : goldenMap) {
+    fprintf(stderr, "-- debugInfoToFlatbuffer(GoldenTensor->FB) %s shape [",
+            value.name.c_str());
+    for (auto n : value.shape) {
+      fprintf(stderr, " %ld", n);
+    }
+    fprintf(stderr, " ] strides [");
+    for (auto n : value.strides) {
+      fprintf(stderr, " %ld", n);
+    }
+    fprintf(stderr, " ]\n");
     auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
         fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
         &value.data);

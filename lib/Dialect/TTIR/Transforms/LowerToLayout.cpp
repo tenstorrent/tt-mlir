@@ -154,6 +154,10 @@ public:
         mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
     auto output = rewriter.create<ttir::EmptyOp>(
         loc, desiredType.getShape(), desiredType.getElementType(), layout);
+    fprintf(stderr, "++ SplitCompoundLayout: EmptyOp\n++++ From ");
+    desiredType.dump();
+    fprintf(stderr, "++++ To ");
+    output.dump();
     return rewriter.create<ttir::ToLayoutOp>(loc, input, output);
   }
 

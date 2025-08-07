@@ -94,16 +94,21 @@ MCQExecutor::MCQExecutor(
       dylibManager(std::move(dylibManager)) {
   initMeshEvents.reserve(inputs.size());
 
+  fprintf(stderr, "-- MCQExecutor::MCQExecutor: inputs[");
   std::uint32_t inputIndex = 0;
   for (const Tensor &input : inputs) {
     const target::metal::BufferRef *ref = programInputs->Get(inputIndex++);
     std::visit(utils::overloaded{
-                   [&](const TensorDesc &) {
+                   [&](const TensorDesc &td) {
+                     fprintf(stderr, " TD(id=%u,vol=%zu,sz=%zu)",
+                             ref->global_id(), td.volume(), td.sizeBytes());
                      auto [_, inserted] =
                          hostBuffers.try_emplace(ref->global_id(), input);
                      LOG_ASSERT(inserted);
                    },
                    [&](const MeshBuffer &mesh_buffer) {
+                     fprintf(stderr, " MB try_emplace(id=%u)",
+                             ref->global_id());
                      auto [_, inserted] =
                          meshBuffers.try_emplace(ref->global_id(), mesh_buffer);
                      LOG_ASSERT(inserted);
@@ -117,6 +122,7 @@ MCQExecutor::MCQExecutor(
       initMeshEvents.push_back(meshEvent);
     }
   }
+  fprintf(stderr, " ]\n");
 }
 
 void MCQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
@@ -206,10 +212,13 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type(),
-                  utils::tileAlignment(bufferDesc->data_type()));
-  size_t size = desc.sizeBytes();
-  auto data = std::shared_ptr<void>(std::malloc(size), std::free);
+  TensorDesc desc(shape, bufferDesc->data_type());
+  TensorDesc alignedDesc(shape, desc.stride, desc.itemsize, desc.dataType,
+                         computePhysicalShape2D(desc));
+  size_t size = alignedDesc.sizeBytes();
+  auto data = std::shared_ptr<void>(std::malloc(size), std::free); // This
+  fprintf(stderr, "-- MCQExecutor::HostAllocCommand: shape [%u %u] size %zu\n",
+          shape[0], shape[1], size);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
@@ -219,7 +228,8 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
     std::memcpy(data.get(), command->data()->data(), size);
   }
 
-  std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
+  std::shared_ptr<MetalTensor> tensor =
+      std::make_shared<MetalTensor>(alignedDesc);
   auto [_, inserted] = hostBuffers.try_emplace(
       command->dst()->global_id(), std::static_pointer_cast<void>(tensor), data,
       DeviceRuntime::TTMetal);
@@ -314,9 +324,29 @@ void MCQExecutor::execute(
     const target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
 
+  const uint32_t srcId = command->src()->global_id();
+  const auto tensor =
+      hostBuffers.at(srcId).as<MetalTensor>(DeviceRuntime::TTMetal);
+  if (std::holds_alternative<TensorDesc>(tensor)) {
+    const auto desc = std::get<TensorDesc>(tensor);
+    fprintf(stderr,
+            "-- MCQExecutor::execute(EnqueueWriteBufferCommand): TensorDesc ID "
+            "%u Vol %zu Size %zu\n",
+            srcId, desc.volume(), desc.sizeBytes());
+  } else {
+    const auto mb = std::get<MeshBuffer>(tensor);
+    fprintf(stderr,
+            "-- MCQExecutor::execute(EnqueueWriteBufferCommand): MeshBuffer ID "
+            "%u Size %lu\n",
+            srcId, mb.get()->size());
+  }
+
   void *src = hostBuffers.at(command->src()->global_id()).data.get();
   LOG_ASSERT(src);
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
+  const uint32_t dstId = command->dst()->global_id();
+  fprintf(stderr, "-- MCQExecutor::execute: Dest MeshBuffer ID %u Size %lu\n",
+          dstId, meshBuffer.get()->size());
   mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
 }
 
@@ -325,13 +355,24 @@ void MCQExecutor::execute(
   ZoneScopedN("EnqueueReadBufferCommand");
 
   void *dst = hostBuffers.at(command->dst()->global_id()).data.get();
+  const uint32_t id = command->dst()->global_id();
+  const auto &t = std::get<TensorDesc>(
+      hostBuffers.at(id).as<MetalTensor>(DeviceRuntime::TTMetal));
+  fprintf(stderr, "-- MCQExecutor(EnqueueReadBufferCommand): DST ID %u", id);
+  fprintf(stderr, " shape [%u %u]", t.shape[0], t.shape[1]);
+  fprintf(stderr, " stride [%u %u]", t.stride[0], t.stride[1]);
+  fprintf(stderr, " physicalShape2D [%zu %zu] size %zu -> ",
+          t.physicalShape2D[0], t.physicalShape2D[1], t.sizeBytes());
   LOG_ASSERT(dst);
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
+  fprintf(stderr, " MeshBuffer of size %lu\n", meshBuffer->size());
   mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
+  fprintf(stderr, "-- MCQExecutor::execute(CreateBufferCommand): Ref ID %u\n",
+          command->ref()->global_id());
   if (meshBuffers.find(command->ref()->global_id()) == meshBuffers.end()) {
     meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
         meshDevice, command->ref(), deviceAddressValidator);

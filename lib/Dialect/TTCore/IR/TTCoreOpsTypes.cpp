@@ -720,6 +720,12 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
     resultShape.push_back(ttmlir::utils::alignUp(shape[i], alignments[i]));
   }
 
+  fprintf(stderr, "---- applyCollapsedIntervalsAndAlignments: returning [");
+  for (size_t i = 0; i < resultShape.size(); i++) {
+    fprintf(stderr, " %ld", resultShape[i]);
+  }
+  fprintf(stderr, " ]\n");
+
   return resultShape;
 }
 
@@ -736,6 +742,11 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
+  fprintf(stderr, "---- getPhysicalShape: returning [");
+  for (size_t i = 0; i < physicalShape.size(); i++) {
+    fprintf(stderr, " %ld", physicalShape[i]);
+  }
+  fprintf(stderr, " ]\n");
   return physicalShape;
 }
 

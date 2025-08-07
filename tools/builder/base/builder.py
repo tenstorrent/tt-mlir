@@ -82,6 +82,7 @@ class Builder:
                     continue
             golden_tensor = golden_tensor.contiguous()
             data_type = self._get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
+            # The stride here?
             golden_info[name] = GoldenTensor(
                 name,
                 list(golden_tensor.tensor.shape),

@@ -68,6 +68,8 @@ protected:
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
+    fprintf(stderr, "-- createOptimalLayoutOp:");
+    assert(tiled);
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
     ArrayRef<int64_t> logicalShape = tensorType.getShape();
 
@@ -79,27 +81,53 @@ protected:
       tileShape.assign(defaultShape.begin(), defaultShape.end());
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
+    auto printShape = [](ArrayRef<int64_t> shape) {
+      fprintf(stderr, "[");
+      for (size_t i = 0; i < shape.size(); i++) {
+        fprintf(stderr, " %ld", shape[i]);
+      }
+      fprintf(stderr, " ]");
+    };
+    fprintf(stderr, " logicalShape ");
+    printShape(logicalShape);
+    fprintf(stderr, " targetGridShape ");
+    printShape(targetGridShape); // ?????
+    fprintf(stderr, "\n");
 
     auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
                                                logicalShape, targetGridShape,
                                                ttcore::OOBVal::Undef, memSpace);
+    fprintf(stderr, "-- layout: ");
+    layout.dump();
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
+    fprintf(stderr, "-- unshardedShape ");
+    printShape(unshardedShape);
 
     // Calculate optimal grid for given physical shape.
     llvm::SmallVector<int64_t> optimalGrid = computeOptimalGrid(unshardedShape);
+    fprintf(stderr, " optimalGrid ");
+    printShape(optimalGrid);
+    fprintf(stderr, "\n");
 
     // Get optimal sharded, on-device shape.
     llvm::SmallVector<int64_t> shardedShape =
         layout.getDeviceShape(optimalGrid, tileShape);
+    fprintf(stderr, "-- shardedShape ");
+    printShape(shardedShape);
+    fprintf(stderr, "\n");
 
     auto resultType =
         mlir::RankedTensorType::get(shardedShape, elementType, layout);
+    fprintf(stderr, "-- resultType: ");
+    resultType.dump();
 
     auto emptyOp =
         rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), resultType);
+    fprintf(stderr, "-- Created EmptyOp ");
+    emptyOp.dump();
     return rewriter
         .create<tt::ttir::ToLayoutOp>(value.getLoc(), value, emptyOp)
         ->getResult(0);
@@ -130,6 +158,8 @@ protected:
                                    Value fromValue, Type toResultType) {
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
+    fprintf(stderr, "-- unLayoutResult: created EmptyOp ");
+    output.dump();
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                                  output);
   }

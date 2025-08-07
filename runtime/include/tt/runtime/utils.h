@@ -19,6 +19,10 @@ inline std::shared_ptr<void> malloc_shared(size_t size) {
   return std::shared_ptr<void>(std::malloc(size), std::free);
 }
 
+inline std::shared_ptr<void> calloc_shared(size_t size) {
+  return std::shared_ptr<void>(std::calloc(size, 1u), std::free);
+}
+
 template <typename T>
 inline std::shared_ptr<const void> unsafe_borrow_shared(const T *ptr) {
   return std::shared_ptr<const void>(static_cast<const void *>(ptr),
@@ -53,16 +57,6 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
     assert(false && "Unsupported element size for data type");
     return 0;
   }
-}
-
-inline std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignElems = 32;
-  return dataTypeElementSize(dataType) * numAlignElems;
-}
-
-inline std::int64_t tileAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignRows = 32;
-  return tileRowAlignment(dataType) * numAlignRows;
 }
 
 inline bool isSupportedDataType(::tt::target::DataType dataType) {
@@ -130,6 +124,11 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   for (size_t i = shape.size() - 1; i > 0; i--) {
     stride[i - 1] = stride[i] * shape[i];
   }
+  fprintf(stderr, "---- calculateStride: [");
+  for (auto n : stride) {
+    fprintf(stderr, " %u", n);
+  }
+  fprintf(stderr, " ]\n");
   return stride;
 }
 
@@ -141,6 +140,14 @@ struct overloaded : Ts... {
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
+}
+
+template <typename T>
+T roundUp(T val, T multiple) {
+  if (multiple == 0) {
+    return val;
+  }
+  return ((val + multiple - 1) / multiple) * multiple;
 }
 
 namespace detail {
