@@ -1190,7 +1190,7 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
     )
 
 
-# TODO: these three nullary tensor creation ops can probably be combined in some way
+# TODO (ctod): These three nullary tensor creation ops can probably be combined in some way.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_zeros(shape: Shape, request):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
