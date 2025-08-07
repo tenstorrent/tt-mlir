@@ -11,7 +11,7 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/workarounds.h"
-
+#include <chrono>
 namespace tt::runtime::ttnn::operations::trace {
 
 static std::pair<MainProgramKey, CaptureExecuteProgramKey>
@@ -123,6 +123,8 @@ static void runTraceProgramAndCaptureTrace(
 
 static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                          ProgramContext &context, TraceData &traceData) {
+
+  auto start = std::chrono::high_resolution_clock::now();
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
 
   std::vector<::ttnn::Tensor> inputs;
@@ -175,6 +177,11 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     context.getTensorPool().insertRuntimeTensorAndValidate(
         output, traceData.outputTensors[i]);
   }
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+  LOG_INFO("Execute trace function ran for: ", duration.count(),
+           " nanoseconds");
 }
 
 void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
