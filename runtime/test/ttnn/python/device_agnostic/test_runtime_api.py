@@ -10,6 +10,7 @@ from ttrt.common.util import *
 from ..utils import Helper, DeviceContext, assert_pcc, get_runtime_tensor_from_torch
 
 
+# TODO(wenbinlyuTT): create a TTMetal equivalent?
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_tensor_buffer_api(shape, dtype):

@@ -67,7 +67,8 @@ Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
                              const std::vector<std::uint32_t> &stride,
                              std::uint32_t itemsize,
-                             ::tt::target::DataType dataType);
+                             ::tt::target::DataType dataType,
+                             const bool alignToTiles);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
@@ -98,9 +99,11 @@ inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
                                                  desc.itemsize, desc.dataType);
 }
 
-inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
+inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc,
+                                    const bool alignToTiles) {
   return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
-                                              desc.itemsize, desc.dataType);
+                                              desc.itemsize, desc.dataType,
+                                              alignToTiles);
 }
 
 inline Tensor createMultiDeviceHostTensor(
@@ -175,7 +178,7 @@ void wait(const std::vector<Tensor> &tensors,
 // Copies device tensor data to host tensor with owned storage, with option to
 // untilize data.
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
-                           bool blocking = true);
+                           bool blocking = true, bool unalignToTiles = false);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
