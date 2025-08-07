@@ -153,27 +153,6 @@ protected:
 
     return result;
   }
-
-<<<<<<< HEAD
-=======
-  // Helper to apply alignments.
-  llvm::SmallVector<int64_t>
-  applyAlignments(llvm::ArrayRef<int64_t> shape,
-                  llvm::ArrayRef<int64_t> alignments) const {
-    assert(shape.size() == alignments.size());
-    llvm::SmallVector<int64_t> aligned;
-    for (size_t i = 0; i < shape.size(); ++i) {
-      int64_t alignment = alignments[i];
-      if (alignment > 1) {
-        aligned.push_back(((shape[i] + alignment - 1) / alignment) * alignment);
-      } else {
-        aligned.push_back(shape[i]);
-      }
-    }
-    return aligned;
-  }
-
->>>>>>> 0d752dcd9 (fix up the generic to use per-input optimized grid)
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
     auto output =

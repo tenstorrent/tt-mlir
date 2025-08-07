@@ -278,6 +278,14 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
+  llvm::errs() << "memrefTypeToShardedBufferConfigFlatbuffer coreRangeSet ("
+               << coreRangeSet.size() << " ranges):\n";
+  for (const auto &range : coreRangeSet) {
+    llvm::errs() << "  Range: loc(" << range.loc().y() << "," << range.loc().x()
+                 << ") size(" << range.size().y() << "," << range.size().x()
+                 << ")\n";
+  }
+
   // FIX: Use actual shape information, not stride
   // The innermost dimension of the shard should come from memrefShardShape
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -404,6 +412,14 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
+
+  llvm::errs() << "CreateCircularBufferConfigDirect coreRangeSet ("
+               << coreRangeSet.size() << " ranges):\n";
+  for (const auto &range : coreRangeSet) {
+    llvm::errs() << "  Range: loc(" << range.loc().y() << "," << range.loc().x()
+                 << ") size(" << range.size().y() << "," << range.size().x()
+                 << ")\n";
+  }
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
