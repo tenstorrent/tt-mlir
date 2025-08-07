@@ -2969,14 +2969,6 @@ void CaptureOrExecuteTraceOp::getEffects(
   };
   enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
 
-  // Requirement coming from
-  // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/transformer/concatenate_heads/concatenate_heads.cpp
-  if (inputShape[INPUT_HEAD_SIZE] % 32 != 0) {
-    return emitOpError() << "expected input head_size dimension to be a "
-                            "multiple of 32, got "
-                         << inputShape[INPUT_HEAD_SIZE];
-  }
-
   // Verify batch_size dimension matches
   if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
     return emitOpError() << "input and output batch dimensions must match,"

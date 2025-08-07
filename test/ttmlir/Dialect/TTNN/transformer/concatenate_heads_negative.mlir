@@ -50,13 +50,3 @@ module {
     return %1 : tensor<1x32x2048xbf16>
   }
 }
-
-// Verify that the parsing fails if input head_size is not a multiple of 32.
-module {
-  func.func @concatenate_heads_invalid_6(%arg0: tensor<1x32x12x100xf32>) -> tensor<1x12x3200xf32> {
-    %0 = ttir.empty() : tensor<1x12x3200xf32>
-    // CHECK: error: 'ttir.concatenate_heads' op expected input head_size dimension to be a multiple of 32, got 100
-    %1 = "ttir.concatenate_heads"(%arg0, %0) : (tensor<1x32x12x100xf32>, tensor<1x12x3200xf32>) -> tensor<1x12x3200xf32>
-    return %1 : tensor<1x12x3200xf32>
-  }
-}

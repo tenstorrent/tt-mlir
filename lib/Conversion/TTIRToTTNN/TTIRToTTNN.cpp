@@ -1879,7 +1879,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
-           CollectiveBroadcastOpConversionPattern
+           CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set

@@ -5330,6 +5330,11 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
     This operation is typically used in transformer models where the attention mechanism is split into multiple heads.
     It combines the outputs of these heads into a single tensor, allowing further processing.
 
+    It takes an input tensor with shape `[batch_size, num_heads, sequence_size, head_size]`
+    and produces an output tensor with shape `[batch_size, sequence_size, num_heads * head_size]`.
+
+    It corresponds to a sequence of permute and reshape operations.
+
     Example:
     ```mlir
     // Concatenate heads from a multi-head attention output

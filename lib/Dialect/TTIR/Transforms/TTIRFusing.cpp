@@ -1158,6 +1158,15 @@ private:
 class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
 public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
@@ -1167,21 +1176,14 @@ public:
       return mlir::failure();
     }
 
-    Value inputTensor = permuteOp.getOperand(0);
-    RankedTensorType inputTensorType =
-        mlir::cast<RankedTensorType>(inputTensor.getType());
+    ::mlir::TypedValue<::mlir::RankedTensorType> inputTensor =
+        permuteOp.getInput();
+    RankedTensorType inputTensorType = inputTensor.getType();
     ArrayRef<int64_t> inputShape = inputTensorType.getShape();
 
     RankedTensorType reshapeResultType =
         mlir::cast<RankedTensorType>(reshapeOp.getResult().getType());
     ArrayRef<int64_t> reshapeOutputShape = reshapeResultType.getShape();
-
-    enum InputDimensions {
-      INPUT_BATCH = 0,
-      INPUT_NUM_HEADS = 1,
-      INPUT_SEQ = 2,
-      INPUT_HEAD_SIZE = 3
-    };
 
     if (reshapeOutputShape.size() == 3) {
       // default case, the reshape output is 3D.
@@ -1216,22 +1218,9 @@ public:
       Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
           rewriter, reshapeOp.getLoc(), newReshapeType, inputTensor);
 
-      SmallVector<mlir::Attribute> newReshapeShapeAttrs;
-      for (int64_t dim : reshapeOutputShape) {
-        newReshapeShapeAttrs.push_back(rewriter.getI32IntegerAttr(dim));
-      }
-      mlir::ArrayAttr newReshapeShapeAttr =
-          rewriter.getArrayAttr(newReshapeShapeAttrs);
-
-      // Convert 3d output to 2d output to match original output shape.
-      // input: [batch_size, sequence_size, num_heads * head_size]
-      // output: [batch_size * sequence_size, num_heads * head_size]
-      ReshapeOp newReshapeOp = utils::createDPSOp<ReshapeOp>(
-          rewriter, reshapeOp.getLoc(), reshapeResultType, concatHeadsOp,
-          newReshapeShapeAttr);
-
-      // Replace the original reshape op with the new reshape op
-      rewriter.replaceOp(reshapeOp, newReshapeOp);
+      rewriter.modifyOpInPlace(reshapeOp, [&]() {
+        reshapeOp.getInputMutable().assign(concatHeadsOp);
+      });
       return mlir::success();
     }
 
@@ -1239,51 +1228,31 @@ public:
   }
 
 private:
+  // The sequence of operations without a 'concatenate_heads' op is:
+  // 1. Input Tensor: `tensor<#batch_size, #num_heads, #sequence_size,
+  // #head_size>`
+  // 2. `tensor.permute` op: Applied  with a permutation attribute of
+  // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
+  // #sequence_size, #num_heads, #head_size>`.
+  // 3. `reshape` op: `tensor.reshape(<permuted_tensor>, [#batch_size,
+  // #sequence_size, #num_heads * #head_size])`
   bool isFusable(PermuteOp permuteOp, ReshapeOp reshapeOp) const {
 
-    // The sequence of operations without a 'concatenate_heads' op is:
-    // 1. **Input Tensor:** `tensor<#batch_size, #num_heads, #sequence_size,
-    // #head_size>`
-    // 2. **`tensor.permute` op:** Applied  with a **permutation attribute** of
-    // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
-    // #sequence_size, #num_heads, #head_size>`.
-    // 3. **`reshape` op:** `tensor.reshape(<permuted_tensor>, [#batch_size,
-    // #sequence_size, #num_heads * #head_size])`
-
-    // Check if the permutation is {0, 2, 1, 3}.
-    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
-    llvm::SmallVector<int64_t> expectedPermutation = {0, 2, 1, 3};
-
-    if (!llvm::equal(permutation, expectedPermutation)) {
-      return false;
-    }
-
+    // Check that input shape is 4 dimensional.
     ArrayRef<int64_t> inputShape = permuteOp.getInput().getType().getShape();
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
 
-    // Check that input shape is 4 dimensional.
     if (inputShape.size() != 4) {
       return false;
     }
 
-    enum InputDimensions {
-      INPUT_BATCH = 0,
-      INPUT_NUM_HEADS = 1,
-      INPUT_SEQ = 2,
-      INPUT_HEAD_SIZE = 3
-    };
+    // Check if the permutation is {0, 2, 1, 3}.
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    llvm::SmallVector<int64_t> expectedPermutation = {
+        INPUT_BATCH, INPUT_SEQ, INPUT_NUM_HEADS, INPUT_HEAD_SIZE};
 
-    enum OutputDimensions {
-      OUTPUT_BATCH = 0,
-      OUTPUT_SEQ = 1,
-      OUTPUT_HIDDEN = 2
-    };
-
-    if (inputShape[INPUT_HEAD_SIZE] % 32 != 0) {
-      // The head size must be a multiple of 32.
-      // Requirement coming from
-      // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/transformer/concatenate_heads/concatenate_heads.cpp
+    if (!llvm::equal(permutation, expectedPermutation)) {
       return false;
     }
 
