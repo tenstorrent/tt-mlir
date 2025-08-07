@@ -38,7 +38,6 @@
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
-#include "shardy/round_trip_import/pipelines.h"
 #include "stablehlo/dialect/Register.h"
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
@@ -113,9 +112,6 @@ void mlir::tt::registerAllPasses() {
 #if TTMLIR_ENABLE_STABLEHLO
   // Register all SDY passes and pipelines.
   mlir::sdy::registerAllSdyPassesAndPipelines();
-
-  // Register all SDY round-trip-import passes and the pipeline.
-  mlir::sdy::registerAllSdyRoundTripImportPassesAndPipeline();
 
   // Register automatic sharding pipeline.
   mlir::tt::stablehlo::registerStableHLOPipeline();
