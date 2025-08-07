@@ -74,7 +74,8 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
-                      std::uint32_t itemsize, ::tt::target::DataType dataType);
+                      std::uint32_t itemsize, ::tt::target::DataType dataType,
+                      const bool alignToTiles);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
@@ -99,9 +100,11 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
 
 inline ::tt::runtime::Tensor createOwnedHostTensor(const void *data,
-                                                   const TensorDesc &desc) {
+                                                   const TensorDesc &desc,
+                                                   const bool alignToTiles) {
   return ::tt::runtime::ttnn::createOwnedHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType,
+      alignToTiles);
 }
 
 inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
@@ -192,7 +195,8 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
-                                          bool blocking = true);
+                                          bool blocking = true,
+                                          bool unalignToTiles = false);
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,

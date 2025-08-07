@@ -55,8 +55,9 @@ class TTIRBuilder(Builder):
 
         if tiled:
             elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            device_shape[-2] //= 32
-            device_shape[-1] //= 32
+            # Use ceil-division so small shapes still allocate at least 1 tile.
+            device_shape[-2] = (device_shape[-2] + 31) // 32
+            device_shape[-1] = (device_shape[-1] + 31) // 32
 
         return RankedTensorType.get(
             device_shape, elemType, layout, Location.unknown(ctx)

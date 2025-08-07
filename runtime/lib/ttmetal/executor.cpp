@@ -206,10 +206,12 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type(),
-                  utils::tileAlignment(bufferDesc->data_type()));
-  size_t size = desc.sizeBytes();
-  auto data = std::shared_ptr<void>(std::malloc(size), std::free);
+  TensorDesc desc(shape, bufferDesc->data_type());
+  // Always create an aligned tensor.
+  TensorDesc alignedDesc(shape, desc.stride, desc.itemsize, desc.dataType,
+                         computePhysicalShape2D(desc));
+  const size_t size = alignedDesc.sizeBytes();
+  auto data = utils::mallocShared(size);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
@@ -219,9 +221,9 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
     std::memcpy(data.get(), command->data()->data(), size);
   }
 
-  std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
+  auto handle = std::make_shared<MetalTensor>(alignedDesc);
   auto [_, inserted] = hostBuffers.try_emplace(
-      command->dst()->global_id(), std::static_pointer_cast<void>(tensor), data,
+      command->dst()->global_id(), std::static_pointer_cast<void>(handle), data,
       DeviceRuntime::TTMetal);
   LOG_ASSERT(inserted);
 }

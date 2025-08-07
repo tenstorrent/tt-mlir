@@ -231,7 +231,8 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
-                      std::uint32_t itemsize, ::tt::target::DataType dataType) {
+                      std::uint32_t itemsize, ::tt::target::DataType dataType,
+                      const bool alignToTiles) {
 
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
@@ -284,7 +285,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
                  [&](const void *dataShard) -> ::tt::runtime::Tensor {
                    return createOwnedHostTensor(dataShard, shape, stride,
-                                                itemsize, dataType);
+                                                itemsize, dataType, false);
                  });
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
@@ -747,7 +748,8 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize, bool blocking) {
+                                          bool untilize, bool blocking,
+                                          bool /*unalignToTiles*/) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 

@@ -195,18 +195,19 @@ Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
                              const std::vector<std::uint32_t> &stride,
                              std::uint32_t itemsize,
-                             ::tt::target::DataType dataType) {
+                             ::tt::target::DataType dataType,
+                             const bool alignToTiles) {
   using RetType = Tensor;
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
-                                                          itemsize, dataType);
+        return ::tt::runtime::ttnn::createOwnedHostTensor(
+            data, shape, stride, itemsize, dataType, alignToTiles);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
+            data, TensorDesc(shape, stride, itemsize, dataType), alignToTiles);
       });
 }
 
@@ -586,15 +587,18 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
       [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); });
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking,
+                           bool unalignToTiles) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::toHost(tensor, untilize, blocking);
+        return ::tt::runtime::ttnn::toHost(tensor, untilize, blocking,
+                                           unalignToTiles);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking);
+        return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking,
+                                              unalignToTiles);
       });
 }
 
