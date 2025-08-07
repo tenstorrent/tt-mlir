@@ -4475,8 +4475,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // Input tensor must be 4D tensor [batch_size, num_heads, sequence_size,
-  // head_size].
+  // Input tensor must be 4D tensor
   if (inputType.getRank() != 4) {
     return emitOpError() << "expected rank of input tensor is 4, got rank "
                          << inputType.getRank();
@@ -4501,14 +4500,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   // Output tensor dimensions [batch_size, sequence_size, num_heads *
   // head_size].
   enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
-
-  // Requirement coming from
-  // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/transformer/concatenate_heads/concatenate_heads.cpp
-  if (inputShape[INPUT_HEAD_SIZE] % 32 != 0) {
-    return emitOpError() << "expected input head_size dimension to be a "
-                            "multiple of 32, got "
-                         << inputShape[INPUT_HEAD_SIZE];
-  }
 
   // Verify batch_size dimension matches.
   if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
