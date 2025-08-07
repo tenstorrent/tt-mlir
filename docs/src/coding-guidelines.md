@@ -90,8 +90,10 @@ Ensure comments are accurate and reflect the current state of the code. Outdated
 
 All TODO comments should be marked with an alias as follows:
 ``` c++
-// TODO (your-alias): Refactor this loop for clarity.
+// TODO (your-alias): Refactor this loop for clarity. Issue: https://github.com/tenstorrent/tt-mlir/issues/XYZ
 ```
+
+A TT-MLIR issue should be created and linked inline to track the TODO.
 
 ## Code Denesting (Inversion)
 
