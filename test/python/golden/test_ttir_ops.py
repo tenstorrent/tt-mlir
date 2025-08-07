@@ -1982,7 +1982,7 @@ def test_hoisted_where(shapes, request, target: str):
         [(64, 512), (64, 1, 512)],
         [(64, 1, 512), (64, 512)],
         [(16, 32, 64), (16, 2048)],
-        # Power of 2 cases (common in ML)
+        # Power of 2 cases
         [(256, 256), (512, 128)],
         [(512, 128), (64, 1024)],
         [(1024,), (32, 32)],
