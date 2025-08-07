@@ -196,7 +196,7 @@ class Builder:
             )
 
     @property
-    def _get_default_dtype(self) -> Type:
+    def _default_type(self) -> Type:
         return F32Type.get(self._ctx)
 
     # Extracts a RankedTensorType from a Value, OpView, or Operation, ensuring the type is ranked.
@@ -244,7 +244,7 @@ class Builder:
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._get_default_dtype
+        dtype = data_type if data_type is not None else self._default_type
 
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
