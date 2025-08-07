@@ -623,18 +623,6 @@ def parse_conv2d_config(attr):
             },
         )
     )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
-                key="enable_subblock_padding",
-                value=str(conv2d_config.enable_subblock_padding),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": ["True", "False"],
-            },
-        )
-    )
 
     return result
 
