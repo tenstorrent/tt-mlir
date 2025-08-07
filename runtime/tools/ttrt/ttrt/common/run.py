@@ -233,6 +233,13 @@ class Run:
             help="print input and output tensors",
         )
         Run.register_arg(
+            name="--dump-input-output-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump input and output tensors (to /tmp) as pt files",
+        )
+        Run.register_arg(
             name="--debugger",
             type=bool,
             default=False,
@@ -967,6 +974,25 @@ class Run:
                                             f"Golden:\n{golden_tensor_torch}"
                                         )
 
+                                if self["--dump-input-output-tensors"]:
+                                    dump_dir = "/tmp"
+                                    os.makedirs(dump_dir, exist_ok=True)
+
+                                    for j, tensor in enumerate(program.input_tensors):
+                                        path = os.path.join(
+                                            dump_dir, f"input_tensor_{j}.pt"
+                                        )
+                                        torch.save(tensor, path)
+                                        self.logging.info(f"Saved input {j} to {path}")
+
+                                    output_path = os.path.join(
+                                        dump_dir, f"output_tensor_{i}.pt"
+                                    )
+                                    torch.save(output_tensor_torch, output_path)
+                                    self.logging.info(
+                                        f"Saved output {i} to {output_path}"
+                                    )
+
                                 # Print the top k differences.
                                 if golden_fail:
                                     top_k = self["--golden-diff-topk"]
@@ -1113,8 +1139,8 @@ class Run:
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
 
-                        # Read the perf data before deallocating buffers
-                        device.read_device_profiler_results()
+                        # Dump the perf data before deallocating buffers
+                        device.dump_device_profile_results()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:
