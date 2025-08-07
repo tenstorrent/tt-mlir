@@ -6,6 +6,7 @@
 #define TT_RUNTIME_UTILS_H
 
 #include <memory>
+#include <numeric>
 #include <type_traits>
 
 #pragma clang diagnostic push
@@ -15,8 +16,12 @@
 
 namespace tt::runtime::utils {
 
-inline std::shared_ptr<void> malloc_shared(size_t size) {
+inline std::shared_ptr<void> mallocShared(size_t size) {
   return std::shared_ptr<void>(std::malloc(size), std::free);
+}
+
+inline std::shared_ptr<void> callocShared(size_t size) {
+  return std::shared_ptr<void>(std::calloc(size, 1u), std::free);
 }
 
 template <typename T>
@@ -53,16 +58,6 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
     assert(false && "Unsupported element size for data type");
     return 0;
   }
-}
-
-inline std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignElems = 32;
-  return dataTypeElementSize(dataType) * numAlignElems;
-}
-
-inline std::int64_t tileAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignRows = 32;
-  return tileRowAlignment(dataType) * numAlignRows;
 }
 
 inline bool isSupportedDataType(::tt::target::DataType dataType) {
@@ -117,6 +112,14 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   }
 }
 
+template <typename Iter>
+auto calculateVolume(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   // Scalar case:
@@ -141,6 +144,14 @@ struct overloaded : Ts... {
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
+}
+
+template <typename T>
+T roundUp(T val, T multiple) {
+  if (multiple == 0) {
+    return val;
+  }
+  return ((val + multiple - 1) / multiple) * multiple;
 }
 
 namespace detail {

@@ -536,19 +536,24 @@ class Run:
                     )
                 return inputs_converted
 
-            # Create 'owned tensor' in case of empty tensor;
-            # otherwise create 'borrowed tensor'.
-            def create_tensor(tensor):
+            # Create owned storage for empty or non-tile-aligned input tensors;
+            # otherwise borrow the existing storage.
+            def create_tensor(tensor, isDeviceInput):
                 # Empty tensor if any of the dim is zero.
                 isEmptyTensor = not all(tensor.shape)
+                # Align & pad if the inputs' two innermost dims aren't aligned.
+                isUnAlignedRows = len(tensor.shape) > 0 and tensor.shape[-1] % 32 != 0
+                isUnAlignedCols = len(tensor.shape) > 1 and tensor.shape[-2] % 32 != 0
+                alignToTiles = isDeviceInput and (isUnAlignedRows or isUnAlignedCols)
 
-                if isEmptyTensor:
+                if isEmptyTensor or alignToTiles:
                     return ttrt.runtime.create_owned_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
                         list(tensor.stride()),
                         tensor.element_size(),
                         Binary.Program.to_data_type(tensor.dtype),
+                        alignToTiles,
                     )
 
                 return ttrt.runtime.create_borrowed_host_tensor(
@@ -726,12 +731,14 @@ class Run:
 
                         inputs = []
                         outputs = []
+                        # TODO(wenbinlyuTT): support padding in hoisted ops and remove this band-aid.
+                        isDeviceTest = not "hoist" in program.name
                         for i in program.input_tensors:
-                            new_input = create_tensor(i)
+                            new_input = create_tensor(i, isDeviceInput=isDeviceTest)
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
-                            new_output = create_tensor(i)
+                            new_output = create_tensor(i, isDeviceInput=False)
                             outputs.append(new_output)
 
                         # load output golden tensors
@@ -852,7 +859,9 @@ class Run:
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
-                                    runtime_output_tensor, untilize=True
+                                    runtime_output_tensor,
+                                    untilize=True,
+                                    unalign_to_tiles=isDeviceTest,
                                 )[0]
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (

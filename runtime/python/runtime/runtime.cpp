@@ -51,7 +51,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_ro("shape", &tt::runtime::TensorDesc::shape)
       .def_ro("stride", &tt::runtime::TensorDesc::stride)
       .def_ro("item_size", &tt::runtime::TensorDesc::itemsize)
-      .def_ro("dtype", &tt::runtime::TensorDesc::dataType);
+      .def_ro("dtype", &tt::runtime::TensorDesc::dataType)
+      .def_ro("physical_shape_2D", &tt::runtime::TensorDesc::physicalShape2D);
 
   nb::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
       .def(nb::init<>())
@@ -246,11 +247,13 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-         ::tt::target::DataType dataType) {
+         ::tt::target::DataType dataType, const bool alignToTiles = false) {
         return tt::runtime::createOwnedHostTensor(
             reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
-            dataType);
+            dataType, alignToTiles);
       },
+      nb::arg("ptr"), nb::arg("shape"), nb::arg("stride"), nb::arg("itemsize"),
+      nb::arg("dataType"), nb::arg("alignToTiles") = false,
       "Create a tensor with owned memory");
   m.def(
       "create_empty_tensor",
@@ -306,7 +309,7 @@ void registerRuntimeBindings(nb::module_ &m) {
         nb::arg("mesh_device"), nb::arg("mesh_shape"), "Reshape a mesh device");
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
         nb::arg("untilize") = false, nb::arg("blocking") = true,
-        "Copy the tensor to host");
+        nb::arg("unalign_to_tiles") = false, "Copy the tensor to host");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");

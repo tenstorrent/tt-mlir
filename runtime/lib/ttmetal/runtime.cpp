@@ -40,37 +40,12 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
   return Layout(nullptr, DeviceRuntime::TTMetal);
 }
 
-static Tensor alignUpTensor(Tensor tensor, const TensorDesc &desc) {
-  std::int64_t alignment = utils::tileAlignment(desc.dataType);
-  if (desc.alignment % alignment == 0) {
-    return tensor;
-  }
-
-  TensorDesc alignedDesc(desc.shape, desc.stride, desc.itemsize, desc.dataType,
-                         alignment);
-
-  size_t alignedSize = alignedDesc.sizeBytes();
-  auto alignedData = std::shared_ptr<void>(std::malloc(alignedSize), std::free);
-  if (!alignedData) {
-    LOG_FATAL("toLayout: Failed to allocate host memory.");
-  }
-  assert(tensor.data.get() != nullptr);
-  std::memcpy(alignedData.get(), tensor.data.get(), desc.sizeBytes());
-  // Zero fill the rest
-  std::memset(static_cast<char *>(alignedData.get()) + desc.sizeBytes(), 0,
-              alignedSize - desc.sizeBytes());
-  return Tensor(
-      static_pointer_cast<void>(std::make_shared<MetalTensor>(alignedDesc)),
-      alignedData, DeviceRuntime::TTMetal);
-}
-
 Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
   return std::visit(
       utils::overloaded{
-          [&](const TensorDesc &desc) { return alignUpTensor(tensor, desc); },
+          // TODO(#3126): Implement device copy toLayout for metal runtime.
+          [&](const TensorDesc &desc) { return tensor; },
           [&](const MeshBuffer &buffer) {
-            // TODO(#3126): Implement device copy toLayout for
-            // metal runtime
             LOG_FATAL("getTensorDesc from MeshBuffer not supported.");
             return tensor;
           },
@@ -97,9 +72,124 @@ createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc) {
-  std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data,
+  std::shared_ptr<MetalTensor> handle = std::make_shared<MetalTensor>(desc);
+  return Tensor(static_pointer_cast<void>(handle), data,
                 DeviceRuntime::TTMetal);
+}
+
+std::array<size_t, 2> computePhysicalShape2D(const TensorDesc &desc) {
+  std::array<size_t, 2> physicalShape2D = {1, 1};
+  for (int i = -1; i >= -static_cast<int>(desc.shape.size()); i--) {
+    size_t &dim = i == -1 ? physicalShape2D[1] : physicalShape2D[0];
+    dim *= desc.shape[i + desc.shape.size()];
+
+    if (i >= -static_cast<int>(desc.alignments.size())) {
+      dim = utils::roundUp(dim, desc.alignments[i + desc.alignments.size()]);
+    }
+  }
+  return physicalShape2D;
+}
+
+// This function calculates how to copy a row-major ND tensor whose data is
+// tightly packed according to its logical shape, into a 2D physical storage
+// that is a row-major grid of 32x32 row-major tiles.
+//
+// Since we work with 32x32 tiles, the last two dimensions are special:
+// 1. The logical shape is seen as many WxH slices (its last two dimensions).
+// 2. The 2D physical storage is seen as many Px1 blocks of 32x32 tiles, each
+// block has enough space to store the WxH slice (Px1 because it's a
+// pre-tilization row-major Metalium 'tensor').
+//
+// The task is then: copy entire rows of the HxW slice into the (P*32)x32
+// row-major storage, with proper padding if needed.
+//
+// Return of this function is all the pairs of: the start index of the logical
+// row, and the start index of the physical row. The number of elements in the
+// row is known (shape[-1]).
+//
+// Padding occurs at two places:
+// 1. At the end of the slice, if H % 32 != 0. This is done by incrementing the
+// physical block start index with the stride of P tiles.
+// 2. At the end of each logical row, if W % 32 != 0. This is done by
+// incrementing the physical row start index with the stride of roundUp(W, 32).
+static std::vector<std::pair<size_t, size_t>>
+computeLogicalToPhysicalMapping(const TensorDesc &desc) {
+  LOG_ASSERT(desc.logicalShape2D[0] <= desc.physicalShape2D[0] &&
+                 desc.logicalShape2D[1] <= desc.physicalShape2D[1],
+             "Incompatible 2D logical and physical shapes.");
+  LOG_ASSERT(desc.physicalShape2D[0] % 32 == 0 &&
+                 desc.physicalShape2D[1] % 32 == 0,
+             "2D physical shape isn't tile-aligned.");
+  const uint32_t rank = desc.shape.size();
+  const size_t nSlices =
+      rank <= 2
+          ? 1
+          : std::accumulate(desc.shape.cbegin(), desc.shape.cend() - 2,
+                            static_cast<size_t>(1), std::multiplies<size_t>());
+  const uint32_t sliceW = rank > 0 ? desc.shape[rank - 1] : 1;
+  const uint32_t sliceH = rank > 1 ? desc.shape[rank - 2] : 1;
+  const uint32_t tilesPerSliceW = utils::roundUp(sliceW, 32u) / 32;
+  const uint32_t tilesPerSliceH = utils::roundUp(sliceH, 32u) / 32;
+  const uint32_t tilesPerBlock = tilesPerSliceH * tilesPerSliceW;
+
+  LOG_ASSERT((desc.physicalVolume() / (32 * 32)) == nSlices * tilesPerBlock,
+             "Unmatching number of logical and physical 2D slices.");
+
+  std::vector<std::pair<size_t, size_t>> mapping;
+  mapping.reserve(nSlices * sliceH);
+
+  const size_t physicalStride = desc.physicalShape2D[1];
+
+  for (size_t i = 0; i < nSlices; i++) {
+    const size_t logicalSliceStart = i * sliceW * sliceH;
+    const size_t physicalBlockStart = i * tilesPerBlock * 32 * 32;
+    for (uint32_t r = 0; r < sliceH; r++) {
+      const size_t logicalRowStart = logicalSliceStart + r * sliceW;
+      const size_t physicalRowStart = physicalBlockStart + r * physicalStride;
+      mapping.emplace_back(logicalRowStart, physicalRowStart);
+    }
+  }
+
+  return mapping;
+}
+
+static void alignAndPadPhysical2DTensorData(void *physicalData,
+                                            const void *logicalData,
+                                            const TensorDesc &desc) {
+  const auto copyIndices = computeLogicalToPhysicalMapping(desc);
+  const std::byte *logicalPtr = static_cast<const std::byte *>(logicalData);
+  std::byte *physicalPtr = static_cast<std::byte *>(physicalData);
+  const size_t rowSize = desc.shape[desc.shape.size() - 1] * desc.itemsize;
+  for (const auto &[logicalIdxStart, physicalIdxStart] : copyIndices) {
+    std::memcpy(physicalPtr + physicalIdxStart * desc.itemsize,
+                logicalPtr + logicalIdxStart * desc.itemsize, rowSize);
+  }
+}
+
+Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc,
+                             const bool alignToTiles) {
+  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
+             "Creating owned tensor with unsupported data type: " +
+                 std::string(target::EnumNameDataType(desc.dataType)) +
+                 "is not implemented for the TTMetal runtime");
+
+  std::shared_ptr<void> owned = nullptr;
+
+  // Even when aligning & padding is requested, skip it if the physical shape
+  // isn't in the default flatterned shape anymore, since even logical inputs
+  // like 1xN needs to be padded to 32xN in the current design.
+  if (!alignToTiles || desc.physicalShape2D[0] != 1) {
+    owned = utils::mallocShared(desc.sizeBytes());
+    std::memcpy(owned.get(), data, desc.sizeBytes());
+    return ttmetal::createBorrowedHostTensor(owned, desc);
+  }
+
+  const auto physicalShape2D = computePhysicalShape2D(desc);
+  TensorDesc alignedDesc(desc.shape, desc.stride, desc.itemsize, desc.dataType,
+                         physicalShape2D);
+  owned = utils::callocShared(alignedDesc.sizeBytes()); // Default zero-fill
+  alignAndPadPhysical2DTensorData(owned.get(), data, alignedDesc);
+  return ttmetal::createBorrowedHostTensor(owned, alignedDesc);
 }
 
 bool isTensorAllocated(Tensor tensor) {
@@ -386,16 +476,42 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   }
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
+static void unpadPhysical2DTensorData(void *logicalData,
+                                      const void *physicalData,
+                                      const TensorDesc &desc) {
+  const auto copyIndices = computeLogicalToPhysicalMapping(desc);
+  const std::byte *physicalPtr = static_cast<const std::byte *>(physicalData);
+  std::byte *logicalPtr = static_cast<std::byte *>(logicalData);
+  const size_t rowSize = desc.shape[desc.shape.size() - 1] * desc.itemsize;
+  for (const auto &[logicalIdxStart, physicalIdxStart] : copyIndices) {
+    std::memcpy(logicalPtr + logicalIdxStart * desc.itemsize,
+                physicalPtr + physicalIdxStart * desc.itemsize, rowSize);
+  }
+}
+
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking,
+                           bool unalignToTiles) {
+  using RetType = std::vector<Tensor>;
   ::tt::runtime::ttmetal::wait(tensor);
-  std::visit(utils::overloaded{
-                 [&](const TensorDesc &) { /* no-op */ },
-                 [&](const MeshBuffer &) {
-                   LOG_FATAL("toHost not yet implemented for mesh buffer");
-                 },
-             },
-             tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
-  return {tensor};
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &desc) -> RetType {
+            if (unalignToTiles && desc.volume() != desc.physicalVolume()) {
+              auto unpaddedDesc = TensorDesc(desc.shape, desc.dataType);
+              auto unpaddedData = utils::mallocShared(unpaddedDesc.sizeBytes());
+              unpadPhysical2DTensorData(unpaddedData.get(), tensor.data.get(),
+                                        desc);
+              return {ttmetal::createBorrowedHostTensor(unpaddedData,
+                                                        unpaddedDesc)};
+            }
+            return {tensor};
+          },
+          [&](const MeshBuffer &) -> RetType {
+            LOG_FATAL("toHost not yet implemented for mesh buffer");
+            return {tensor};
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 void memcpy(void *dst, Tensor src,
@@ -421,12 +537,8 @@ void memcpy(Tensor dst, Tensor src) {
              "Only TensorDesc supported for now");
   auto &hostDst = std::get<TensorDesc>(metalDst);
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  std::int64_t maxAlignment = std::max(hostDst.alignment, hostSrc.alignment);
-  LOG_ASSERT(utils::alignUp(hostDst.sizeBytes(), maxAlignment) ==
-                 utils::alignUp(hostSrc.sizeBytes(), maxAlignment),
-             "Tensor size mismatch");
   LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
-  std::int64_t copySize = std::min(hostDst.sizeBytes(), hostSrc.sizeBytes());
+  size_t copySize = std::min(hostDst.sizeBytes(), hostSrc.sizeBytes());
   std::memcpy(dst.data.get(), src.data.get(), copySize);
 }
 
