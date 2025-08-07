@@ -465,7 +465,6 @@ jobs:
     needs:
       - build-image
       - build-ttmlir
-    if: ${{ !failure() && !cancelled() }}
     runs-on:
       - n150
       - in-service
