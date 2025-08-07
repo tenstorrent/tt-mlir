@@ -44,7 +44,7 @@ def logical_not(
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
     input_tensor = input_tensor.to(dtype)
-    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype
+    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
     builder.set_graph_input_output(
         [input_tensor], [golden_output_tensor], override=True
@@ -2428,26 +2428,27 @@ def gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
+    indices_dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    # For now, just create zero indices - this tests the basic gather functionality
-    # In a real test, you'd want to create varied indices to test different gather patterns
-    indices = builder.zeros(indices_shape)
+    # For now, just create zero indices - this tests the basic gather functionality.
+    # In a real test, you'd want to create varied indices to test different gather patterns.
+    indices = builder.zeros(indices_shape, indices_dtype)
 
     # Set collapsed_slice_dims to be the same as start_index_map
-    # This is what the GatherToEmbeddingConversionPattern expects
+    # This is what the GatherToEmbeddingConversionPattern expects.
     collapsed_slice_dims = start_index_map
 
-    # Set remaining parameters to empty lists for simplicity
+    # Set remaining parameters to empty lists for simplicity.
     operand_batching_dims = []
     start_indices_batching_dims = []
 
-    # Set index_vector_dim correctly based on the use case
+    # Set index_vector_dim correctly based on the use case.
     if len(indices_shape) == 1 and len(start_index_map) == 1:
-        # Single indices case - index vector dim is implicit
+        # Single indices case - index vector dim is implicit.
         index_vector_dim = len(indices_shape)  # = 1
     else:
-        # Multi-dimensional indices - last dimension contains index vectors
+        # Multi-dimensional indices - last dimension contains index vectors.
         index_vector_dim = len(indices_shape) - 1
 
     return builder.gather(
@@ -2465,24 +2466,44 @@ def gather(
 
 
 @pytest.mark.parametrize(
-    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        # Simple 1D indices - f32.
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),
         pytest.param(
             (8, 16, 32),
+            torch.float32,
             (4, 2, 2),
             [0, 2],
             [1],
-            [1, 16, 1],  # Complex indices
+            # Complex indices - f32.
+            [1, 16, 1],
+            marks=pytest.mark.skip(
+                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
+            ),
+        ),
+        pytest.param(
+            (8, 16, 32),
+            torch.bfloat16,
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            # Complex indices - bf16.
+            [1, 16, 1],
             marks=pytest.mark.skip(
                 reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
             ),
         ),
     ],
-    ids=["simple_1d", "complex_indices"],
+    ids=[
+        "simple_1d-f32",
+        "complex_indices-f32",
+        "complex_indices-bf16",
+    ],
 )
 def test_gather(
     input_shape: Shape,
+    input_dtype: torch.dtype,
     indices_shape: Shape,
     start_index_map: List[int],
     offset_dims: List[int],
@@ -2491,12 +2512,19 @@ def test_gather(
 ):
     def gather_wrapper(in0: Operand, builder: TTIRBuilder):
         return gather(
-            in0, builder, indices_shape, start_index_map, offset_dims, slice_sizes
+            in0,
+            builder,
+            indices_shape,
+            start_index_map,
+            offset_dims,
+            slice_sizes,
+            input_dtype,
         )
 
     compile_ttir_to_flatbuffer(
         gather_wrapper,
         [input_shape],
+        [input_dtype],
         test_base=request.node.name,
         target="ttnn",
         output_root=request.config.getoption("--path"),
@@ -2519,7 +2547,7 @@ def test_gather(
     ],
     ids=["simple_1d", "complex_indices"],
 )
-# note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
+# Note: Doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
 @pytest.mark.skip(
     "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
 )
