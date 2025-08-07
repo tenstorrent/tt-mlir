@@ -33,7 +33,7 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 
 
 def _get_target_path(output_path, filename, target):
-    target_dir = os.path.join(output_path, target)
+    target_dir = os.path.join(output_path, "builder-artifacts", target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     return os.path.join(target_dir, filename)
@@ -242,7 +242,7 @@ def build_ttir_module(
 
         test_base = fn.__name__ if test_base is None else test_base
         print("test_base", test_base)
-        filename = _get_target_path(output_root, test_base + "_ttir.mlir", "ttir")
+        filename = _get_target_path(output_root, test_base + "_ttir.mlir", test_base)
 
         if module_dump:
             with open(filename, "w") as f:
@@ -512,7 +512,7 @@ def build_stablehlo_module(
 
         test_base = fn.__name__ if test_base is None else test_base
 
-        filename = _get_target_path(output_root, test_base + "_shlo.mlir", "shlo")
+        filename = _get_target_path(output_root, test_base + "_shlo.mlir", test_base)
 
         if module_dump:
             with open(filename, "w") as f:
@@ -733,7 +733,7 @@ def compile_ttir_module_to_flatbuffer(
     else:
         raise ValueError("Unsupported target: " + target)
 
-    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
+    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, test_base)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
