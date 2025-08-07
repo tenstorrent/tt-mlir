@@ -496,32 +496,25 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
     )
 
 
-# def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-#     """
-#     Golden function for logical_not operation.
+def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for logical_not operation with custom int8 output.
 
-#     Parameters
-#     ----------
-#     input_tensor : torch.Tensor
-#         Input tensor
-#     **kwargs : dict
-#         Keyword arguments containing:
-#         - out: torch.Tensor, optional - Output tensor to write results to
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments (unused for this operation)
 
-#     Returns
-#     -------
-#     torch.Tensor
-#         Tensor with logical NOT of input tensor
-#     """
-
-#     golden = ttir_builder._get_golden_tensor(in0)
-#     golden_output = torch.empty(golden.shape, dtype=golden.dtype)
-
-#     # out = kwargs.get("out", None)
-#     if out is not None:
-#         return torch.logical_not(input_tensor, out=golden_output)
-#     else:
-#         return torch.logical_not(input_tensor)
+    Returns
+    -------
+    torch.Tensor
+        Tensor with logical NOT of input tensor, with int8 dtype
+    """
+    # Create output tensor with int8 dtype
+    out = torch.empty_like(input_tensor, dtype=torch.int8)
+    return torch.logical_not(input_tensor, out=out)
 
 
 def max_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -715,69 +708,11 @@ def index_golden(input_tensor, dim, begin, end, step):
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
-def arange_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-    """
-    Custom golden function for arange operation.
-
-    Parameters
-    ----------
-    input_tensor : torch.Tensor
-        Single dimension tensor specification
-    **kwargs : dict
-        Keyword arguments including 'repeats'
-
-    Returns
-    -------
-    torch.Tensor
-        Generated range tensor
-    """
-    repeats = kwargs.get("repeats")
-    return input_tensor.repeat(repeats)
-
-
-def slice_golden(input_tensor, begins, ends, step):
-    """
-    Custom golden function for slice operation.
-
-    Parameters
-    ----------
-    input_tensor : torch.Tensor
-        Input tensor to slice
-    begins : List[int]
-        Starting indices for each dimension
-    ends : List[int]
-        Ending indices for each dimension
-    step : List[int]
-        Step sizes for each dimension
-
-    Returns
-    -------
-    torch.Tensor
-        Sliced tensor
-    """
-    # Build slice objects for each dimension
-    slices = []
-    for i, (b, e, s) in enumerate(zip(begins, ends, step)):
-        slices.append(slice(b, e, s))
-
-    # Apply slicing to the tensor
-    return input_tensor[tuple(slices)]
-
-
 def gather_golden(
-    input_tensor,
-    start_indices_tensor,
-    offset_dims,
-    collapsed_slice_dims,
-    operand_batching_dims,
-    start_indices_batching_dims,
-    start_index_map,
-    index_vector_dim,
-    slice_sizes,
-    indices_are_sorted=False,
-):
+    input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
     """
-    Custom golden function for gather operation.
+    Golden function for gather operation with TTIR parameter names.
 
     Parameters
     ----------
@@ -785,28 +720,45 @@ def gather_golden(
         Input tensor to gather from
     start_indices_tensor : torch.Tensor
         Tensor containing starting indices
-    offset_dims : List[int]
-        Offset dimensions for gathering
-    collapsed_slice_dims : List[int]
-        Dimensions to collapse after slicing
-    operand_batching_dims : List[int]
-        Batching dimensions for operand
-    start_indices_batching_dims : List[int]
-        Batching dimensions for start indices
-    start_index_map : List[int]
-        Mapping of start indices
-    index_vector_dim : int
-        Dimension containing index vectors
-    slice_sizes : List[int]
-        Sizes of slices to gather
-    indices_are_sorted : bool, optional
-        Whether indices are sorted (default: False)
+    **kwargs : dict
+        Keyword arguments including gather attributes as MLIR attributes
 
     Returns
     -------
     torch.Tensor
         Gathered tensor
     """
+
+    def unpack_mlir_attr(attr):
+        """Unpack MLIR attributes to Python values."""
+        if isinstance(attr, IntegerAttr):
+            return attr.value
+        elif isinstance(attr, DenseI64ArrayAttr):
+            return list(attr)
+        elif isinstance(attr, DenseI32ArrayAttr):
+            return list(attr)
+        elif isinstance(attr, BoolAttr):
+            return attr.value
+        elif isinstance(attr, (list, tuple)):
+            return list(attr)
+        elif isinstance(attr, int):
+            return attr
+        elif isinstance(attr, bool):
+            return attr
+        else:
+            raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+    # Unpack MLIR attributes from kwargs
+    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
+    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
+    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
+    start_indices_batching_dims = unpack_mlir_attr(
+        kwargs.get("start_indices_batching_dims", [])
+    )
+    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
+    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
     # Simple gather implementation for basic cases
     if (
         len(offset_dims) == 1
@@ -1613,16 +1565,36 @@ def slice_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     input_tensor : torch.Tensor
         Input tensor
     **kwargs : dict
-        Keyword arguments including 'begins', 'ends', 'step'
+        Keyword arguments including slice attributes as MLIR attributes
 
     Returns
     -------
     torch.Tensor
         Sliced tensor
     """
-    begins = kwargs.get("begins", [0])
-    ends = kwargs.get("ends", None)
-    step = kwargs.get("step", [1])
+
+    def unpack_mlir_attr(attr):
+        """Unpack MLIR attributes to Python values."""
+        if isinstance(attr, IntegerAttr):
+            return attr.value
+        elif isinstance(attr, DenseI64ArrayAttr):
+            return list(attr)
+        elif isinstance(attr, DenseI32ArrayAttr):
+            return list(attr)
+        elif isinstance(attr, ArrayAttr):
+            # Handle ArrayAttr by extracting values from contained attributes
+            return [unpack_mlir_attr(item) for item in attr]
+        elif isinstance(attr, (list, tuple)):
+            return list(attr)
+        elif isinstance(attr, int):
+            return attr
+        else:
+            raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+    # Unpack MLIR attributes from kwargs
+    begins = unpack_mlir_attr(kwargs.get("begins", [0]))
+    ends = unpack_mlir_attr(kwargs.get("ends", None))
+    step = unpack_mlir_attr(kwargs.get("step", [1]))
 
     if ends is None:
         ends = [input_tensor.size(i) for i in range(len(begins))]
@@ -1860,6 +1832,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LogicalOrOp: torch.logical_or,
     ttir.LogicalXorOp: torch.logical_xor,
     ttir.LogicalNotOp: torch.logical_not,
+    # ttir.LogicalNotOp: logical_not_golden,
     # Selection operations
     ttir.WhereOp: torch.where,
     # Bitwise operations

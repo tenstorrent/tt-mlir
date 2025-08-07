@@ -640,7 +640,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LogicalNotOp,
             [in0],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1001,6 +1001,7 @@ class TTIRBuilder(Builder):
         output_type = self._get_type_from_torch_dtype(
             self._get_golden_tensor(out).dtype
         )
+        # kwargs passed thru output type
         return self._op_proxy(
             ttir.TypecastOp,
             [in0],
@@ -1214,7 +1215,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.EqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1264,7 +1265,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.NotEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1311,7 +1312,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.GreaterEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1358,7 +1359,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.GreaterThanOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1405,7 +1406,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LessEqualOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1452,7 +1453,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LessThanOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1499,7 +1500,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LogicalAndOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1548,7 +1549,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LogicalOrOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1595,7 +1596,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.LogicalXorOp,
             [in0, in1],
-            golden_kwargs={"out": golden_output},
+            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -2338,6 +2339,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Output tensor after softmax
         """
+        # kwargs handled thru organize_ttir_args
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
@@ -3835,11 +3837,12 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The quantized integer tensor
         """
-        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+
+        # kwargs passed thru output type
         return self._op_proxy(
             ttir.QuantizeOp,
             [in0],
-            golden_kwargs=golden_kwargs,
+            golden_kwargs={"scale": scale, "zero_point": zero_point, "dtype": dtype},
             output_type=self._get_type_from_torch_dtype(
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
@@ -3945,11 +3948,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The requantized integer tensor with new scale and zero-point
         """
-        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+        # kwargs passed thru output type
         return self._op_proxy(
             ttir.RequantizeOp,
             [in0],
-            golden_kwargs=golden_kwargs,
+            golden_kwargs={"scale": scale, "zero_point": zero_point, "dtype": dtype},
             output_type=self._get_type_from_torch_dtype(
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
@@ -4281,83 +4284,6 @@ class TTIRBuilder(Builder):
 
         output_shape = batch_dims + offset_sizes
 
-        # Create a closure that captures all the gather parameters
-        def gather_golden_fn(input_tensor, start_indices_tensor):
-            import torch
-            import numpy as np
-
-            input_np = input_tensor.cpu().numpy()
-            indices_np = start_indices_tensor.cpu().numpy()
-            device = input_tensor.device
-
-            # For the case where collapsed_slice_dims == start_index_map
-            # and we're collapsing dimensions with size > 1, we need to
-            # interpret this as indexing into a flattened space
-
-            # Check if this is the embedding-like pattern
-            if (
-                set(collapsed_slice_dims) == set(start_index_map)
-                and len(collapsed_slice_dims) > 0
-            ):
-
-                # We're collapsing all indexed dimensions
-                # This means we're selecting a single element from the indexed dimensions
-                # and keeping full slices from non-indexed dimensions
-
-                output = np.zeros(output_shape, dtype=input_np.dtype)
-
-                # Get batch positions
-                batch_shape = [
-                    s for i, s in enumerate(indices_shape) if i != index_vector_dim
-                ]
-                if not batch_shape:
-                    batch_positions = [()]
-                else:
-                    batch_positions = list(np.ndindex(*batch_shape))
-
-                for batch_idx, batch_pos in enumerate(batch_positions):
-                    # Extract index vector
-                    if batch_pos:
-                        full_idx = list(batch_pos)
-                        if index_vector_dim < len(indices_shape):
-                            full_idx.insert(index_vector_dim, slice(None))
-                        index_vec = indices_np[tuple(full_idx)]
-                    else:
-                        index_vec = indices_np
-
-                    if np.isscalar(index_vec):
-                        index_vec = [index_vec]
-
-                    # Build the exact index for collapsed dimensions
-                    indices_list = [slice(None)] * len(input_shape)
-
-                    # For each indexed dimension, use the index value directly
-                    # (not as a slice start)
-                    for i, input_dim in enumerate(start_index_map):
-                        if i < len(index_vec):
-                            indices_list[input_dim] = int(index_vec[i])
-                        else:
-                            indices_list[input_dim] = 0
-
-                    # For non-indexed dimensions, take the full slice
-                    for dim in range(len(input_shape)):
-                        if dim not in start_index_map:
-                            indices_list[dim] = slice(0, slice_sizes[dim])
-
-                    # Extract the result
-                    result = input_np[tuple(indices_list)]
-
-                    # Place in output
-                    if batch_pos:
-                        output[batch_pos] = result
-                    else:
-                        output = result
-
-                return torch.tensor(output, device=device)
-            else:
-                # General gather case (not used in your tests)
-                raise NotImplementedError("General gather not implemented")
-
         # Define kwargs for the TTIR operation
         ttir_kwargs = {
             "offset_dims": offset_dims_attr,
@@ -4374,16 +4300,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.GatherOp,
             [input, start_indices],
-            golden_kwargs={
-                "offset_dims": offset_dims,
-                "collapsed_slice_dims": collapsed_slice_dims,
-                "operand_batching_dims": operand_batching_dims,
-                "start_indices_batching_dims": start_indices_batching_dims,
-                "start_index_map": start_index_map,
-                "index_vector_dim": index_vector_dim,
-                "slice_sizes": slice_sizes,
-                "indices_are_sorted": indices_are_sorted,
-            },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
@@ -4465,39 +4381,10 @@ class TTIRBuilder(Builder):
         ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
         step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
 
-        # Golden function for slicing
-        def slice_golden_fn(x):
-            # Build slice objects for each dimension
-            slices = []
-
-            # Add slices for dimensions being sliced
-            for i, (b, e, s) in enumerate(zip(begins, ends, step)):
-                # Handle negative indices
-                dim_size = x.shape[i]
-                if b < 0:
-                    b += dim_size
-                if e < 0:
-                    e += dim_size
-
-                # Clamp to valid range
-                b = max(0, min(b, dim_size))
-                e = max(0, min(e, dim_size))
-
-                # Create slice object
-                slices.append(slice(b, e, s))
-
-            # Add full slices for remaining dimensions
-            for i in range(len(begins), len(x.shape)):
-                slices.append(slice(None))
-
-            # Apply the slice
-            return x[tuple(slices)]
-
         # Use op_proxy
         return self._op_proxy(
             ttir.SliceOp,
             [in0],
-            golden_kwargs={"begins": begins, "ends": ends, "step": step},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
