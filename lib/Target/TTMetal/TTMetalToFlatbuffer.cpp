@@ -153,20 +153,48 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
   return extents;
 }
 
-static bool isDeviceDRAMMemspace(MemRefType memref) {
+static bool isMemrefDeviceDRAMMemspace(MemRefType memref) {
   return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
              .getValue() == ttcore::MemorySpace::DeviceDRAM;
 }
-static bool isDeviceL1Memspace(MemRefType memref) {
+static bool isMemrefDeviceL1Memspace(MemRefType memref) {
   return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
              .getValue() == ttcore::MemorySpace::DeviceL1;
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
-memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                          MemRefType memref,
-                                          ttcore::DeviceAttr device,
-                                          target::Dim2d elementShape) {
+createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
+                                       MemRefType memref,
+                                       ttcore::DeviceAttr device) {
+
+  // NOTE: for DRAM, the coreRangeSet is a core range set from (0,0) to
+  // (num_banks=12,1)
+  constexpr int32_t numBanks = 12;
+  std::vector<target::Dim2dRange> coreRangeSet = {
+      target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(numBanks, 1))};
+
+  uint64_t pageSize = device.getMemrefSizeBytes(memref);
+  uint64_t shardSize = pageSize;
+  uint64_t size = pageSize * numBanks;
+
+  // shard shape is (num_elems, 1)
+  target::Dim2d shardShape(shardSize, 1);
+  target::Dim2d pageShape(pageSize, 1);
+  target::Dim2d tensorShapeInPages(numBanks, 1);
+
+  auto shardSpec = target::metal::CreateShardSpecDirect(
+      *cache.fbb, &coreRangeSet, &shardShape);
+  auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
+      *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
+  return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
+                                                  shardSpecBuffer);
+}
+
+static flatbuffers::Offset<target::metal::ShardedBufferConfig>
+createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
+                                     MemRefType memref,
+                                     ttcore::DeviceAttr device,
+                                     target::Dim2d elementShape) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -180,31 +208,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto memrefShardShape = shardLayout.getShardShape(memref);
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
-
-  if (isDeviceDRAMMemspace(memref)) {
-
-    // NOTE: for DRAM, the coreRangeSet is a core range set from (0,0) to
-    // (num_banks=12,1)
-    constexpr int32_t numBanks = 12;
-    coreRangeSet = {
-        target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(numBanks, 1))};
-
-    uint64_t pageSize = device.getMemrefSizeBytes(memref);
-    uint64_t shardSize = pageSize;
-    uint64_t size = pageSize * numBanks;
-
-    // shard shape is (num_elems, 1)
-    target::Dim2d shardShape(shardSize, 1);
-    target::Dim2d pageShape(pageSize, 1);
-    target::Dim2d tensorShapeInPages(numBanks, 1);
-
-    auto shardSpec = target::metal::CreateShardSpecDirect(
-        *cache.fbb, &coreRangeSet, &shardShape);
-    auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
-        *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
-    return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
-                                                    shardSpecBuffer);
-  }
 
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
@@ -245,6 +248,23 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
+}
+
+static flatbuffers::Offset<target::metal::ShardedBufferConfig>
+memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
+                                          MemRefType memref,
+                                          ttcore::DeviceAttr device,
+                                          target::Dim2d elementShape) {
+
+  if (isMemrefDeviceDRAMMemspace(memref)) {
+    return createShardedBufferConfigForDRAMMemref(cache, memref, device);
+  } else if (isMemrefDeviceL1Memspace(memref)) {
+    return createShardedBufferConfigForL1Memref(cache, memref, device,
+                                                elementShape);
+  } else {
+    assert(false &&
+           "ShardedBufferConfig not supported for System memory space");
+  }
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
@@ -294,7 +314,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     // only generate CircularBufferConfig for L1 memspace
     flatbuffers::Offset<target::metal::CircularBufferConfig>
         circularBufferConfig;
-    if (isDeviceL1Memspace(memref)) {
+    if (isMemrefDeviceL1Memspace(memref)) {
       circularBufferConfig =
           memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
     }
