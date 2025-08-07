@@ -1,9 +1,40 @@
+From 3341f9eb433ae46a3143110a4f386d04fbcd0ecb Mon Sep 17 00:00:00 2001
+From: tenstorrent <tt-mlir@tenstorrent.com>
+Date: Sat, 9 Aug 2025 17:22:50 +0000
+Subject: [PATCH 1/2] tt-mlir related patch
+
+---
+ CMakeLists.txt                                |  57 ++++++
+ shardy/common/CMakeLists.txt                  |  18 ++
+ shardy/dialect/sdy/ir/CMakeLists.txt          | 106 ++++++++++
+ shardy/dialect/sdy/transforms/CMakeLists.txt  |  26 +++
+ .../sdy/transforms/common/CMakeLists.txt      |  29 +++
+ .../sdy/transforms/export/CMakeLists.txt      |  94 +++++++++
+ .../sdy/transforms/import/CMakeLists.txt      |  47 +++++
+ .../sdy/transforms/propagation/CMakeLists.txt | 188 ++++++++++++++++++
+ .../propagation/debugging/CMakeLists.txt      |  17 ++
+ .../propagation/debugging/source_sharding.cc  |   1 +
+ shardy/integrations/c/CMakeLists.txt          |  20 ++
+ shardy/integrations/python/ir/CMakeLists.txt  |  45 +++++
+ 12 files changed, 648 insertions(+)
+ create mode 100755 CMakeLists.txt
+ create mode 100644 shardy/common/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/ir/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/transforms/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/transforms/common/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/transforms/export/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/transforms/import/CMakeLists.txt
+ create mode 100755 shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
+ create mode 100644 shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
+ create mode 100644 shardy/integrations/c/CMakeLists.txt
+ create mode 100644 shardy/integrations/python/ir/CMakeLists.txt
+
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 new file mode 100755
-index 0000000..beef2c1
+index 0000000..30904b5
 --- /dev/null
 +++ b/CMakeLists.txt
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,57 @@
 +# Custom embedded build for Shardy, targgeting minimal build as a part of
 +# tt-mlir MLIR project. This CMakeLists.txt file is mainly from StableHLO.
 +
@@ -61,20 +92,17 @@ index 0000000..beef2c1
 +add_subdirectory(shardy/dialect/sdy/transforms)
 +add_subdirectory(shardy/integrations/python/ir)
 +add_subdirectory(shardy/integrations/c)
-+add_subdirectory(shardy/round_trip_import)
-diff --git a/shardy.patch b/shardy.patch
-new file mode 100644
-index 0000000..e69de29
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
-index 0000000..e35e927
+index 0000000..5ae192d
 --- /dev/null
 +++ b/shardy/common/CMakeLists.txt
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +# Shardy MLIR Common
 +
 +add_mlir_library(SdyCommonFileUtils
 +  file_utils.cc
++  logging.cc
 +  save_module_op.cc
 +
 +  DEPENDS
@@ -269,10 +297,10 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..452190f
+index 0000000..60f1952
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,94 @@
 +# Shardy MLIR Transform Export Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -309,15 +337,16 @@ index 0000000..452190f
 +
 +add_mlir_library(SdyTransformsExportPasses
 +  close_shardings.cc
-+  constant_merger.cc
++  constant_or_scalar_merger.cc
 +  drop_sharding_rules.cc
++  explicit_reshards_util.cc
 +  export_pipeline.cc
 +  insert_explicit_reshards.cc
++  remove_propagation_debug_info.cc
 +  remove_sharding_groups.cc
 +  reshard_to_collectives.cc
 +  sharding_constraint_to_reshard.cc
 +  sink_data_flow_edges.cc
-+  temp_explicit_reshards_for_optimizations.cc
 +  update_non_divisible_input_output_shardings.cc
 +
 +  DEPENDS
@@ -368,10 +397,10 @@ index 0000000..452190f
 +)
 diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 new file mode 100755
-index 0000000..d7af93e
+index 0000000..c302390
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,47 @@
 +# Shardy MLIR Transforms Import Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -383,11 +412,12 @@ index 0000000..d7af93e
 +add_mlir_library(SdyTransformsImportPasses
 +  add_data_flow_edges.cc
 +  apply_sharding_constraints.cc
-+  constant_splitter.cc
++  constant_or_scalar_splitter.cc
 +  import_pipeline.cc
 +  inline_meshes.cc
 +  lift_inlined_meshes.cc
 +  manual_axes_cleanup.cc
++  remove_size_one_axes.cc
 +  sharding_group_import.cc
 +
 +  DEPENDS
@@ -635,6 +665,18 @@ index 0000000..dc33501
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
 +)
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+index 86f16d1..8039a00 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+@@ -338,6 +338,7 @@ void saveShardingOriginsOnModule(
+ // the case for the target of the edge, because if the source appears multiple
+ // times, then it's because it effects multiple other operands/results in the
+ // op.
++[[maybe_unused]]
+ bool insertSeenValue(Operation* op, const PropagationEdge& edge,
+                      llvm::SmallDenseSet<Value>& seenValues) {
+   EdgeNode target = edge.target;
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
@@ -663,11 +705,26 @@ index 0000000..fdd50c4
 +)
 diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
 new file mode 100644
-index 0000000..cbb4d66
+index 0000000..266ef40
 --- /dev/null
 +++ b/shardy/integrations/python/ir/CMakeLists.txt
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,45 @@
 +# Shardy MLIR Module
++
++set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
++
++# Rename _sdy_enums_gen in sdy.py
++file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
++string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
++file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
++
++if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
++  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
++endif()
++file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
++FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
 +
 +declare_mlir_python_sources(SdyPythonSources)
 +declare_mlir_python_sources(SdyPythonSources.Dialects
@@ -676,7 +733,7 @@ index 0000000..cbb4d66
 +
 +declare_mlir_dialect_python_bindings(
 +  ADD_TO_PARENT SdyPythonSources.Dialects
-+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
++  ROOT_DIR "${SHARDY_MODULE_DIR}"
 +  TD_FILE dialects/sdy_ops.td
 +  GEN_ENUM_BINDINGS ON
 +  GEN_ENUM_BINDINGS_TD_FILE dialects/sdy_enums.td
@@ -697,6 +754,50 @@ index 0000000..cbb4d66
 +    SdyCAPI
 +    LLVMSupport
 +)
+-- 
+2.34.1
+
+
+From f0f167d11c7e816f49fbfb1bde2097ec30f12e36 Mon Sep 17 00:00:00 2001
+From: tenstorrent <tt-mlir@tenstorrent.com>
+Date: Sun, 10 Aug 2025 17:03:09 +0000
+Subject: [PATCH 2/2] changes
+
+---
+ shardy/integrations/python/ir/CMakeLists.txt  | 15 -------------
+ shardy/integrations/python/ir/dialects/sdy.py | 20 ++++++++++++++++++
+ .../python/ir/dialects/sdy_enums.td           | 21 +++++++++++++++++++
+ .../python/ir/dialects/sdy_ops.td             | 21 +++++++++++++++++++
+ 4 files changed, 62 insertions(+), 15 deletions(-)
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy.py
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy_enums.td
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy_ops.td
+
+diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
+index 266ef40..4c82424 100644
+--- a/shardy/integrations/python/ir/CMakeLists.txt
++++ b/shardy/integrations/python/ir/CMakeLists.txt
+@@ -1,20 +1,5 @@
+ # Shardy MLIR Module
+ 
+-set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
+-
+-# Rename _sdy_enums_gen in sdy.py
+-file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
+-string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
+-file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
+-
+-if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
+-  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
+-endif()
+-file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
+-FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
+-FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
+-FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
+-
+ declare_mlir_python_sources(SdyPythonSources)
+ declare_mlir_python_sources(SdyPythonSources.Dialects
+   ADD_TO_PARENT SdyPythonSources
 diff --git a/shardy/integrations/python/ir/dialects/sdy.py b/shardy/integrations/python/ir/dialects/sdy.py
 new file mode 100644
 index 0000000..7cd59c6
@@ -777,134 +878,6 @@ index 0000000..30a5cf9
 +include "shardy/dialect/sdy/ir/ops.td"
 +
 +#endif
-diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
-new file mode 100644
-index 0000000..1afbf24
---- /dev/null
-+++ b/shardy/round_trip_import/CMakeLists.txt
-@@ -0,0 +1,125 @@
-+# Shardy MLIR Roundtrip Import Passes
-+
-+add_mlir_translation_library(SdyRoundtripUtils
-+  utils.cc
-+
-+  DEPENDS
-+  SdyDialect
-+  SdyRegister
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRAsmParser
-+  MLIRFuncDialect
-+  MLIRFuncAllExtensions
-+  MLIRIR
-+  MLIRSupport
-+  StablehloOps
-+  SdyDialect
-+  SdyRegister
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportSdyCustomCalls
-+  import_sdy_custom_calls.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportUninlineableFuncCalls
-+  import_uninlineable_func_calls.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  MLIRTransforms
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportShardyAttrs
-+  import_shardy_attrs.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRAsmParser
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRParser
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripShardMapImport
-+  shard_map_import.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripPipelines
-+  pipelines.cc
-+
-+  DEPENDS
-+  SdyRoundtripImportUninlineableFuncCalls
-+  SdyRoundtripImportSdyCustomCalls
-+  SdyRoundtripImportShardyAttrs
-+  SdyRoundtripShardMapImport
-+
-+  LINK_LIBS PUBLIC
-+  MLIRFuncDialect
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  MLIRTransforms
-+  StablehloPasses
-+  SdyRoundtripImportUninlineableFuncCalls
-+  SdyRoundtripImportSdyCustomCalls
-+  SdyRoundtripImportShardyAttrs
-+  SdyRoundtripShardMapImport
-+)
-+
-+target_include_directories(SdyRoundtripPipelines INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
-+)
+-- 
+2.34.1
+
