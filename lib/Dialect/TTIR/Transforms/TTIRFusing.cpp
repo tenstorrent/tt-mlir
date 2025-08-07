@@ -533,6 +533,8 @@ public:
   }
 };
 
+// This pattern decomposes BatchNorm op into basic arithmetic ops
+// so that it can be fused using existing patterns.
 class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
   using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
 
@@ -623,15 +625,15 @@ public:
   /// Pattern: scatter(input, indices, updates)
   ///
   /// This pattern detects when a ScatterOp is used as a fill/update for a
-  /// cache. We check for its input, indices, and update tensors to ensure
-  /// they match the expected cache fill/update pattern.
+  /// cache. We check for its input, indices, and update tensors to ensure they
+  /// match the expected cache fill/update pattern.
   ///
   /// Input pattern:
   ///   %result = scatter(%cache, %indices, %updates)
-  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with
-  ///   shape (B, N, S, H), the indices tensor should have shape (B, N, S, H,
-  ///   4), representing the index where each element in %updates should
-  ///   placed in the %cache.
+  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
+  ///   (B, N, S, H), the indices tensor should have shape (B, N, S, H, 4),
+  ///   representing the index where each element in %updates should placed in
+  ///   the %cache.
   ///   - %indices can be tracked back to the function's cachePositions input
   ///   that represents the indices of the cache to fill/update.
   /// Output pattern:
@@ -726,8 +728,8 @@ private:
 
     // Check that the scatter indices input is a concat op that produces the
     // scatter indices for a cache update/fill:
-    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const
-    //    aranged tensor
+    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
+    //    tensor
     //    2. Check that the 3rd input comes from the cachePositions func input
     ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
     if (!concatOp) {
@@ -885,8 +887,8 @@ private:
       }
     }
 
-    // Check that the input to broadcast is a reshape and loop through it
-    // until we reach the input to the first reshape.
+    // Check that the input to broadcast is a reshape and loop through it until
+    // we reach the input to the first reshape.
     auto nextInput = broadcastOp.getInput();
     while (auto intermediateReshapeOp =
                nextInput.getDefiningOp<ttir::ReshapeOp>()) {
@@ -914,9 +916,9 @@ private:
   }
 
   // We are looking for a pattern like to this (from bottom up):
-  //  %0 = "ttir.arange"() {arr_dim = 0, end = N, start = 0, step = 1} -> (N,
-  //  ) %2 = "ttir.multiply"(%0, 1, %1) -> (N,) %4 = "ttir.add"(%2, 0, %3) ->
-  //  (N,)
+  //  %0 = "ttir.arange"() {arr_dim = 0, end = N, start = 0, step = 1} -> (N, )
+  //  %2 = "ttir.multiply"(%0, 1, %1) -> (N,)
+  //  %4 = "ttir.add"(%2, 0, %3) -> (N,)
   static bool isConstArangedTensor(mlir::Value inputValue, int64_t dim) {
     // 1. Check that inputValue is an add op.
     // 2. Check that the add's input is a multiply op.
@@ -1036,8 +1038,7 @@ public:
       return mlir::failure();
     }
 
-    // Denominator pooling op must have the same number of inputs as
-    // numerator.
+    // Denominator pooling op must have the same number of inputs as numerator.
     if (numerator.getInputs().size() != denominator.getInputs().size()) {
       return mlir::failure();
     }
@@ -1085,9 +1086,8 @@ public:
     }
 
     // For each denominator input, if it is a FullOp, its fill value must be 1
-    // If it is a constant op, its value must be a tensor filled with ones,
-    // and padded with zeroes according to the padding attribute of the
-    // numerator.
+    // If it is a constant op, its value must be a tensor filled with ones, and
+    // padded with zeroes according to the padding attribute of the numerator.
     for (Value input : denominator.getInputs()) {
       if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
         // If the denominator is a pool of a full op, then
