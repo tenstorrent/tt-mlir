@@ -24,6 +24,16 @@ class StableHLOBuilder(Builder):
     def __init__(self, ctx: Context, location: Location):
         super().__init__(ctx, location)
 
+        # output golden info for populating shlo
+        self._output_info: Dict[Operation, (Shape, Type)] = {}
+        self._output_create_fn: Dict[Operation, Callable] = {}
+
+    def populate_goldens(self):
+        for op, output_info in self._output_info.items():
+            output = self._output_create_fn[op](*output_info)
+            golden = self._goldens[op]
+            self._override_golden(output, golden)
+
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(
         self,
@@ -113,6 +123,10 @@ class StableHLOBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
             self._id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
+            self._output_info[op] = (output_shape, output_type)
+            self._output_create_fn[op] = (
+                output_create_fn if output_create_fn else self._empty
+            )
             return op
 
     def _eltwise_proxy(
@@ -302,6 +316,86 @@ class StableHLOBuilder(Builder):
             unreduced_axes,
         )
 
+    def tensor_sharding_per_value_attr(
+        self, shardings: List[sdy.TensorShardingAttr]
+    ) -> sdy.TensorShardingPerValueAttr:
+        """
+        Creates a tensor sharding per value attribute.
+        This attribute defines how each value in a tensor is sharded across the mesh.
+
+        Parameters
+        ----------
+        shardings : List[sdy.TensorShardingAttr]
+            A list of TensorShardingAttrs, one for each operand/result of an op.
+        Returns
+        -------
+        (*sdy.TensorShardingPerValueAttr*)
+            A tensor sharding per value attribute that describes how each value in a tensor is distributed across the mesh
+        """
+        return sdy.TensorShardingPerValueAttr.get(shardings)
+
+    def manual_axes_attr(
+        self,
+        axes: List[str],
+    ) -> sdy.ManualAxesAttr:
+        """
+        Creates a manual axes attribute.
+        This attribute defines a set of axes that can be used for manual computation or sharding.
+
+        Parameters
+        ----------
+        axes : List[str]
+            A list of axes on which a ManualComputationOp is manual
+
+        Returns
+        -------
+        (*sdy.ManualAxesAttr*)
+            A manual axes attribute representing the specified axes for manual computation or sharding
+        """
+        return sdy.ManualAxesAttr.get(axes)
+
+    def axis_ref_list_attr(
+        self,
+        value: List[sdy.AxisRefAttr],
+    ) -> sdy.AxisRefListAttr:
+        """
+        Creates an axis reference list attribute.
+        This attribute represents a list of axis references, which can be used to define
+        sharding patterns or manual computations.
+
+        Parameters
+        ----------
+        value : List[sdy.AxisRefAttr]
+            A list of axis reference attributes
+
+        Returns
+        -------
+        (*sdy.AxisRefListAttr*)
+            An axis reference list attribute representing the specified axes for sharding or manual computation
+        """
+        return sdy.AxisRefListAttr.get(value)
+
+    def list_of_axis_ref_lists_attr(
+        self,
+        value: List[sdy.AxisRefListAttr],
+    ) -> sdy.ListOfAxisRefListsAttr:
+        """
+        Creates a list of axis reference lists attribute.
+        This attribute represents a list of lists of axis references, which can be used to define
+        complex sharding patterns or manual computations.
+
+        Parameters
+        ----------
+        value : List[sdy.AxisRefAttr]
+            A list of lists of axis reference attributes
+
+        Returns
+        -------
+        (*sdy.ListOfAxisRefListsAttr*)
+            A list of axis reference lists attribute representing the specified axes for complex sharding or manual computation
+        """
+        return sdy.ListOfAxisRefListsAttr.get(value)
+
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
@@ -348,3 +442,101 @@ class StableHLOBuilder(Builder):
             A sharding constraint operation that applies the specified sharding to the input tensor
         """
         return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+
+    def manual_computation(
+        self,
+        in_shardings: sdy.TensorShardingPerValueAttr,
+        out_shardings: sdy.TensorShardingPerValueAttr,
+        manual_axes: sdy.ManualAxesAttr,
+    ) -> sdy.ManualComputationOp:
+        """
+        Creates a manual computation operation.
+        This operation enables multi-device parallelism with manual collectives by jumping into a region
+        written in terms of per-device local code with explicit collectives. The body is local with respect
+        to the manual_axes, while propagation occurs through the body on any free axes not in the manual_axes list.
+
+        Parameters
+        ----------
+        in_shardings : sdy.TensorShardingPerValueAttr
+            The tensor sharding per value attribute that defines how input tensors are sharded across the mesh
+        out_shardings : sdy.TensorShardingPerValueAttr
+            The tensor sharding per value attribute that defines how output tensors are sharded across the mesh
+        manual_axes : sdy.ManualAxesAttr
+            The manual axes attribute that specifies which axes are handled manually in the computation
+
+        Returns
+        -------
+        (*sdy.ManualComputationOp*)
+            A manual computation operation that encapsulates per-device local code with explicit collectives
+        """
+        return sdy.ManualComputationOp(
+            in_shardings=in_shardings,
+            out_shardings=out_shardings,
+            manual_axes=manual_axes,
+        )
+
+    def reduce_scatter(
+        self,
+        reduce_scatter_axes: sdy.ListOfAxisRefListsAttr,
+        out_sharding: sdy.TensorShardingAttr,
+    ) -> sdy.ReduceScatterOp:
+        """
+        Creates a reduce-scatter operation.
+        This operation performs a reduce-scatter communication along the specified axes by reducing chunks
+        of a tensor and then scattering the result along the same axes. It is essentially a combination
+        of an all-reduce followed by an all-slice along the same reduce_scatter_axes.
+
+        Parameters
+        ----------
+        reduce_scatter_axes : sdy.ListOfAxisRefListsAttr
+            A list of lists of axis references that specify the axes along which reduce-scatter should be performed
+        out_sharding : sdy.TensorShardingAttr
+            The tensor sharding attribute that defines the expected output sharding after the reduce-scatter operation
+
+        Returns
+        -------
+        (*sdy.ReduceScatterOp*)
+            A reduce-scatter operation that reduces and scatters tensor chunks along the specified axes
+        """
+        return sdy.ReduceScatterOp(
+            reduce_scatter_axes=reduce_scatter_axes, out_sharding=out_sharding
+        )
+
+    def reshard(self, in0: Operand, sharding: sdy.TensorShardingAttr) -> sdy.ReshardOp:
+        """
+        Creates a reshard operation.
+        This operation reshards the input tensor to a different sharding than its existing sharding.
+        Reshard operations are typically added during sharding propagation when a tensor needs to be
+        redistributed across the mesh with a different sharding pattern.
+
+        Parameters
+        ----------
+        in0 : Operand
+            The input tensor that needs to be resharded
+        sharding : sdy.TensorShardingAttr
+            The tensor sharding attribute that defines the target sharding for the input tensor
+
+        Returns
+        -------
+        (*sdy.ReshardOp*)
+            A reshard operation that redistributes the input tensor according to the specified sharding
+        """
+        return sdy.ReshardOp(in0, sharding)
+
+    def return_op(self, out0) -> sdy.ReturnOp:
+        """
+        Creates a return operation.
+        This operation terminates regions attached to sdy region-based operations and other Shardy
+        region-based operations. It is variadic and can take a list of values of any type as arguments.
+
+        Parameters
+        ----------
+        out0 : Any
+            The value(s) to be returned from the region. Can be a single value or a list of values
+
+        Returns
+        -------
+        (*sdy.ReturnOp*)
+            A return operation that terminates the region and returns the specified values
+        """
+        return sdy.ReturnOp(out0)
