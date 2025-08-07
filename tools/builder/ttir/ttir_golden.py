@@ -1161,7 +1161,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceScatterOp: reduce_scatter_golden,
     ttir.CollectivePermuteOp: collective_permute_golden,
     ttir.AllToAllOp: all_to_all_golden,
-    ttir.CollectiveBroadcastOp: collective_broadcast_golden,
+    # ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: torch.nn.functional.leaky_relu,
 }

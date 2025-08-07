@@ -211,3 +211,89 @@ def test_llama_attention(
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+conv2d_config = {
+    "weights_dtype": "f32",
+    "activation": "none",
+    "deallocate_activation": "false",
+    "reallocate_halo_output": "false",
+    "act_block_h_override": "0",
+    "act_block_w_div": "1",
+    "reshard_if_not_optimal": "false",
+    "override_sharding_config": "false",
+    "shard_layout": "height_sharded",
+    "core_grid": "#ttnn.core_range_set<>",
+    "transpose_shards": "true",
+    "output_layout": "tile",
+    "enable_act_double_buffer": "false",
+    "enable_weights_double_buffer": "false",
+    "enable_split_reader": "false",
+    "enable_subblock_padding": "false",
+}
+
+
+output_layout_overrides = {
+    "data_type": "f32",
+    "memory_layout": "tile",
+    "buffer_type": "l1",
+    "tensor_memory_layout": "interleaved",
+    "grid_shape": "[1x1]",
+}
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 32, 32, 64),
+            (64, 32, 3, 3),
+            (1, 1, 1, 64),
+            (1, 16, 28, 64),
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4], ids=["f32"])
+@pytest.mark.parametrize(
+    "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
+)
+def test_overrides_model(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    request,
+):
+    def model(
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+    ):
+        add_0 = builder.add(in0, in0)
+        builder.set_output_layout_override(output_layout_overrides, add_0)
+        conv2d_0 = builder.conv2d(
+            add_0,
+            weight,
+            bias,
+            in1,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+        builder.set_conv2d_config_override(conv2d_config, conv2d_0)
+        return conv2d_0
+
+    compile_ttir_to_flatbuffer(
+        model,
+        shapes,
+        dtypes,
+        optimization_policy="DF Sharding",
+        test_base=request.node.name,
+        output_root=request.config.getoption("path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
