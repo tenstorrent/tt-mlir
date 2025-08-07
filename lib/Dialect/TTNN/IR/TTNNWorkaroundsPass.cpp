@@ -631,4 +631,29 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
+
+// Factory method to create a set of workaround for SortOp operands.
+// tt-metal generates indices of type UInt16. Any mismatch between generated and
+// expected data type will cause runtime to assert.
+// Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  ttnn::SortOp sortOp = mlir::cast<ttnn::SortOp>(op);
+  auto indicesElementType = sortOp.getIndices().getType().getElementType();
+
+  TTNNOperandWorkarounds datatypeWorkaround;
+  if (!(indicesElementType.isInteger(16) &&
+        indicesElementType.isUnsignedInteger())) {
+    datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  }
+
+  // Empty workaround object for operands which do not require any changes.
+  TTNNOperandWorkarounds operandWorkaround;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(datatypeWorkaround);
+}
 } // namespace mlir::tt::ttnn::wa

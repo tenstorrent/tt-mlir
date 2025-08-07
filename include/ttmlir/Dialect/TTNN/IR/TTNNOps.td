@@ -1101,6 +1101,13 @@ def TTNN_SortOp : TTNN_Op<"sort"> {
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(*this);
+    }
+  }];
+
   let hasVerifier = 1;
 }
 

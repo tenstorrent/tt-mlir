@@ -12,7 +12,7 @@ module {
 // -----
 module {
   func.func @test_sort(%arg0: tensor<64x128xbf16>) -> (tensor<64x128xbf16>, tensor<64x128xbf16>) {
-    // CHECK: error: 'ttnn.sort' op Expected data type for indices is i16 but got 'bf16'
+    // CHECK: error: 'ttnn.sort' op Expected integer data type for indices but got 'bf16'
     %1, %2 = "ttnn.sort"(%arg0) <{dim = -1 : si8}> : (tensor<64x128xbf16>) -> (tensor<64x128xbf16>, tensor<64x128xbf16>)
     return %1, %2 : tensor<64x128xbf16>, tensor<64x128xbf16>
   }

@@ -286,6 +286,10 @@ public:
   static TTNNOperandsWorkarounds
   createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
                                         bool allDimensions);
+
+  // Create workarounds for sort op operands.
+  static TTNNOperandsWorkarounds
+  createSortOpOperandsWorkarounds(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa
