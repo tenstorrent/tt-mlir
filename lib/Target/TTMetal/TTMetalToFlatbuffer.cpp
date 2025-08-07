@@ -153,6 +153,15 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
   return extents;
 }
 
+static bool isDeviceDRAMMemspace(MemRefType memref) {
+  return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
+             .getValue() == ttcore::MemorySpace::DeviceDRAM;
+}
+static bool isDeviceL1Memspace(MemRefType memref) {
+  return mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
+             .getValue() == ttcore::MemorySpace::DeviceL1;
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                           MemRefType memref,
@@ -172,8 +181,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
 
-  if (mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace()).getValue() ==
-      ttcore::MemorySpace::DeviceDRAM) {
+  if (isDeviceDRAMMemspace(memref)) {
 
     // NOTE: for DRAM, the coreRangeSet is a core range set from (0,0) to
     // (num_banks=12,1)
@@ -283,9 +291,13 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
         shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
             cache, memref, device, elementShape);
 
+    // only generate CircularBufferConfig for L1 memspace
     flatbuffers::Offset<target::metal::CircularBufferConfig>
-        circularBufferConfig =
-            memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+        circularBufferConfig;
+    if (isDeviceL1Memspace(memref)) {
+      circularBufferConfig =
+          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+    }
 
     bufferDetailType = target::metal::BufferDetail::MetalBuffer;
     bufferDetail = target::metal::CreateMetalBuffer(*cache.fbb, bufferType,

@@ -17,11 +17,7 @@ from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 
-def compile_dma_test(test_func, shape, request, write_mlir_to_file=None):
-
-    if write_mlir_to_file is not None:
-        with open(write_mlir_to_file, "w") as f:
-            f.write(str(build_mlir_module(test_func, [shape])[0]))
+def compile_dma_test(test_func, shape, request):
 
     # Back to back tolayout ops are normally folded during canonicalization into
     # a single ToLayoutOp representing the final result. The option

@@ -586,7 +586,7 @@ public:
 
 namespace {
 
-Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
+static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
   // This is required because we blanket convert Memrefs into CBs with a type
   // converter, however there are actually two paths a memref can take:
   // 1. It can be a CBType, which is the case for local memrefs
@@ -598,9 +598,9 @@ Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
       ->getResult(0);
 }
 
-Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                      ValueRange index, ttcore::ChipDescAttr chipDesc,
-                      ttcore::MemorySpace memspace) {
+static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
+                             ValueRange index, ttcore::ChipDescAttr chipDesc,
+                             ttcore::MemorySpace memspace) {
   assert(memspace == ttcore::MemorySpace::DeviceL1 ||
          memspace == ttcore::MemorySpace::DeviceDRAM);
   auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
@@ -634,8 +634,8 @@ Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
 }
 
 template <typename ReadWritePtrOp>
-Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
-                     ValueRange index) {
+static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
+                            ValueRange index) {
   // Use the cb addr as the write address since it is local.
   Value baseAddr = rewriter.create<ReadWritePtrOp>(loc, cb);
   auto offset =
@@ -653,8 +653,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::DMAReadOp op, ttir::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    llvm::dbgs() << "Calling TTIRDMAReadRewriter matchAndRewrite ... \n";
 
     auto device = ttcore::lookupDevice(op);
     auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);

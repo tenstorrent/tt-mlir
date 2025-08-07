@@ -378,6 +378,7 @@ void mlir::tt::ttir::DMAReadOp::getEffects(
                        0 /*stage*/, true /*effectOnFullRegion*/,
                        mlir::SideEffects::DefaultResource::get());
 }
+
 ::mlir::LogicalResult mlir::tt::ttir::DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
