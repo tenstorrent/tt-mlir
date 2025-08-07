@@ -224,37 +224,25 @@ public:
     // we're creating a layout (host -> device transition)
     if (!baseLayout) {
       assert(newMemSpace.has_value());
-
-      // Infer collapse intervals from reference layout if available
-      DenseIntElementsAttr collapseIntervals;
-      if (referenceLayout) {
-        // Copy collapse behavior from reference
-        collapseIntervals = referenceLayout.getCollapsedIntervals();
-      }
+      assert(referenceLayout);
 
       // Create grid shape based on whether we're collapsing or not
       llvm::SmallVector<int64_t> logicalGridShape;
       if (newGrid.has_value()) {
         logicalGridShape.assign(newGrid->begin(), newGrid->end());
       } else {
-        // If we have a reference layout, match its grid rank
-        if (referenceLayout) {
-          auto refType = RankedTensorType::get(baseType.getShape(), elementType,
-                                               referenceLayout);
-          auto refGrid = referenceLayout.getGridShape(refType);
-          logicalGridShape =
-              getOnesPaddedGridShape(workerGridShape, refGrid.size());
-        } else {
-          // Default: match tensor rank
-          logicalGridShape = getOnesPaddedGridShape(workerGridShape,
-                                                    baseType.getShape().size());
-        }
+        auto refType = RankedTensorType::get(baseType.getShape(), elementType,
+                                             referenceLayout);
+        auto refGrid = referenceLayout.getGridShape(refType);
+        logicalGridShape =
+            getOnesPaddedGridShape(workerGridShape, refGrid.size());
       }
 
       // Create the layout
       auto newLayout = ttcore::MetalLayoutAttr::get(
           ctx, baseType.getShape(), logicalGridShape, ttcore::OOBVal::Undef,
-          *newMemSpace, collapseIntervals);
+          *newMemSpace, referenceLayout.getCollapsedIntervals(),
+          referenceLayout.getDimAlignments());
 
       // For physical shape derivation, use tile shape ONLY if element type is
       // tiled
@@ -311,6 +299,7 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
+    op->dump();
     auto components = op.compoundComponents();
 
     if (!components.isCompound()) {
