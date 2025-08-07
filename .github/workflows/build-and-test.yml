@@ -465,7 +465,7 @@ jobs:
     needs:
       - build-image
       - build-ttmlir
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && (needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files) }}
     runs-on:
       - n150
       - in-service
