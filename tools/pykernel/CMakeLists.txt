@@ -32,3 +32,6 @@ add_custom_command(TARGET TTPykernelModules POST_BUILD
     COMMAND PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r ${CMAKE_CURRENT_BINARY_DIR}/pykernel_requirements.txt
     COMMAND PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install ${PYKERNEL_EXTRA_PIP_PACKAGES}
 )
+
+# Add dependency to ensure tt-metal is downloaded before the command runs
+add_dependencies(TTPykernelModules tt-metal-download)
