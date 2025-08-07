@@ -24,6 +24,7 @@ void SFPIDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/SFPI/IR/SFPIOps.cpp.inc"
       >();
+  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/SFPI/IR/SFPIOpsAttrs.cpp.inc"

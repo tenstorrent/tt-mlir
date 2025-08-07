@@ -29,9 +29,13 @@ bool isSFPIVectorType(mlir::Type type, llvm::StringRef elementType) {
   auto elemType = vectorType.getElementType();
   if (elementType == "f32") {
     return elemType.isF32();
-  } else if (elementType == "i32") {
+  }
+
+  if (elementType == "i32") {
     return elemType.isInteger(32); // Accept any 32-bit integer type
-  } else if (elementType == "ui32") {
+  }
+
+  if (elementType == "ui32") {
     return elemType.isInteger(32) && elemType.isUnsignedInteger();
   }
 
