@@ -82,6 +82,64 @@ install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
   INCLUDES DESTINATION include
+  COMPONENT tt-alchemist-runtime
+)
+
+# Install the main library header
+install(FILES
+  ${TT_ALCHEMIST_HOME}/include/tt-alchemist/tt_alchemist_c_api.hpp
+  DESTINATION include/tt-alchemist
+  COMPONENT tt-alchemist-dev
+)
+
+# Install Python API
+install(DIRECTORY
+  ${TT_ALCHEMIST_HOME}/python/tt_alchemist/
+  DESTINATION python/tt_alchemist
+  COMPONENT tt-alchemist-python
+  FILES_MATCHING PATTERN "*.py"
+  PATTERN "cli.py" EXCLUDE
+)
+
+# Install tt-alchemist library in lib subdirectory relative to Python API
+install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
+  LIBRARY DESTINATION python/tt_alchemist/lib
+  COMPONENT tt-alchemist-python
+)
+
+# Install tt-metal dependencies in lib subdirectory relative to Python API
+# These files are needed at runtime for the tt-alchemist library to function
+if(DEFINED TTMETAL_LIBRARY_DIR AND EXISTS ${TTMETAL_LIBRARY_DIR})
+  install(FILES
+    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
+    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
+    ${TTMETAL_LIBRARY_DIR}/libdevice.so
+    DESTINATION python/tt_alchemist/lib
+    COMPONENT tt-alchemist-python
+    OPTIONAL
+  )
+endif()
+
+# Create convenience targets for installing specific components
+add_custom_target(install-tt-alchemist-runtime
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component tt-alchemist-runtime --prefix ${CMAKE_INSTALL_PREFIX}
+  DEPENDS ${ALCHEMIST_LIBRARY_NAME}
+  COMMENT "Installing tt-alchemist runtime components (library and dependencies)"
+)
+
+add_custom_target(install-tt-alchemist-dev
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component tt-alchemist-dev --prefix ${CMAKE_INSTALL_PREFIX}
+  COMMENT "Installing tt-alchemist development headers"
+)
+
+add_custom_target(install-tt-alchemist-python
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component tt-alchemist-python --prefix ${CMAKE_INSTALL_PREFIX}
+  COMMENT "Installing tt-alchemist Python API"
+)
+
+add_custom_target(install-tt-alchemist-all
+  DEPENDS install-tt-alchemist-runtime install-tt-alchemist-dev install-tt-alchemist-python
+  COMMENT "Installing all tt-alchemist components"
 )
 
 # Include component installation utilities
