@@ -26,6 +26,11 @@ module {
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
+    // CHECK-SAME: -> tensor<3xi32,
+    // CHECK: "ttnn.constant"()
+    // CHECK-SAME: value = dense<
+    // CHECK-SAME: 1.000000e-01, 2.000000e-01, 3.000000e-01
+    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.requantize"
     // CHECK-SAME: <{axis = 1 : i32, output_dtype = #ttcore.supportedDataTypes<si32>}
     // CHECK-SAME: tensor<1x3x320x320x!quant.uniform<i32:f32:1, {1.000000e-01,2.000000e-01,3.000000e-01}>,

@@ -74,7 +74,7 @@ struct Tensor {
   }
 
   // Returns a compatible APInt or APFloat which can be operated with the tensor
-  // data
+  // data.
   template <typename NativeNumericType>
   NumericType getTensorCompatibleAPValue(NativeNumericType value) const {
     if constexpr (std::is_same_v<float, NativeNumericType>) {
@@ -102,12 +102,12 @@ struct Tensor {
 
   int64_t getVolume() const { return volume; }
 
-  // Returnst a mutable reference to the element at a given shape index
+  // Returns a mutable reference to the element at a given shape index.
   NumericType &operator[](ArrayRef<int64_t> index) {
     return operator[](getFlatIndexFromStride(index, strides));
   }
 
-  // Returns a const reference to the element at a given shape index
+  // Returns a const reference to the element at a given shape index.
   const NumericType &operator[](ArrayRef<int64_t> index) const {
     if (isSplat) {
       return data[0];

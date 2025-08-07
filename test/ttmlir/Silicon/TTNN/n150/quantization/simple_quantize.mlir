@@ -28,6 +28,9 @@ module {
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<3xsi32,
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense<[0.00999999977, 2.000000e-02, 3.000000e-02]> : tensor<3xf32>
+    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: axis = 1 : i32
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<si32>

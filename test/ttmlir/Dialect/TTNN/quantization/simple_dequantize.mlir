@@ -25,6 +25,10 @@ module {
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
+    // CHECK-SAME: -> tensor<3xsi32,
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense<[2.000000e-02, 0.00999999977, 5.000000e-03]> : tensor<3xf32>
+    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: axis = 0 : i32
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
