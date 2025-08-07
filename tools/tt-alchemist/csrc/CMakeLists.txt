@@ -120,6 +120,13 @@ if(DEFINED TTMETAL_LIBRARY_DIR AND EXISTS ${TTMETAL_LIBRARY_DIR})
   )
 endif()
 
+# Install templates directory at the same level as lib folder
+install(DIRECTORY
+  ${TT_ALCHEMIST_HOME}/templates/
+  DESTINATION python/tt_alchemist/templates
+  COMPONENT tt-alchemist-python
+)
+
 # Create convenience targets for installing specific components
 add_custom_target(install-tt-alchemist-runtime
   COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component tt-alchemist-runtime --prefix ${CMAKE_INSTALL_PREFIX}
