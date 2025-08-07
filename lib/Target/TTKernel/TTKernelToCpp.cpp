@@ -182,8 +182,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
 
-    if (threadType == ThreadType::Compute ||
-        hasCall("experimental::invoke_sfpi")) {
+    if (hasVerbatim("experimental::invoke_sfpi")) {
       builder->create<emitc::VerbatimOp>(
           loc, StringRef(experimental_invoke_sfpi_llks_generated,
                          experimental_invoke_sfpi_llks_generated_len));
@@ -194,6 +193,11 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     return hasOp<emitc::CallOpaqueOp>([=](emitc::CallOpaqueOp op) {
       return op.getCallee().starts_with(name);
     });
+  }
+
+  bool hasVerbatim(StringRef name) {
+    return hasOp<emitc::VerbatimOp>(
+        [=](emitc::VerbatimOp op) { return op.getValue().starts_with(name); });
   }
 
   template <typename OpT>

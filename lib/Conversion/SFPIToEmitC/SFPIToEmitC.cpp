@@ -44,7 +44,7 @@ public:
             (vectorType.getElementType().isF32() ||
              vectorType.getElementType().isInteger(32))) {
           // Convert to __rvtt_vec_t (represented as opaque type)
-          auto context = type.getContext();
+          auto *context = type.getContext();
           return emitc::OpaqueType::get(context, "sfpi::__rvtt_vec_t");
         }
       }
