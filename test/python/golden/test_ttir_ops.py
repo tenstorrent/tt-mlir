@@ -1370,7 +1370,7 @@ def test_argmax(shapes, dim_arg, request):
     )
 
 
-@pytest.mark.skip("`reverse` doesn't have a legalization. See issue #2495")
+@pytest.mark.xfail(reason="`reverse` doesn't have a legalization. See issue #2495")
 @pytest.mark.parametrize("shape", [(64, 64)])
 @pytest.mark.parametrize("dims", [[0, 1]])
 def test_reverse(shape: Shape, dims: List[int], request):
@@ -1388,7 +1388,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.skip("See issue #3685")
+@pytest.mark.xfail(reason="See issue #3685")
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -1419,9 +1419,8 @@ def reduce_or(
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
+# Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
@@ -2189,18 +2188,16 @@ def test_hoisted_reshape(shapes, request, target: str):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_dims",
+    "shapes,dims",
     [
         # [(input_shape, output_shape), permutation]
-        [[(2, 3, 4), (2, 4, 3)], [2, 1]],
-        [[(128, 128), (128, 128)], [1, 0]],
-        [[(128, 64, 32), (32, 64, 128)], [0, 2]],
+        ([(2, 3, 4), (2, 4, 3)], [2, 1]),
+        ([(128, 128), (128, 128)], [1, 0]),
+        ([(128, 64, 32), (32, 64, 128)], [0, 2]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_transpose(shapes_and_dims, request, target: str):
-    shapes, dims = shapes_and_dims
-
+def test_hoisted_transpose(shapes, dims, request, target: str):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
         # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
@@ -2496,7 +2493,8 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
-        (transpose, [(64, 32)], None),
+        (transpose, [(64, 32)], [torch.float32]),
+        (reshape, [(64, 32)], [torch.float32]),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
@@ -2567,7 +2565,9 @@ def test_slice(
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.skip("Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883")
+@pytest.mark.xfail(
+    reason="Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883"
+)
 def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
@@ -2591,18 +2591,17 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_broadcast_dims",
+    "shapes,broadcast_dims",
     [
         # [(input_shape, output_shape), broadcast_dimensions]
-        [[(1, 1, 32), (1, 16, 32)], [1, 16, 1]],
-        [[(128, 1), (128, 64)], [1, 64]],
-        [[(1, 128), (64, 128)], [64, 1]],
+        ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),
+        ([(128, 1), (128, 64)], [1, 64]),
+        ([(1, 128), (64, 128)], [64, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
+def test_hoisted_broadcast(shapes, broadcast_dims, request, target: str):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
-    shapes, broadcast_dimensions = shapes_and_broadcast_dims
 
     def broadcast_wrapper(
         in0: Operand,
@@ -2611,7 +2610,7 @@ def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
         unit_attrs: Optional[List[str]] = None,
     ):
         return broadcast(
-            in0, in1, builder, broadcast_dimensions, unit_attrs=["ttir.should_hoist"]
+            in0, in1, builder, broadcast_dims, unit_attrs=["ttir.should_hoist"]
         )
 
     broadcast_wrapper.__name__ = "hoisted_broadcast"
@@ -2739,11 +2738,12 @@ def test_gather(
 
 @x86_only
 @pytest.mark.parametrize(
-    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),  # Simple 1D indices
         (
             (8, 16, 32),
+            torch.float32,
             (4, 2, 2),
             [0, 2],
             [1],
@@ -2752,13 +2752,13 @@ def test_gather(
     ],
     ids=["simple_1d", "complex_indices"],
 )
-# Note: Doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-@pytest.mark.skip(
-    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
-)
+# Note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
+# Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849
+@pytest.mark.run_error
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
+    input_dtype: torch.dtype,
     indices_shape: Shape,
     start_index_map: List[int],
     offset_dims: List[int],
@@ -2776,6 +2776,7 @@ def test_hoisted_gather(
             start_index_map,
             offset_dims,
             slice_sizes,
+            input_dtype,
             unit_attrs=["ttir.should_hoist"],
         )
 

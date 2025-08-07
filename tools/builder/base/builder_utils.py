@@ -28,6 +28,33 @@ from builder.base.builder import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 
+# ----- Exception Classes -----
+
+
+class TTIRCompileException(Exception):
+    """Exception raised when TTIR compilation fails during compile_ttir_to_flatbuffer."""
+
+    pass
+
+
+class TTIRRuntimeException(Exception):
+    """Exception raised when compiled TTIR code fails during runtime execution.
+
+    This exception is reserved for future use when runtime execution is implemented.
+    """
+
+    pass
+
+
+class TTIRGoldenException(Exception):
+    """Exception raised when TTIR output doesn't match expected golden results.
+
+    This exception is reserved for future use when golden verification is implemented.
+    """
+
+    pass
+
+
 # ----- Private APIs -----
 
 
@@ -386,43 +413,52 @@ def compile_ttir_to_flatbuffer(
     else:
         raise ValueError("Unsupported target: " + target)
 
-    # Compile model to TTIR MLIR
-    module, builder = build_ttir_module(
-        fn,
-        inputs_shapes,
-        inputs_types,
-        mesh_name=mesh_name,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        output_root=output_root,
-    )
+    try:
+        # Compile model to TTIR MLIR
+        module, builder = build_ttir_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            output_root=output_root,
+        )
+    except Exception as e:
+        raise TTIRCompileException(e)
 
     output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
-    # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = _run_ttir_pipeline(
-        module,
-        pipeline_fn,
-        pipeline_options=pipeline_options,
-        dump_to_file=module_dump,
-        output_file_name=output_file_mlir,
-        system_desc_path=system_desc_path,
-        mesh_dict=mesh_dict,
-        argument_types_string=argument_types_string,
-    )
+    try:
+        # Compile TTIR MLIR -> TT{Metal,NN} MLIR
+        module = _run_ttir_pipeline(
+            module,
+            pipeline_fn,
+            pipeline_options=pipeline_options,
+            dump_to_file=module_dump,
+            output_file_name=output_file_mlir,
+            system_desc_path=system_desc_path,
+            mesh_dict=mesh_dict,
+            argument_types_string=argument_types_string,
+        )
+    except Exception as e:
+        raise TTIRCompileException(e)
+
     print(f"{target} pipeline ran successfully.")
 
     module_logger = MLIRModuleLogger()
     module_logger.attach_context(module.context)
 
-    # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_target(
-        module,
-        output_file_fbb,
-        builder.golden_map,
-        module_logger.module_log if module_logger.module_log else [],
-    )
+    try:
+        # Compile TT{Metal,NN} MLIR -> flatbuffer
+        to_target(
+            module,
+            output_file_fbb,
+            builder.golden_map,
+            module_logger.module_log if module_logger.module_log else [],
+        )
+    except Exception as e:
+        raise TTIRCompileException(e)
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
     return output_file_mlir
 
