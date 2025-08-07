@@ -41,6 +41,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <iostream>
 
 namespace mlir::tt::ttnn {
 
@@ -482,6 +483,8 @@ public:
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
+      std::cout << "L1 interleaved fallback analysis enabled: "
+                << l1InterleavedFallbackAnalysisEnabled << std::endl;
       if (l1InterleavedFallbackAnalysisEnabled) {
         L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
             getAnalysis<L1InterleavedFallbackAnalysis>();
