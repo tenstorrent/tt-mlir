@@ -144,7 +144,7 @@ protected:
   ::mlir::Pass::Option<bool> l1InterleavedFallbackAnalysisEnabled{
       *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
       ::llvm::cl::desc("Enable L1 interleaved optimization."),
-      ::llvm::cl::init(false)};
+      ::llvm::cl::init(true)};
   ::mlir::Pass::Option<bool> memReconfigEnabled{
       *this, OptionNames::memReconfigEnabled,
       ::llvm::cl::desc("Memory layout reconfiguration pass."),
