@@ -97,6 +97,7 @@ class Builder:
         inputs: List[torch.Tensor],
         outputs: Optional[List[torch.Tensor]] = None,
         override: bool = False,
+        check_level: GoldenCheckLevel = GoldenCheckLevel.GRAPH_LEVEL,
     ) -> None:
         for index, tensor in enumerate(inputs):
             input_key = f"input_{index}"
@@ -119,7 +120,7 @@ class Builder:
             self._id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
-            self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
+            self.golden_check_level = check_level
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
                 if not override and output_key in self._id_golden_map:
