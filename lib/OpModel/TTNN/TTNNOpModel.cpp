@@ -2215,9 +2215,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        &::ttnn::operations::conv::conv2d::prepare_conv_weights<
-            ::tt::tt_metal::distributed::MeshDevice>,
-        device, weightTensor, conversion::getMemoryConfig(inputMemConfig),
+        &::ttnn::operations::conv::conv2d::prepare_conv_weights, device,
+        weightTensor, conversion::getMemoryConfig(inputMemConfig),
         conversion::getPageLayout(inputTensorLayout), weightsFormat.str(),
         inChannels, outChannels, batchSize, inputHeight, inputWidth,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
