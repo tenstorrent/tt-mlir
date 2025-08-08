@@ -1387,7 +1387,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -1427,7 +1426,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
@@ -1575,7 +1573,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());

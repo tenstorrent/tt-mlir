@@ -13,6 +13,7 @@ from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 from .types import *
+from .kernel_types import *
 
 
 def get_supported_nodes():
@@ -617,6 +618,17 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
+        def _load_func_arg(func_arg):
+            if not func_arg:
+                raise ValueError(f"Function argument not found for {node.func.id}")
+            if hasattr(func_arg, "type") and isinstance(
+                func_arg.type, memref.MemRefType
+            ):
+                func_arg = memref.LoadOp(
+                    func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                )
+            return func_arg
+
         if not isinstance(node.func, ast.Attribute):
             # if not an Attribute, it's just a kernel api call.
             assert (
@@ -630,22 +642,16 @@ class TTKernelCompiler(ast.NodeVisitor):
             assert len(node.args) == len(args_as_attr)
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
-                func_arg = self.visit(arg)
-                if not func_arg:
-                    raise ValueError(f"Function argument not found for {node.func.id}")
-
-                if hasattr(func_arg, "type") and isinstance(
-                    func_arg.type, memref.MemRefType
-                ):
-                    func_arg = memref.LoadOp(
-                        func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
-                    )
-
+                func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
 
-            return func(*func_args)  # how do i make sure the types are correct?
+            return func(*func_args)  # type checking will occur downstream
         else:
-            self.visit(node.func)
+            func_args = []
+            for arg in node.args:
+                func_arg = _load_func_arg(self.visit(arg))
+                func_args.append(func_arg)
+            self.visit(node.func, func_args=func_args)  # visit_Attribute
 
     # Expressions
     def visit_Expr(self, node):
@@ -908,12 +914,27 @@ class TTKernelCompiler(ast.NodeVisitor):
             idx = arith.IndexCastOp(IndexType.get(self.ctx), idx)
             return memref.LoadOp(arr, idx)
 
-    def visit_Attribute(self, node):
-        # TODO(vtang): Unsure how to get the lvalue type of operand w emitc pybinds rn
-        # emitc::LValueType::get(adaptor.getDataFormat().getType())
-        # operand_lvalue = emitc.LValueType.get()
-        # emitc.member(IntegerType.get_signless(32, self.ctx), node.attr, operand)
-        raise NotImplementedError("Attributes not supported yet")
+    def visit_Attribute(self, node, func_args=[]):
+        # type name should be !ttkernel.* if it has attributes
+        mlir_value = self.var_exists(node.value.id)[node.value.id]
+        mlir_type = str(mlir_value.type)
+        if not mlir_type.startswith("!ttkernel."):
+            raise ValueError(
+                f"{node.value.id} is not a ttkernel type, thus can not have attributes."
+            )
+        # ignore the '!' at the start of the type name
+        type_name = mlir_type[1:]
+
+        if ClassRegistry.exists(type_name):
+            # Instantiate class and call its emit_mlir method.
+            func_args = [mlir_value] + func_args
+            attr_class = ClassRegistry.get(type_name)()
+            attr_class.emit_mlir(node.attr, func_args)
+        else:
+            raise ValueError(
+                f"{node.value.id} has no attributes. Did you define a PyKernelAttributesBase subclass?"
+            )
+        return
 
     def visit_List(self, node):
         # Snoop List for nested loops and get size
@@ -1012,7 +1033,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                 f"constant type {type(node.value).__name__} not implemented"
             )
 
-    def visit(self, node: ast.AST):
+    def visit(self, node: ast.AST, **kwargs):
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):
@@ -1022,7 +1043,12 @@ class TTKernelCompiler(ast.NodeVisitor):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code, [])
-            return super().visit(node)
+
+            # Figure out which node to visit. Not using super().visit() in order to pass kwargs.
+            method_name = "visit_" + node.__class__.__name__
+            visitor = getattr(self, method_name, self.generic_visit)
+
+            return visitor(node, **kwargs)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 

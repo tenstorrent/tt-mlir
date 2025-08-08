@@ -250,9 +250,6 @@ public:
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 
   static TTNNOperandsWorkarounds
-  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
-
-  static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
   // Create workarounds for binary op operands.

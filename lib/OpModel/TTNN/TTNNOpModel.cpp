@@ -404,11 +404,9 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        &::ttnn::operations::conv::conv2d::prepare_conv_weights<
-            ::tt::tt_metal::distributed::MeshDevice>,
-        device, weightTensor, inputSpec.memory_config(), inputSpec.layout(),
-        "OIHW", in_channels, out_channels, batch_size, input_height,
-        input_width,
+        &::ttnn::operations::conv::conv2d::prepare_conv_weights, device,
+        weightTensor, inputSpec.memory_config(), inputSpec.layout(), "OIHW",
+        in_channels, out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
@@ -423,8 +421,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv_transpose2d::
-            prepare_conv_transpose2d_weights<
-                ::tt::tt_metal::distributed::MeshDevice>,
+            prepare_conv_transpose2d_weights,
         device, weightTensor, inputSpec.memory_config(), inputSpec.layout(),
         "IOHW", in_channels, out_channels, batch_size, input_height,
         input_width,
@@ -490,8 +487,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
-  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_bias<
-      ::tt::tt_metal::distributed::MeshDevice>;
+  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_bias;
   // Create query closure
   auto prepareConv2dBiasOpQuery = [=]() {
     ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;

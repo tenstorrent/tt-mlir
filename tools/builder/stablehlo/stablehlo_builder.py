@@ -86,7 +86,7 @@ class StableHLOBuilder(Builder):
                     self._get_golden_tensor(inputs[0]).dtype
                 )
             elif not output_type:
-                output_type = self._get_default_dtype()
+                output_type = self._default_type
 
             id = self._get_next_global_id()
             loc = (

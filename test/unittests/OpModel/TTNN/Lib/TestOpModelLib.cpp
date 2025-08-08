@@ -1580,7 +1580,7 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{false, 0, 0, 0})));
+                        detail::ExpectedResult{true, 0, 0, 0})));
 
 class OpModelConvTranspose2dParam
     : public OpModelTest,

@@ -1190,7 +1190,7 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
     )
 
 
-# TODO: these three nullary tensor creation ops can probably be combined in some way
+# TODO (ctod): These three nullary tensor creation ops can probably be combined in some way.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_zeros(shape: Shape, request):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -1954,6 +1954,38 @@ def test_hoisted_where(shapes, request, target: str):
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # [input_shape, output_shape]
+        [(128, 128), (16384,)],  # Flatten 2D to 1D
+        [(24,), (2, 3, 4)],  # Unflatten 1D to 3D
+        [(2, 3, 4), (6, 4)],  # 3D to 2D reshape
+        [(128, 128), (64, 256)],  # 2D to 2D different arrangement
+        [(1, 1, 1), (1,)],  # Edge case: all dimensions are 1
+        [(10,), (10,)],  # Identity reshape
+        [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
+        [(256, 256), (512, 128)],  # Power of 2 reshape
+        [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_reshape(shapes, dtype: torch.dtype, request):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+        return builder.reshape(in0, output_shape)
+
+    compile_ttir_to_flatbuffer(
+        reshape_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @x86_only
 @pytest.mark.parametrize(
     "shapes",
@@ -2237,7 +2269,6 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], None),
-        (reshape, [(64, 32)], None),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],

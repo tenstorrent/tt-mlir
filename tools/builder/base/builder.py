@@ -171,6 +171,7 @@ class Builder:
         self._seed += 1
         return seed
 
+    # Generates a random PyTorch tensor with the specified shape, dtype, and seed for testing.
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo], seed: int
     ) -> torch.Tensor:
@@ -194,9 +195,11 @@ class Builder:
                 dtype=dtype,
             )
 
-    def _get_default_dtype(self) -> Type:
+    @property
+    def _default_type(self) -> Type:
         return F32Type.get(self._ctx)
 
+    # Extracts a RankedTensorType from a Value, OpView, or Operation, ensuring the type is ranked.
     def _get_type(self, input: Operand):
         if isinstance(input, Value):
             typ = input.type
@@ -234,17 +237,19 @@ class Builder:
         else:
             return loc
 
+    # Creates an MLIR RankedTensorType from a shape, optional data type, and optional encoding.
     def _create_ranked_tensor_type(
         self,
         shape: Shape,
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = data_type if data_type is not None else self._default_type
 
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
+    # Converts a torch.dtype or TypeInfo (with optional scale and zero_point) into the corresponding MLIR type.
     def _get_type_from_torch_dtype(
         self,
         dtype: Union[torch.dtype, TypeInfo],
