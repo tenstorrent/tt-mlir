@@ -6,15 +6,15 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttir_builder.utils import (
-    compile_to_flatbuffer,
-    Marks,
-    shape_str,
-    build_mlir_module,
-)
-from ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
+
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.ttir import ttir_golden
+from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+
+from test_utils import Marks, shape_str
 
 
 def compile_dma_test(test_func, shape, request):
@@ -30,12 +30,13 @@ def compile_dma_test(test_func, shape, request):
             f"ttir-to-ttmetal-be-pipeline{pipeline_options}",
         ]
     )
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         test_func,
         [shape],
         target="ttmetal",
         custom_pipeline=pipeline,
         test_base=request.node.name,
+        print_ir="ir_dump",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -74,7 +75,7 @@ def test_roundtrip_dma_tiled(
         # tilize the tensor on a single worker
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 shape,
                 tiled=True,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
@@ -85,7 +86,7 @@ def test_roundtrip_dma_tiled(
         # WRITE tensor from L1 to initial shard layout
         tensor_layoutA = builder.to_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 start_shard_shape,
                 tiled=True,
                 memorySpace=memory_space,
@@ -97,7 +98,7 @@ def test_roundtrip_dma_tiled(
         # READ sharded layout to final sharded layout
         tensor_layoutB = builder.to_layout(
             tensor_layoutA,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 end_shard_shape,
                 tiled=True,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
@@ -145,7 +146,7 @@ def test_roundtrip_dma_rowmajor(
 
         to_device = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 shape, tiled=False, memorySpace=ttcore.MemorySpace.DeviceL1
             ),
             unit_attrs=unit_attrs,
@@ -167,7 +168,7 @@ def test_roundtrip_dma_rowmajor(
         # WRITE L1 to initial shard layout
         tensor_layoutA = builder.to_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 start_shard_shape,
                 tiled=False,
                 memorySpace=memory_space,
@@ -179,7 +180,7 @@ def test_roundtrip_dma_rowmajor(
         # READ sharded layout to final sharded layout
         tensor_layoutB = builder.to_layout(
             tensor_layoutA,
-            output_type=builder.metal_tensor_layout(
+            output_type=builder.get_metal_tensor_layout(
                 end_shard_shape,
                 tiled=False,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
