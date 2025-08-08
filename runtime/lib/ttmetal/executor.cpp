@@ -333,25 +333,6 @@ void MCQExecutor::execute(
   LOG_ASSERT(src);
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
   mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
-
-  // DEBUG: Print first 64 values to check both tiles
-  float *float_src = static_cast<float *>(src);
-  LOG_INFO("EnqueueWriteBuffer - First 64 values:");
-  for (int i = 0; i < 64; i++) {
-    if (i % 8 == 0) {
-      LOG_INFO("");
-    }
-    LOG_INFO("  [", i, "]=", float_src[i]);
-  }
-
-  // Also print some values from the middle to check 3D layout
-  LOG_INFO("Values at indices 4096-4160 (third z-slice):");
-  for (int i = 4096; i < 4096 + 64; i++) {
-    if ((i - 4096) % 8 == 0) {
-      LOG_INFO("");
-    }
-    LOG_INFO("  [", i, "]=", float_src[i]);
-  }
 }
 
 void MCQExecutor::execute(
@@ -362,24 +343,6 @@ void MCQExecutor::execute(
   LOG_ASSERT(dst);
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
-
-  // DEBUG: Print what we read back
-  float *float_dst = static_cast<float *>(dst);
-  LOG_INFO("EnqueueReadBuffer - First 64 values:");
-  for (int i = 0; i < 64; i++) {
-    if (i % 8 == 0) {
-      LOG_INFO("");
-    }
-    LOG_INFO("  [", i, "]=", float_dst[i]);
-  }
-
-  LOG_INFO("Values at indices 4096-4160 (third z-slice):");
-  for (int i = 4096; i < 4096 + 64; i++) {
-    if ((i - 4096) % 8 == 0) {
-      LOG_INFO("");
-    }
-    LOG_INFO("  [", i, "]=", float_dst[i]);
-  }
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
