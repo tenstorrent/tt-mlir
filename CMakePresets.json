@@ -1,0 +1,151 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+      "major": 3,
+      "minor": 20,
+      "patch": 0
+    },
+    "configurePresets": [
+      {
+        "name": "default",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Debug",
+          "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+          "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++-17",
+          "CMAKE_C_COMPILER": "clang-17",
+          "TTMLIR_ENABLE_RUNTIME": "OFF",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
+          "TTMLIR_ENABLE_STABLEHLO": "OFF",
+          "TTMLIR_ENABLE_OPMODEL": "OFF",
+          "TTMLIR_ENABLE_OPMODEL_TESTS": "OFF"
+        }
+      },
+      {
+        "name": "release",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "ON",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "ON",
+          "TTMLIR_ENABLE_STABLEHLO": "ON",
+          "TTMLIR_ENABLE_OPMODEL": "ON",
+          "TTMLIR_ENABLE_OPMODEL_TESTS": "ON"
+        }
+      },
+      {
+        "name": "perf",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Debug",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "ON",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "ON",
+          "TT_RUNTIME_ENABLE_PERF_TRACE": "ON",
+          "TTMLIR_ENABLE_EXPLORER": "ON"
+        }
+      },
+      {
+        "name": "asan",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Asan",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "ON",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "ON",
+          "TTMLIR_ENABLE_STABLEHLO": "ON",
+          "TTMLIR_ENABLE_BINDINGS_PYTHON": "OFF",
+          "TTMLIR_ENABLE_SHARED_LIB": "ON"
+        }
+      },
+      {
+        "name": "ubsan",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "UBsan",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "ON",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "ON",
+          "TTMLIR_ENABLE_STABLEHLO": "ON",
+          "TTMLIR_ENABLE_BINDINGS_PYTHON": "OFF",
+          "TTMLIR_ENABLE_SHARED_LIB": "ON"
+        }
+      },
+      {
+        "name": "asan-macos",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Asan",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "OFF",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
+          "TTMLIR_ENABLE_STABLEHLO": "ON",
+          "TTMLIR_ENABLE_BINDINGS_PYTHON": "OFF",
+          "TTMLIR_ENABLE_SHARED_LIB": "ON"
+        }
+      },
+      {
+        "name": "macos",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++",
+          "CMAKE_C_COMPILER": "clang",
+          "TTMLIR_ENABLE_RUNTIME": "OFF",
+          "TT_RUNTIME_DEBUG": "OFF",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF"
+        }
+      },
+      {
+        "name": "cuda",
+        "hidden": false,
+        "generator": "Ninja",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Debug",
+          "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+          "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+          "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+          "CMAKE_CXX_COMPILER": "clang++-17",
+          "CMAKE_C_COMPILER": "clang-17",
+          "TTMLIR_ENABLE_RUNTIME": "ON",
+          "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
+          "TT_RUNTIME_ENABLE_CUDA": "ON",
+          "TT_RUNTIME_ENABLE_TTNN": "OFF",
+          "TT_RUNTIME_ENABLE_TTMETAL": "OFF",
+          "TTMLIR_ENABLE_STABLEHLO": "OFF",
+          "TTMLIR_ENABLE_OPMODEL": "OFF",
+          "TTMLIR_ENABLE_OPMODEL_TESTS": "OFF"
+        }
+      }
+    ]
+  }

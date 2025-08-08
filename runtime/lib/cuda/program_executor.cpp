@@ -4,6 +4,7 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstddef>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -100,7 +101,28 @@ void ProgramExecutor::execute() {
   }
   void *returnPtr = nullptr;
   void *returnTensor = tensorMap[program->return_variable()->str()];
-  cudaMemcpy(returnPtr, returnTensor, sizeof(float), cudaMemcpyDeviceToHost);
+  std::string returnTypeStr =
+      memrefDescMap[program->return_variable()->str()]->type()->str();
+  int64_t returnDim = 1;
+  while (returnTypeStr.find("x") != std::string::npos) {
+    returnDim *= std::stoi(returnTypeStr.substr(0, returnTypeStr.find("x")));
+    returnTypeStr = returnTypeStr.substr(returnTypeStr.find("x") + 1);
+  }
+  size_t returnSize = getDim(returnTypeStr) * returnDim;
+  llvm::outs() << "Return size: " << returnSize << "\n";
+  cudaMemcpy(returnPtr, returnTensor, returnSize, cudaMemcpyDeviceToHost);
+  if (!returnPtr) {
+    llvm::errs() << "Failed to copy return value\n";
+    return;
+  }
+  float *returnFloatPtr = reinterpret_cast<float *>(returnPtr);
+  for (size_t i = 0; i < returnSize; i++) {
+    llvm::outs() << returnFloatPtr[i] << " ";
+  }
+  llvm::outs() << "\n";
+  for (const auto &pair : tensorMap) {
+    cudaFree(pair.second);
+  }
 }
 
 void ProgramExecutor::runKernel(const ::gpu::Kernel *kernel) {
