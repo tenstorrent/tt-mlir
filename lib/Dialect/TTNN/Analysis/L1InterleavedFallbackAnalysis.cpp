@@ -23,7 +23,7 @@
 namespace mlir::tt::ttnn {
 
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
-  std::cout << "L1InterleavedFallbackAnalysis: Starting analysis" << std::endl;
+  std::cerr << "L1InterleavedFallbackAnalysis: Starting analysis" << std::endl;
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved
   analysisInput.funcOp->walk([&](Operation *op) {

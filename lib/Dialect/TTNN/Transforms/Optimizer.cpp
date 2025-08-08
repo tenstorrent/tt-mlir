@@ -483,7 +483,7 @@ public:
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
-      std::cout << "L1 interleaved fallback analysis enabled: "
+      std::cerr << "L1 interleaved fallback analysis enabled: "
                 << l1InterleavedFallbackAnalysisEnabled << std::endl;
       if (l1InterleavedFallbackAnalysisEnabled) {
         L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
