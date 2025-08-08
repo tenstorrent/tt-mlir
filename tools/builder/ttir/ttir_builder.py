@@ -3289,7 +3289,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor of zeros with specified shape
         """
-        output = self._create_ranked_tensor_type(shape)
+        output = self.create_ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._get_default_dtype()
         return self._op_proxy(
             ttir.ZerosOp,
@@ -3321,7 +3321,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor of ones with specified shape
         """
-        output = self._create_ranked_tensor_type(shape)
+        output = self.create_ranked_tensor_type(shape)
         return self._op_proxy(
             ttir.OnesOp,
             [],

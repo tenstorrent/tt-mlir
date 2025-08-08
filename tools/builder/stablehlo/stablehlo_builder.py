@@ -403,6 +403,8 @@ class StableHLOBuilder(Builder):
 
     def manual_computation(
         self,
+        results: List[Operand],
+        tensors: List[Operand],
         in_shardings: sdy.TensorShardingPerValueAttr,
         out_shardings: sdy.TensorShardingPerValueAttr,
         manual_axes: sdy.ManualAxesAttr,
@@ -428,6 +430,8 @@ class StableHLOBuilder(Builder):
             A manual computation operation that encapsulates per-device local code with explicit collectives
         """
         return sdy.ManualComputationOp(
+            results_=results,
+            tensors=tensors,
             in_shardings=in_shardings,
             out_shardings=out_shardings,
             manual_axes=manual_axes,
@@ -456,7 +460,6 @@ class StableHLOBuilder(Builder):
         return self._op_proxy(
             sdy.ReshardOp,
             [in0],
-            # golden_kwargs={"exponent": 1},
             stablehlo_kwargs={"sharding": sharding},
         )
 

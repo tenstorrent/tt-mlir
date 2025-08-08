@@ -129,6 +129,17 @@ class Builder:
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
 
+    def create_ranked_tensor_type(
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+        encoding: Optional[Attribute] = None,
+    ) -> RankedTensorType:
+        dtype = data_type if data_type is not None else self._get_default_dtype()
+
+        with self._ctx, self._loc:
+            return RankedTensorType.get(shape, dtype, encoding)
+
     # ----- Private methods -----
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
@@ -233,17 +244,6 @@ class Builder:
             return Location.name(loc)
         else:
             return loc
-
-    def _create_ranked_tensor_type(
-        self,
-        shape: Shape,
-        data_type: Optional[Type] = None,
-        encoding: Optional[Attribute] = None,
-    ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._get_default_dtype()
-
-        with self._ctx, self._loc:
-            return RankedTensorType.get(shape, dtype, encoding)
 
     def _get_type_from_torch_dtype(
         self,
@@ -352,7 +352,7 @@ class Builder:
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         dtype = data_type if data_type is not None else self._get_default_dtype()
         return self._create_empty_from_tensor_type(
-            shape, self._create_ranked_tensor_type(shape, dtype)
+            shape, self.create_ranked_tensor_type(shape, dtype)
         )
 
     def _create_empty_from_tensor_type(

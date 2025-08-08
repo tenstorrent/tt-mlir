@@ -207,7 +207,7 @@ def build_ttir_module(
 
     with ctx, loc:
         fn_input_types = [
-            ttir_builder._create_ranked_tensor_type(
+            ttir_builder.create_ranked_tensor_type(
                 shape,
                 ttir_builder._get_type_from_torch_dtype(
                     dtype if isinstance(dtype, torch.dtype) else dtype
@@ -468,7 +468,7 @@ def build_stablehlo_module(
 
     with ctx, loc:
         fn_input_types = [
-            stablehlo_builder._create_ranked_tensor_type(
+            stablehlo_builder.create_ranked_tensor_type(
                 shape,
                 stablehlo_builder._get_type_from_torch_dtype(
                     dtype if isinstance(dtype, torch.dtype) else dtype
@@ -507,6 +507,8 @@ def build_stablehlo_module(
                 ]
                 stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
+
+        stablehlo_pipeline(module)
 
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
 
@@ -615,8 +617,7 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
-    stablehlo_pipeline(module)
-    print(module)
+
     stablehlo_to_ttir_pipeline(module)
     print(module)
     builder.populate_goldens()
