@@ -270,6 +270,28 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   return sharded_buffer_config;
 }
 
+static flatbuffers::Offset<target::metal::InterleavedBufferConfig>
+memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
+                                              MemRefType memref,
+                                              ttcore::DeviceAttr device,
+                                              target::Dim2d elementShape) {
+  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      memref.getLayout());
+  assert(!deviceLayout &&
+         "Sharded buffers cannot have interleaved config objects");
+
+  auto tile =
+      mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
+  assert(tile && "non-tiled layouts are not supported");
+  uint64_t pageSize = tile.getSizeBytes();
+  uint64_t numTiles = memref.getNumElements();
+  uint64_t size = ttmlir::utils::alignUp(
+      static_cast<size_t>(numTiles * pageSize), pageSize);
+
+  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                      pageSize);
+}
+
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                            MemRefType memref,
@@ -310,23 +332,35 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
         cache, mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
                    .getValue());
 
-    flatbuffers::Offset<target::metal::ShardedBufferConfig>
-        shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
-            cache, memref, device, elementShape);
+    bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
+    if (isSharded) {
 
-    // only generate CircularBufferConfig for L1 memspace
-    flatbuffers::Offset<target::metal::CircularBufferConfig>
-        circularBufferConfig;
-    if (isMemrefDeviceL1Memspace(memref)) {
-      circularBufferConfig =
-          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+      flatbuffers::Offset<target::metal::ShardedBufferConfig>
+          shardedBufferConfig = createShardedBufferConfigForL1Memref(
+              cache, memref, device, elementShape);
+
+      // only generate CircularBufferConfig for L1 memspace
+      flatbuffers::Offset<target::metal::CircularBufferConfig>
+          circularBufferConfig =
+              memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+
+      bufferDetailType = target::metal::BufferDetail::MetalBuffer;
+      bufferDetail = target::metal::CreateMetalBuffer(*cache.fbb, bufferType,
+                                                      shardedBufferConfig,
+                                                      circularBufferConfig)
+                         .Union();
+    } else {
+      // must be interleaved if not sharded
+      flatbuffers::Offset<target::metal::InterleavedBufferConfig>
+          interleavedBufferConfig =
+              memrefTypeToInterleavedBufferConfigFlatbuffer(
+                  cache, memref, device, elementShape);
+      bufferDetailType = target::metal::BufferDetail::MetalBufferInterleaved;
+      bufferDetail = target::metal::CreateMetalBufferInterleaved(
+                         *cache.fbb, bufferType, interleavedBufferConfig)
+                         .Union();
     }
 
-    bufferDetailType = target::metal::BufferDetail::MetalBuffer;
-    bufferDetail = target::metal::CreateMetalBuffer(*cache.fbb, bufferType,
-                                                    shardedBufferConfig,
-                                                    circularBufferConfig)
-                       .Union();
   } else {
     std::vector<int32_t> stride =
         ttmlir::utils::castContainer<std::vector<int32_t>>(
