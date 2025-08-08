@@ -2307,12 +2307,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
-            golden_kwargs={"dim": dimension},
+            ttir_kwargs={"dimension": dimension},
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
                 o,
-                dimension,
             ),
             unit_attrs=unit_attrs,
         )
@@ -3477,7 +3476,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
-            golden_kwargs={"repeats": tuple(repeat_dims)},
+            # golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
@@ -3485,6 +3484,7 @@ class TTIRBuilder(Builder):
                 "arange_dimension": arange_dimension,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+            # DHRUV TODO
             organize_golden_args=lambda i: [],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(
