@@ -498,7 +498,7 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
 
 def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
-    Golden function for logical_not operation with custom int8 output.
+    Golden function for logical_not operation with custom int16 output.
 
     Parameters
     ----------
@@ -510,11 +510,74 @@ def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        Tensor with logical NOT of input tensor, with int8 dtype
+        Tensor with logical NOT of input tensor, with int16 dtype
     """
-    # Create output tensor with int8 dtype
-    out = torch.empty_like(input_tensor, dtype=torch.int8)
-    return torch.logical_not(input_tensor, out=out)
+    # Compute bool result then cast to match input dtype
+    result_bool = torch.logical_not(input_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.eq(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def not_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.ne(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def greater_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.ge(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def greater_than_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.gt(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def less_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.le(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def less_than_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.lt(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_and_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.logical_and(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_or_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.logical_or(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_xor_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    result_bool = torch.logical_xor(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
 
 
 def max_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -791,7 +854,7 @@ def gather_golden(
         raise NotImplementedError("General gather not implemented")
 
 
-def tilize_golden(input_tensor, tilize=True):
+def tilize_golden(input_tensor, tilize=True, **kwargs):
     """
     Custom golden function for tilize operation.
 
@@ -833,7 +896,7 @@ def tilize_golden(input_tensor, tilize=True):
     return tilized
 
 
-def untilize_golden(input_tensor, tilize=False):
+def untilize_golden(input_tensor, tilize=False, **kwargs):
     """
     Custom golden function for untilize operation.
 
@@ -1821,18 +1884,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RemainderOp: torch.remainder,
     ttir.PowOp: torch.pow,
     # Comparison operations
-    ttir.EqualOp: torch.eq,
-    ttir.NotEqualOp: torch.ne,
-    ttir.GreaterEqualOp: torch.ge,
-    ttir.GreaterThanOp: torch.gt,
-    ttir.LessEqualOp: torch.le,
-    ttir.LessThanOp: torch.lt,
+    ttir.EqualOp: equal_golden,
+    ttir.NotEqualOp: not_equal_golden,
+    ttir.GreaterEqualOp: greater_equal_golden,
+    ttir.GreaterThanOp: greater_than_golden,
+    ttir.LessEqualOp: less_equal_golden,
+    ttir.LessThanOp: less_than_golden,
     # Logical operations
-    ttir.LogicalAndOp: torch.logical_and,
-    ttir.LogicalOrOp: torch.logical_or,
-    ttir.LogicalXorOp: torch.logical_xor,
-    ttir.LogicalNotOp: torch.logical_not,
-    # ttir.LogicalNotOp: logical_not_golden,
+    ttir.LogicalAndOp: logical_and_golden,
+    ttir.LogicalOrOp: logical_or_golden,
+    ttir.LogicalXorOp: logical_xor_golden,
+    ttir.LogicalNotOp: logical_not_golden,
     # Selection operations
     ttir.WhereOp: torch.where,
     # Bitwise operations
