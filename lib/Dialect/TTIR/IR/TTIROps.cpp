@@ -2335,7 +2335,6 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
-namespace mlir::tt::ttir {
 struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
@@ -2344,8 +2343,8 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     setDebugName("ttir.ToLayoutFoldRedundantPattern");
   }
 
-  mlir::LogicalResult
-  matchAndRewrite(ToLayoutOp op, mlir::PatternRewriter &rewriter) const final {
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
     ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
     if (!producerLayoutOp) {
       return failure();
@@ -2355,7 +2354,6 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     return success();
   }
 };
-} // namespace mlir::tt::ttir
 
 static ::mlir::LogicalResult
 verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,

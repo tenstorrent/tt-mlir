@@ -37,12 +37,16 @@ class TTIRBuilder(Builder):
         tiled=False,
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
+        grid: Optional[Tuple[int, int]] = None,
     ):
         ctx = self._ctx
 
         # Create grid shape by 1s filling logical rank.
-        original_rank = len(shape)
-        grid_shape = [1] * original_rank
+        if grid is None:
+            original_rank = len(shape)
+            grid_shape = [1] * original_rank
+        else:
+            grid_shape = list(grid)
 
         # Create layout with original logical shape.
         layout = ttcore.ir.MetalLayoutAttr.get(

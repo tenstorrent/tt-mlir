@@ -143,8 +143,8 @@ createMeshBufferFromBufferRef(
       metalBuffer->buffer_type() == target::BufferType::DRAM
           ? tt_metal::BufferType::DRAM
           : tt_metal::BufferType::L1;
-  uint32_t address = deviceAddressValidator(bufferRef->address(),
-                                            bufferRef->desc()->memory_space());
+  uint32_t address =
+      deviceAddressValidator(bufferRef->address(), metalBuffer->buffer_type());
 
   auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
   auto distributedBufferShape =
@@ -495,20 +495,23 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
                              std::shared_ptr<tt_metal::distributed::MeshBuffer>>
         &meshBuffers) {
   const auto *bufferDesc = cbRef->buffer_ref()->desc();
-  ::tt::DataFormat dataFormat = common::toDataFormat(bufferDesc->data_type());
   LOG_ASSERT(cbRef->buffer_ref());
   LOG_ASSERT(bufferDesc->buffer_detail_type() ==
              target::metal::BufferDetail::MetalBuffer);
   const target::metal::MetalBuffer *metalBuffer =
       bufferDesc->buffer_detail_as_MetalBuffer();
+  LOG_ASSERT(metalBuffer->circular_buffer_config(),
+             "createCircularBufferConfig: config cannot be null");
+
+  ::tt::DataFormat dataFormat = common::toDataFormat(bufferDesc->data_type());
   LOG_TRACE(logger::LogRuntimeTTMetalCircularBufferCreation,
             "Creating circular buffer ", logger::Port(cbRef->port()), " ",
             logger::Buffer(cbRef->buffer_ref()->global_id()), " ",
             logger::Address(cbRef->buffer_ref()->address()), ": ",
-            *bufferDesc->circular_buffer_config());
+            metalBuffer->circular_buffer_config());
   auto meshBuffer = meshBuffers.at(cbRef->buffer_ref()->global_id());
   return tt_metal::CircularBufferConfig(
-             bufferDesc->circular_buffer_config()->total_size(),
+             metalBuffer->circular_buffer_config()->total_size(),
              {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
       .set_page_size(cbRef->port(),
                      metalBuffer->circular_buffer_config()->page_size());
