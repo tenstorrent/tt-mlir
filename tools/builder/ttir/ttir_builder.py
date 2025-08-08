@@ -3476,7 +3476,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
-            # golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
