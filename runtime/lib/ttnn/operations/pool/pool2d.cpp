@@ -37,7 +37,6 @@ void runAvgPool2dOp(
   std::array<uint32_t, 2> kernelSize, stride;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
-  // std::copy_n(op->padding()->begin(), 2, padding.begin());
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
@@ -45,25 +44,23 @@ void runAvgPool2dOp(
         *op->applied_shard_scheme());
   }
 
-  ::ttnn::Tensor out;
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
   if (op->padding()->size() == 2) {
-    std::array<uint32_t, 2> padding;
-    std::copy_n(op->padding()->begin(), 2, padding.begin());
-    out = ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
-                 op->channels(), kernelSize, stride, padding, op->ceil_mode(),
-                 true, std::nullopt, outputMemoryConfig, appliedShardScheme,
-                 op->in_place_halo());
+    padding =
+        std::array<uint32_t, 2>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(1))};
   } else {
-    std::array<uint32_t, 4> padding = {
-        static_cast<uint32_t>(op->padding()->Get(0)),
-        static_cast<uint32_t>(op->padding()->Get(2)),
-        static_cast<uint32_t>(op->padding()->Get(1)),
-        static_cast<uint32_t>(op->padding()->Get(3))};
-    out = ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
-                 op->channels(), kernelSize, stride, padding, op->ceil_mode(),
-                 true, std::nullopt, outputMemoryConfig, appliedShardScheme,
-                 op->in_place_halo());
+    padding =
+        std::array<uint32_t, 4>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(2)),
+                                static_cast<uint32_t>(op->padding()->Get(1)),
+                                static_cast<uint32_t>(op->padding()->Get(3))};
   }
+  ::ttnn::Tensor out =
+      ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
+             op->channels(), kernelSize, stride, padding, op->ceil_mode(),
+             /*count_include_pad=*/true, /*divisor_override=*/std::nullopt,
+             outputMemoryConfig, appliedShardScheme, op->in_place_halo());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -97,25 +94,23 @@ void runMaxPool2dOp(
         *op->applied_shard_scheme());
   }
 
-  ::ttnn::Tensor out;
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
   if (op->padding()->size() == 2) {
-    std::array<uint32_t, 2> padding;
-    std::copy_n(op->padding()->begin(), 2, padding.begin());
-    out = ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
-                 op->channels(), kernelSize, stride, padding, dilation,
-                 op->ceil_mode(), outputMemoryConfig, appliedShardScheme,
-                 op->in_place_halo());
+    padding =
+        std::array<uint32_t, 2>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(1))};
   } else {
-    std::array<uint32_t, 4> padding = {
-        static_cast<uint32_t>(op->padding()->Get(0)),
-        static_cast<uint32_t>(op->padding()->Get(2)),
-        static_cast<uint32_t>(op->padding()->Get(1)),
-        static_cast<uint32_t>(op->padding()->Get(3))};
-    out = ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
-                 op->channels(), kernelSize, stride, padding, dilation,
-                 op->ceil_mode(), outputMemoryConfig, appliedShardScheme,
-                 op->in_place_halo());
+    padding =
+        std::array<uint32_t, 4>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(2)),
+                                static_cast<uint32_t>(op->padding()->Get(1)),
+                                static_cast<uint32_t>(op->padding()->Get(3))};
   }
+
+  ::ttnn::Tensor out = ttnnOp(
+      input, op->batch_size(), op->input_height(), op->input_width(),
+      op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
+      outputMemoryConfig, appliedShardScheme, op->in_place_halo());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
