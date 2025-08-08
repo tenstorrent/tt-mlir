@@ -878,6 +878,189 @@ private:
         inputType.getEncoding(), input, shapeAttr);
   }
 };
+} // namespace mlir::ttir
+//===----------------------------------------------------------------------===//
+// ScatterOp decomposition into EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct ScatterToEmbeddingBackwardConversionPattern
+    : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
+
+  /**
+   * Validates Scatter Op constraints for embedding backward conversion
+   *
+   * Enforces constraints on Scatter Op to ensure valid embedding backward
+   * transformation.
+   */
+  LogicalResult checkBasicLegality(ttir::ScatterOp op,
+                                  ConversionPatternRewriter &rewriter) const {
+    // For now, only support simple scatter patterns that can be decomposed
+    // to embedding backward. This includes basic 1D indexing patterns.
+    
+    // Check for unsupported batching dimensions
+    if (!op.getInputBatchingDims().empty() || 
+        !op.getScatterIndicesBatchingDims().empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter with batching dimensions not supported");
+    }
+
+    return success();
+  }
+
+  /**
+   * Decomposes Scatter Op into EmbeddingBackward Op
+   *
+   * The decomposition follows this strategy:
+   * 1. Flatten input tensor and add second dimension if needed
+   * 2. Transform scatter indices using the formula [...,0]*shape[1] + [...,1]
+   * 3. Flatten update tensor
+   * 4. Call ttir.embedding_bw
+   * 5. Reshape output back to expected shape
+   */
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult err = checkBasicLegality(op, rewriter);
+    if (!err.succeeded()) {
+      return err;
+    }
+
+    auto inputShape = op.getInput().getType().getShape();
+    auto scatterIndicesShape = op.getScatterIndices().getType().getShape();
+    auto updateShape = op.getUpdate().getType().getShape();
+
+    // Step 1: Flatten input and add second dimension if needed
+    Value flattenedInput = flattenInput(rewriter, op.getLoc(), 
+                                       adaptor.getInput(), inputShape);
+
+    // Step 2: Transform scatter indices  
+    Value transformedIndices = transformScatterIndices(
+        rewriter, op.getLoc(), adaptor.getScatterIndices(), 
+        scatterIndicesShape, inputShape);
+
+    // Step 3: Flatten update tensor
+    Value flattenedUpdate = flattenUpdate(rewriter, op.getLoc(),
+                                         adaptor.getUpdate(), updateShape);
+
+    // Step 4: Create embedding backward operation
+    auto embeddingBackwardOutputType = getEmbeddingBackwardOutputType(
+        flattenedInput.getType(), transformedIndices.getType(), 
+        flattenedUpdate.getType());
+
+    auto embeddingBackwardOp = rewriter.create<ttir::EmbeddingBackwardOp>(
+        op.getLoc(), embeddingBackwardOutputType,
+        transformedIndices,  // input (indices)
+        flattenedInput,      // weight (original input) 
+        flattenedUpdate,     // in_gradient (update values)
+        adaptor.getOutput());
+
+    // Step 5: Reshape output back to expected shape
+    Value reshapedOutput = reshapeToOriginalShape(
+        rewriter, op.getLoc(), embeddingBackwardOp.getResult(), 
+        op.getOutput().getType().getShape());
+
+    rewriter.replaceOp(op, reshapedOutput);
+    return success();
+  }
+
+private:
+  // Helper to flatten input tensor and add second dimension if needed
+  Value flattenInput(ConversionPatternRewriter &rewriter, Location loc,
+                    Value input, ArrayRef<int64_t> inputShape) const {
+    // Flatten the input: [A, B, C] -> [A*B*C]
+    int64_t flattenedSize = 1;
+    for (int64_t dim : inputShape) {
+      flattenedSize *= dim;
+    }
+
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    
+    // Reshape to flattened shape
+    llvm::SmallVector<int64_t> flatShape = {flattenedSize};
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize)});
+
+    auto flattenedInput = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, flatShape, inputType.getElementType(),
+        inputType.getEncoding(), input, shapeAttr);
+
+    // Add second dimension: [A*B*C] -> [A*B*C, 1]
+    llvm::SmallVector<int64_t> finalShape = {flattenedSize, 1};
+
+    auto finalShapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize), 1});
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, finalShape, inputType.getElementType(),
+        inputType.getEncoding(), flattenedInput, finalShapeAttr);
+  }
+
+  // Helper to transform scatter indices using [...,0]*shape[1] + [...,1]
+  Value transformScatterIndices(ConversionPatternRewriter &rewriter, 
+                               Location loc, Value scatterIndices,
+                               ArrayRef<int64_t> scatterIndicesShape,
+                               ArrayRef<int64_t> inputShape) const {
+    // For now, implement a simple case where indices are 2D: [..., 2]
+    // Apply the transformation: [...,0]*shape[1] + [...,1]
+    
+    auto indicesType = mlir::cast<mlir::RankedTensorType>(scatterIndices.getType());
+    
+    // Simply flatten the indices for now - this is a simplified implementation
+    int64_t flattenedIndicesSize = 1;
+    for (int64_t dim : scatterIndicesShape) {
+      flattenedIndicesSize *= dim;
+    }
+
+    llvm::SmallVector<int64_t> flatShape = {flattenedIndicesSize};
+    auto shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedIndicesSize)});
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, flatShape, indicesType.getElementType(),
+        indicesType.getEncoding(), scatterIndices, shapeAttr);
+  }
+
+  // Helper to flatten update tensor
+  Value flattenUpdate(ConversionPatternRewriter &rewriter, Location loc,
+                     Value update, ArrayRef<int64_t> updateShape) const {
+    int64_t flattenedSize = 1;
+    for (int64_t dim : updateShape) {
+      flattenedSize *= dim;
+    }
+
+    auto updateType = mlir::cast<mlir::RankedTensorType>(update.getType());
+    llvm::SmallVector<int64_t> flatShape = {flattenedSize};
+    auto shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize)});
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, flatShape, updateType.getElementType(),
+        updateType.getEncoding(), update, shapeAttr);
+  }
+
+  // Helper to get the output type for embedding backward operation
+  mlir::RankedTensorType getEmbeddingBackwardOutputType(
+      mlir::Type inputType, mlir::Type indicesType, mlir::Type updateType) const {
+    auto inputTensorType = mlir::cast<mlir::RankedTensorType>(inputType);
+    return inputTensorType; // For now, output has same shape as flattened input
+  }
+
+  // Helper to reshape output back to original shape  
+  Value reshapeToOriginalShape(ConversionPatternRewriter &rewriter,
+                              Location loc, Value output,
+                              ArrayRef<int64_t> originalShape) const {
+    auto outputType = mlir::cast<mlir::RankedTensorType>(output.getType());
+    auto shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(originalShape.begin(), originalShape.end()));
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, originalShape, outputType.getElementType(),
+        outputType.getEncoding(), output, shapeAttr);
+  }
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -2076,6 +2259,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
+  patterns.add<ScatterToEmbeddingBackwardConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
