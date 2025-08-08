@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -532,6 +533,91 @@ public:
   }
 };
 
+// This pattern decomposes BatchNorm op into basic arithmetic ops
+// so that it can be fused using existing patterns.
+class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
+  using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
+
+public:
+  // Pattern:
+  // batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
+  //   (x - mean) / sqrt(variance + epsilon) * scale + offset
+
+  mlir::LogicalResult
+  matchAndRewrite(BatchNormOp batchNormOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Used only paired with convolution
+    Operation *definingOp = batchNormOp.getOperand().getDefiningOp();
+
+    if (!definingOp ||
+        !(isa<Conv2dOp>(definingOp) && definingOp->hasOneUse())) {
+      return mlir::failure();
+    }
+
+    // get all attributes
+    auto scale = batchNormOp.getScale();
+    auto offset = batchNormOp.getOffset();
+    auto mean = batchNormOp.getMean();
+    auto variance = batchNormOp.getVariance();
+    auto input = batchNormOp.getOperand();
+    auto epsilon = batchNormOp.getEpsilon();
+
+    Location loc = batchNormOp.getLoc();
+    RankedTensorType resultType = batchNormOp.getResult().getType();
+
+    RankedTensorType scalarType =
+        RankedTensorType::get({1}, variance.getType().getElementType(),
+                              variance.getType().getEncoding());
+
+    // Convert epsilon to a tensor
+    auto epsilonTensor = rewriter.create<FullOp>(
+        loc, scalarType, rewriter.getF32FloatAttr(epsilon.convertToFloat()));
+
+    // variance + epsilon
+    auto variancePlusEpsilon = utils::createDPSOp<AddOp>(
+        rewriter, loc, variance.getType(), variance, epsilonTensor);
+
+    // std = sqrt(variance + epsilon)
+    auto std = utils::createDPSOp<SqrtOp>(rewriter, loc, variance.getType(),
+                                          variancePlusEpsilon);
+    // alpha = scale / std
+    auto alpha =
+        utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
+
+    // beta = offset - alpha * mean
+    auto alphaMean = utils::createDPSOp<MultiplyOp>(
+        rewriter, loc, mean.getType(), mean, alpha);
+
+    auto beta = utils::createDPSOp<AddOp>(rewriter, loc, offset.getType(),
+                                          offset, alphaMean);
+
+    // Reshape all parameters from (C) to (1, C, 1, 1) to match the input shape
+    // of (N, C, H, W)
+    SmallVector<int64_t> reshapeShape = {1, std.getType().getShape()[0], 1, 1};
+    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                         reshapeShape.end());
+    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+        alpha.getType().getEncoding(), alpha,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, beta.getType().getElementType(),
+        beta.getType().getEncoding(), beta,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    // alpha * x
+    auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
+                                                 input, alphaReshaped);
+    // alpha * x + beta
+    auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
+                                            betaReshaped);
+
+    rewriter.replaceOp(batchNormOp, result);
+
+    return mlir::success();
+  }
+};
 class CacheFillUpdatePattern : public mlir::OpRewritePattern<ScatterOp> {
   using mlir::OpRewritePattern<ScatterOp>::OpRewritePattern;
 
@@ -1193,6 +1279,8 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+
+      patterns.add<BatchNormDecomposition>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
