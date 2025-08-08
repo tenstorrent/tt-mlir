@@ -16,6 +16,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <iostream>
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -1364,9 +1365,9 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 
 // If a config has been specified, use that. Otherwise, use the op property.
-static Conv2dAttrs
-unpackConvTranspose2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
-                           ConvTranspose2dOp op) {
+template <typename OpT>
+static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     OpT op) {
   assert((std::holds_alternative<Conv2dAttrs>(attrs) ||
           std::holds_alternative<UninitializedAttrs>(attrs)) &&
          "Please create a Conv2dAttrs or leave it to be uninitialized.");
@@ -1374,14 +1375,14 @@ unpackConvTranspose2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
   // ATM, ConvTranspose2dOp doesn't have a DeviceComputeKernelConfig attribute.
   // Default it to nullptr.
   if (std::holds_alternative<UninitializedAttrs>(attrs)) {
-    return Conv2dAttrs{op.getConv2dConfig(), nullptr};
+    return Conv2dAttrs{op.getConv2dConfig(), std::nullopt};
   }
 
   Conv2dAttrs conv2dAttrs = std::get<Conv2dAttrs>(attrs);
 
   return Conv2dAttrs{conv2dAttrs.conv2dConfig ? conv2dAttrs.conv2dConfig
                                               : op.getConv2dConfig(),
-                     nullptr};
+                     std::nullopt};
 }
 
 llvm::Expected<op_model::OpConstraints>
@@ -1407,8 +1408,7 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   // If a conv config has been specified, use that. If not, read the op property
-  Conv2dAttrs conv2dAttrs =
-      unpackConvTranspose2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ConvTranspose2dOp>::getOpConstraints, *this, deviceGrid,
@@ -1435,8 +1435,7 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   // If a conv config has been specified, use that. If not, read the op property
-  Conv2dAttrs conv2dAttrs =
-      unpackConvTranspose2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ConvTranspose2dOp>::getOpRuntime, *this, inputShape,
@@ -1445,6 +1444,60 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getKernelSize(), getStride(), getPadding(), getOutputPadding(),
       getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
       opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// query_op_runtime has to execute the op to measure the runtime (and not just
+// invoke the op in NO_DISPATCH mode as query_op_constraint does). Therefore,
+// any op that writes to memory, such as EmptyOp,ArangeOp, ZerosOp, OnesOp,
+// etc., triggers a runtime error (`Writes are not supported during trace
+// capture.`). As a consequence, we disable the runtime measurement for these
+// ops. Alternatively, we could avoid defining the getOpRuntime API for such
+// ops, but that would prevent us from the ultimate goal of supporting
+// getOpRuntime and getOpConstraint for "all" ttnn ops. This is
+// tracked/described here:
+// https://github.com/tenstorrent/tt-mlir/issues/4199#issuecomment-3140045496
+static llvm::Expected<size_t> issueErrorForGetOpRuntime(mlir::Operation *op) {
+  auto opName = op->getName().getStringRef();
+  return llvm::make_error<llvm::StringError>(
+      "opRuntime is not supported for " + opName.str() +
+          " since it requires memory IO.",
+      llvm::inconvertibleErrorCode());
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const ::llvm::ArrayRef<int64_t> weightShape =
+      getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+
+  std::cout << "before going to the detailed function" << std::endl;
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraints, *this,
+      deviceGrid, inputs[0], weightShape, getInputMemoryConfig(),
+      getInputTensorLayout(), getWeightsFormat(), getInChannels(),
+      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
+      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
+      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PrepareConv2dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(getOperation());
 }
 
 //===----------------------------------------------------------------------===//

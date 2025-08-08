@@ -1601,6 +1601,107 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+template <typename OpT>
+std::string getOpRuntimeExpectedErrorMessage(OpT op) {
+  auto opName = op->getName().getStringRef();
+  return "opRuntime is not supported for " + opName.str() +
+         " since it requires memory IO.";
+}
+
+TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
+  // It makes more sense to create a conv2d op and then derive the
+  // prepareConv2dWeightsOp from it:
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+  Type elementType = builder.getBF16Type();
+  auto inputLayout = TTNNLayoutAttr::get(
+      &context, inputShape, elementType, BufferType::DRAM,
+      ttcore::GridAttr::get(&context),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elementType, inputLayout);
+
+  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elementType,
+                                          BufferType::SystemMemory,
+                                          ttcore::GridAttr::get(&context));
+  auto weight = createEmptyTensor(weightShape, elementType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+  auto outputDtype = ttcore::DataTypeAttr::get(
+      &context, ttcore::elementTypeToDataType(outputType.getElementType()));
+
+  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      MeshShapeAttr::get(builder.getContext(), 1, 1),
+      MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+
+  // Now create PrepareConv2dWeightsOp using Conv2d op parameters
+  auto inputMemConfigAttr = MemoryConfigAttr::get(
+      &context,
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved),
+      BufferTypeAttr::get(&context, BufferType::DRAM), std::nullopt);
+
+  auto inputLayoutAttr = LayoutAttr::get(&context, Layout::RowMajor);
+  auto inputDtypeAttr = ttcore::DataTypeAttr::get(
+      &context, ttcore::elementTypeToDataType(elementType));
+
+  // Get expected prepared weights output shape
+  auto preparedWeightOutputType =
+      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d);
+
+  PrepareConv2dWeightsOp prepareConv2dWeights =
+      builder.create<PrepareConv2dWeightsOp>(
+          builder.getUnknownLoc(),       // Location
+          preparedWeightOutputType,      // Output type (derived from conv2d)
+          conv2d.getWeight(),            // Weight tensor from conv2d
+          inputMemConfigAttr,            // Input memory config
+          inputLayoutAttr,               // Input tensor layout
+          builder.getStringAttr("OIHW"), // Weights format
+          conv2d.getInChannelsAttr(),    // Input channels from conv2d
+          conv2d.getOutChannelsAttr(),   // Output channels from conv2d
+          conv2d.getBatchSizeAttr(),     // Batch size from conv2d
+          conv2d.getInputHeightAttr(),   // Input height from conv2d
+          conv2d.getInputWidthAttr(),    // Input width from conv2d
+          conv2d.getKernelSizeAttr(),    // Kernel size from conv2d
+          conv2d.getStrideAttr(),        // Stride from conv2d
+          conv2d.getPaddingAttr(),       // Padding from conv2d
+          conv2d.getDilationAttr(),      // Dilation from conv2d
+          builder.getBoolAttr(conv2d.getBias() != nullptr), // has_bias
+          conv2d.getGroupsAttr(),      // Groups from conv2d
+          conv2d.getDevice(),          // Device from conv2d
+          inputDtypeAttr,              // Input dtype
+          outputDtype,                 // Output dtype
+          conv2d.getConv2dConfigAttr() // Conv2dConfig from conv2d
+      );
+
+  auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+
+  // Test that the op constraints are valid when the output layout is null.
+  auto backend = dyn_cast<OpModel>(prepareConv2dWeights.getOperation());
+  auto constraintWithNullOutputExp = backend.getOpConstraints(
+      getInputLayouts(prepareConv2dWeights.getOperation()), OpConfig(nullptr));
+  ASSERT_TRUE(static_cast<bool>(constraintWithNullOutputExp));
+
+  // Runtime API is not defined for this op as it has memory effects:
+  auto runtimeExp = getOpRuntime(prepareConv2dWeights.getOperation());
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  EXPECT_EQ(
+      llvm::toString(runtimeExp.takeError()),
+      getOpRuntimeExpectedErrorMessage(prepareConv2dWeights.getOperation()));
+}
+
 TEST_F(OpModelBase, maxPool2DOp) {
   // TODO(2976): Some of these test cases return L1 interleaved row major
   // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled

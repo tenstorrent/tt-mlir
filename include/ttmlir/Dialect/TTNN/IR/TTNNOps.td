@@ -1327,7 +1327,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDTypeTrait]> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDTypeTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,

@@ -2182,6 +2182,67 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> weightShape, MemoryConfigAttr inputMemConfig,
+    ::mlir::tt::ttnn::Layout inputTensorLayout, llvm::StringRef weightsFormat,
+    int32_t inChannels, int32_t outChannels, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  assert(device != nullptr && "Device is nullptr");
+  assert(weightLayout != nullptr && "Weight layout is nullptr");
+
+  // TODO(#4043): Move this to tt-metal side.
+  ::tt::tt_metal::Tensor weightTensor =
+      createMetalHostTensor(weightShape, weightLayout.getDataType());
+  // Read output data type from output layout (if present) or from outputDtype.
+  std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
+  if (outputLayout) {
+    convertedOutputDtype = conversion::getDataType(outputLayout.getDataType());
+  } else if (outputDtype.has_value()) {
+    convertedOutputDtype = conversion::getDataType(outputDtype.value());
+  }
+  // The following parameter does not exist in the op yet.
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted = std::nullopt;
+
+  auto prepareConv2dWeightsQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        &::ttnn::operations::conv::conv2d::prepare_conv_weights<
+            ::tt::tt_metal::distributed::MeshDevice>,
+        device, weightTensor, conversion::getMemoryConfig(inputMemConfig),
+        conversion::getPageLayout(inputTensorLayout), weightsFormat.str(),
+        inChannels, outChannels, batchSize, inputHeight, inputWidth,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        hasBias, groups, device, conversion::getDataType(inputDtype),
+        convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        sliceConfigConverted);
+  };
+
+  return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
+                                     prepareConv2dWeightsQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(

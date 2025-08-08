@@ -2225,4 +2225,91 @@ TEST_F(OpModelTest, Where) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+class OpModelPrepareConv2dWeightsParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // weight
+                     detail::TestTensor,         // output
+                     ::mlir::tt::ttnn::Layout,   // input_tensor_layout
+                     std::string,                // weights_format
+                     uint32_t,                   // in_channels
+                     uint32_t,                   // out_channels
+                     uint32_t,                   // batch_size
+                     uint32_t,                   // input_height
+                     uint32_t,                   // input_width
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     bool,                       // has_bias
+                     uint32_t,                   // groups
+                     detail::ExpectedResult>> {};
+
+TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
+  auto params = GetParam();
+  const auto [weightShape, weightTensorLayout, weightBufferType,
+              weightVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto inputTensorLayout = std::get<2>(params);
+  const auto weightsFormat = std::get<3>(params);
+  const auto in_channels = std::get<4>(params);
+  const auto out_channels = std::get<5>(params);
+  const auto batch_size = std::get<6>(params);
+  const auto input_height = std::get<7>(params);
+  const auto input_width = std::get<8>(params);
+  const auto kernel_size = std::get<9>(params);
+  const auto stride = std::get<10>(params);
+  const auto padding = std::get<11>(params);
+  const auto dilation = std::get<12>(params);
+  const auto has_bias = std::get<13>(params);
+  const auto groups = std::get<14>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<15>(params);
+
+  const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
+      weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
+      GetPhysicalGridSize(), builder.getF32Type());
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create input memory config
+  MemoryConfigAttr inputMemConfig = MemoryConfigAttr::get(
+      &context,
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved),
+      BufferTypeAttr::get(&context, BufferType::DRAM),
+      std::nullopt /*shardSpec*/);
+
+  auto constraintsExp = OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
+      CreateWorkerGrid(), weightLayout, weightShape, inputMemConfig,
+      inputTensorLayout, weightsFormat, in_channels, out_channels, batch_size,
+      input_height, input_width, kernel_size, stride, padding, dilation,
+      has_bias, groups, ttcore::DataType::Float32, std::nullopt, std::nullopt,
+      std::nullopt, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, expectedCbSize);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PrepareConv2dWeightsTests, OpModelPrepareConv2dWeightsParam,
+    ::testing::Values(
+        // Test case 1: Standard 7x7 conv weights preparation
+        std::make_tuple(detail::TestTensor{{64, 3, 7, 7},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{64, 3, 7, 7},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        ::mlir::tt::ttnn::Layout::RowMajor, "OIHW", 3, 64, 1,
+                        224, 224, llvm::SmallVector<int32_t>{7, 7},
+                        llvm::SmallVector<int32_t>{2, 2},
+                        llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1}, false, 1,
+                        detail::ExpectedResult{true, 0, 0, 0})));
+
 } // namespace mlir::tt::ttnn::op_model
