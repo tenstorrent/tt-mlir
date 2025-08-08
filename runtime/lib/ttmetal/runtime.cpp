@@ -365,10 +365,11 @@ void setFabricConfig(FabricConfig config) {
 }
 
 void wait(Event event) {
-  std::shared_ptr<tt_metal::Event> eventPtr =
-      event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);
+  std::shared_ptr<tt_metal::distributed::MeshEvent> eventPtr =
+      event.asSharedPtr<tt_metal::distributed::MeshEvent>(
+          DeviceRuntime::TTMetal);
   if (eventPtr) {
-    tt_metal::EventSynchronize(eventPtr);
+    tt_metal::distributed::EventSynchronize(*eventPtr);
   }
 }
 
