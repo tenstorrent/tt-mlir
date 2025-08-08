@@ -934,7 +934,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
     "input_dtypes",
     [
         [torch.float32, torch.float32, torch.float32, torch.float32],
-        # skip quint8 for now. Issue:
+        # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
         [
             TypeInfo(torch.quint8, scale=0.1, zero_point=128),
             TypeInfo(torch.qint8, scale=0.1, zero_point=0),
