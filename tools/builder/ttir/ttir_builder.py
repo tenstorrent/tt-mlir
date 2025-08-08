@@ -3483,7 +3483,6 @@ class TTIRBuilder(Builder):
                 "arange_dimension": arange_dimension,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
-            # DHRUV TODO
             organize_golden_args=lambda i: [],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(

@@ -424,19 +424,21 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
 
 def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
-    Golden function for logical_not operation with custom int16 output.
+    Golden function for logical_not operation.
+
+    Elementwise logical NOT.
 
     Parameters
     ----------
     input_tensor : torch.Tensor
-        Input tensor
+        Input tensor to invert logically.
     **kwargs : dict
-        Keyword arguments (unused for this operation)
+        Keyword arguments (unused for this operation).
 
     Returns
     -------
     torch.Tensor
-        Tensor with logical NOT of input tensor, with int16 dtype
+        Tensor with logical NOT of input_tensor, cast back to input dtype.
     """
     # Compute bool result then cast to match input dtype
     result_bool = torch.logical_not(input_tensor)
@@ -446,6 +448,23 @@ def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
 def equal_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for equal (eq) operation.
+
+    Elementwise equality comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the equality results.
+    """
     result_bool = torch.eq(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -453,6 +472,23 @@ def equal_golden(
 def not_equal_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for not_equal (ne) operation.
+
+    Elementwise inequality comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the inequality results.
+    """
     result_bool = torch.ne(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -460,6 +496,23 @@ def not_equal_golden(
 def greater_equal_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for greater_equal (ge) operation.
+
+    Elementwise greater-than-or-equal comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
     result_bool = torch.ge(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -467,6 +520,23 @@ def greater_equal_golden(
 def greater_than_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for greater_than (gt) operation.
+
+    Elementwise greater-than comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
     result_bool = torch.gt(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -474,6 +544,23 @@ def greater_than_golden(
 def less_equal_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for less_equal (le) operation.
+
+    Elementwise less-than-or-equal comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
     result_bool = torch.le(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -481,6 +568,23 @@ def less_equal_golden(
 def less_than_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for less_than (lt) operation.
+
+    Elementwise less-than comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
     result_bool = torch.lt(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -488,6 +592,23 @@ def less_than_golden(
 def logical_and_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for logical_and operation.
+
+    Elementwise logical AND.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical AND results.
+    """
     result_bool = torch.logical_and(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -495,6 +616,23 @@ def logical_and_golden(
 def logical_or_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for logical_or operation.
+
+    Elementwise logical OR.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical OR results.
+    """
     result_bool = torch.logical_or(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
@@ -502,6 +640,23 @@ def logical_or_golden(
 def logical_xor_golden(
     input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
+    """
+    Golden function for logical_xor operation.
+
+    Elementwise logical XOR.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical XOR results.
+    """
     result_bool = torch.logical_xor(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
