@@ -1327,7 +1327,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDTypeTrait]> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1355,7 +1355,7 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [HasOutputDT
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [HasOutputDTypeTrait]> {
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
     let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$bias_tensor,
