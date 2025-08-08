@@ -29,6 +29,10 @@ namespace mlir::tt::emitpy {
 void registerToPythonTranslation();
 } // namespace mlir::tt::emitpy
 
+namespace mlir::tt::gpu {
+void registerGPUToFlatbuffer();
+} // namespace mlir::tt::gpu
+
 // Place to register all the custom translations
 static void registerCustomTranslations() {
   static bool initOnce = []() {
@@ -37,6 +41,7 @@ static void registerCustomTranslations() {
     mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     mlir::tt::ttkernel::registerTTKernelToCpp();
     mlir::tt::emitpy::registerToPythonTranslation();
+    mlir::tt::gpu::registerGPUToFlatbuffer();
     return true;
   }();
   (void)initOnce;

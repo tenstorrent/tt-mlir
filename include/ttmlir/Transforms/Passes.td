@@ -159,4 +159,5 @@ def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
   }];
   let dependentDialects = ["mlir::LLVM::LLVMDialect"];
 }
+
 #endif

@@ -26,11 +26,7 @@ namespace mlir::tt::transforms {
 
 namespace {
 
-<<<<<<< HEAD
-/// Extracts GPU modules from LLVM IR by separating PTX kernels from host code.
-=======
 /// Extracts GPU modules from LLVM by separating GPU kernels from host code.
->>>>>>> a3c71a718 (Adding pass for conversion of TTIR to NVVM and lowering to PTX.)
 class ExtractGPUModulesPass
     : public impl::ExtractGPUModulesBase<ExtractGPUModulesPass> {
 
@@ -39,8 +35,7 @@ public:
     ModuleOp moduleOp = getOperation();
     OpBuilder builder(moduleOp.getContext());
     SmallVector<LLVM::LLVMFuncOp> gpuFunctions;
-
-    for (auto module : moduleOp.getOps<gpu::GPUModuleOp>()) {
+    for (auto module : moduleOp.getOps<mlir::gpu::GPUModuleOp>()) {
       for (auto func : module.getOps<LLVM::LLVMFuncOp>()) {
         std::string newFuncName =
             module.getName().str() + "_" + func.getName().str();
@@ -57,7 +52,7 @@ public:
     // Remove all operations that are NOT GPU modules.
     SmallVector<Operation *> toErase;
     for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
-      if (!isa<gpu::GPUModuleOp>(op)) {
+      if (!isa<mlir::gpu::GPUModuleOp>(op)) {
         toErase.push_back(&op);
       }
     }
@@ -67,30 +62,24 @@ public:
 
     // Copy all GPU functions directly to the main module.
     builder.setInsertionPointToStart(moduleOp.getBody());
-<<<<<<< HEAD
-=======
     moduleOp.removeSymNameAttr();
     moduleOp->removeAttr("gpu.container_module");
->>>>>>> a3c71a718 (Adding pass for conversion of TTIR to NVVM and lowering to PTX.)
 
     for (auto gpuFunc : gpuFunctions) {
       auto clonedFunc = gpuFunc.clone();
       builder.insert(clonedFunc);
     }
-<<<<<<< HEAD
-=======
 
     // Remove remaining GPU modules.
     SmallVector<Operation *> gpusToErase;
     for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
-      if (isa<gpu::GPUModuleOp>(op)) {
+      if (isa<mlir::gpu::GPUModuleOp>(op)) {
         gpusToErase.push_back(&op);
       }
     }
     for (auto *op : gpusToErase) {
       op->erase();
     }
->>>>>>> a3c71a718 (Adding pass for conversion of TTIR to NVVM and lowering to PTX.)
   }
 };
 

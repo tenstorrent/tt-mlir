@@ -67,6 +67,8 @@
 #include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
@@ -117,6 +119,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   ub::registerConvertUBToLLVMInterface(registry);
   cf::registerConvertControlFlowToLLVMInterface(registry);
   registerConvertFuncToLLVMInterface(registry);
+  registerAllToLLVMIRTranslations(registry);
 #endif
 }
 

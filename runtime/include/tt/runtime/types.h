@@ -41,6 +41,7 @@ enum class DeviceRuntime {
   Disabled,
   TTNN,
   TTMetal,
+  Cuda,
 };
 
 inline std::string toString(DeviceRuntime runtime) {
@@ -49,6 +50,8 @@ inline std::string toString(DeviceRuntime runtime) {
     return "TTNN";
   case DeviceRuntime::TTMetal:
     return "TTMetal";
+  case DeviceRuntime::Cuda:
+    return "Cuda";
   case DeviceRuntime::Disabled:
     return "Disabled";
   }

@@ -66,30 +66,9 @@ struct LinalgToLLVMPipelineOptions
       llvm::cl::init(true)};
 };
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
-struct TTIRToNVVMPipelineOptions
-    : public PassPipelineOptions<TTIRToNVVMPipelineOptions> {
-  Option<std::string> chip{*this, "chip", llvm::cl::desc("GPU chip to target."),
-                           llvm::cl::init("sm_50")};
-
-  Option<std::string> features{*this, "features",
-                               llvm::cl::desc("GPU features to target."),
-                               llvm::cl::init("+ptx60")};
-
-  Option<int64_t> optLevel{*this, "opt-level",
-                           llvm::cl::desc("Optimization level."),
-                           llvm::cl::init(2)};
-};
-#endif
-
 #ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
-#endif
-
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
-void createTTIRToNVVMPipeline(OpPassManager &manager,
-                              const TTIRToNVVMPipelineOptions &options);
 #endif
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
