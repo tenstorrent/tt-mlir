@@ -1186,13 +1186,6 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        RankedTensorType inputType = getInput().getType();
-        return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
-      }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1770,6 +1763,43 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange",
   let hasVerifier = 1;
 }
 
+def TTNN_RandOp : TTNN_CreationOp<"rand"> {
+  let summary = "Random number generation operation.";
+  let description = [{
+    Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
+
+    Example:
+      %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+      %1 = "ttnn.rand"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, high = 1.000000e+00 : f32, layout = #ttnn.layout<tile>, low = 0.000000e+00 : f32, memory_config = #ttnn.memory_config<#dram, <interleaved>>, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+
+    Attributes:
+      - `size` (TTNN_ShapeAttr): The shape of the tensor to create.
+      - `device` (TTNN_Device): The device where the trace was captured.
+      - `dtype` (mlir:Type): Data type of the returned tensor.
+      - `layout` (TTNN_LayoutAttr): The layout for the output tensor.
+      - `memory_config` (TTNN_MemoryConfigAttr): The memory configuration for the output tensor.
+      - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
+      - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
+      - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
+
+    Outputs:
+      - `result` (Tensor): The generated tensor containing the random values.
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$size,
+                       TTNN_Device:$device,
+                       DefaultValuedAttr<TTCore_DataTypeAttr, "mlir::tt::ttcore::DataType::BFloat16">:$dtype,
+                       DefaultValuedAttr<TTNN_LayoutAttr, "mlir::tt::ttnn::Layout::Tile">:$layout,
+                       TTNN_MemoryConfigAttr:$memory_config,
+                       DefaultValuedAttr<F32Attr, "0.0">:$low,
+                       DefaultValuedAttr<F32Attr, "1.0">:$high,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
@@ -1793,12 +1823,6 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
     Example:
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
-  }];
-
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(getType());
-    }
   }];
 }
 

@@ -65,7 +65,7 @@ class TTIRBuilder(Builder):
     # ----- Private methods ----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = data_type if data_type is not None else self._default_type
         return self._create_empty_from_tensor_type(
             shape, self._create_ranked_tensor_type(shape, dtype)
         )
@@ -142,7 +142,7 @@ class TTIRBuilder(Builder):
                     self._get_golden_tensor(inputs[0]).dtype
                 )
             elif not output_type:
-                output_type = self._get_default_dtype()
+                output_type = self._default_type
 
             if output_create_fn:
                 output = output_create_fn(output_shape, output_type)
@@ -3304,7 +3304,7 @@ class TTIRBuilder(Builder):
             Tensor of zeros with specified shape
         """
         output = self._create_ranked_tensor_type(shape)
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = data_type if data_type is not None else self._default_type
         return self._op_proxy(
             ttir.ZerosOp,
             [],

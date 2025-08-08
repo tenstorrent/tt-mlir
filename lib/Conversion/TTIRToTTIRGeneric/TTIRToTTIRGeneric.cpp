@@ -211,7 +211,7 @@ protected:
 
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
-  mlir::ArrayRef<int64_t> targetGridShape;
+  llvm::SmallVector<int64_t> targetGridShape;
 
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 };

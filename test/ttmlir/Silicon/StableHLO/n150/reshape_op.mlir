@@ -20,8 +20,8 @@ module @jit_module_reshape attributes {mhlo.num_partitions = 1 : i32, mhlo.num_r
     // CHECK-LABEL: func.func public @test_reshape_i64
     // CHECK: ttnn.reshape
     // CHECK-SAME: {shape = [1 : i32, 1 : i32]}
-    // CHECK-SAME: tensor<1x1x1xf32,
-    // CHECK-SAME: -> tensor<1x1xf32,
+    // CHECK-SAME: tensor<1x1x1xsi32,
+    // CHECK-SAME: -> tensor<1x1xsi32,
     %0 = stablehlo.reshape %arg0 : (tensor<1x1x1xi64>) -> tensor<1x1xi64>
     return %0 : tensor<1x1xi64>
   }

@@ -420,11 +420,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableSplitReader().getValue();
   }
 
-  if (conv2dConfig->getEnableSubblockPadding()) {
-    config.enable_subblock_padding =
-        conv2dConfig->getEnableSubblockPadding().getValue();
-  }
-
   return config;
 }
 

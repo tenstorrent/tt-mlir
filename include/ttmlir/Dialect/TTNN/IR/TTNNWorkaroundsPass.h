@@ -226,10 +226,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for zeros op operands.
-  static TTNNOperandsWorkarounds
-  createZerosOpOperandsWorkarounds(RankedTensorType outputType);
-
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
@@ -252,9 +248,6 @@ public:
   // Create workarounds for WhereOp operands.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
-
-  static TTNNOperandsWorkarounds
-  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
