@@ -91,6 +91,8 @@ def get_board_id(system_desc) -> str:
             return "n150"
         case "Wormhole_b0", 2:
             return "n300"
+        case "Wormhole_b0", 8:
+            return "llmbox"
         case _:
             raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 
@@ -252,14 +254,17 @@ def pytest_runtest_makereport(item, call):
             if test_name.startswith("test_"):
                 op_name = test_name[5:]  # Remove "test_" prefix
 
-                # Handle hoisted operations
-                if op_name.startswith("hoisted_"):
-                    op_name = op_name[8:]  # Remove "hoisted_" prefix
-
         if op_name:
+
+            # Handle hoisted operations
+            if op_name.startswith("hoisted_"):
+                op_name = op_name[8:]  # Remove "hoisted_" prefix
+
             item.user_properties.append(("op_name", op_name))
             # For now, use the same op_name as framework_op_name
-            # TODO: Extract actual framework (torch) operation name in the future
+
+            # TODO: Extract actual framework (torch) operation name in the
+            # future, once we have access to it via golden checking
             item.user_properties.append(("framework_op_name", op_name))
 
         # Extract backend from target parameter, default to "ttnn" if not present
