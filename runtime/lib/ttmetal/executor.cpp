@@ -56,11 +56,9 @@ private:
   void execute(const target::metal::EnqueueReadBufferCommand *command);
   void execute(const target::metal::CreateBufferCommand *command);
   void execute(const target::metal::DeallocateBufferCommand *command);
-  void execute(const target::metal::CreateEventCommand *command);
   void execute(const target::metal::EnqueueRecordEventCommand *command);
   void execute(const target::metal::EnqueueWaitForEventCommand *command);
   void execute(const target::metal::EventSynchronizeCommand *command);
-  void execute(const target::metal::EventQueryCommand *command);
   void execute(const target::metal::MemrefCopyCommand *command);
   void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
@@ -169,10 +167,6 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_DeallocateBufferCommand());
     break;
   }
-  case target::metal::CommandType::CreateEventCommand: {
-    execute(command->type_as_CreateEventCommand());
-    break;
-  }
   case target::metal::CommandType::EnqueueRecordEventCommand: {
     execute(command->type_as_EnqueueRecordEventCommand());
     break;
@@ -183,10 +177,6 @@ void MCQExecutor::execute(const target::metal::Command *command) {
   }
   case target::metal::CommandType::EventSynchronizeCommand: {
     execute(command->type_as_EventSynchronizeCommand());
-    break;
-  }
-  case target::metal::CommandType::EventQueryCommand: {
-    execute(command->type_as_EventQueryCommand());
     break;
   }
   case target::metal::CommandType::MemrefCopyCommand: {
@@ -237,13 +227,8 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 }
 
 void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
-  std::shared_ptr<distributed::MeshEvent> meshEvent = nullptr;
-  if (workaround::Env::get().d2mReturnEvent) {
-    meshEvent = std::make_shared<distributed::MeshEvent>(
-        distributed::EnqueueRecordEventToHost(*mcq));
-  } else {
-    distributed::Finish(*mcq);
-  }
+  auto meshEvent = std::make_shared<distributed::MeshEvent>(
+      distributed::EnqueueRecordEventToHost(*mcq));
 
   LOG_ASSERT(outputs.empty(),
              "Unexpected outputs, multiple returns not supported");
@@ -364,13 +349,6 @@ void MCQExecutor::execute(
   meshBuffers.erase(meshBufferIter);
 }
 
-void MCQExecutor::execute(const target::metal::CreateEventCommand *command) {
-  ZoneScopedN("CreateEventCommand");
-  LOG_ASSERT(!meshEvents.contains(command->ref()->global_id()));
-  // TODO(wooseoklee): CreateEventCommand should be updated once we confirm the
-  // use cases of MeshEvent.
-}
-
 void MCQExecutor::execute(
     const target::metal::EnqueueRecordEventCommand *command) {
   ZoneScopedN("EnqueueRecordEventCommand");
@@ -391,14 +369,6 @@ void MCQExecutor::execute(
   ZoneScopedN("EventSynchronizeCommand");
   auto mesh_event = meshEvents.at(command->ref()->global_id());
   distributed::EventSynchronize(*mesh_event);
-}
-
-void MCQExecutor::execute(const target::metal::EventQueryCommand *command) {
-  ZoneScopedN("EventQueryCommand");
-  auto mesh_event = meshEvents.at(command->ref()->global_id());
-  // TODO(nsmith): Need flatbuffer support for tracking and doing something
-  // with the result
-  (void)distributed::EventQuery(*mesh_event);
 }
 
 void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
