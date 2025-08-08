@@ -638,9 +638,8 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
 // Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
-    mlir::Operation *op) {
-  ttnn::SortOp sortOp = mlir::cast<ttnn::SortOp>(op);
-  auto indicesElementType = sortOp.getIndices().getType().getElementType();
+    ttnn::SortOp op) {
+  auto indicesElementType = op.getIndices().getType().getElementType();
 
   TTNNOperandWorkarounds datatypeWorkaround;
   if (!(indicesElementType.isInteger(16) &&
