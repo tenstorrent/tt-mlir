@@ -47,14 +47,6 @@ protected:
     llvm::SmallVector<int64_t> grid;
     grid.reserve(physicalShape.size());
 
-    llvm::errs() << "TTG Physical shape: ";
-    llvm::interleaveComma(physicalShape, llvm::errs());
-    llvm::errs() << "\n";
-
-    llvm::errs() << "TTG Grid shape: ";
-    llvm::interleaveComma(targetGridShape, llvm::errs());
-    llvm::errs() << "\n";
-
     assert(physicalShape.size() >= targetGridShape.size());
 
     const size_t gridRankDiff = physicalShape.size() - targetGridShape.size();
@@ -63,7 +55,7 @@ protected:
     for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
-      // Find largest grid dimension that divides evenly
+      // Find largest grid dimension that divides evenly.
       for (int64_t g = targetGridShape[i - gridRankDiff]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
@@ -106,7 +98,7 @@ protected:
           rewriter.getContext(), logicalShape, targetGridShape,
           ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
     } else {
-      // Default collapse intervals will collapse to 2D.
+      // Default-constructed collapse intervals will collapse to 2D.
       layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(), logicalShape,
                                             targetGridShape,
                                             ttcore::OOBVal::Undef, memSpace);
@@ -153,6 +145,7 @@ protected:
 
     return result;
   }
+
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
     auto output =
@@ -235,7 +228,6 @@ protected:
   llvm::SmallVector<int64_t> expectedInputGridShape(size_t rank) const {
     assert(rank >= targetGridShape.size());
     llvm::SmallVector<int64_t> grid(rank, 1);
-    llvm::errs() << "grid size: " << grid.size() << "\n";
     const size_t diff = rank - targetGridShape.size();
     for (size_t i = 0; i < targetGridShape.size(); ++i) {
       grid[i + diff] = targetGridShape[i];

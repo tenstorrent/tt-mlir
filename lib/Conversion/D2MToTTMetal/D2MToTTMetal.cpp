@@ -66,23 +66,21 @@ public:
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
 
-    // Collapse N-D opGrid to 2D for core range
+    // Collapse N-D opGrid to 2D for core range.
     auto gridShape = opGrid.getShape();
     ttcore::GridAttr coreGrid;
 
     if (gridShape.size() > 2) {
-      // Collapse all leading dimensions into the first dimension
+      // Collapse all leading dimensions into the first dimension.
       int64_t collapsedHeight = 1;
       for (size_t i = 0; i < gridShape.size() - 1; ++i) {
         collapsedHeight *= gridShape[i];
       }
-      // Create a 2D grid with collapsed height and original width
+      // Create a 2D grid with collapsed height and original width.
       SmallVector<int64_t, 2> grid2D = {collapsedHeight, gridShape.back()};
-      // You'd need to create a new GridAttr with the 2D shape here
-      // The exact API depends on how GridAttr is constructed
       coreGrid = ttcore::GridAttr::get(builder.getContext(), grid2D);
     } else {
-      coreGrid = opGrid; // Already 2D or less
+      coreGrid = opGrid;
     }
 
     auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(coreGrid);

@@ -642,7 +642,7 @@ public:
     llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
   }
 
-  // Helper to get 2D collapsed shape for tilize/untilize operations
+  // Helper to get 2D collapsed shape for tilize/untilize operations.
   static std::array<int64_t, 2> getCollapsed2DShape(MemRefType memrefType) {
     auto shape = memrefType.getShape();
     auto rank = shape.size();
@@ -652,7 +652,7 @@ public:
     }
 
     // For N-D tensors, collapse all but the last dimension
-    // e.g., [3, 1, 2] -> [3, 2] where 3 = 3*1
+    // e.g., [3, 2, 2] -> [6, 2].
     int64_t collapsedRows = 1;
     for (size_t i = 0; i < rank - 1; ++i) {
       collapsedRows *= shape[i];
