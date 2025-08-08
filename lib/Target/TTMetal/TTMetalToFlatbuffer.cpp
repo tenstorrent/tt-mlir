@@ -25,12 +25,12 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -152,7 +152,7 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
   return extents;
 }
 
-// Create an extended mapping that handles N-D to 2-D projection
+// Create an extended mapping that handles N-D to 2-D projection.
 static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
                                                size_t gridRank) {
   MLIRContext *ctx = originalMapping.getContext();
@@ -160,28 +160,28 @@ static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
   assert(originalMapping.getNumDims() == 2 && "Expected 2D input mapping");
 
   if (gridRank == 2) {
-    return originalMapping; // No change needed
+    return originalMapping;
   }
 
   // For N-D grid, we want to map the last 2 dimensions through the original
-  // mapping
+  // mapping.
 
   // Create a mapping from old dims to new dims
-  // d0 -> d[gridRank-2], d1 -> d[gridRank-1]
+  // d0 -> d[gridRank-2], d1 -> d[gridRank-1].
   llvm::DenseMap<AffineExpr, AffineExpr> dimReplacements;
   dimReplacements[getAffineDimExpr(0, ctx)] =
       getAffineDimExpr(gridRank - 2, ctx);
   dimReplacements[getAffineDimExpr(1, ctx)] =
       getAffineDimExpr(gridRank - 1, ctx);
 
-  // Apply the mapping to each result expression
+  // Apply the mapping to each result expression.
   SmallVector<AffineExpr> results;
   for (auto result : originalMapping.getResults()) {
     auto remapped = result.replace(dimReplacements);
     results.push_back(remapped);
   }
 
-  // Create new map with higher dimensional input
+  // Create new map with higher dimensional input.
   return AffineMap::get(gridRank, originalMapping.getNumSymbols(), results,
                         ctx);
 }
@@ -210,34 +210,24 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
-  llvm::errs() << "memrefTypeToShardedBufferConfigFlatbuffer coreRangeSet ("
-               << coreRangeSet.size() << " ranges):\n";
-  for (const auto &range : coreRangeSet) {
-    llvm::errs() << "  Range: loc(" << range.loc().y() << "," << range.loc().x()
-                 << ") size(" << range.size().y() << "," << range.size().x()
-                 << ")\n";
-  }
-
-  // FIX: Use actual shape information, not stride
-  // The innermost dimension of the shard should come from memrefShardShape
   assert(stride[stride.size() - 1] % elementSize == 0);
   int32_t shardXElements = memrefShardShape[memrefShardShape.size() - 1];
 
-  // Calculate total elements per shard
+  // Calculate total elements per shard.
   int64_t elementsPerShard = 1;
   for (auto dim : memrefShardShape) {
     elementsPerShard *= dim;
   }
 
   assert(elementsPerShard % shardXElements == 0);
-  int32_t collapsedShardYElements = elementsPerShard / shardXElements;
+  const int32_t collapsedShardYElements = elementsPerShard / shardXElements;
 
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
                            shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  // Rest of the function remains the same...
+  // Calculate ShardSpecBuffer.
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
@@ -248,6 +238,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
+  // Calculate ShardedBufferConfig.
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
@@ -274,20 +265,11 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   auto memrefGridShape = shardLayout.getGridShape(memref);
 
-  // Add the same extension here!
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
-
-  llvm::errs() << "CreateCircularBufferConfigDirect coreRangeSet ("
-               << coreRangeSet.size() << " ranges):\n";
-  for (const auto &range : coreRangeSet) {
-    llvm::errs() << "  Range: loc(" << range.loc().y() << "," << range.loc().x()
-                 << ") size(" << range.size().y() << "," << range.size().x()
-                 << ")\n";
-  }
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =

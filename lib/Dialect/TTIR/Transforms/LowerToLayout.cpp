@@ -49,11 +49,9 @@ public:
       return failure();
     }
 
-    // For the actual lowering, use the device-side layout
-    auto deviceLayout = inputSystem ? outputLayout : inputLayout;
-
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, op.getInput(), op.getOutput(),
-                                            deviceLayout);
+                                            inputSystem ? outputLayout
+                                                        : inputLayout);
     return success();
   }
 
@@ -67,7 +65,7 @@ public:
     auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
         outputType.getEncoding());
 
-    // Check if this is a system memory transfer
+    // Check if this is a system memory transfer.
     bool inputSystem = !inputLayout || inputLayout.getMemorySpace() ==
                                            ttcore::MemorySpace::System;
     bool outputSystem = !outputLayout || outputLayout.getMemorySpace() ==
@@ -75,11 +73,11 @@ public:
 
     if (inputSystem || outputSystem) {
       // To/From host mem is a special case that is lowered to
-      // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer
+      // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer.
       return lowerSystemLayoutChange(rewriter, op);
     }
 
-    // At this point, both must have layouts and be on device
+    // At this point, both must have layouts and be on device.
     assert(inputLayout && outputLayout &&
            "Both tensors must have layouts for device-to-device transfer");
 
@@ -188,18 +186,6 @@ public:
         ->getResult(0);
   }
 
-  static llvm::SmallVector<int64_t>
-  getOnesPaddedGridShape(llvm::ArrayRef<int64_t> workerGridShape, size_t rank) {
-    assert(rank >= workerGridShape.size());
-    llvm::SmallVector<int64_t> grid(rank, 1);
-    llvm::errs() << "grid size: " << grid.size() << "\n";
-    const size_t diff = rank - workerGridShape.size();
-    for (size_t i = 0; i < workerGridShape.size(); ++i) {
-      grid[i + diff] = workerGridShape[i];
-    }
-    return grid;
-  }
-
   // Helper to create a new tensor type with modified layout
   RankedTensorType createModifiedType(
       MLIRContext *ctx, RankedTensorType baseType,
@@ -215,54 +201,51 @@ public:
     Type elementType = newElementType.value_or(baseType.getElementType());
 
     // If no base layout and no memory space override, return tensor without
-    // layout
+    // layout.
     if (!baseLayout && !newMemSpace.has_value()) {
       return RankedTensorType::get(baseType.getShape(), elementType);
     }
 
     // If we have a memory space override but no base layout,
-    // we're creating a layout (host -> device transition)
+    // we're creating a layout (host -> device transition).
     if (!baseLayout) {
       assert(newMemSpace.has_value());
       assert(referenceLayout);
 
-      // Create grid shape based on whether we're collapsing or not
+      // Create grid shape based on whether we're collapsing or not.
       llvm::SmallVector<int64_t> logicalGridShape;
       if (newGrid.has_value()) {
         logicalGridShape.assign(newGrid->begin(), newGrid->end());
       } else {
         auto refType = RankedTensorType::get(baseType.getShape(), elementType,
                                              referenceLayout);
-        auto refGrid = referenceLayout.getGridShape(refType);
-        logicalGridShape =
-            getOnesPaddedGridShape(workerGridShape, refGrid.size());
+        ArrayRef<int64_t> refGrid = referenceLayout.getGridShape(refType);
+        logicalGridShape.assign(refGrid.begin(), refGrid.end());
       }
 
-      // Create the layout
       auto newLayout = ttcore::MetalLayoutAttr::get(
-          ctx, baseType.getShape(), logicalGridShape, ttcore::OOBVal::Undef,
+          ctx, baseType.getShape(), workerGridShape, ttcore::OOBVal::Undef,
           *newMemSpace, referenceLayout.getCollapsedIntervals(),
           referenceLayout.getDimAlignments());
 
       // For physical shape derivation, use tile shape ONLY if element type is
-      // tiled
+      // tiled.
       ArrayRef<int64_t> tileShapeForPhysical;
       if (mlir::isa<ttcore::TileType>(elementType)) {
         tileShapeForPhysical = newTileShape.value_or(ArrayRef<int64_t>{});
       }
 
-      // Calculate device shape using the logical grid shape we created
-      // getDeviceShape will handle the collapse intervals internally
+      // Calculate device shape using the logical grid shape we created;
+      // getDeviceShape will handle the collapse intervals internally.
       auto deviceShape =
           newLayout.getDeviceShape(logicalGridShape, tileShapeForPhysical);
 
       return RankedTensorType::get(deviceShape, elementType, newLayout);
     }
 
-    // Rest of existing logic for modifying existing layouts...
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
 
-    // We need to create an owning version of gridShape
+    // We need to create an owning version of gridShape.
     SmallVector<int64_t, 2> gridShape;
     if (newGrid.has_value()) {
       gridShape.assign(newGrid->begin(), newGrid->end());
@@ -275,16 +258,14 @@ public:
         newTileShape.has_value() ? *newTileShape
                                  : ttcore::getTensorTileShapeOrEmpty(baseType);
 
-    // Create new layout preserving collapse intervals from base
+    // Create new layout, preserving collapse intervals from base.
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(),
-        gridShape, // Use the grid shape directly - it should already be correct
-                   // rank
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
+        ctx, baseLayout.getLogicalShape(), gridShape, baseLayout.getOobVal(),
+        memSpace, baseLayout.getCollapsedIntervals(),
         baseLayout.getDimAlignments());
 
     // For physical shape derivation, use tile shape ONLY if element type is
-    // tiled
+    // tiled.
     ArrayRef<int64_t> tileShapeForPhysical;
     if (mlir::isa<ttcore::TileType>(elementType)) {
       tileShapeForPhysical = tileShape;
@@ -299,7 +280,6 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    op->dump();
     auto components = op.compoundComponents();
 
     if (!components.isCompound()) {
@@ -314,7 +294,7 @@ public:
     auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
         outputType.getEncoding());
 
-    // Determine if we're in L1 - no layout means system memory
+    // Determine if we're in L1 - no layout means system memory.
     bool inputL1 = inputLayout && inputLayout.getMemorySpace() ==
                                       ttcore::MemorySpace::DeviceL1;
     bool outputL1 = outputLayout && outputLayout.getMemorySpace() ==
@@ -324,10 +304,10 @@ public:
     llvm::ArrayRef<int64_t> workerGridShape =
         deviceAttr.getWorkerGrid().getShape();
 
-    // First prioritize moving the data into L1 so we can work with it in L1
+    // First prioritize moving the data into L1 so we can work with it in L1.
     if (!inputL1) {
       // Read into L1, then do other conversions.
-      // When going from no layout to layout, use output's grid if available
+      // When going from no layout to layout, use output's grid if available.
       auto gridShape = outputLayout ? outputLayout.getGridShape(outputType)
                                     : ArrayRef<int64_t>{};
       auto bounceType = createModifiedType(
@@ -337,7 +317,7 @@ public:
       bounce(rewriter, op, bounceType);
     } else if (!outputL1) {
       // Convert to L1 first, then do other conversions.
-      // When going from layout to no layout, preserve input's grid
+      // When going from layout to no layout, preserve input's grid.
       auto gridShape = inputLayout ? inputLayout.getGridShape(inputType)
                                    : ArrayRef<int64_t>{};
       auto bounceType = createModifiedType(
@@ -346,7 +326,7 @@ public:
           workerGridShape, ttcore::MemorySpace::DeviceL1, gridShape);
       bounce(rewriter, op, bounceType);
     } else if (ttcore::isTiled(inputType) != ttcore::isTiled(outputType)) {
-      // Prioritize moving tiled data
+      // Prioritize moving tiled data.
       if (ttcore::isTiled(inputType)) {
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
@@ -369,14 +349,14 @@ public:
       }
     } else if (components.isLayoutChange && ttcore::isTiled(inputType)) {
       // For now to flexibly support layout changes, we need to bounce to scalar
-      // first
+      // first.
       Type scalarType = inputType.getElementType();
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
       }
 
-      // Create untiled version with scalar type
-      // Use input layout as reference since we're modifying the input side
+      // Create untiled version with scalar type.
+      // Use input layout as reference since we're modifying the input side.
       auto bounceType =
           createModifiedType(rewriter.getContext(), inputType, inputLayout,
                              inputLayout, // reference layout
@@ -388,18 +368,16 @@ public:
       assert(!components.isLayoutChange &&
              "Changing layout and grid at the same time is currently "
              "not supported");
-      // Keep output layout but with input's grid
-      // Handle case where input might not have a layout (use default grid)
+      // Keep output layout but with input's grid.
+      // Handle case where input might not have a layout (use default grid).
       llvm::SmallVector<int64_t> gridShape;
       if (inputLayout) {
         auto tempGrid = inputLayout.getGridShape(inputType);
         gridShape.assign(tempGrid.begin(), tempGrid.end());
       } else {
-        // Use output layout as reference for collapse behavior
-        gridShape = getOnesPaddedGridShape(
-            workerGridShape, outputLayout
-                                 ? outputLayout.getGridShape(outputType).size()
-                                 : inputType.getShape().size());
+        // Use output layout as reference for collapse behavior.
+        auto tempGrid = outputLayout.getGridShape(inputType);
+        gridShape.assign(tempGrid.begin(), tempGrid.end());
       }
       auto bounceType = createModifiedType(
           rewriter.getContext(), outputType, outputLayout,
@@ -410,7 +388,7 @@ public:
       bounce(rewriter, op, bounceType);
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
-      // w/ format conversion via streaming supported
+      // w/ format conversion via streaming supported.
       assert(false && "Unsupported compound layout change");
       return failure();
     }

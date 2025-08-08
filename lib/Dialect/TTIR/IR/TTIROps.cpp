@@ -2431,7 +2431,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputType = getInput().getType();
   auto outputType = getOutput().getType();
 
-  // Handle tensor types
   if (mlir::isa<mlir::RankedTensorType>(inputType)) {
     auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
     auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
@@ -2439,18 +2438,18 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Special case: one has layout, one doesn't
+    // Layout versus no layout special case.
     if (hasInputLayout != hasOutputLayout) {
-      // This is always a host <-> device transition
+      // Always treat this as purely a host <-> device transition.
       components.isMemorySpaceChange = true;
-      components.isGridChange = false; // Don't double-count
+      components.isGridChange = false;
       components.isFormatChange =
           inputTensor.getElementType() != outputTensor.getElementType();
       components.isLayoutChange = false;
       return components;
     }
 
-    // Both lack layouts - pure host-side operation
+    // Both lack layouts special case--purely host-side operation.
     if (!hasInputLayout && !hasOutputLayout) {
       components.isMemorySpaceChange = false;
       components.isGridChange = false;
@@ -2460,33 +2459,29 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
       return components;
     }
 
-    // Both have layouts - do full comparison
+    // Both have layouts--do a full comparison.
     ttcore::MetalLayoutAttr inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
     ttcore::MetalLayoutAttr outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
 
-    // Check memory space
     components.isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
 
-    // Check grid
     auto inputGrid = inputLayout.getGridShape(inputTensor);
     auto outputGrid = outputLayout.getGridShape(outputTensor);
     components.isGridChange = inputGrid != outputGrid;
 
-    // Check format
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
-    // Check layout (collapsed intervals and alignments)
+    // Check layout (collapsed intervals and alignments).
     components.isLayoutChange =
         inputLayout.getNormalizedIntervals() !=
             outputLayout.getNormalizedIntervals() ||
         inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
 
   } else {
-    // Handle memref types
     auto inputMemref = mlir::cast<mlir::MemRefType>(inputType);
     auto outputMemref = mlir::cast<mlir::MemRefType>(outputType);
 
