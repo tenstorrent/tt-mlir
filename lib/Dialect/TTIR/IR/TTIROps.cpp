@@ -396,6 +396,40 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
+  auto dtype = getDtype();
+  auto outputType = getResult().getType().getElementType();
+
+  if (dtype != outputType) {
+    return emitOpError()
+           << "dtype does not match with output tensor type [dtype = " << dtype
+           << ", output tensor type = " << outputType << "].";
+  }
+
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  llvm::SmallVector<int64_t> sizeVec;
+  for (auto size : getSize()) {
+    sizeVec.push_back(mlir::cast<mlir::IntegerAttr>(size).getInt());
+  }
+  if (!llvm::equal(getResult().getType().getShape(), sizeVec)) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = "
+           << getSize() << ", output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

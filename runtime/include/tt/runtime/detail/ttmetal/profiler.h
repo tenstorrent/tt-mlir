@@ -78,7 +78,7 @@ inline void profileProgram(tt::tt_metal::IDevice *device,
   std::string op_text = fmt::format("id:{}", program.get_runtime_id());
   ZoneText(op_text.c_str(), op_text.size());
   TracyMessage(op_message.c_str(), op_message.size());
-  tt_metal::detail::DumpDeviceProfileResults(device);
+  tt_metal::detail::ReadDeviceProfilerResults(device);
 }
 
 #else

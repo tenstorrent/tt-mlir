@@ -9,10 +9,9 @@
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <array>
-#include <cmath>
-#include <type_traits>
 
 namespace mlir::tt::ttir::verification_utils {
 
@@ -524,44 +523,25 @@ mlir::LogicalResult verifyPool2dOutputDims(PoolOp *op,
   int32_t effectiveKernelWidth = params.getEffectiveKernelSize()[1];
 
   int32_t calculatedHOut, calculatedWOut;
+  // Adjust for ceil/floor mode. If ceilMode is true, we use ceiling division;
+  // otherwise, we use floor division.
   if (params.ceilMode) {
     // Ceiling mode: use ceiling division.
-    calculatedHOut =
-        static_cast<int32_t>(std::ceil(
-            static_cast<double>(paddedHeight - effectiveKernelHeight) /
-            params.stride.vertical)) +
-        1;
-    calculatedWOut =
-        static_cast<int32_t>(
-            std::ceil(static_cast<double>(paddedWidth - effectiveKernelWidth) /
-                      params.stride.horizontal)) +
-        1;
-
-    // Adjust output dimensions for average pooling with ceil_mode.
-    // If the last pooling window would start in the padded region (i.e.,
-    // (H_out - 1) * stride[0] >= H_in + padding[0]), we must reduce H_out by 1.
-    // Similarly for W_out.
-    if constexpr (std::is_same_v<PoolOp, AvgPool2dOp>) {
-      if (params.padding.top != params.padding.bottom ||
-          params.padding.left != params.padding.right) {
-        return op->emitOpError() << "padding must be symmetric for AvgPool2dOp "
-                                    "with ceil_mode=true";
-      }
-      if ((calculatedHOut - 1) * params.stride.vertical >=
-          inputDims.inputHeight + params.padding.top) {
-        calculatedHOut--;
-      }
-      if ((calculatedWOut - 1) * params.stride.horizontal >=
-          inputDims.inputWidth + params.padding.left) {
-        calculatedWOut--;
-      }
-    }
+    calculatedHOut = llvm::divideCeil(paddedHeight - effectiveKernelHeight,
+                                      params.stride.vertical) +
+                     1;
+    calculatedWOut = llvm::divideCeil(paddedWidth - effectiveKernelWidth,
+                                      params.stride.horizontal) +
+                     1;
   } else {
     // Floor mode: use floor division (standard integer division).
     calculatedHOut =
-        (paddedHeight - effectiveKernelHeight) / params.stride.vertical + 1;
-    calculatedWOut =
-        (paddedWidth - effectiveKernelWidth) / params.stride.horizontal + 1;
+        llvm::divideFloorSigned(paddedHeight - effectiveKernelHeight,
+                                params.stride.vertical) +
+        1;
+    calculatedWOut = llvm::divideFloorSigned(paddedWidth - effectiveKernelWidth,
+                                             params.stride.horizontal) +
+                     1;
   }
 
   if (!outputDims.isFlattened()) {

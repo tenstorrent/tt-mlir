@@ -63,6 +63,46 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RandOp::verify() {
+  ttcore::DataType dtype = getDtype();
+  ttcore::DataType outputType = mlir::tt::ttcore::elementTypeToDataType(
+      getResult().getType().getElementType());
+
+  if (dtype != outputType) {
+    return emitOpError() << "dtype does not match with output tensor type.";
+  }
+
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  auto layout =
+      mlir::cast<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())
+          .getLayout();
+  if (getLayout() != layout) {
+    return emitOpError() << "Layout argument does not match with output tensor "
+                            "encoding. [Layout = ("
+                         << stringifyEnum(getLayout())
+                         << "), output tensor encoding = ("
+                         << stringifyEnum(layout) << ")].";
+  }
+
+  if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = ("
+           << getSize().getShape() << "), output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

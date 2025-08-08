@@ -145,23 +145,6 @@ module {
 }
 
 // -----
-// Test 9: AvgPool2dOp without flattened compat info and ceil mode set to true with uneven padding
-module {
-  func.func @avg_pool2d_no_flattened_compat_batch_mismatch(%arg0: tensor<1x32x32x64xbf16>) -> tensor<2x31x31x64xbf16> {
-    %0 = ttir.empty() : tensor<2x30x30x64xbf16>
-    // CHECK: error: 'ttir.avg_pool2d' op padding must be symmetric for AvgPool2dOp with ceil_mode=true
-    %1 = "ttir.avg_pool2d"(%arg0, %0) <{
-      kernel = array<i32: 3, 3>,
-      stride = array<i32: 1, 1>,
-      dilation = array<i32: 1, 1>,
-      padding = array<i32: 1, 1, 0, 0>,
-      ceil_mode = true
-    }> : (tensor<1x32x32x64xbf16>, tensor<2x30x30x64xbf16>) -> tensor<2x30x30x64xbf16>
-    return %1 : tensor<2x30x30x64xbf16>
-  }
-}
-
-// -----
 // Test 10: AvgPool2dOp without flattened compat info and mismatch on batch size
 module {
   func.func @avg_pool2d_no_flattened_compat_batch_mismatch(%arg0: tensor<1x32x32x64xbf16>) -> tensor<2x30x30x64xbf16> {

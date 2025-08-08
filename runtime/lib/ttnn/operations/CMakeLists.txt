@@ -58,6 +58,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/upsample.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/rand/rand.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp

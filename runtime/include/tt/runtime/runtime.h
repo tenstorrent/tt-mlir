@@ -23,7 +23,7 @@ SystemDesc getCurrentSystemDesc(
 namespace detail {
 void deallocateBuffers(Device device);
 void dumpMemoryReport(Device device);
-void dumpDeviceProfileResults(Device device);
+void readDeviceProfilerResults(Device device);
 
 /*
 This function get the memory view per device

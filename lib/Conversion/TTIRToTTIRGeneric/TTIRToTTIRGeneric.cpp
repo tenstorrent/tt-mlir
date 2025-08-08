@@ -245,7 +245,7 @@ protected:
 
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
-  mlir::ArrayRef<int64_t> targetGridShape;
+  llvm::SmallVector<int64_t> targetGridShape;
 
   bool collapseTensors;
 };
