@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttrt.runtime._ttmlir_runtime.binary import (
+from ttrt.runtime.lib._ttmlir_runtime.binary import (
     load_from_path,
     load_binary_from_path,
     load_binary_from_capsule,

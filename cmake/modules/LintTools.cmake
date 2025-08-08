@@ -3,8 +3,6 @@ add_custom_target(clang-tidy COMMAND run-clang-tidy.py -p ${PROJECT_BINARY_DIR} 
   DEPENDS
     mlir-headers
     mlir-generic-headers
-    tt-metal-download
-    tt-metal-configure
     FBS_GENERATION
 )
 
@@ -17,9 +15,6 @@ add_custom_target(clang-tidy-ci
     FBS_GENERATION
     mlir-headers
     mlir-generic-headers
-    tt-metal-download
-    tt-metal-update
-    tt-metal-configure
     TTKernelGeneratedLLKHeaders
 )
 

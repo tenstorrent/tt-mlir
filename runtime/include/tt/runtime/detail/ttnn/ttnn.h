@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_TTNN_H
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"

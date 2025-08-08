@@ -25,7 +25,10 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
-target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
-target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
-add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
+target_link_libraries(TTRuntimeTTNN PUBLIC
+  TTRuntimeTTNNOps
+  TTRuntimeTTNNTypes
+  TTRuntimeTTNNUtils
+  coverage_config
+  TT::Metalium
+)

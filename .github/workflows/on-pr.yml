@@ -34,7 +34,7 @@ jobs:
     needs:
       - pre-commit
       - spdx
-    if: github.event.pull_request.draft == false
+    #if: github.event.pull_request.draft == false
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
     with:
