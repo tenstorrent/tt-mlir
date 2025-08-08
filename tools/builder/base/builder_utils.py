@@ -668,26 +668,37 @@ def compile_ttir_module_to_flatbuffer(
     ----------
     module : Module
         The TTIR MLIR module to compile
+
     builder : Union[TTIRBuilder, StableHLOBuilder]
         The builder instance containing golden reference values
+
     system_desc_path : str, optional
         Path to the system descriptor file. Default is "ttrt-artifacts/system_desc.ttsys"
+
     test_base : str, optional
         The string to be used as the base name for dumped files. Default is "test"
+
     output_root : str, optional
-        The path to dump all generated files under. Default is "."
+        The path to dump all generated files under
+
     target : Literal["ttnn", "ttmetal", "ttnn-standalone"], optional
         The target backend to use. Default is "ttnn"
+
     mesh_dict : OrderedDict[str, int], optional
         Dictionary that defines the mesh shape. Default is OrderedDict([("x", 1), ("y", 1)])
+
     module_dump : bool, optional
-        Set to True to print out generated MLIR modules. Default is True
+        Set to True to print out generated MLIR modules
+
     argument_types_string : Optional[str], optional
         String defining argument types for constant evaluation
+
     custom_pipeline : Optional[Union[Callable, str]], optional
         Custom pipeline function or string to run instead of default pipeline
+
     pipeline_options : Optional[List[str]], optional
         Additional pipeline options to pass to the pipeline
+
     print_ir : Union[bool, str], optional
         Set to True to print IR to stdout or to a directory path. Default is False
 

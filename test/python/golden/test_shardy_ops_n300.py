@@ -142,33 +142,27 @@ def manual_computation(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    dim_sharding_none = builder.dimension_sharding_attr(
+        axes=[],
+        is_closed=True,
+    )
+    dim_sharding_x = builder.dimension_sharding_attr(
+        axes=[builder.axis_ref_attr(name="x")],
+        is_closed=True,
+    )
+    dim_sharding_y = builder.dimension_sharding_attr(
+        axes=[builder.axis_ref_attr(name="y")],
+        is_closed=False,
+    )
     in_shardings = builder.tensor_sharding_per_value_attr(
         [
             builder.tensor_sharding_attr(
                 mesh_name="mesh",
-                dimension_shardings=[
-                    builder.dimension_sharding_attr(
-                        axes=[builder.axis_ref_attr(name="x")],
-                        is_closed=True,
-                    ),
-                    builder.dimension_sharding_attr(
-                        axes=[builder.axis_ref_attr(name="y")],
-                        is_closed=False,
-                    ),
-                ],
+                dimension_shardings=[dim_sharding_x, dim_sharding_y],
             ),
             builder.tensor_sharding_attr(
                 mesh_name="mesh",
-                dimension_shardings=[
-                    builder.dimension_sharding_attr(
-                        axes=[builder.axis_ref_attr(name="y")],
-                        is_closed=True,
-                    ),
-                    builder.dimension_sharding_attr(
-                        axes=[],
-                        is_closed=False,
-                    ),
-                ],
+                dimension_shardings=[dim_sharding_y, dim_sharding_none],
             ),
         ]
     )
@@ -176,16 +170,7 @@ def manual_computation(
         [
             builder.tensor_sharding_attr(
                 mesh_name="mesh",
-                dimension_shardings=[
-                    builder.dimension_sharding_attr(
-                        axes=[builder.axis_ref_attr(name="x")],
-                        is_closed=True,
-                    ),
-                    builder.dimension_sharding_attr(
-                        axes=[],
-                        is_closed=False,
-                    ),
-                ],
+                dimension_shardings=[dim_sharding_x, dim_sharding_none],
             ),
         ]
     )

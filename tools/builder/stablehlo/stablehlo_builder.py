@@ -462,21 +462,3 @@ class StableHLOBuilder(Builder):
             [in0],
             stablehlo_kwargs={"sharding": sharding},
         )
-
-    def return_op(self, out0) -> sdy.ReturnOp:
-        """
-        Creates a return operation.
-        This operation terminates regions attached to sdy region-based operations and other Shardy
-        region-based operations. It is variadic and can take a list of values of any type as arguments.
-
-        Parameters
-        ----------
-        out0 : Any
-            The value(s) to be returned from the region. Can be a single value or a list of values
-
-        Returns
-        -------
-        (*sdy.ReturnOp*)
-            A return operation that terminates the region and returns the specified values
-        """
-        return sdy.ReturnOp(out0)
