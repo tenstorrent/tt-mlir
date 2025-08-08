@@ -1731,22 +1731,18 @@ def reverse_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
 
 def arange_golden(**kwargs) -> torch.Tensor:
     """
-    Golden function for arange operation with TTIR parameter names.
+    Golden function for arange operation using TTIR kwargs.
 
-    Parameters
-    ----------
-    **kwargs : dict
-        Keyword arguments including 'repeats'
-
-    Returns
-    -------
-    torch.Tensor
-        Arange tensor
+    Expected kwargs from builder (ttir_kwargs):
+    - start: int
+    - end: int
+    - step: int
+    - arange_dimension: int (ignored here; layout handled by builder output shape)
     """
-    repeats = kwargs.get("repeats", [1])
-    if isinstance(repeats, tuple):
-        repeats = list(repeats)
-    return torch.arange(repeats[0] if repeats else 1)
+    start = kwargs.get("start", 0)
+    end = kwargs.get("end", 0)
+    step = kwargs.get("step", 1)
+    return torch.arange(start=start, end=end, step=step)
 
 
 def cumsum_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
