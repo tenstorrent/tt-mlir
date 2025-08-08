@@ -68,6 +68,8 @@ def run_cmake_setup(args):
             capture_output=True,
             text=True,
         )
+
+        print(result.stdout)
     except Exception as e:
         print(f"Error setting up cmake environment: {e}")
         print(e.stderr)
