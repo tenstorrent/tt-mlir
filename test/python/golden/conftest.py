@@ -37,7 +37,7 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
     )["system_desc"]
     record_testsuite_property("card", get_board_id(system_desc))
 
-    # Get current git SHA
+    # Get current git SHA.
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -49,7 +49,7 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
         git_sha = result.stdout.strip()
         record_testsuite_property("git_sha", git_sha)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        # If git command fails or git is not available, record as unknown
+        # If git command fails or git is not available, record as unknown.
         record_testsuite_property("git_sha", "unknown")
 
 
@@ -203,7 +203,7 @@ def pytest_runtest_makereport(item, call):
     </properties>
     """
 
-    # SETUP PHASE: Extract parameter information (for all tests including skipped ones)
+    # SETUP PHASE: Extract parameter information (for all tests including skipped ones).
     if call.when == "setup" and hasattr(item, "callspec"):
         params = item.callspec.params
 
@@ -221,11 +221,11 @@ def pytest_runtest_makereport(item, call):
         if shapes_param is not None:
             if not isinstance(shapes_param, list):
                 shapes_param = [shapes_param]
-            # Format shapes as strings for XML
+            # Format shapes as strings for XML.
             item.user_properties.append(("input_shapes", str(shapes_param)))
 
-            # Extract dtypes information
-            dtypes_param = torch.float32  # default to float32
+            # Extract dtypes information.
+            dtypes_param = torch.float32  # default to float32.
             if "dtypes" in params:
                 dtypes_param = params["dtypes"]
             elif "dtype" in params:
@@ -239,41 +239,41 @@ def pytest_runtest_makereport(item, call):
             dtypes_str = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
             item.user_properties.append(("input_dtypes", str(dtypes_str)))
 
-        # Extract operation name from various sources
+        # Extract operation name from various sources.
         op_name = None
 
-        # First try to get from `test_fn` parameter (for parametrized op tests)
+        # First try to get from `test_fn` parameter (for parametrized op tests).
         if "test_fn" in params:
             test_fn = params["test_fn"]
             if hasattr(test_fn, "__name__"):
                 op_name = test_fn.__name__
 
-        # If no `test_fn`, try to extract from test function name
+        # If no `test_fn`, try to extract from test function name.
         if not op_name:
-            test_name = item.name.split("[")[0]  # Remove parameter part
+            test_name = item.name.split("[")[0]  # Remove parameter part.
             if test_name.startswith("test_"):
-                op_name = test_name[5:]  # Remove "test_" prefix
+                op_name = test_name[5:]  # Remove "test_" prefix.
 
         if op_name:
 
-            # Handle hoisted operations
+            # Handle hoisted operations.
             if op_name.startswith("hoisted_"):
-                op_name = op_name[8:]  # Remove "hoisted_" prefix
+                op_name = op_name[8:]  # Remove "hoisted_" prefix.
 
             item.user_properties.append(("op_name", op_name))
-            # For now, use the same op_name as framework_op_name
+            # For now, use the same op_name as framework_op_name.
 
-            # TODO: Extract actual framework (torch) operation name in the
-            # future, once we have access to it via golden checking
+            # TODO(ctod): Extract actual framework (torch) operation name in the
+            # future, once we have access to it via golden checking.
             item.user_properties.append(("framework_op_name", op_name))
 
-        # Extract backend from target parameter, default to "ttnn" if not present
+        # Extract backend from target parameter, default to "ttnn" if not present.
         backend = params.get("target", "ttnn")
         item.user_properties.append(("backend", backend))
 
-        # Add remaining parameters (excluding those already covered) as prefixed properties
+        # Add remaining parameters (excluding those already covered) as prefixed properties.
         if params:
-            # Parameters already covered by setup-time logging
+            # Parameters already covered by setup-time logging.
             covered_params = {
                 "shapes",
                 "shape",
@@ -286,7 +286,7 @@ def pytest_runtest_makereport(item, call):
                 "target",  # backend extraction
             }
 
-            # Add uncovered parameters as individual properties with "param_" prefix
+            # Add uncovered parameters as individual properties with "param_" prefix.
             for key, value in params.items():
                 if key not in covered_params:
                     try:
@@ -296,25 +296,25 @@ def pytest_runtest_makereport(item, call):
                         value_str = repr(value)
                         item.user_properties.append((f"param_{key}", value_str))
 
-    # CALL PHASE: Extract runtime information (failure stage, error messages, etc.)
+    # CALL PHASE: Extract runtime information (failure stage, error messages, etc.).
     if call.when == "call":
-        # Determine failure stage based on test outcomes and exceptions from `compile_ttir_to_flatbuffer`
-        failure_stage = "success"  # Default to success
+        # Determine failure stage based on test outcomes and exceptions from `compile_ttir_to_flatbuffer`.
+        failure_stage = "success"  # Default to success.
 
         if hasattr(call, "excinfo") and call.excinfo is not None:
-            # Test failed, determine failure stage from exception type only
+            # Test failed, determine failure stage from exception type only.
             exc_type = call.excinfo.type
 
-            # TODO: Capture stderr from test execution (to be implemented later)
+            # TODO(ctod): Capture stderr from test execution (to be implemented later).
 
-            # Check for specific TTIR exception types
+            # Check for specific TTIR exception types.
             if exc_type and exc_type.__name__ == "TTIRCompileException":
                 failure_stage = "compile"
             elif exc_type and exc_type.__name__ == "TTIRRuntimeException":
                 failure_stage = "runtime"
             elif exc_type and exc_type.__name__ == "TTIRGoldenException":
                 failure_stage = "golden"
-            # If no specific TTIR exception, leave as "success" default
+            # If no specific TTIR exception, leave as "success" default.
 
         item.user_properties.append(("failure_stage", failure_stage))
 
