@@ -53,24 +53,25 @@ else()
   endif()
 endif()
 
-# TT_METAL_HOME env variable needs to be set
-if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
+# TT_MLIR_HOME env variable needs to be set
+if(NOT DEFINED ENV{TT_MLIR_HOME})
+    message(WARNING "TT_MLIR_HOME env var is not set in ttnn-standalone. Aborting build.")
     return()
 endif()
 
 # Metal dir variables
-set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+set(METAL_SRC_DIR "$ENV{TT_MLIR_HOME}/build/_deps/tt-metal-src" CACHE PATH "Path to the tt-metal root src directory")
 if(DEFINED ENV{TT_METAL_LIB})
-  set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
+  set(METAL_BUILD_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal build directory")
 else()
-  set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
+  set(METAL_BUILD_DIR "$ENV{TT_MLIR_HOME}/build/_deps/tt-metal-build" CACHE PATH "Path to the tt-metal lib directory")
 endif()
+
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
-  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
+  set(CPM_SOURCE_CACHE $ENV{TT_MLIR_HOME}/.cpmcache)
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
@@ -120,7 +121,9 @@ set(INCLUDE_DIRS
 # Link directories
 #
 set(LINK_DIRS
-    ${METAL_LIB_DIR}
+    ${METAL_BUILD_DIR}/ttnn
+    ${METAL_BUILD_DIR}/tt_metal
+    ${METAL_BUILD_DIR}/tt_metal/third_party/umd/device
 )
 
 # Libraries to link
@@ -128,7 +131,7 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
-    ${METAL_LIB_DIR}/_ttnncpp.so
+    ${METAL_BUILD_DIR}/ttnn/_ttnncpp.so
 )
 
 # Compile definitions
@@ -146,7 +149,7 @@ set(COMPILE_DEFS
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
-set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_BUILD_DIR}:${METAL_BUILD_DIR}/tt_metal:${METAL_BUILD_DIR}/tt_metal/third_party/umd/device:${METAL_BUILD_DIR}/ttnn")
 set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
 target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
@@ -174,7 +177,7 @@ target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
-set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_BUILD_DIR}:${METAL_BUILD_DIR}/tt_metal:${METAL_BUILD_DIR}/tt_metal/third_party/umd/device:${METAL_BUILD_DIR}/ttnn")
 set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
