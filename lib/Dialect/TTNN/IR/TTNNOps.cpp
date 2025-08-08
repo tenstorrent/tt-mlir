@@ -2028,8 +2028,8 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   auto indicesType =
       mlir::cast<RankedTensorType>(getResults().back().getType());
   auto elementType = indicesType.getElementType();
-  if (!elementType.isInteger(16)) {
-    return emitOpError("Expected data type for indices is i16 but got ")
+  if (!isa<IntegerType>(elementType)) {
+    return emitOpError("Expected integer data type for indices but got ")
            << elementType;
   }
 
