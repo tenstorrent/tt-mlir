@@ -896,14 +896,55 @@ struct ScatterToEmbeddingBackwardConversionPattern
    */
   LogicalResult checkBasicLegality(ttir::ScatterOp op,
                                   ConversionPatternRewriter &rewriter) const {
-    // For now, only support simple scatter patterns that can be decomposed
-    // to embedding backward. This includes basic 1D indexing patterns.
-    
     // Check for unsupported batching dimensions
     if (!op.getInputBatchingDims().empty() || 
         !op.getScatterIndicesBatchingDims().empty()) {
       return rewriter.notifyMatchFailure(
           op, "Scatter with batching dimensions not supported");
+    }
+    
+    // Check that inserted_window_dims are [0, 1] for 2D embedding backward pattern
+    auto insertedWindowDims = op.getInsertedWindowDims();
+    if (insertedWindowDims.size() != 2 || 
+        insertedWindowDims[0] != 0 || insertedWindowDims[1] != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter must have inserted_window_dims = [0, 1] for embedding backward conversion");
+    }
+    
+    // Check that scatter_dims_to_operand_dims are [0, 1]
+    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
+    if (scatterDimsToOperandDims.size() != 2 || 
+        scatterDimsToOperandDims[0] != 0 || scatterDimsToOperandDims[1] != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter must have scatter_dims_to_operand_dims = [0, 1] for embedding backward conversion");
+    }
+    
+    // Check that update_window_dims is empty (all dimensions are scattered)
+    auto updateWindowDims = op.getUpdateWindowDims();
+    if (!updateWindowDims.empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter must have empty update_window_dims for embedding backward conversion");
+    }
+    
+    // Check that index_vector_dim is the last dimension of scatter_indices
+    auto scatterIndicesShape = op.getScatterIndices().getType().getShape();
+    int64_t expectedIndexVectorDim = scatterIndicesShape.size() - 1;
+    if (op.getIndexVectorDim() != expectedIndexVectorDim) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter index_vector_dim must be the last dimension of scatter_indices");
+    }
+    
+    // Check that scatter_indices has shape [..., 2] for 2D indexing
+    if (scatterIndicesShape.empty() || scatterIndicesShape.back() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter indices must have shape [..., 2] for 2D embedding backward conversion");
+    }
+    
+    // Check that input tensor is 2D (required for embedding backward)
+    auto inputShape = op.getInput().getType().getShape();
+    if (inputShape.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Input tensor must be 2D for embedding backward conversion");
     }
 
     return success();
@@ -966,75 +1007,88 @@ struct ScatterToEmbeddingBackwardConversionPattern
   }
 
 private:
-  // Helper to flatten input tensor and add second dimension if needed
+  // Helper to prepare input tensor for embedding backward
   Value flattenInput(ConversionPatternRewriter &rewriter, Location loc,
                     Value input, ArrayRef<int64_t> inputShape) const {
-    // Flatten the input: [A, B, C] -> [A*B*C]
-    int64_t flattenedSize = 1;
-    for (int64_t dim : inputShape) {
-      flattenedSize *= dim;
-    }
-
+    // For embedding backward, the input should be the 2D weight tensor
+    // It should already be 2D from our validation, so we can use it directly
+    // or ensure it has the right shape for embedding backward
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
     
-    // Reshape to flattened shape
-    llvm::SmallVector<int64_t> flatShape = {flattenedSize};
-
+    // Input should already be 2D: [vocab_size, embedding_dim]
+    // For embedding backward, this becomes the weight tensor
+    // No reshaping needed if already 2D as expected
+    if (inputShape.size() == 2) {
+      return input;
+    }
+    
+    // If somehow not 2D, flatten and reshape to 2D
+    int64_t totalSize = 1;
+    for (int64_t dim : inputShape) {
+      totalSize *= dim;
+    }
+    
+    // Assume last dimension is embedding dimension, rest flattened to vocab size
+    int64_t embeddingDim = inputShape.back();
+    int64_t vocabSize = totalSize / embeddingDim;
+    
+    llvm::SmallVector<int64_t> finalShape = {vocabSize, embeddingDim};
     auto shapeAttr = rewriter.getI32ArrayAttr(
-        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize)});
-
-    auto flattenedInput = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, flatShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
-
-    // Add second dimension: [A*B*C] -> [A*B*C, 1]
-    llvm::SmallVector<int64_t> finalShape = {flattenedSize, 1};
-
-    auto finalShapeAttr = rewriter.getI32ArrayAttr(
-        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize), 1});
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(vocabSize), 
+                                   static_cast<int32_t>(embeddingDim)});
 
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, finalShape, inputType.getElementType(),
-        inputType.getEncoding(), flattenedInput, finalShapeAttr);
+        inputType.getEncoding(), input, shapeAttr);
   }
 
-  // Helper to transform scatter indices using [...,0]*shape[1] + [...,1]
+  // Helper to transform scatter indices for embedding backward
+  // For now, use a simplified approach that just flattens indices
   Value transformScatterIndices(ConversionPatternRewriter &rewriter, 
                                Location loc, Value scatterIndices,
                                ArrayRef<int64_t> scatterIndicesShape,
                                ArrayRef<int64_t> inputShape) const {
-    // For now, implement a simple case where indices are 2D: [..., 2]
-    // Apply the transformation: [...,0]*shape[1] + [...,1]
-    
     auto indicesType = mlir::cast<mlir::RankedTensorType>(scatterIndices.getType());
     
-    // Simply flatten the indices for now - this is a simplified implementation
-    int64_t flattenedIndicesSize = 1;
-    for (int64_t dim : scatterIndicesShape) {
-      flattenedIndicesSize *= dim;
+    // Calculate the total number of indices (excluding the last 2D coordinate dimension)
+    int64_t batchSize = 1;
+    for (size_t i = 0; i < scatterIndicesShape.size() - 1; ++i) {
+      batchSize *= scatterIndicesShape[i];
     }
-
-    llvm::SmallVector<int64_t> flatShape = {flattenedIndicesSize};
+    
+    // For embedding backward, we need 1D indices
+    // Flatten the scatter indices to [batch_size]
+    llvm::SmallVector<int64_t> flatShape = {batchSize};
     auto shapeAttr = rewriter.getI32ArrayAttr(
-        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedIndicesSize)});
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(batchSize)});
 
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, flatShape, indicesType.getElementType(),
         indicesType.getEncoding(), scatterIndices, shapeAttr);
   }
 
-  // Helper to flatten update tensor
+  // Helper to prepare update tensor for embedding backward  
   Value flattenUpdate(ConversionPatternRewriter &rewriter, Location loc,
                      Value update, ArrayRef<int64_t> updateShape) const {
-    int64_t flattenedSize = 1;
-    for (int64_t dim : updateShape) {
-      flattenedSize *= dim;
-    }
-
     auto updateType = mlir::cast<mlir::RankedTensorType>(update.getType());
-    llvm::SmallVector<int64_t> flatShape = {flattenedSize};
+    
+    // For embedding backward, the update tensor contains the gradients
+    // that should be accumulated at the given indices
+    // It should be shaped as [batch_size, embedding_dim] after flattening
+    
+    // Calculate batch size (all dims except the last embedding dimension)
+    int64_t batchSize = 1;
+    for (size_t i = 0; i < updateShape.size() - 1; ++i) {
+      batchSize *= updateShape[i];
+    }
+    
+    int64_t embeddingDim = updateShape.back();
+    
+    // Reshape to [batch_size, embedding_dim]
+    llvm::SmallVector<int64_t> flatShape = {batchSize, embeddingDim};
     auto shapeAttr = rewriter.getI32ArrayAttr(
-        llvm::SmallVector<int32_t>{static_cast<int32_t>(flattenedSize)});
+        llvm::SmallVector<int32_t>{static_cast<int32_t>(batchSize),
+                                   static_cast<int32_t>(embeddingDim)});
 
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, flatShape, updateType.getElementType(),
@@ -1045,7 +1099,11 @@ private:
   mlir::RankedTensorType getEmbeddingBackwardOutputType(
       mlir::Type inputType, mlir::Type indicesType, mlir::Type updateType) const {
     auto inputTensorType = mlir::cast<mlir::RankedTensorType>(inputType);
-    return inputTensorType; // For now, output has same shape as flattened input
+    
+    // For embedding backward, the output should have the same shape as the input weight tensor
+    // which is [vocab_size, embedding_dim] after our flattening/preparation
+    // The embedding backward accumulates gradients and returns updated weights of the same shape
+    return inputTensorType;
   }
 
   // Helper to reshape output back to original shape  
