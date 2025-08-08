@@ -7,7 +7,6 @@ import inspect
 import functools
 import textwrap
 import os
-import re
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
