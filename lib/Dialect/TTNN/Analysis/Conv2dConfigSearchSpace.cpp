@@ -166,16 +166,6 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
           return attr.withEnableSplitReader(info.getCurrentBool());
         });
   }
-  if (searchSpace.isEnableSubblockPaddingSetForSearch() &&
-      !baseConfig.hasEnableSubblockPadding()) {
-    activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.enableSubblockPadding),
-        [](Conv2dConfigAttr attr,
-           const Conv2dConfigGeneratorSearchFieldInfo &info)
-            -> Conv2dConfigAttr {
-          return attr.withEnableSubblockPadding(info.getCurrentBool());
-        });
-  }
 
   // Initialize isDone to true if there are no active search fields.
   isDone = activeSearchFields.empty();

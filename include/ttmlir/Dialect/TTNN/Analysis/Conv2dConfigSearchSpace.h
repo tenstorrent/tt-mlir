@@ -35,7 +35,6 @@ struct Conv2dConfigSearchSpace {
   llvm::SmallVector<bool> enableActDoubleBuffer;
   llvm::SmallVector<bool> enableWeightsDoubleBuffer;
   llvm::SmallVector<bool> enableSplitReader;
-  llvm::SmallVector<bool> enableSubblockPadding;
 
   // Constructor: All fields are empty by default.
   Conv2dConfigSearchSpace() = default;
@@ -74,9 +73,6 @@ struct Conv2dConfigSearchSpace {
   bool isEnableSplitReaderSetForSearch() const {
     return !enableSplitReader.empty();
   }
-  bool isEnableSubblockPaddingSetForSearch() const {
-    return !enableSubblockPadding.empty();
-  }
 
   // Helper to check if any field has been set with search values
   bool isAnyFieldSetForSearch() const {
@@ -90,8 +86,7 @@ struct Conv2dConfigSearchSpace {
            isTransposeShardsSetForSearch() || isOutputLayoutSetForSearch() ||
            isEnableActDoubleBufferSetForSearch() ||
            isEnableWeightsDoubleBufferSetForSearch() ||
-           isEnableSplitReaderSetForSearch() ||
-           isEnableSubblockPaddingSetForSearch();
+           isEnableSplitReaderSetForSearch();
   }
 };
 

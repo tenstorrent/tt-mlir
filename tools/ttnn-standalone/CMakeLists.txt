@@ -80,7 +80,7 @@ set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
     ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
     ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
-    ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
+    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
@@ -100,7 +100,7 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_stl
     ${METAL_SRC_DIR}/tt_stl/tt_stl
     ${METAL_SRC_DIR}/tt_metal/third_party/fmt
-    ${METAL_SRC_DIR}/tt_metal/third_party/magic_enum
+    ${METAL_SRC_DIR}/tt_metal/third_party/enchantum
     ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
     ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
     ${METAL_SRC_DIR}/tt_metal/third_party/umd
