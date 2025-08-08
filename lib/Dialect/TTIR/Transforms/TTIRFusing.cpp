@@ -222,7 +222,7 @@ public:
 };
 
 // This pattern detects and fuses numerically stable softmax operations:
-// softmax(x - max(x)) -> softmax(x, numericStable=true)
+// softmax(x - max(x)) -> softmax(x, numericStable=true).
 //
 // The pattern matches the following sequence:
 // 1. max(x) along a dimension with keep_dim=true
@@ -238,42 +238,41 @@ public:
   matchAndRewrite(SoftmaxOp softmaxOp,
                   mlir::PatternRewriter &rewriter) const final {
 
-    // Get the input to softmax
+    // Get the input to softmax.
     mlir::Value softmaxInput = softmaxOp.getInput();
 
-    // Check if input is a subtract operation
+    // Check if input is a subtract operation.
     auto subOp = softmaxInput.getDefiningOp<SubtractOp>();
     if (!subOp) {
       return mlir::failure();
     }
 
-    // Get the operands of the subtract operation
+    // Get the operands of the subtract operation.
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
 
-    // Handle broadcast operation (always present with keep_dim=true)
+    // Handle broadcast operation (always present with keep_dim=true).
     mlir::Value maxValue = subtractedValue;
     auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
     if (broadcastOp) {
       maxValue = broadcastOp.getInput();
     } else {
-      // If no broadcast, this might not be the pattern we're looking for
       return mlir::failure();
     }
 
-    // Check if the broadcasted value is a max operation
+    // Check if the broadcasted value is a max operation.
     auto maxOp = maxValue.getDefiningOp<MaxOp>();
     if (!maxOp) {
       return mlir::failure();
     }
 
-    // Verify that max operates on the same input as the original
+    // Verify that max operates on the same input as the original.
     if (maxOp.getInput() != originalInput) {
       return mlir::failure();
     }
 
     // Verify that max reduces along the same dimension as softmax
-    // and has keep_dim=true for proper broadcasting
+    // and has keep_dim=true for proper broadcasting.
     if (!maxOp.getDimArg() || !maxOp.getKeepDim()) {
       return mlir::failure();
     }
@@ -289,14 +288,14 @@ public:
       return mlir::failure();
     }
 
-    // Check usage patterns to ensure we can safely fuse
+    // Check usage patterns to ensure we can safely fuse.
     if (!subOp.getResult().hasOneUse() ||
         !broadcastOp.getResult().hasOneUse() ||
         !maxOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
-    // Replace with numerically stable softmax
+    // Replace with numerically stable softmax.
     utils::replaceOpWithNewDPSOp<SoftmaxOp>(
         rewriter, softmaxOp, softmaxOp.getResult().getType(), originalInput,
         softmaxOp.getDimension(),

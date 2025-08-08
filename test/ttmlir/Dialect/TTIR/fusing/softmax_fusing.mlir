@@ -203,7 +203,7 @@ module {
   }
 }
 
-// Test case for fusing numerically stable softmax pattern
+// Test case for fusing numerically stable softmax pattern.
 module {
   // CHECK-LABEL: func.func @softmax_numeric_stable_fusion
   func.func @softmax_numeric_stable_fusion(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
@@ -214,7 +214,6 @@ module {
     // CHECK: %[[RESULT:.*]] = "ttir.softmax"(%arg0, %{{.*}}) <{dimension = 1 : si32, numericStable = true}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: return %[[RESULT]]
 
-    // Pattern: x - max(x, dim=1, keepdim=true) then standard softmax
     %0 = ttir.empty() : tensor<32x1xf32>
     %1 = "ttir.max"(%arg0, %0) {dim_arg = [1 : i32], keep_dim = true} : (tensor<32x32xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
 
@@ -224,7 +223,6 @@ module {
     %4 = ttir.empty() : tensor<32x32xf32>
     %5 = "ttir.subtract"(%arg0, %3, %4) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 
-    // Standard softmax on the shifted input
     %6 = ttir.empty() : tensor<32x32xf32>
     %7 = "ttir.exp"(%5, %6) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 

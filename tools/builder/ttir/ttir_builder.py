@@ -2311,7 +2311,7 @@ class TTIRBuilder(Builder):
             ttir_kwargs={
                 "dimension": dimension,
                 "numericStable": numeric_stable,
-            },  # Add as keyword args
+            },
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
