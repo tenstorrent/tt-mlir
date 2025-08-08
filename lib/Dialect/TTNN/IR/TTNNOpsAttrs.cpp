@@ -731,7 +731,6 @@ struct Conv2dConfigAttrParams {
   mlir::BoolAttr enableActDoubleBuffer;
   mlir::BoolAttr enableWeightsDoubleBuffer;
   mlir::BoolAttr enableSplitReader;
-  mlir::BoolAttr enableSubblockPadding;
   mlir::BoolAttr inPlace;
 
   Conv2dConfigAttrParams() = delete;
@@ -789,8 +788,6 @@ public:
         getOrDefaultBool(attr.getEnableWeightsDoubleBuffer(), ctx, partial);
     enableSplitReader =
         getOrDefaultBool(attr.getEnableSplitReader(), ctx, partial);
-    enableSubblockPadding =
-        getOrDefaultBool(attr.getEnableSubblockPadding(), ctx, partial);
     inPlace = getOrDefaultBool(attr.getInPlace(), ctx, partial);
   }
 
@@ -800,8 +797,7 @@ public:
         reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
         reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
         transposeShards, outputLayout, enableActDoubleBuffer,
-        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding,
-        inPlace);
+        enableWeightsDoubleBuffer, enableSplitReader, inPlace);
   }
 };
 
@@ -823,7 +819,6 @@ Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
                                /*enableSplitReader=*/nullptr,
-                               /*enableSubblockPadding=*/nullptr,
                                /*inPlace=*/nullptr);
 }
 
@@ -928,12 +923,6 @@ Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
   return params.buildConv2dConfig(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withEnableSubblockPadding(bool value) const {
-  Conv2dConfigAttrParams params(*this);
-  params.enableSubblockPadding = BoolAttr::get(getContext(), value);
-  return params.buildConv2dConfig(getContext());
-}
-
 Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   Conv2dConfigAttrParams params(*this);
   params.inPlace = BoolAttr::get(getContext(), value);
@@ -996,10 +985,6 @@ bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
 
 bool Conv2dConfigAttr::hasEnableSplitReader() const {
   return getEnableSplitReader() != nullptr;
-}
-
-bool Conv2dConfigAttr::hasEnableSubblockPadding() const {
-  return getEnableSubblockPadding() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }

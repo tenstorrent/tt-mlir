@@ -1270,11 +1270,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
       firstElement = false;
     }
-    if (attr.getEnableSubblockPadding()) {
-      rso << (firstElement ? "" : ", ") << ".enable_subblock_padding = "
-          << EmitCTypeConverter<bool>::convert(attr.getEnableSubblockPadding());
-      firstElement = false;
-    }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());

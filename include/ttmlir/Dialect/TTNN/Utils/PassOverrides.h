@@ -48,7 +48,6 @@ struct Conv2dConfigOverrideParams {
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;
-  std::optional<bool> enableSubblockPadding = std::nullopt;
 
   bool empty() const {
     return !weightsDtype.has_value() && !activation.has_value() &&
@@ -60,7 +59,7 @@ struct Conv2dConfigOverrideParams {
            !coreGrid.has_value() && !transposeShards.has_value() &&
            !outputLayout.has_value() && !enableActDoubleBuffer.has_value() &&
            !enableWeightsDoubleBuffer.has_value() &&
-           !enableSplitReader.has_value() && !enableSubblockPadding.has_value();
+           !enableSplitReader.has_value();
   }
 
   bool fullConfigOverride() const {
@@ -72,7 +71,7 @@ struct Conv2dConfigOverrideParams {
            coreGrid.has_value() && transposeShards.has_value() &&
            outputLayout.has_value() && enableActDoubleBuffer.has_value() &&
            enableWeightsDoubleBuffer.has_value() &&
-           enableSplitReader.has_value() && enableSubblockPadding.has_value();
+           enableSplitReader.has_value();
   }
 
   friend llvm::raw_ostream &
@@ -89,8 +88,7 @@ struct Conv2dConfigOverrideParams {
        << ":output_layout#" << params.outputLayout
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << ":enable_split_reader#" << params.enableSplitReader
-       << ":enable_subblock_padding#" << params.enableSubblockPadding;
+       << ":enable_split_reader#" << params.enableSplitReader;
     return os;
   }
 };
