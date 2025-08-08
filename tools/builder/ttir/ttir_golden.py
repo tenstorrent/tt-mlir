@@ -1020,6 +1020,52 @@ def collective_broadcast_golden(
     return torch.randn(input.shape, dtype=input.dtype)
 
 
+def rms_norm_golden(
+    input: torch.Tensor,
+    weight: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    normalized_shape: List[int] = None,
+    epsilon: float = 1e-5,
+) -> torch.Tensor:
+    """
+    Custom golden function for RMS normalization operation.
+
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to RMS normalization operation
+    weight : torch.Tensor, optional
+        Weight tensor for scaling (default: None)
+    bias : torch.Tensor, optional
+        Bias tensor for shifting (default: None)
+    normalized_shape : List[int], optional
+        Shape of the input tensor to normalize (default: None)
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+
+    Returns
+    -------
+    torch.Tensor
+        RMS normalized output tensor
+    """
+    # Convert to float for computation
+    input_float = input.float()
+
+    rms_norm = torch.nn.functional.rms_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    # Apply bias (shift) if provided
+    if bias is not None:
+        rms_norm = rms_norm + bias.float()
+
+    # Convert back to original dtype
+    return rms_norm.to(input.dtype)
+
+
 """
 Dictionary mapping TTIR operation classes to their corresponding golden functions.
 
@@ -1126,6 +1172,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.GatherOp: gather_golden,
     # Neural network operations
     ttir.SoftmaxOp: torch.nn.functional.softmax,
+    ttir.RMSNormOp: rms_norm_golden,
     ttir.MatmulOp: torch.matmul,
     ttir.EmbeddingOp: embedding_golden,
     ttir.CumSumOp: torch.cumsum,
