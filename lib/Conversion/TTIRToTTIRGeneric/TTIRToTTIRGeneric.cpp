@@ -34,9 +34,10 @@ protected:
 
   TTIRNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
                           ttcore::MemorySpace defaultOutputMemSpace,
-                          const llvm::SmallVector<int64_t> &targetGridShape)
+                          const llvm::SmallVector<int64_t> &targetGridShape,
+                          bool collapseTensors)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        targetGridShape(targetGridShape) {
+        targetGridShape(targetGridShape), collapseTensors(collapseTensors) {
     assert(!targetGridShape.empty());
   }
 
@@ -44,14 +45,18 @@ protected:
   llvm::SmallVector<int64_t>
   computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
     llvm::SmallVector<int64_t> grid;
+    grid.reserve(physicalShape.size());
 
-    assert(physicalShape.size() == targetGridShape.size());
+    assert(physicalShape.size() >= targetGridShape.size());
 
-    for (size_t i = 0; i < physicalShape.size(); ++i) {
+    const size_t gridRankDiff = physicalShape.size() - targetGridShape.size();
+    grid.assign(gridRankDiff, 1);
+
+    for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
-      // Find largest grid dimension that divides evenly
-      for (int64_t g = targetGridShape[i]; g > 0; g--) {
+      // Find largest grid dimension that divides evenly.
+      for (int64_t g = targetGridShape[i - gridRankDiff]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
           break;
@@ -80,9 +85,24 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
-                                               logicalShape, targetGridShape,
-                                               ttcore::OOBVal::Undef, memSpace);
+    DenseIntElementsAttr emptyCollapseIntervals;
+    ttcore::MetalLayoutAttr layout;
+    if (!collapseTensors) {
+      auto emptyIntervalType = RankedTensorType::get(
+          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+
+      emptyCollapseIntervals =
+          DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
+      layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, targetGridShape,
+          ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
+    } else {
+      // Default-constructed collapse intervals will collapse to 2D.
+      layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(), logicalShape,
+                                            targetGridShape,
+                                            ttcore::OOBVal::Undef, memSpace);
+    }
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -205,15 +225,21 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
-  static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
-    return s_expectedInputGridShape;
+  llvm::SmallVector<int64_t> expectedInputGridShape(size_t rank) const {
+    assert(rank >= targetGridShape.size());
+    llvm::SmallVector<int64_t> grid(rank, 1);
+    const size_t diff = rank - targetGridShape.size();
+    for (size_t i = 0; i < targetGridShape.size(); ++i) {
+      grid[i + diff] = targetGridShape[i];
+    }
+    return grid;
   }
 
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
   llvm::SmallVector<int64_t> targetGridShape;
 
-  static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
+  bool collapseTensors;
 };
 } // namespace
 // ............................................................................
@@ -230,10 +256,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -254,8 +280,11 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -339,10 +368,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -371,8 +400,11 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -569,10 +601,11 @@ public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace,
-                     const llvm::SmallVector<int64_t> &targetGridShape)
+                     const llvm::SmallVector<int64_t> &targetGridShape,
+                     bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, collapseTensors) {}
 
 private:
   LogicalResult
@@ -594,8 +627,11 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
+    const size_t outputRank =
+        mlir::cast<mlir::ShapedType>(outputs[0].getType()).getRank() / 2;
+
     ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+        ttcore::GridAttr::get(ctx, expectedInputGridShape(outputRank));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -705,7 +741,8 @@ void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
+    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul,
+    bool collapseTensors) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -734,14 +771,14 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
 
   // Matmul.
   if (useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
   }
   else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, collapseTensors);
   }
   // clang-format on
 }
