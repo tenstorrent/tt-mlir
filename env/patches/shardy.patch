@@ -1,6 +1,6 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 new file mode 100755
-index 0000000..a2d940d
+index 0000000..beef2c1
 --- /dev/null
 +++ b/CMakeLists.txt
 @@ -0,0 +1,58 @@
@@ -62,6 +62,9 @@ index 0000000..a2d940d
 +add_subdirectory(shardy/integrations/python/ir)
 +add_subdirectory(shardy/integrations/c)
 +add_subdirectory(shardy/round_trip_import)
+diff --git a/shardy.patch b/shardy.patch
+new file mode 100644
+index 0000000..e69de29
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
 index 0000000..e35e927
@@ -266,7 +269,7 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..097780a
+index 0000000..452190f
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 @@ -0,0 +1,93 @@
@@ -365,7 +368,7 @@ index 0000000..097780a
 +)
 diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 new file mode 100755
-index 0000000..9415122
+index 0000000..d7af93e
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 @@ -0,0 +1,46 @@
@@ -417,7 +420,7 @@ index 0000000..9415122
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
 new file mode 100755
-index 0000000..02948f6
+index 0000000..809f431
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
 @@ -0,0 +1,188 @@
@@ -634,7 +637,7 @@ index 0000000..dc33501
 +)
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
-index 000000000..fdd50c4ba
+index 0000000..fdd50c4
 --- /dev/null
 +++ b/shardy/integrations/c/CMakeLists.txt
 @@ -0,0 +1,20 @@
@@ -660,26 +663,11 @@ index 000000000..fdd50c4ba
 +)
 diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
 new file mode 100644
-index 000000000..86ca2aeb7
+index 0000000..cbb4d66
 --- /dev/null
 +++ b/shardy/integrations/python/ir/CMakeLists.txt
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,30 @@
 +# Shardy MLIR Module
-+
-+set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
-+
-+# Rename _sdy_enums_gen in sdy.py
-+file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
-+string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
-+file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
-+
-+if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
-+  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
-+endif()
-+file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
 +
 +declare_mlir_python_sources(SdyPythonSources)
 +declare_mlir_python_sources(SdyPythonSources.Dialects
@@ -688,7 +676,7 @@ index 000000000..86ca2aeb7
 +
 +declare_mlir_dialect_python_bindings(
 +  ADD_TO_PARENT SdyPythonSources.Dialects
-+  ROOT_DIR "${SHARDY_MODULE_DIR}"
++  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
 +  TD_FILE dialects/sdy_ops.td
 +  GEN_ENUM_BINDINGS ON
 +  GEN_ENUM_BINDINGS_TD_FILE dialects/sdy_enums.td
@@ -709,6 +697,86 @@ index 000000000..86ca2aeb7
 +    SdyCAPI
 +    LLVMSupport
 +)
+diff --git a/shardy/integrations/python/ir/dialects/sdy.py b/shardy/integrations/python/ir/dialects/sdy.py
+new file mode 100644
+index 0000000..7cd59c6
+--- /dev/null
++++ b/shardy/integrations/python/ir/dialects/sdy.py
+@@ -0,0 +1,20 @@
++# Copyright 2024 The Shardy Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ==============================================================================
++"""Python bindings for the SDY dialect."""
++
++# pylint: disable=wildcard-import
++from .._mlir_libs._sdy import *
++from ._sdy_enum_gen import *
++from ._sdy_ops_gen import *
+diff --git a/shardy/integrations/python/ir/dialects/sdy_enums.td b/shardy/integrations/python/ir/dialects/sdy_enums.td
+new file mode 100644
+index 0000000..d4354c1
+--- /dev/null
++++ b/shardy/integrations/python/ir/dialects/sdy_enums.td
+@@ -0,0 +1,21 @@
++/* Copyright 2025 The Shardy Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++
++#ifndef SHARDY_INTEGRATIONS_PYTHON_SDY_ENUMS
++#define SHARDY_INTEGRATIONS_PYTHON_SDY_ENUMS
++
++include "shardy/dialect/sdy/ir/enums.td"
++
++#endif // SHARDY_INTEGRATIONS_PYTHON_SDY_ENUMS
+diff --git a/shardy/integrations/python/ir/dialects/sdy_ops.td b/shardy/integrations/python/ir/dialects/sdy_ops.td
+new file mode 100644
+index 0000000..30a5cf9
+--- /dev/null
++++ b/shardy/integrations/python/ir/dialects/sdy_ops.td
+@@ -0,0 +1,21 @@
++/* Copyright 2024 The Shardy Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++
++#ifndef SHARDY_INTEGRATIONS_PYTHON_SDY_OPS
++#define SHARDY_INTEGRATIONS_PYTHON_SDY_OPS
++
++include "shardy/dialect/sdy/ir/ops.td"
++
++#endif
 diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
 new file mode 100644
 index 0000000..1afbf24
