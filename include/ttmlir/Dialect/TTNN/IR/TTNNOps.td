@@ -135,7 +135,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -263,9 +264,7 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcast
     }];
 }
 
-def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute.";
     let description = [{
       Eltwise absolute operation.
@@ -279,18 +278,14 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
     let summary = "Eltwise ceil.";
     let description = [{
       Eltwise ceil operation.
     }];
 }
 
-def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
     let summary = "Eltwise sign operation.";
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
@@ -302,72 +297,56 @@ def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
     }];
 }
 
-def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine.";
     let description = [{
       Eltwise cosine operation.
     }];
 }
 
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
     }];
 }
 
-def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
     let summary = "Eltwise erf op.";
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
       }];
 }
 
-def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
     let summary = "Eltwise erfc op.";
     let description = [{
         Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
       }];
 }
 
-def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
       Eltwise floor operation.
     }];
 }
 
-def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
   let summary = "Eltwise GELU.";
   let description = [{
     Eltwise GELU operation.
   }];
 }
 
-def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
     let description = [{
       Eltwise isfinite operation.
     }];
 }
 
-def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
@@ -387,27 +366,21 @@ def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
     }];
 }
 
-def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate.";
     let description = [{
       Eltwise negate operation.
     }];
 }
 
-def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
     let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
     }];
 }
 
-def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
     let summary = "Eltwise arctangent op.";
     let description = [{
       Performs an elementwise arctangent (`atan`) operation on the input tensor.
@@ -426,9 +399,7 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan",
     }];
 }
 
-def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
 
     let extraClassDeclaration = [{
@@ -443,72 +414,56 @@ def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
     }];
 }
 
-def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
       Eltwise reciprocal operation.
     }];
 }
 
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
     }];
 }
 
-def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.
     }];
 }
 
-def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
       Eltwise sqrt operation.
     }];
 }
 
-def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
     let summary = "Eltwise rsqrt.";
     let description = [{
       Eltwise rsqrt operation.
     }];
 }
 
-def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
     }];
 }
 
-def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
     }];
 }
 
-def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p"> {
     let summary = "Eltwise log1p operation.";
     let description = [{
         Performs element-wise logarithm plus one operation on `operand` tensor and
@@ -520,9 +475,7 @@ def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p",
       }];
 }
 
-def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   let description = [{
     Performs element-wise exponential minus one operation on `operand` tensor
     and stores the result in the output tensor.
