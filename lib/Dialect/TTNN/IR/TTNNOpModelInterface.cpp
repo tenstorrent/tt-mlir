@@ -16,7 +16,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -1483,7 +1482,6 @@ PrepareConv2dWeightsOp::getOpConstraints(
       getWeightTensor().getType().getShape();
   Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
-  std::cout << "before going to the detailed function" << std::endl;
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraints, *this,
       deviceGrid, inputs[0], weightShape, getInputMemoryConfig(),
@@ -1497,6 +1495,41 @@ PrepareConv2dWeightsOp::getOpConstraints(
 llvm::Expected<size_t>
 PrepareConv2dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(getOperation());
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConv2dBiasOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const ::llvm::ArrayRef<int64_t> biasShape =
+      getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareConv2dBiasOp>::getOpConstraints, *this,
+      deviceGrid, inputs[0], biasShape, getInputMemoryConfig(),
+      getInputTensorLayout(), getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getDilation(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PrepareConv2dBiasOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(getOperation());
 }
 

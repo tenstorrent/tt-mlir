@@ -2238,6 +2238,62 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv2dBiasOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, TTNNLayoutAttr biasLayout,
+    llvm::ArrayRef<int64_t> biasShape, MemoryConfigAttr inputMemConfig,
+    ::mlir::tt::ttnn::Layout inputTensorLayout, int32_t inChannels,
+    int32_t outChannels, int32_t batchSize, int32_t inputHeight,
+    int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  assert(device != nullptr && "Device is nullptr");
+  assert(biasLayout != nullptr && "Weight layout is nullptr");
+
+  // TODO(#4043): Move this to tt-metal side.
+  ::tt::tt_metal::Tensor biasTensor =
+      createMetalHostTensor(biasShape, biasLayout.getDataType());
+  // Read output data type from output layout (if present) or from outputDtype.
+  std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
+  if (outputLayout) {
+    convertedOutputDtype = conversion::getDataType(outputLayout.getDataType());
+  } else if (outputDtype.has_value()) {
+    convertedOutputDtype = conversion::getDataType(outputDtype.value());
+  }
+
+  auto prepareConv2dWeightsQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
+        biasTensor, conversion::getMemoryConfig(inputMemConfig),
+        conversion::getPageLayout(inputTensorLayout), inChannels, outChannels,
+        batchSize, inputHeight, inputWidth,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        groups, device, conversion::getDataType(inputDtype),
+        convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+  };
+
+  return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,
+                                     prepareConv2dWeightsQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(

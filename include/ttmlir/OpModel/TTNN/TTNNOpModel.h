@@ -543,6 +543,26 @@ struct OpModel<PrepareConv2dWeightsOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PrepareConv2dBiasOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareConv2dBiasOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, TTNNLayoutAttr biasLayout,
+      llvm::ArrayRef<int64_t> biasShape, MemoryConfigAttr inputMemConfig,
+      ::mlir::tt::ttnn::Layout inputTensorLayout, int32_t inChannels,
+      int32_t outChannels, int32_t batchSize, int32_t inputHeight,
+      int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+      llvm::ArrayRef<int32_t> dilation, int32_t groups,
+      ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+      std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
