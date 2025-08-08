@@ -299,6 +299,34 @@ class Builder:
                     torch.iinfo(torch.qint32).min,
                     torch.iinfo(torch.qint32).max,
                 )
+            case torch.qint8:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for qint8")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for qint8")
+                return quant.UniformQuantizedType.get(
+                    quant.UniformQuantizedType.FLAG_SIGNED,
+                    IntegerType.get_signless(8, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.qint8).min,
+                    torch.iinfo(torch.qint8).max,
+                )
+            case torch.quint8:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for quint8")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for quint8")
+                return quant.UniformQuantizedType.get(
+                    0,
+                    IntegerType.get_unsigned(8, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.quint8).min,
+                    torch.iinfo(torch.quint8).max,
+                )
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
