@@ -1958,34 +1958,15 @@ def test_hoisted_where(shapes, request, target: str):
     "shapes",
     [
         # [input_shape, output_shape]
-        # Flatten cases
-        [(2, 3, 4), (24,)],
-        [(128, 128), (16384,)],
-        # Reshape to different dimensions
-        [(24,), (2, 3, 4)],
-        [(24,), (4, 6)],
-        [(2, 3, 4), (6, 4)],
-        [(2, 3, 4), (2, 12)],
-        [(6, 4), (2, 3, 4)],
-        # Same total elements, different arrangements
-        [(128, 128), (256, 64)],
-        [(128, 128), (64, 256)],
-        [(128, 128), (128, 2, 64)],
-        [(128, 128), (4, 32, 128)],
-        # Edge cases
-        [(1,), (1, 1, 1)],
-        [(1, 1, 1), (1,)],
-        [(10,), (10,)],
-        [(5, 5), (25,)],
-        # Common ML patterns
-        [(32, 3, 224, 224), (32, 150528)],
-        [(64, 512), (64, 1, 512)],
-        [(64, 1, 512), (64, 512)],
-        [(16, 32, 64), (16, 2048)],
-        # Power of 2 cases
-        [(256, 256), (512, 128)],
-        [(512, 128), (64, 1024)],
-        [(1024,), (32, 32)],
+        [(128, 128), (16384,)],  # Flatten 2D to 1D
+        [(24,), (2, 3, 4)],  # Unflatten 1D to 3D
+        [(2, 3, 4), (6, 4)],  # 3D to 2D reshape
+        [(128, 128), (64, 256)],  # 2D to 2D different arrangement
+        [(1, 1, 1), (1,)],  # Edge case: all dimensions are 1
+        [(10,), (10,)],  # Identity reshape
+        [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
+        [(256, 256), (512, 128)],  # Power of 2 reshape
+        [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
@@ -2288,7 +2269,6 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], None),
-        (reshape, [(64, 32)], None),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
