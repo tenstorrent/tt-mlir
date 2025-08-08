@@ -633,14 +633,9 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the logical NOT of each element in the input tensor
         """
-
-        # TODO: remove this once golden function is implemented
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LogicalNotOp,
             [in0],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1210,12 +1205,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.EqualOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1260,12 +1252,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.NotEqualOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1307,12 +1296,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.GreaterEqualOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1354,12 +1340,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.GreaterThanOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1401,12 +1384,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LessEqualOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1448,12 +1428,9 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A boolean tensor with 1s where left < right and 0s otherwise
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LessThanOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1495,12 +1472,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LogicalAndOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1544,12 +1518,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LogicalOrOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -1591,12 +1562,9 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        golden = self._get_golden_tensor(in0)
-        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self._op_proxy(
             ttir.LogicalXorOp,
             [in0, in1],
-            # golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
