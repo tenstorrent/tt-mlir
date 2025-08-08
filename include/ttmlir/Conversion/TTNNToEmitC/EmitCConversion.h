@@ -571,28 +571,28 @@ struct EmitCTypeConverter<::ttnn::DataType> {
     switch (attr) {
     case ttcore::DataType::BFloat16:
       rso << "BFLOAT16";
-      break;
+      return buf;
     case ttcore::DataType::Float32:
       rso << "FLOAT32";
-      break;
+      return buf;
     case ttcore::DataType::UInt32:
       rso << "UINT32";
-      break;
+      return buf;
     case ttcore::DataType::BFP_BFloat8:
       rso << "BFLOAT8_B";
-      break;
+      return buf;
     case ttcore::DataType::BFP_BFloat4:
       rso << "BFLOAT4_B";
-      break;
+      return buf;
     case ttcore::DataType::UInt8:
       rso << "UINT8";
-      break;
+      return buf;
     case ttcore::DataType::UInt16:
       rso << "UINT16";
-      break;
+      return buf;
     case ttcore::DataType::Int32:
       rso << "INT32";
-      break;
+      return buf;
     case ttcore::DataType::Float16:
     case ttcore::DataType::BFP_Float2:
     case ttcore::DataType::BFP_Float4:
@@ -601,7 +601,7 @@ struct EmitCTypeConverter<::ttnn::DataType> {
       llvm_unreachable("Unsupported ttnn::DataType");
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttcore::DataType");
   }
 };
 
@@ -634,19 +634,19 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
     switch (attr) {
     case ttnn::TensorMemoryLayout::BlockSharded:
       rso << "BLOCK_SHARDED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::HeightSharded:
       rso << "HEIGHT_SHARDED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::Interleaved:
       rso << "INTERLEAVED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
-      break;
+      return buf;
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
   }
 };
 
@@ -674,15 +674,16 @@ struct EmitCTypeConverter<::ttnn::Layout> {
     switch (attr) {
     case ttnn::Layout::RowMajor:
       rso << "ROW_MAJOR";
-      break;
+      return buf;
     case ttnn::Layout::Tile:
       rso << "TILE";
-      break;
+      return buf;
     case ttnn::Layout::Invalid:
       rso << "INVALID";
-      break;
+      return buf;
     }
-    return buf;
+
+    llvm_unreachable("Unknown ttnn::Layout");
   }
 };
 
@@ -708,22 +709,22 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
     switch (attr) {
     case ttnn::BufferType::DRAM:
       rso << "DRAM";
-      break;
+      return buf;
     case ttnn::BufferType::L1:
       rso << "L1";
-      break;
+      return buf;
     case ttnn::BufferType::L1Small:
       rso << "L1_SMALL";
-      break;
+      return buf;
     case ttnn::BufferType::SystemMemory:
       rso << "SYSTEM_MEMORY";
-      break;
+      return buf;
     case ttnn::BufferType::Trace:
       rso << "TRACE";
-      break;
+      return buf;
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttnn::BufferType");
   }
 };
 
@@ -775,24 +776,25 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     switch (attr) {
     case ttcore::ReduceType::Sum:
       rso << "SUM";
-      break;
+      return buf;
     case ttcore::ReduceType::Mean:
       rso << "MEAN";
-      break;
+      return buf;
     case ttcore::ReduceType::Max:
       rso << "MAX";
-      break;
+      return buf;
     case ttcore::ReduceType::Min:
       rso << "MIN";
-      break;
+      return buf;
     case ttcore::ReduceType::Std:
       rso << "STD";
-      break;
+      return buf;
     case ttcore::ReduceType::Var:
       rso << "VAR";
-      break;
+      return buf;
     }
-    return buf;
+
+    llvm_unreachable("Unknown ttcore::ReduceType");
   }
 };
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
