@@ -92,7 +92,7 @@ def get_board_id(system_desc) -> str:
         case "Wormhole_b0", 2:
             return "n300"
         case _:
-            raise ValueError(f"Unknown architecture: {arch}")
+            raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 
 
 def filter_valid_mesh_shape(system_desc, params, require_exact_mesh=False):
