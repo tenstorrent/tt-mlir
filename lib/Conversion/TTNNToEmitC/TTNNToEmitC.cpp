@@ -5,11 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
-#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -24,15 +21,12 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <optional>
 
@@ -1803,16 +1797,10 @@ public:
     // we need to create a utility function that does this. This is achieved
     // by using EmitC's VerbatimOp.
 
-    // Try to find if utility vec creation function is already defined in the
-    // module. If not, insert it.
-    //
-    mlir::tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter,
-                                                                 tupleOp);
-
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
-        mlir::tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-        nullptr, adaptor.getOperands());
+        mlir::tt::ttnn_to_emitc::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getOperands());
     return success();
   }
 };
@@ -1837,11 +1825,6 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // Get the callee function
     llvm::StringRef callee = srcOp.getCallee();
-
-    // Try to find if utility vec creation function is already defined in the
-    // module. If not, insert it.
-    mlir::tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter,
-                                                                 srcOp);
 
     // Create a tuple of all input tensors
     auto tupleType = emitc::OpaqueType::get(rewriter.getContext(),
@@ -1887,8 +1870,8 @@ public:
 
     auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), tupleType,
-        mlir::tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-        nullptr, adaptor.getInputs());
+        mlir::tt::ttnn_to_emitc::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getInputs());
     Value tupleValue = tupleOp.getResult(0);
 
     // Get a reference to the global variable using GetGlobalOp
@@ -2084,8 +2067,7 @@ public:
         emitter.emit(srcOp.getScatterDim()),
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getDevice()),
-        mlir::tt::ttnn_to_emitc::utils::convertReduceType(
-            rewriter, srcOp.getReduceType()),
+        emitter.emit(srcOp.getReduceType()),
         /*numLinks=*/emitter.emit(1),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*ttnn::ccl::Topology=*/
