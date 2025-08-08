@@ -617,6 +617,8 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
+        if node.func.id == "print":
+            return self.visit_Print(node.args)
         if not isinstance(node.func, ast.Attribute):
             # if not an Attribute, it's just a kernel api call.
             assert (
@@ -646,6 +648,29 @@ class TTKernelCompiler(ast.NodeVisitor):
             return func(*func_args)  # how do i make sure the types are correct?
         else:
             self.visit(node.func)
+
+    def visit_Print(self, node):
+        fmt = ""
+        argv = []
+        for arg in node:
+            # handles printing vars, eg: print(x)
+            if isinstance(arg, ast.Name):
+                fmt += "{} "
+                argv.append(self.visit(arg))
+            # handles printing constants, eg: print("hello world")
+            elif isinstance(arg, ast.Constant):
+                fmt += str(arg.value) + " "
+            # handles printing format strings, eg: print("hello {}".format(x))
+            elif isinstance(arg, ast.Call):
+                fmt += arg.func.value.value + " "
+                for arg in arg.args:
+                    argv.append(self.visit(arg))
+            else:
+                raise NotImplementedError(
+                    f"Print argument {type(arg).__name__} not supported"
+                )
+
+        ttkernel.dprint(fmt.strip(), argv)
 
     # Expressions
     def visit_Expr(self, node):
