@@ -33,3 +33,12 @@ func.func @test_sort_descending_stable(%arg0: tensor<1x128x256x256xbf16>) -> (te
   }) : (tensor<1x128x256x256xbf16>, tensor<1x128x256x256xi32>) -> (tensor<1x128x256x256xbf16>, tensor<1x128x256x256xi32>)
   return %2#0, %2#1 : tensor<1x128x256x256xbf16>, tensor<1x128x256x256xi32>
 }
+
+func.func @test_sort_indices_only(%arg0: tensor<2x3xi32>) -> (tensor<2x3xi32> {jax.result_info = "result"}) {
+  %0 = "stablehlo.sort"(%arg0) <{dimension = 1 : i64, is_stable = true}> ({
+  ^bb0(%arg1: tensor<i32>, %arg2: tensor<i32>):
+    %1 = stablehlo.compare  LT, %arg1, %arg2,  SIGNED : (tensor<i32>, tensor<i32>) -> tensor<i1>
+    stablehlo.return %1 : tensor<i1>
+  }) : (tensor<2x3xi32>) -> tensor<2x3xi32>
+  return %0 : tensor<2x3xi32>
+}

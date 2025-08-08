@@ -2323,13 +2323,24 @@ public:
 
     SmallVector<Type> outputTypes;
     llvm::SmallVector<mlir::Value> outputTensors;
+    RankedTensorType outputType;
     for (auto type : srcOp->getResultTypes()) {
-      RankedTensorType outputType =
+      outputType =
           mlir::cast<RankedTensorType>(getTypeConverter()->convertType(type));
       outputTypes.push_back(outputType);
       outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
           srcOp->getLoc(), outputType.getShape(), outputType.getElementType(),
           outputType.getEncoding()));
+    }
+
+    if (outputTypes.size() == 1) {
+      IntegerType intType = IntegerType::get(getContext(), 16);
+      RankedTensorType indicesType =
+          RankedTensorType::get(outputType.getShape(), intType);
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
+          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
     }
 
     auto dim = srcOp.getDimension();
@@ -2340,10 +2351,20 @@ public:
                                          "Unable to determine sort direction.");
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SortOp>(
-        srcOp, mlir::TypeRange{outputTypes}, adaptor.getInputs().front(),
-        mlir::ValueRange{outputTensors}, rewriter.getSI32IntegerAttr(dim),
-        rewriter.getBoolAttr(*isDescending), rewriter.getBoolAttr(isStable));
+    ttir::SortOp sortOp = rewriter.create<mlir::tt::ttir::SortOp>(
+        srcOp->getLoc(), mlir::TypeRange{outputTypes},
+        adaptor.getInputs().front(), mlir::ValueRange{outputTensors},
+        rewriter.getSI32IntegerAttr(dim), rewriter.getBoolAttr(*isDescending),
+        rewriter.getBoolAttr(isStable));
+
+    if (srcOp.getInputs().size() == 1) {
+      srcOp->getResults().front().replaceAllUsesWith(
+          sortOp->getResults().front());
+      rewriter.eraseOp(srcOp);
+    } else {
+      rewriter.replaceOp(srcOp, sortOp.getOperation());
+    }
+
     return success();
   }
 
@@ -2352,6 +2373,21 @@ private:
   checkConversionLegality(mlir::stablehlo::SortOp &srcOp,
                           mlir::stablehlo::SortOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getInputs().size() != srcOp->getResults().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Number of inputs and outputs must match.");
+    }
+
+    if (srcOp.getInputs().size() == 1) {
+      return success();
+    }
+
+    if (srcOp.getInputs().size() > 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Expecting two inputs (values, indices); got more than two inputs");
+    }
+
     if (!hasValidInputs(srcOp.getInputs())) {
       return rewriter.notifyMatchFailure(
           srcOp, "Invalid inputs. Expecting two inputs (values, indices).");
