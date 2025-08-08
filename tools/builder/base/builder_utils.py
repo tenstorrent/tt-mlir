@@ -616,8 +616,15 @@ def compile_stablehlo_to_flatbuffer(
         output_root=output_root,
     )
     stablehlo_pipeline(module)
+    print(module)
     stablehlo_to_ttir_pipeline(module)
+    print(module)
     builder.populate_goldens()
+
+    filename = _get_target_path(output_root, test_base + "_ttir.mlir", test_base)
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
 
     return compile_ttir_module_to_flatbuffer(
         module,

@@ -14,7 +14,7 @@ comparison with TTIR or StableHLO operation results.
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo
+from ttmlir.dialects import ttir, stablehlo, sdy
 from ttmlir.ir import Attribute
 
 
@@ -1165,6 +1165,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Operations with parameter transformations
     ttir.LeakyReluOp: torch.nn.functional.leaky_relu,
     stablehlo.AddOp: torch.add,
+    sdy.ReshardOp: torch.tensor,
 }
 
 

@@ -354,48 +354,6 @@ class StableHLOBuilder(Builder):
         """
         return sdy.ManualAxesAttr.get(axes)
 
-    def axis_ref_list_attr(
-        self,
-        value: List[sdy.AxisRefAttr],
-    ) -> sdy.AxisRefListAttr:
-        """
-        Creates an axis reference list attribute.
-        This attribute represents a list of axis references, which can be used to define
-        sharding patterns or manual computations.
-
-        Parameters
-        ----------
-        value : List[sdy.AxisRefAttr]
-            A list of axis reference attributes
-
-        Returns
-        -------
-        (*sdy.AxisRefListAttr*)
-            An axis reference list attribute representing the specified axes for sharding or manual computation
-        """
-        return sdy.AxisRefListAttr.get(value)
-
-    def list_of_axis_ref_lists_attr(
-        self,
-        value: List[sdy.AxisRefListAttr],
-    ) -> sdy.ListOfAxisRefListsAttr:
-        """
-        Creates a list of axis reference lists attribute.
-        This attribute represents a list of lists of axis references, which can be used to define
-        complex sharding patterns or manual computations.
-
-        Parameters
-        ----------
-        value : List[sdy.AxisRefAttr]
-            A list of lists of axis reference attributes
-
-        Returns
-        -------
-        (*sdy.ListOfAxisRefListsAttr*)
-            A list of axis reference lists attribute representing the specified axes for complex sharding or manual computation
-        """
-        return sdy.ListOfAxisRefListsAttr.get(value)
-
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
@@ -475,33 +433,6 @@ class StableHLOBuilder(Builder):
             manual_axes=manual_axes,
         )
 
-    def reduce_scatter(
-        self,
-        reduce_scatter_axes: sdy.ListOfAxisRefListsAttr,
-        out_sharding: sdy.TensorShardingAttr,
-    ) -> sdy.ReduceScatterOp:
-        """
-        Creates a reduce-scatter operation.
-        This operation performs a reduce-scatter communication along the specified axes by reducing chunks
-        of a tensor and then scattering the result along the same axes. It is essentially a combination
-        of an all-reduce followed by an all-slice along the same reduce_scatter_axes.
-
-        Parameters
-        ----------
-        reduce_scatter_axes : sdy.ListOfAxisRefListsAttr
-            A list of lists of axis references that specify the axes along which reduce-scatter should be performed
-        out_sharding : sdy.TensorShardingAttr
-            The tensor sharding attribute that defines the expected output sharding after the reduce-scatter operation
-
-        Returns
-        -------
-        (*sdy.ReduceScatterOp*)
-            A reduce-scatter operation that reduces and scatters tensor chunks along the specified axes
-        """
-        return sdy.ReduceScatterOp(
-            reduce_scatter_axes=reduce_scatter_axes, out_sharding=out_sharding
-        )
-
     def reshard(self, in0: Operand, sharding: sdy.TensorShardingAttr) -> sdy.ReshardOp:
         """
         Creates a reshard operation.
@@ -521,7 +452,13 @@ class StableHLOBuilder(Builder):
         (*sdy.ReshardOp*)
             A reshard operation that redistributes the input tensor according to the specified sharding
         """
-        return sdy.ReshardOp(in0, sharding)
+        # return sdy.ReshardOp(in0, sharding)
+        return self._op_proxy(
+            sdy.ReshardOp,
+            [in0],
+            # golden_kwargs={"exponent": 1},
+            stablehlo_kwargs={"sharding": sharding},
+        )
 
     def return_op(self, out0) -> sdy.ReturnOp:
         """
