@@ -287,6 +287,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
     const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+    // assume interleaved buffer configs don't have CB config
+    if (bufferDesc->buffer_detail_type() ==
+        target::metal::BufferDetail::MetalBufferInterleaved) {
+      continue;
+    }
     LOG_ASSERT(bufferDesc->buffer_detail_type() ==
                target::metal::BufferDetail::MetalBuffer);
     const target::metal::MetalBuffer *metalBuffer =
