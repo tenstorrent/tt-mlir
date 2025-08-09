@@ -4983,4 +4983,52 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
 }
+
+FullOp getFullOpThroughTMs(Operation *op) {
+  while (op && isa_and_nonnull<ReshapeOp, PermuteOp, BroadcastOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  return dyn_cast_or_null<FullOp>(op);
+}
+
+Value foldConstantMultiplyDivide(DivOp op) {
+  // Find the divisor full op. It may lay behind some number of TMs.
+  Operation *divisor = op.getRhs().getDefiningOp();
+  FullOp divisorScale = getFullOpThroughTMs(divisor);
+  if (!divisorScale) {
+    return nullptr;
+  }
+
+  // Check that the div's numerator is a multiply op.
+  auto numeratorMultiplyOp = op.getLhs().getDefiningOp<MultiplyOp>();
+  if (!numeratorMultiplyOp) {
+    return nullptr;
+  }
+
+  // Check both lhs and rhs of the multiply for a constant scale.
+  FullOp lhsScale =
+      getFullOpThroughTMs(numeratorMultiplyOp.getLhs().getDefiningOp());
+  FullOp rhsScale =
+      getFullOpThroughTMs(numeratorMultiplyOp.getRhs().getDefiningOp());
+
+  // If the lhs of the mulitply traces up to a full op, and has the same
+  // fill value as the divisor, then the rhs of the multiply can replace
+  // the use of the div result.
+  if (lhsScale && lhsScale.getFillValue() == divisorScale.getFillValue()) {
+    return numeratorMultiplyOp.getRhs();
+  }
+
+  // Same as above except the full op is on the rhs of the multiply.
+  if (rhsScale && rhsScale.getFillValue() == divisorScale.getFillValue()) {
+    return numeratorMultiplyOp.getLhs();
+  }
+  return nullptr;
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::DivOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldConstantMultiplyDivide(*this)) {
+    return foldResult;
+  }
+  return nullptr;
+}
 } // namespace mlir::tt::ttir
