@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -45,7 +46,10 @@ namespace mlir::tt::ttir {
 MemRefType getBufferType(Type type, bool isView) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   if (!tensorType.getEncoding()) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+    return MemRefType::get(
+        tensorType.getShape(), tensorType.getElementType(), nullptr,
+        ttcore::MemorySpaceAttr::get(type.getContext(),
+                                     ttcore::MemorySpace::DeviceL1));
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -4657,6 +4661,32 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
       getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
+  }
+
+  // Convert region block arguments (first N = num operands) from tensor to
+  // memref types matching the shard-shape of corresponding operands.
+  int64_t numOpnd = bufferInputs.size() + bufferOutputs.size();
+  auto opndTypes = bufferGeneric.getOperandTypes();
+  for (mlir::Region &region : bufferGeneric.getRegions()) {
+    mlir::Block &block = region.front();
+    for (int64_t i = 0; i < numOpnd && i < static_cast<int64_t>(block.getNumArguments()); ++i) {
+      mlir::BlockArgument oldArg = block.getArgument(i);
+      if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType()))
+        continue;
+      mlir::Type operandType = opndTypes[i];
+      auto memrefTy = mlir::cast<mlir::MemRefType>(operandType);
+      mlir::tt::ttcore::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(memrefTy.getLayout());
+      llvm::ArrayRef<int64_t> shardShape = layout.getShardShape(memrefTy);
+      auto newArgType =
+          mlir::MemRefType::get(shardShape, memrefTy.getElementType(), nullptr,
+                                memrefTy.getMemorySpace());
+      mlir::BlockArgument newArg = block.insertArgument(i, newArgType, oldArg.getLoc());
+      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+          bufferGeneric.getLoc(), oldArg.getType(), newArg);
+      oldArg.replaceAllUsesWith(toTensor);
+      block.eraseArgument(i + 1);
+    }
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,

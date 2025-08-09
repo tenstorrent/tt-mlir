@@ -40,6 +40,7 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
                                                            , "bufferize"
                                                            , "getAliasingValues"
                                                            , "getBufferType"
+                                                           , "isWritable"
                                                            ]>
       , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
       ], traits)> {
@@ -67,6 +68,12 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
         ttir::getDpsEffects(*this, effects);
+      }
+
+      bool $cppClass::isWritable(
+          mlir::Value value, const mlir::bufferization::AnalysisState &) {
+        return mlir::isa<mlir::OpResult>(value) ||
+               mlir::isa<mlir::BlockArgument>(value);
       }
     }];
 }
