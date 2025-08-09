@@ -320,7 +320,8 @@ getTensorDescs(const ::flatbuffers::Vector<
     TensorDesc desc;
     desc.shape = {tensor->desc()->shape()->begin(),
                   tensor->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
+    desc.stride = {tensor->desc()->stride()->begin(),
+                   tensor->desc()->stride()->end()};
     desc.dataType = tensor->desc()->layout()->memory_desc()->data_type();
     desc.itemsize = utils::dataTypeElementSize(desc.dataType);
     tensorDescs.push_back(desc);

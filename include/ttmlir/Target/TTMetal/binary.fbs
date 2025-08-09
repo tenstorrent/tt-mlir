@@ -18,6 +18,7 @@ table LayoutDesc {
 }
 
 table TensorDesc {
+  stride: [int];
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;

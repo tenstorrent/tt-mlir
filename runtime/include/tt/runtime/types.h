@@ -185,8 +185,11 @@ struct TensorDesc {
     return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
                            std::multiplies<int64_t>());
   }
-  std::int64_t sizeBytes() const {
-    return utils::alignUp(volume() * itemsize, alignment);
+
+  std::int64_t sizeBytes(uint32_t outerDimAlignment = 1) const {
+    return utils::alignUp(
+        stride[0] * utils::alignUp(shape[0], outerDimAlignment) * itemsize,
+        static_cast<uint32_t>(alignment));
   }
 };
 
