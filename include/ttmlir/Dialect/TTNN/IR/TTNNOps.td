@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
@@ -136,7 +137,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [HasMemoryConfigTrait,
-    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
+                       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>,
+                       DeclareOpInterfaceMethods<TTNN_ElementwiseUnary>] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -160,7 +162,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait, TTNN_ElementwiseBinary,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
@@ -174,7 +176,6 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
                          TTNN_UnaryWithParamArrayAttr:$post_activations,
                          TTNN_UnaryWithParamArrayAttr:$lhs_activations,
                          TTNN_UnaryWithParamArrayAttr:$rhs_activations);
-
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -201,7 +202,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -213,7 +214,6 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
                          TTNN_UnaryWithParamArrayAttr:$post_activations,
                          TTNN_UnaryWithParamArrayAttr:$lhs_activations,
                          TTNN_UnaryWithParamArrayAttr:$rhs_activations);
-
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
