@@ -1979,6 +1979,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
 
       Mathematical definition: div(x, y) = x / y
     }];
+    let hasFolder = 1;
 }
 
 def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
