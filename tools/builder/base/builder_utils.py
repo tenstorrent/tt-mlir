@@ -76,7 +76,8 @@ def _is_opmodel_enabled() -> bool:
                 print(
                     "CMake flag `TTMLIR_ENABLE_OPMODEL` is not on. Please enable it in CMake."
                 )
-                return ""
+                return False
+    return True
 
 
 def _optimizations_to_str(optimization_policy, builder):
