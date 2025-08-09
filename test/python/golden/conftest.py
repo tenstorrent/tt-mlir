@@ -225,6 +225,9 @@ def pytest_runtest_makereport(item, call):
             item.user_properties.append(("input_shapes", str(shapes_param)))
 
             # Extract dtypes information.
+            # This needs to happen iff the shapes work, since we need to know
+            # `len(shapes_param)` to properly broadcast types to a list of that
+            # length in the case where only one type is provided.
             dtypes_param = torch.float32  # default to float32.
             if "dtypes" in params:
                 dtypes_param = params["dtypes"]

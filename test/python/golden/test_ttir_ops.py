@@ -2741,14 +2741,17 @@ def test_gather(
     "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
         ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),  # Simple 1D indices
-        (
+        pytest.param(
             (8, 16, 32),
             torch.float32,
             (4, 2, 2),
             [0, 2],
             [1],
             [1, 16, 1],
-        ),  # Complex indices)
+            marks=pytest.mark.xfail(
+                reason="General gather not implemented; see issue #3849"
+            ),
+        ),  # Complex indices
     ],
     ids=["simple_1d", "complex_indices"],
 )
