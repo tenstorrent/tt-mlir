@@ -10,7 +10,7 @@ import re
 from ttmlir import optimizer_overrides
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 import os
 
 
@@ -33,7 +33,6 @@ def check_policy(mlir_file: str):
     [(1, 32, 32, 64)],
 )
 @pytest.mark.parametrize("dtypes", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("optimization_policy", ["BF Interleaved"])
 @pytest.mark.parametrize(
     "optimization_policy",
     [optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved],
@@ -41,7 +40,7 @@ def check_policy(mlir_file: str):
 def test_optimization_policies(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
-    optimization_policy: MemoryLayoutAnalysisPolicyType,
+    optimization_policy: optimizer_overrides.MemoryLayoutAnalysisPolicyType,
     request,
 ):
     def model(

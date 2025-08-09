@@ -70,6 +70,16 @@ def _optimizations_to_str(optimization_policy, builder):
     """
     Converts optimization settings to a string representation for the pipeline.
     """
+    # Check that cmake flag TTMLIR_ENABLE_OPMODEL is set
+    os.path.join("")
+    with open("./build/CMakeCache.txt", "r") as f:
+        for line in f:
+            if line == "TTMLIR_ENABLE_OPMODEL:BOOL=OFF":
+                print(
+                    "CMake flag `TTMLIR_ENABLE_OPMODEL` is not on. Please enable it in CMake."
+                )
+                return ""
+
     override_handler = optimizer_overrides.OptimizerOverridesHandler()
     # Parse optimization policy from optimization_options.
     if optimization_policy:
@@ -93,6 +103,7 @@ def _optimizations_to_str(optimization_policy, builder):
 
 def _run_ttir_pipeline(
     module,
+    builder: Union[TTIRBuilder, StableHLOBuilder],
     pipeline_fn: Callable,
     pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
@@ -100,20 +111,26 @@ def _run_ttir_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
-    optimization_policy: Optional[MemoryLayoutAnalysisPolicyType] = None,
+    optimization_policy: Optional[
+        optimizer_overrides.MemoryLayoutAnalysisPolicyType
+    ] = None,
 ):
     # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-    # Generate option string
-    if system_desc_path:
-        pipeline_options.append(f"system-desc-path={system_desc_path}")
-    if mesh_shape and len(mesh_shape) == 2:
-        pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    pipeline_options.append(f"system-desc-path={system_desc_path}")
+
+    mesh_shape = tuple(mesh_dict.values())
+    if len(mesh_shape) != 2:
+        raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
+
+    pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+
     if argument_types_string:
-        pipeline_options.append("enable-const-eval=true")
         tt_populate_argument_types(module, argument_types_string)
+        pipeline_options.append("enable-const-eval=true")
+
     if (
         optimization_policy
         or builder._get_output_layout_params()
@@ -301,7 +318,9 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
-    optimization_policy: Optional[MemoryLayoutAnalysisPolicyType] = None,
+    optimization_policy: Optional[
+        optimizer_overrides.MemoryLayoutAnalysisPolicyType
+    ] = None,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -433,6 +452,7 @@ def compile_ttir_to_flatbuffer(
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = _run_ttir_pipeline(
         module,
+        builder,
         pipeline_fn,
         pipeline_options=pipeline_options,
         dump_to_file=module_dump,

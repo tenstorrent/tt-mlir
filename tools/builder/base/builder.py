@@ -64,6 +64,8 @@ class Builder:
         self._global_id = -1
         self._id_golden_map = {}
         self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+        self._output_layout_params = OutputLayoutConfig()
+        self._conv2d_config_params = Conv2dConfig()
 
     # ----- Public methods -----
 
@@ -512,3 +514,16 @@ class Builder:
 
     def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]
+
+    def _get_output_layout_params(self) -> Dict:
+        """
+        Returns a dictionary of strings of output layout overrides
+        """
+        return self._output_layout_params.params
+
+    def _get_conv2d_config_params(self) -> Dict:
+        """
+        Returns a dictionary of strings of conv2d config overrides
+        """
+        print(f"Conv2d config params: {self._conv2d_config_params.params}")
+        return self._conv2d_config_params.params
