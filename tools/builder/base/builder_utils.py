@@ -104,6 +104,7 @@ def _optimizations_to_str(optimization_policy, builder):
     for op_loc, param in builder._conv2d_config_params.items():
         if not param.empty():
             override_handler.add_conv2d_config_override(op_loc, param)
+    override_handler.set_memory_reconfig(False)
 
     return override_handler.to_string()
 
@@ -122,6 +123,14 @@ def _run_ttir_pipeline(
         optimizer_overrides.MemoryLayoutAnalysisPolicyType
     ] = None,
 ):
+    if (
+        optimization_policy
+        or builder._output_layout_params
+        or builder._conv2d_config_params
+    ):
+        overrides = _optimizations_to_str(optimization_policy, builder)
+        pipeline_options.append(overrides)
+
     # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
@@ -137,14 +146,6 @@ def _run_ttir_pipeline(
     if argument_types_string:
         tt_populate_argument_types(module, argument_types_string)
         pipeline_options.append("enable-const-eval=true")
-
-    if (
-        optimization_policy
-        or builder._output_layout_params
-        or builder._conv2d_config_params
-    ):
-        overrides = _optimizations_to_str(optimization_policy, builder)
-        pipeline_options.append(overrides)
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
