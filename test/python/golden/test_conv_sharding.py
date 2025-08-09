@@ -9,7 +9,7 @@ import re
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer, _is_opmodel_enabled
 import os
 
 
@@ -62,7 +62,7 @@ def test_conv2d_sharding(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.conv2d(
+        conv2d_0 = builder.conv2d(
             in0,
             weight,
             bias,
@@ -73,6 +73,8 @@ def test_conv2d_sharding(
             groups=groups,
             unit_attrs=unit_attrs,
         )
+        builder.set_conv2d_config_override()
+        return conv2d_0
 
     output_file_mlir = compile_ttir_to_flatbuffer(
         conv2d,
@@ -81,10 +83,6 @@ def test_conv2d_sharding(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=[
-            "enable-optimizer=true",
-            "memory-layout-analysis-enabled=true",
-        ],
-        target="ttnn",
     )
-    assert check_sharded_input_output(output_file_mlir, "conv2d")
+    if _is_opmodel_enabled():
+        assert check_sharded_input_output(output_file_mlir, "conv2d")

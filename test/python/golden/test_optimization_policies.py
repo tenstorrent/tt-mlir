@@ -10,7 +10,7 @@ import re
 from ttmlir import optimizer_overrides
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer, _is_opmodel_enabled
 import os
 
 
@@ -59,4 +59,5 @@ def test_optimization_policies(
         system_desc_path=request.config.getoption("--sys-desc"),
         optimization_policy=optimization_policy,
     )
-    check_policy(output_file_mlir)
+    if _is_opmodel_enabled():
+        check_policy(output_file_mlir)

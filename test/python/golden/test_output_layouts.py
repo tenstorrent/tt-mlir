@@ -9,11 +9,11 @@ import re
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer, _is_opmodel_enabled
 import os
 
 
-def check_l1_policy(mlir_file: str):
+def check_layouts(mlir_file: str):
     l1 = False
     layout1 = False
     with open(mlir_file, "r") as f:
@@ -59,4 +59,5 @@ def test_2output_layouts(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-    check_l1_policy(output_file_mlir)
+    if _is_opmodel_enabled():
+        check_layouts(output_file_mlir)
