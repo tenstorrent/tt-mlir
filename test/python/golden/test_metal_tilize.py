@@ -10,9 +10,9 @@ from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
+from builder.base import builder_golden
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir import ttir_golden
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 from test_utils import Marks, shape_str
 
@@ -69,9 +69,9 @@ def test_untilize(shape: Shape, request):
     ):
 
         input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-        golden_output = ttir_golden.get_golden_function(ttir.ToLayoutOp, tilize=False)(
-            input
-        )
+        golden_output = builder_golden.get_golden_function(
+            ttir.ToLayoutOp, tilize=False
+        )(input)
         builder.set_graph_input_output([input], [golden_output])
 
         to_device = builder.to_layout(
