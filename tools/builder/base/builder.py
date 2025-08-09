@@ -13,6 +13,7 @@ import re
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
+from builder.base.sharded_tensor import ShardedTensor, TensorLike
 
 # ----- Public APIs -----
 
@@ -29,11 +30,11 @@ class TypeInfo:
 
 @dataclass(frozen=True)
 class Golden:
-    tensor: torch.Tensor
+    tensor: TensorLike
     seed: Optional[int] = None
 
     def contiguous(self) -> Golden:
-        return Golden(self.tensor.contiguous())
+        return Golden(self.tensor.contiguous(), self.seed)
 
 
 class GoldenCheckLevel(Enum):
@@ -80,6 +81,11 @@ class Builder:
                 if re.match(r"^(input|output)_[0-9]+$", name) is None:
                     # It means this is not graph level golden.
                     continue
+            if isinstance(golden_tensor.tensor, ShardedTensor):
+                # Skip multi-device tensors (i.e., ShardedTensor).
+                # We cannot bring them back to the host until we unshard/collect,
+                # so we skip them when building the golden map.
+                continue
             golden_tensor = golden_tensor.contiguous()
             data_type = self._get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(

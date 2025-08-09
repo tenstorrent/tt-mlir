@@ -14,13 +14,6 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 pytestmark = pytest.mark.llmbox
 
 
-def pseudo_golden_all_gather(
-    input_tensor: torch.Tensor,
-):
-    output_tensor = input_tensor.clone()
-    return output_tensor
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -45,10 +38,6 @@ def pseudo_golden_all_gather(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_gather(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_gather(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -75,12 +64,9 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
-    shards = torch.chunk(input_tensor, 4, dim=3)
-    return sum(shards)
 
 
 @pytest.mark.parametrize(
@@ -102,10 +88,6 @@ def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_reduce(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_reduce(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -133,14 +115,6 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
-
-
-def pseudo_golden_reduce_scatter(
-    input_tensor: torch.Tensor,
-    scatter_dim: int,
-):
-    shards = torch.chunk(input_tensor, 4, dim=scatter_dim)
-    return sum(shards)
 
 
 @pytest.mark.parametrize(
@@ -172,10 +146,6 @@ def pseudo_golden_reduce_scatter(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     def reduce_scatter(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_reduce_scatter(input, 3)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -206,29 +176,6 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-def pseudo_golden_collective_permute(
-    input_tensor: torch.Tensor,
-    source_target_pairs: List[Tuple[int, int]],
-):
-    # sharding
-    shards = [
-        chunk
-        for shard in torch.chunk(input_tensor, 2, dim=2)
-        for chunk in torch.chunk(shard, 4, dim=3)
-    ]
-
-    # permute
-    permuted = [torch.zeros_like(shard) for shard in shards]
-    for src, tgt in source_target_pairs:
-        permuted[tgt] = shards[src]
-
-    # unsharding
-    return torch.cat(
-        [torch.cat(permuted[i : i + 4], dim=3) for i in range(0, len(permuted), 4)],
-        dim=2,
-    )
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -248,11 +195,7 @@ def pseudo_golden_collective_permute(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     def collective_permute(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
         pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
-        golden_output = pseudo_golden_collective_permute(input, pairs)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -315,11 +258,6 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_2x4(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        golden_output = torch.matmul(input, weight)
-        builder.set_graph_input_output([input, weight], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -386,11 +324,6 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
 def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_1x8(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        golden_output = torch.matmul(input, weight)
-        builder.set_graph_input_output([input, weight], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -448,10 +381,6 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_2x4(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -497,10 +426,6 @@ def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_2x4_cluster_0(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -546,10 +471,6 @@ def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_2x4_cluster_1(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -595,10 +516,6 @@ def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_2x4_reversed_cluster(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -644,10 +561,6 @@ def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], req
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_2x4_reversed_cluster_0(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -694,10 +607,6 @@ def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], r
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
 def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_1x8_dim_3(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -744,10 +653,6 @@ def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
 def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_1x8_dim_1(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = torch.neg(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -794,11 +699,6 @@ def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def eltwise_multidevice(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        golden_output = torch.add(input, weight)
-        builder.set_graph_input_output([input, weight], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -843,12 +743,6 @@ def test_matmul_and_binary_op(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        bias = builder._get_golden_tensor(in2)
-        golden_output = torch.add(torch.matmul(input, weight), bias)
-        builder.set_graph_input_output([input, weight], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -900,11 +794,6 @@ def test_matmul_and_binary_op(
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        golden_output = torch.neg(torch.matmul(input, weight))
-        builder.set_graph_input_output([input, weight], [golden_output])
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -960,17 +849,6 @@ def test_matmul_and_binary_op_2(
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        weight_2 = builder._get_golden_tensor(in3)
-        golden_output = torch.add(
-            torch.matmul(input, weight), torch.matmul(input_2, weight_2)
-        )
-        builder.set_graph_input_output(
-            [input, weight, input_2, weight_2], [golden_output]
-        )
-
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -1040,45 +918,6 @@ def test_matmul_and_binary_op_2(
     )
 
 
-def pseudo_golden_all_to_all(
-    input: torch.Tensor,
-    split_dim: int,
-    concat_dim: int,
-    mesh_shape: Tuple[int, int],
-    shard_dims: Tuple[int, int],
-    replica_groups: Tuple[
-        Tuple[
-            int,
-        ]
-    ],
-):
-    # sharding
-    shards = [input]
-    for dim_size, shard_dim in zip(mesh_shape, shard_dims):
-        temp_shards = []
-        for shard in shards:
-            temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
-        shards = temp_shards
-    # all_to_all
-    output_shards: List[torch.Tensor] = [None] * len(shards)
-    for group in replica_groups:
-        size = len(group)
-        split_sets = [torch.chunk(shards[r], size, dim=split_dim) for r in group]
-        for dst_idx, r in enumerate(group):
-            output_shards[r] = torch.cat(
-                [split_sets[src_idx][dst_idx] for src_idx in range(size)],
-                dim=concat_dim,
-            )
-    # unsharding
-    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
-        temp_shards = []
-        for i in range(0, len(output_shards), dim_size):
-            concat_shard = torch.cat(output_shards[i : i + dim_size], dim=shard_dim)
-            temp_shards.append(concat_shard)
-        output_shards = temp_shards
-    return output_shards[0]
-
-
 def all_to_all_test(
     input_shape: Shape,
     split_dim,
@@ -1091,17 +930,6 @@ def all_to_all_test(
     request,
 ):
     def all_to_all(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_all_to_all(
-            input,
-            split_dim=split_dim,
-            concat_dim=concat_dim,
-            mesh_shape=mesh_shape,
-            shard_dims=shard_dims,
-            replica_groups=replica_groups,
-        )
-        builder.set_graph_input_output([input], [golden_output])
-
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -1217,33 +1045,6 @@ def test_all_to_all_4d(
     )
 
 
-def pseudo_golden_collective_broadcast(
-    input_tensor: torch.Tensor,
-    mesh_shape: Tuple[int, int],
-    replica_groups: List[Tuple[int, int]],
-):
-    # sharding
-    shards = [
-        chunk
-        for shard in torch.chunk(input_tensor, mesh_shape[0], dim=2)
-        for chunk in torch.chunk(shard, mesh_shape[1], dim=3)
-    ]
-
-    # permute
-    for group in replica_groups:
-        for device in group:
-            shards[device] = shards[group[0]]
-
-    # unsharding
-    return torch.cat(
-        [
-            torch.cat(shards[i : i + mesh_shape[1]], dim=3)
-            for i in range(0, len(shards), mesh_shape[1])
-        ],
-        dim=2,
-    )
-
-
 @pytest.mark.parametrize(
     "shape",
     [
@@ -1268,11 +1069,6 @@ def test_collective_broadcast(
     shard_shape = (1, 1) + mesh_shape
 
     def collective_broadcast(in0: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        golden_output = pseudo_golden_collective_broadcast(
-            input, mesh_shape, replica_groups
-        )
-        builder.set_graph_input_output([input], [golden_output])
         sharded = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
