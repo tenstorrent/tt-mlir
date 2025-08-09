@@ -61,6 +61,29 @@ void populatePassesModule(nb::module_ &m) {
         }
       },
       nb::arg("module"), nb::arg("argument_types_string") = "");
+
+  m.def(
+      "stablehlo_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("stablehlo-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
   m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
