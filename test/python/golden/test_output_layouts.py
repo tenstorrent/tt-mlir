@@ -37,7 +37,7 @@ def check_layouts(mlir_file: str):
     ],
 )
 @pytest.mark.parametrize("dtypes", [torch.float32], ids=["f32"])
-def test_2output_layouts(
+def test_output_layouts(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     request,
