@@ -173,9 +173,9 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
                          AnyRankedTensor:$rhs,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         TTNN_UnaryWithParamArrayAttr:$post_activations,
-                         TTNN_UnaryWithParamArrayAttr:$lhs_activations,
-                         TTNN_UnaryWithParamArrayAttr:$rhs_activations);
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$post_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$lhs_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$rhs_activations);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -211,9 +211,9 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         TTNN_UnaryWithParamArrayAttr:$post_activations,
-                         TTNN_UnaryWithParamArrayAttr:$lhs_activations,
-                         TTNN_UnaryWithParamArrayAttr:$rhs_activations);
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$post_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$lhs_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$rhs_activations);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
