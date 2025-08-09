@@ -43,16 +43,6 @@ class GoldenCheckLevel(Enum):
     GRAPH_LEVEL = auto()
 
 
-class OutputLayoutConfig:
-    def __init__(self):
-        self.params = {}
-
-
-class Conv2dConfig:
-    def __init__(self):
-        self.params = {}
-
-
 class Builder:
     # ----- Methods -----
 
@@ -64,8 +54,8 @@ class Builder:
         self._global_id = -1
         self._id_golden_map = {}
         self._golden_check_level = GoldenCheckLevel.OP_LEVEL
-        self._output_layout_params = OutputLayoutConfig()
-        self._conv2d_config_params = Conv2dConfig()
+        self._output_layout_params = {}
+        self._conv2d_config_params = {}
 
     # ----- Public methods -----
 
@@ -161,7 +151,7 @@ class Builder:
         """
         output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
         if not op or not attributes:
-            self._output_layout_params.params["None"] = output_layout_override
+            self._output_layout_params["None"] = output_layout_override
             return
         for key, value in attributes.items():
             match key:
@@ -170,7 +160,10 @@ class Builder:
                 case "memory_layout":
                     output_layout_override.set_memory_layout_from_str(value)
                 case "buffer_type":
-                    output_layout_override.set_buffer_type_from_str(value)
+                    # output_layout_override.set_buffer_type_from_str(value)
+                    output_layout_override.buffer_type = (
+                        optimizer_overrides.BufferType.L1
+                    )
                 case "tensor_memory_layout":
                     output_layout_override.set_tensor_memory_layout_from_str(value)
                 case "grid_shape":
@@ -180,7 +173,7 @@ class Builder:
                 case _:
                     raise ValueError(f"Invalid override attribute: {key}")
 
-        self._output_layout_params.params[op.location.name_str] = output_layout_override
+        self._output_layout_params[op.location.name_str] = output_layout_override
 
     def set_conv2d_config_override(
         self, configs: Dict[str, str] = {}, op: Operand = None
@@ -212,7 +205,7 @@ class Builder:
         """
         conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
         if not op or not configs:
-            self._conv2d_config_params.params["None"] = conv2d_config_override
+            self._conv2d_config_params["None"] = conv2d_config_override
             return
         for key, value in configs.items():
             match key:
@@ -260,7 +253,7 @@ class Builder:
                 case _:
                     raise ValueError(f"Invalid override attribute: {key}")
 
-        self._conv2d_config_params.params[op.location.name_str] = conv2d_config_override
+        self._conv2d_config_params[op.location.name_str] = conv2d_config_override
 
     # ----- Private methods -----
 
@@ -514,16 +507,3 @@ class Builder:
 
     def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]
-
-    def _get_output_layout_params(self) -> Dict:
-        """
-        Returns a dictionary of strings of output layout overrides
-        """
-        return self._output_layout_params.params
-
-    def _get_conv2d_config_params(self) -> Dict:
-        """
-        Returns a dictionary of strings of conv2d config overrides
-        """
-        print(f"Conv2d config params: {self._conv2d_config_params.params}")
-        return self._conv2d_config_params.params

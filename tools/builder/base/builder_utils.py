@@ -91,10 +91,10 @@ def _optimizations_to_str(optimization_policy, builder):
         override_handler.set_enable_memory_layout_analysis(True)
 
     # Add any op-level overrides to override_handler
-    for op_loc, param in builder._get_output_layout_params().items():
+    for op_loc, param in builder._output_layout_params.items():
         if not param.empty():
             override_handler.add_output_layout_override(op_loc, param)
-    for op_loc, param in builder._get_conv2d_config_params().items():
+    for op_loc, param in builder._conv2d_config_params.items():
         if not param.empty():
             override_handler.add_conv2d_config_override(op_loc, param)
 
@@ -133,8 +133,8 @@ def _run_ttir_pipeline(
 
     if (
         optimization_policy
-        or builder._get_output_layout_params()
-        or builder._get_conv2d_config_params()
+        or builder._output_layout_params
+        or builder._conv2d_config_params
     ):
         overrides = _optimizations_to_str(optimization_policy, builder)
         pipeline_options.append(overrides)
