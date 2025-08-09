@@ -86,11 +86,14 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
         options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.l1InterleavedFallbackAnalysisEnabled =
+        options.l1InterleavedFallbackAnalysisEnabled;
     optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
     optimizerOptions.memoryLayoutAnalysisPolicy =
         options.memoryLayoutAnalysisPolicy;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+    optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());

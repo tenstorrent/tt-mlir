@@ -262,4 +262,48 @@ std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   return opNames;
 }
 
+// Helper function to get TTNNLayoutAttr from operation's first result
+static std::optional<TTNNLayoutAttr> getTTNNLayoutAttrFromOp(Operation *op) {
+  if (op->getNumResults() == 0) {
+    return std::nullopt;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return std::nullopt;
+  }
+
+  auto encoding = resultType.getEncoding();
+  if (!encoding) {
+    return std::nullopt;
+  }
+
+  if (auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+    return ttnnLayout;
+  }
+
+  return std::nullopt;
+}
+
+bool producesTTNNLayoutEncoding(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout.has_value();
+}
+
+bool producesDRAMLayout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->hasDRAMBufferType();
+}
+
+bool producesL1Layout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->hasL1BufferType();
+}
+
+bool producesTiledTensorLayout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->isTiled();
+}
+
 } // namespace mlir::tt::ttnn::utils

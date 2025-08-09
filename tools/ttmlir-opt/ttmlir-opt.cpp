@@ -9,8 +9,13 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 #include "ttmlir/RegisterAll.h"
+#include <iostream>
 
 int main(int argc, char **argv) {
+
+  std::cout << "TTMLIR Optimizer Driver COUT\n";
+  std::cerr << "TTMLIR Optimizer Driver CERR\n";
+
   mlir::registerAllPasses();
   mlir::tt::registerAllPasses();
 
