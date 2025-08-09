@@ -184,7 +184,10 @@ protected:
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      block->addArgument(layout.getMemRefType(tensorType), loc);
+      auto shardShape = layout.getShardShape(tensorType);
+      block->addArgument(
+          mlir::RankedTensorType::get(shardShape, tensorType.getElementType()),
+          loc);
     };
 
     llvm::for_each(mlir::TypeRange(inputs), fn);
@@ -289,7 +292,9 @@ private:
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
         rewriter.create<mlir::linalg::GenericOp>(
-            loc, /* inputs */ blockArgs.take_front(numInputs),
+            loc,
+            /* result tensor types */ llvm::to_vector(mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
@@ -417,7 +422,9 @@ private:
         }
 
         rewriter.create<mlir::linalg::GenericOp>(
-            loc, /* inputs */ blockArgs.take_front(numInputs),
+            loc,
+            /* result tensor types */ llvm::to_vector(mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
@@ -641,7 +648,9 @@ private:
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
           rewriter.create<mlir::linalg::GenericOp>(
-              loc, /* inputs */ blockArgs.take_front(numInputs),
+              loc,
+              /* result tensor types */ llvm::to_vector(mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+              /* inputs */ blockArgs.take_front(numInputs),
               /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
               linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,

@@ -45,6 +45,12 @@ def RegisterDstMemRef : Type<
 
 def DeviceOrRegisterMemRef : AnyTypeOf<[DeviceMemRef, RegisterDstMemRef]>;
 
+// Allow either device/register memrefs or ranked tensors for generic region block ops.
+def DeviceOrRegisterMemRefOrAnyRankedTensor : AnyTypeOf<[
+  DeviceOrRegisterMemRef,
+  AnyRankedTensor
+]>;
+
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
@@ -324,15 +330,15 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
-  [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$a,
-                         DeviceL1MemRef:$b,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$a,
+                         AnyRankedTensorOrMemRef:$b,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -342,14 +348,21 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
 }
 
 def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
         The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -359,14 +372,21 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
 }
 
 def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{
         The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -700,7 +720,7 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
     }];
 
-    let arguments = (ins Variadic<DeviceL1MemRef>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 

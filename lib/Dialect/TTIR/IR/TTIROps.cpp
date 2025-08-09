@@ -1235,7 +1235,7 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 // Rewrites the current PoolingOp to operate directly on quantized operands.
 //
 // This method constructs a new PoolingOp using the provided quantized inputs
-// and result type, preserving the original operation’s attributes.
+// and result type, preserving the original operation's attributes.
 //
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
@@ -3570,7 +3570,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   auto rank = input.getType().getRank();
   if (dim >= rank || dim < -rank) {
     return emitOpError("Dimension out of range (expected to be in range of [")
-           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+               << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
   }
 
   auto indicesType =
@@ -4364,17 +4364,14 @@ static mlir::LogicalResult verifyAffineBlocking(
       continue;
     }
 
-    auto memrefArguments =
+    auto valueArguments =
         region.getArguments().take_front(operandTypes.size());
-    for (BlockArgument arg : memrefArguments) {
-      auto blockMemref = mlir::dyn_cast<MemRefType>(arg.getType());
-      if (!blockMemref) {
-        return emitOpError("region arguments must be of MemRefType");
-      }
+    for (BlockArgument arg : valueArguments) {
+      Type blockArgType = arg.getType();
 
       Type operandType = operandTypes[arg.getArgNumber()];
-      Attribute expectedMemorySpace;
       ArrayRef<int64_t> expectedShardShape;
+      std::optional<Attribute> expectedMemorySpace;
       bool isStream = false;
       if (RankedTensorType tensorType =
               mlir::dyn_cast<RankedTensorType>(operandType)) {
@@ -4400,14 +4397,25 @@ static mlir::LogicalResult verifyAffineBlocking(
         isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
       }
 
-      if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
-        return emitOpError("region argument memory space must match "
-                           "the memory space of the corresponding operand");
-      }
-
-      if (expectedShardShape != blockMemref.getShape()) {
-        return emitOpError("region argument shape must match the "
-                           "shape of the corresponding operand");
+      if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
+        if (!isStream && expectedMemorySpace &&
+            *expectedMemorySpace != blockMemref.getMemorySpace()) {
+          return emitOpError("region argument memory space must match "
+                             "the memory space of the corresponding operand");
+        }
+        if (expectedShardShape != blockMemref.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
+      } else if (auto blockTensor =
+                     mlir::dyn_cast<RankedTensorType>(blockArgType)) {
+        if (expectedShardShape != blockTensor.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
+        // Memory space is not encoded in tensor types; skip that check.
+      } else {
+        return emitOpError("region arguments must be of RankedTensorType or MemRefType");
       }
     }
 
@@ -4590,6 +4598,8 @@ void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
   for (BlockArgument arg : region.getArguments()) {
     if (mlir::isa<MemRefType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else if (mlir::isa<RankedTensorType>(arg.getType())) {
+      setNameFn(arg, "t" + std::to_string(cbIndex++));
     } else if (mlir::isa<SemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     } else {
@@ -4648,6 +4658,7 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
+
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      bufferOutputs);
   return success();

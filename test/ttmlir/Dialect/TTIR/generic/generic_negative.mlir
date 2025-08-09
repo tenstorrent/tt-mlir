@@ -21,7 +21,7 @@ func.func @matmul(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 
-// CHECK: error: 'ttir.generic' op region arguments must be of MemRefType
+// CHECK-NOT: error: 'ttir.generic' op region arguments must be of MemRefType
 
 func.func @matmul(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
