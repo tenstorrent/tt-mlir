@@ -10,6 +10,7 @@ import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
+from ttmlir import optimizer_overrides
 from ttmlir.ir import *
 from ttmlir.dialects import func, sdy
 from ttmlir.passmanager import PassManager
@@ -65,6 +66,31 @@ def _create_custom_ttir_pipeline_fn(
     return wrapper
 
 
+def _optimizations_to_str(optimization_policy, builder):
+    """
+    Converts optimization settings to a string representation for the pipeline.
+    """
+    override_handler = optimizer_overrides.OptimizerOverridesHandler()
+    # Parse optimization policy from optimization_options.
+    if optimization_policy:
+        override_handler.set_enable_optimizer(True)
+        override_handler.set_enable_memory_layout_analysis(True)
+        override_handler.set_memory_layout_analysis_policy(optimization_policy)
+    else:
+        override_handler.set_enable_optimizer(True)
+        override_handler.set_enable_memory_layout_analysis(True)
+
+    # Add any op-level overrides to override_handler
+    for op_loc, param in builder._get_output_layout_params().items():
+        if not param.empty():
+            override_handler.add_output_layout_override(op_loc, param)
+    for op_loc, param in builder._get_conv2d_config_params().items():
+        if not param.empty():
+            override_handler.add_conv2d_config_override(op_loc, param)
+
+    return override_handler.to_string()
+
+
 def _run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
@@ -74,24 +100,27 @@ def _run_ttir_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
+    optimization_policy: Optional[MemoryLayoutAnalysisPolicyType] = None,
 ):
-    if pipeline_options is None:
-        pipeline_options = []
-
-    if argument_types_string:
-        tt_populate_argument_types(module, argument_types_string)
-        pipeline_options.append("enable-const-eval=true")
-
-    # Default to the `SYSTEM_DESC_PATH` envvar.
+    # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
-    pipeline_options.append(f"system-desc-path={system_desc_path}")
 
-    mesh_shape = tuple(mesh_dict.values())
-    if len(mesh_shape) != 2:
-        raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
-
-    pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    # Generate option string
+    if system_desc_path:
+        pipeline_options.append(f"system-desc-path={system_desc_path}")
+    if mesh_shape and len(mesh_shape) == 2:
+        pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    if argument_types_string:
+        pipeline_options.append("enable-const-eval=true")
+        tt_populate_argument_types(module, argument_types_string)
+    if (
+        optimization_policy
+        or builder._get_output_layout_params()
+        or builder._get_conv2d_config_params()
+    ):
+        overrides = _optimizations_to_str(optimization_policy, builder)
+        pipeline_options.append(overrides)
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
@@ -272,6 +301,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    optimization_policy: Optional[MemoryLayoutAnalysisPolicyType] = None,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -410,6 +440,7 @@ def compile_ttir_to_flatbuffer(
         system_desc_path=system_desc_path,
         mesh_dict=mesh_dict,
         argument_types_string=argument_types_string,
+        optimization_policy=optimization_policy,
     )
     print(f"{target} pipeline ran successfully.")
 
