@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_IR_TTNNOPSINTERFACES_H
 #define TTMLIR_DIALECT_TTNN_IR_TTNNOPSINTERFACES_H
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "llvm/ADT/ArrayRef.h"
