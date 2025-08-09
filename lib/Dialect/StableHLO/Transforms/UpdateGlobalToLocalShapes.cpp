@@ -123,44 +123,45 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
-          .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
-            llvm::SmallVector<int64_t> newSliceSizes(gatherOp.getSliceSizes());
+          // .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
+          //   llvm::SmallVector<int64_t>
+          //   newSliceSizes(gatherOp.getSliceSizes());
 
-            for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
-                  tensorShardings[i].getDimShardings();
+          //   for (uint32_t i = 0; i < tensorShardings.size(); i++) {
+          //     llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+          //         tensorShardings[i].getDimShardings();
 
-              for (const auto [index, dimShardingAttr] :
-                   llvm::enumerate(dimShardings)) {
-                FailureOr<int64_t> updatedSliceDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      newSliceSizes[index]);
+          //     for (const auto [index, dimShardingAttr] :
+          //          llvm::enumerate(dimShardings)) {
+          //       FailureOr<int64_t> updatedSliceDim =
+          //           shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
+          //                                             dimShardingAttr,
+          //                                             newSliceSizes[index]);
 
-                if (failed(updatedSliceDim)) {
-                  gatherOp->emitError(
-                      "Could not apply propagated tensor shardings to "
-                      "attribute dictionary for gather op");
-                  return mlir::failure();
-                }
+          //       if (failed(updatedSliceDim)) {
+          //         gatherOp->emitError(
+          //             "Could not apply propagated tensor shardings to "
+          //             "attribute dictionary for gather op");
+          //         return mlir::failure();
+          //       }
 
-                newSliceSizes[index] = *updatedSliceDim;
-              }
-            }
+          //       newSliceSizes[index] = *updatedSliceDim;
+          //     }
+          //   }
 
-            llvm::StringRef sliceSizesAttrName = "slice_sizes";
-            assert(attrDict.contains(sliceSizesAttrName) &&
-                   "Gather operation does not have slice sizes attribute. "
-                   "Ill-formed operation");
-            auto namedAttrSliceSizesIt = llvm::find_if(
-                namedAttrs, [&](const mlir::NamedAttribute &attr) {
-                  return attr.getName() == sliceSizesAttrName;
-                });
-            namedAttrSliceSizesIt->setValue(
-                mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
+          //   llvm::StringRef sliceSizesAttrName = "slice_sizes";
+          //   assert(attrDict.contains(sliceSizesAttrName) &&
+          //          "Gather operation does not have slice sizes attribute. "
+          //          "Ill-formed operation");
+          //   auto namedAttrSliceSizesIt = llvm::find_if(
+          //       namedAttrs, [&](const mlir::NamedAttribute &attr) {
+          //         return attr.getName() == sliceSizesAttrName;
+          //       });
+          //   namedAttrSliceSizesIt->setValue(
+          //       mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
-            return mlir::success();
-          })
+          //   return mlir::success();
+          // })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 
   if (failed(updatedAttributeResult)) {
