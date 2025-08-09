@@ -12,6 +12,16 @@ def TTNN_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
+        Get the input operand of the unary operation.
+      }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getInput",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op->getOperand(0);"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
         Get the parameters for the elementwise unary operation.
         Returns an empty array by default, but ops can override this
         to return their specific parameters.
@@ -66,9 +76,10 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       }],
       /*retTy=*/"void",
       /*methodName=*/"addLhsActivation",
-      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryOpType":$opType, "::llvm::ArrayRef<::mlir::FloatAttr>":$params),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
+        auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
         ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().lhs_activations);
         ::llvm::SmallVector<::mlir::Attribute> activations{activation};
 
@@ -85,9 +96,10 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       }],
       /*retTy=*/"void",
       /*methodName=*/"addRhsActivation",
-      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryOpType":$opType, "::llvm::ArrayRef<::mlir::FloatAttr>":$params),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
+        auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
         ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().rhs_activations);
         ::llvm::SmallVector<::mlir::Attribute> activations{activation};
 
@@ -104,10 +116,11 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       }],
       /*retTy=*/"void",
       /*methodName=*/"addPostActivation",
-      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryOpType":$opType, "::llvm::ArrayRef<::mlir::FloatAttr>":$params),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().rhs_activations);
+        auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
+        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().post_activations);
         ::llvm::SmallVector<::mlir::Attribute> activations;
 
         if (currentActivations) {
