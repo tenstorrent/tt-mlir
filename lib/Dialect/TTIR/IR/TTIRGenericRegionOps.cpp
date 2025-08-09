@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -26,13 +27,15 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
 
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(
-          getA().getType().getElementType()) ||
-      !llvm::isa<mlir::tt::ttcore::TileType>(
-          getB().getType().getElementType())) {
-    return emitOpError(
-        "MemRef operands to TileMatmulBlock must have ttcore.tile "
-        "element type");
+  auto getElemType = [](mlir::Type t) -> mlir::Type {
+    auto shaped = mlir::cast<mlir::ShapedType>(t);
+    return shaped.getElementType();
+  };
+
+  if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
+      !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
+    return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
+                       "element type");
   }
 
   return success();
@@ -41,16 +44,20 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileTilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
 
+  auto getElemType = [](mlir::Type t) -> mlir::Type {
+    auto shaped = mlir::cast<mlir::ShapedType>(t);
+    return shaped.getElementType();
+  };
+
   if (llvm::isa<mlir::tt::ttcore::TileType>(
-          getInput().getType().getElementType())) {
-    return emitOpError(
-        "MemRef operand to TileTilizeBlock must not have ttcore.tile "
-        "element type");
+          getElemType(getInput().getType()))) {
+    return emitOpError("operand to TileTilizeBlock must not have ttcore.tile "
+                       "element type");
   }
 
   if (!llvm::isa<mlir::tt::ttcore::TileType>(
-          getOutput().getType().getElementType())) {
-    return emitOpError("MemRef result of TileTilizeBlock must have ttcore.tile "
+          getElemType(getOutput().getType()))) {
+    return emitOpError("result of TileTilizeBlock must have ttcore.tile "
                        "element type");
   }
 
@@ -60,18 +67,21 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileUntilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
 
+  auto getElemType = [](mlir::Type t) -> mlir::Type {
+    auto shaped = mlir::cast<mlir::ShapedType>(t);
+    return shaped.getElementType();
+  };
+
   if (!llvm::isa<mlir::tt::ttcore::TileType>(
-          getInput().getType().getElementType())) {
-    return emitOpError(
-        "MemRef operand to TileUntilizeBlock must have ttcore.tile "
-        "element type");
+          getElemType(getInput().getType()))) {
+    return emitOpError("operand to TileUntilizeBlock must have ttcore.tile "
+                       "element type");
   }
 
   if (llvm::isa<mlir::tt::ttcore::TileType>(
-          getOutput().getType().getElementType())) {
-    return emitOpError(
-        "MemRef result of TileUntilizeBlock must not have ttcore.tile "
-        "element type");
+          getElemType(getOutput().getType()))) {
+    return emitOpError("result of TileUntilizeBlock must not have ttcore.tile "
+                       "element type");
   }
 
   return success();
@@ -81,7 +91,12 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
-  return mlir::tt::ttir::getDpsEffects(*this, effects);
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getAMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getBMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
 }
 
 void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
@@ -156,13 +171,13 @@ void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
   }
 
   if ((srcType.getRank() - srcIndices) != (dstType.getRank() - dstIndices)) {
-    return emitOpError("memref operands must have the same post-index rank");
+    return emitOpError("operands must have the same post-index rank");
   }
 
   if (!std::equal(srcType.getShape().begin() + srcIndices,
                   srcType.getShape().end(),
                   dstType.getShape().begin() + dstIndices)) {
-    return emitOpError("memref operands must have the same post-index shape");
+    return emitOpError("operands must have the same post-index shape");
   }
 
   if (getSrcAffineMap() && !isSrcRemote()) {
@@ -305,4 +320,136 @@ void mlir::tt::ttir::CoreIndexOp::inferResultRanges(
     mlir::SetIntRangeFn setResultRange) {
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+void mlir::tt::ttir::TileTilizeBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void mlir::tt::ttir::TileUntilizeBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    in = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    out = *maybe;
+  }
+
+  mlir::Operation *old = getOperation();
+  auto newOp = rewriter.create<mlir::tt::ttir::TileTilizeBlockOp>(old->getLoc(),
+                                                                  in, out);
+  rewriter.replaceOp(old, newOp->getResults());
+  return mlir::success();
+}
+
+bool mlir::tt::ttir::TileTilizeBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool mlir::tt::ttir::TileTilizeBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::TileTilizeBlockOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TileTilizeBlockOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
+}
+
+mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    in = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    out = *maybe;
+  }
+
+  mlir::Operation *old = getOperation();
+  auto newOp = rewriter.create<mlir::tt::ttir::TileUntilizeBlockOp>(
+      old->getLoc(), in, out);
+  rewriter.replaceOp(old, newOp->getResults());
+  return mlir::success();
+}
+
+bool mlir::tt::ttir::TileUntilizeBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool mlir::tt::ttir::TileUntilizeBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::TileUntilizeBlockOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TileUntilizeBlockOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
 }
