@@ -36,8 +36,89 @@ def TTNN_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
   ];
 }
 
+
 def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
   let cppNamespace = "::mlir::tt::ttnn";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the LHS operand of the binary operation.
+      }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getLhs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op->getOperand(0);"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the RHS side operand of the binary operation.
+      }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getRhs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op->getOperand(1);"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Add a lhs activation to the operation. Activations are added at the beginning of the array.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"addLhsActivation",
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().lhs_activations);
+        ::llvm::SmallVector<::mlir::Attribute> activations{activation};
+
+        if (currentActivations) {
+          activations.append(currentActivations.begin(), currentActivations.end());
+        }
+
+        $_op.getProperties().lhs_activations = ::mlir::ArrayAttr::get($_op.getContext(), activations);
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Add a rhs activation to the operation. Activations are added at the beginning of the array.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"addRhsActivation",
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().rhs_activations);
+        ::llvm::SmallVector<::mlir::Attribute> activations{activation};
+
+        if (currentActivations) {
+          activations.append(currentActivations.begin(), currentActivations.end());
+        }
+
+        $_op.getProperties().rhs_activations = ::mlir::ArrayAttr::get($_op.getContext(), activations);
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Add a post activation to the operation. Activations are added at the end of the array.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"addPostActivation",
+      /*args=*/(ins "::mlir::tt::ttnn::UnaryWithParamAttr":$activation),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().rhs_activations);
+        ::llvm::SmallVector<::mlir::Attribute> activations;
+
+        if (currentActivations) {
+          activations.append(currentActivations.begin(), currentActivations.end());
+        }
+        activations.push_back(activation);
+
+        $_op.getProperties().post_activations = ::mlir::ArrayAttr::get($_op.getContext(), activations);
+      }]
+    >,
+  ];
 }
 
 #endif // TTMLIR_DIALECT_TTNN_IR_TTNNOPSINTERFACES_TD
