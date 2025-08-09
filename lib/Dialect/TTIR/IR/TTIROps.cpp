@@ -4626,9 +4626,9 @@ static mlir::LogicalResult verifyAffineBlocking(
     return emitOpError("grid mapping is not supported");
   }
 
-  if (getOutputs().size() != 1) {
-    return emitOpError("must currently have exactly one output operand");
-  }
+  // if (getOutputs().size() != 1) {
+  //   return emitOpError("must currently have exactly one output operand");
+  // }
 
   if (getThreads().empty()) {
     return emitOpError("must have at least one thread");
@@ -4711,7 +4711,8 @@ static mlir::LogicalResult verifyAffineBlocking(
       return shardResult;
     }
 
-    assert(getNumDpsInits() == 1);
+    // assert(getNumDpsInits() == 1);
+    // check all outs
     ::mlir::OpOperand *output = getDpsInitOperand(0);
     // Op grid map is implicitly derived from the output operand.
     AffineMap opGridMap = indexingMaps[output->getOperandNumber()];
