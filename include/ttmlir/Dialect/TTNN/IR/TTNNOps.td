@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
@@ -135,7 +136,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, TTNN_ElementwiseUnary] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -159,7 +160,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait, TTNN_ElementwiseBinary,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
@@ -169,7 +170,11 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$post_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$lhs_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$rhs_activations);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -190,13 +195,13 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         {
           outputDTypeAttr = $_builder.getAttr<ttcore::DataTypeAttr>(layoutAttr.getDataType());
         }
-        build($_builder, $_state, resultType, lhs, rhs, outputDTypeAttr, /*memory_config=*/nullptr);
+        build($_builder, $_state, resultType, lhs, rhs, outputDTypeAttr, /*memory_config=*/nullptr, /*post_activations=*/nullptr, /*lhs_activations=*/nullptr, /*rhs_activations=*/nullptr);
       }]>
     ];
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -204,7 +209,11 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
 
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$post_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$lhs_activations,
+                         OptionalAttr<TTNN_UnaryWithParamArrayAttr>:$rhs_activations);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -218,7 +227,7 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
     [
       OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
       [{
-        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr, /*post_activations=*/nullptr, /*lhs_activations=*/nullptr, /*rhs_activations=*/nullptr);
       }]>
     ];
 }
@@ -270,6 +279,12 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs",
     let description = [{
       Eltwise absolute operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Abs;
+      }
+    }];
 }
 
 def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
@@ -286,6 +301,12 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil",
     let description = [{
       Eltwise ceil operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Ceil;
+      }
+    }];
 }
 
 def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
@@ -300,6 +321,12 @@ def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign",
         %a: [[3, -2, 0], [1, -4, 4]]
         "ttnn.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Sign;
+      }
+    }];
 }
 
 def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
@@ -308,6 +335,12 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
     let summary = "Eltwise cosine.";
     let description = [{
       Eltwise cosine operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Cos;
+      }
     }];
 }
 
@@ -318,6 +351,12 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp",
     let description = [{
       Eltwise exponential operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Exp;
+      }
+    }];
 }
 
 def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
@@ -327,6 +366,12 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf",
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
       }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Erf;
+      }
+    }];
 }
 
 def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
@@ -336,6 +381,12 @@ def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc",
     let description = [{
         Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
       }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Erfc;
+      }
+    }];
 }
 
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor",
@@ -344,6 +395,12 @@ def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor",
     let summary = "Eltwise floor op.";
     let description = [{
       Eltwise floor operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Floor;
+      }
     }];
 }
 
@@ -354,6 +411,12 @@ def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu",
   let description = [{
     Eltwise GELU operation.
   }];
+
+  let extraClassDeclaration = [{
+    ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+      return ::mlir::tt::ttnn::UnaryOpType::Gelu;
+    }
+  }];
 }
 
 def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite",
@@ -363,6 +426,12 @@ def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite",
     let description = [{
       Eltwise isfinite operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::IsFinite;
+      }
+    }];
 }
 
 def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not",
@@ -371,6 +440,12 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not",
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::LogicalNotUnary;
+      }
     }];
 }
 
@@ -385,6 +460,12 @@ def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
             %result = "ttnn.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
             // %result: [[-2, -3], [-4, -5]]
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::BitwiseNot;
+      }
+    }];
 }
 
 def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg",
@@ -394,6 +475,12 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg",
     let description = [{
       Eltwise negate operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Neg;
+      }
+    }];
 }
 
 def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan",
@@ -402,6 +489,12 @@ def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan",
     let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Tan;
+      }
     }];
 }
 
@@ -424,6 +517,12 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan",
       Given the input `[1.0, 0.5, 0.0, -1.0]`, the result would be approximately:
       `[0.785, 0.464, 0.0, -0.785]` (values in radians).
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Atan;
+      }
+    }];
 }
 
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
@@ -435,6 +534,10 @@ def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh",
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return
           wa::TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds();
+      }
+
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Tanh;
       }
     }];
 
@@ -450,6 +553,12 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal",
     let description = [{
       Eltwise reciprocal operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Recip;
+      }
+    }];
 }
 
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
@@ -458,6 +567,12 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Relu;
+      }
     }];
 }
 
@@ -468,6 +583,12 @@ def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin",
     let description = [{
       Eltwise sine operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Sin;
+      }
+    }];
 }
 
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt",
@@ -476,6 +597,12 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt",
     let summary = "Eltwise sqrt.";
     let description = [{
       Eltwise sqrt operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Sqrt;
+      }
     }];
 }
 
@@ -486,6 +613,12 @@ def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt",
     let description = [{
       Eltwise rsqrt operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Rsqrt;
+      }
+    }];
 }
 
 def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
@@ -495,6 +628,12 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
     let description = [{
       Eltwise sigmoid operation.
     }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Sigmoid;
+      }
+    }];
 }
 
 def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
@@ -503,6 +642,12 @@ def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log",
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::Log;
+      }
     }];
 }
 
@@ -579,6 +724,12 @@ def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu",
 
       Outputs:
       - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
+    }];
+
+    let extraClassDeclaration = [{
+      ::mlir::tt::ttnn::UnaryOpType getUnaryOpType() {
+        return ::mlir::tt::ttnn::UnaryOpType::LeakyRelu;
+      }
     }];
 }
 
