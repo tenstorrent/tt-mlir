@@ -80,7 +80,7 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
         auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
-        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().lhs_activations);
+        ::mlir::ArrayAttr currentActivations = $_op.getProperties().lhs_activations;
         ::llvm::SmallVector<::mlir::Attribute> activations{activation};
 
         if (currentActivations) {
@@ -100,7 +100,7 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
         auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
-        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().rhs_activations);
+        ::mlir::ArrayAttr currentActivations = $_op.getProperties().rhs_activations;
         ::llvm::SmallVector<::mlir::Attribute> activations{activation};
 
         if (currentActivations) {
@@ -120,7 +120,7 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
         auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
-        ::mlir::ArrayAttr currentActivations = ::llvm::dyn_cast<::mlir::ArrayAttr>($_op.getProperties().post_activations);
+        ::mlir::ArrayAttr currentActivations = $_op.getProperties().post_activations;
         ::llvm::SmallVector<::mlir::Attribute> activations;
 
         if (currentActivations) {
