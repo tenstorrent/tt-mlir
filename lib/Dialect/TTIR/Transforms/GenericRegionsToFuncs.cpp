@@ -28,8 +28,8 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
   return std::nullopt;
 }
 
-static void rewriteOperand(OpBuilder &builder, DMAOp dma, OpOperand &dmaOperand,
-                           unsigned operandIndex) {
+static void rewriteOperand(OpBuilder &builder, DMAOpInterface dma,
+                           OpOperand &dmaOperand, unsigned operandIndex) {
   MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
   AffineMap affineMapView = builder.getMultiDimIdentityMap(memref.getRank());
   if (dmaOperand.get().getDefiningOp()) {
@@ -42,7 +42,8 @@ static void rewriteOperand(OpBuilder &builder, DMAOp dma, OpOperand &dmaOperand,
 }
 
 static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
-                                       DMAOp dma) {
+                                       DMAOpInterface dma) {
+
   auto srcIndex = getCapturedOperandIndex(generic, dma.getSrc());
   auto dstIndex = getCapturedOperandIndex(generic, dma.getDst());
 
@@ -68,7 +69,7 @@ public:
     OpBuilder builder(&getContext());
     int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
-      generic.walk([&](DMAOp dma) {
+      generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(builder, generic, dma);
       });
 

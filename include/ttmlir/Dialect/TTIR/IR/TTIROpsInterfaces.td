@@ -157,4 +157,21 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   ];
 }
 
+def TTIR_DMAOpInterface : OpInterface<"DMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface allows querying the common aspects of
+    DMA(Read|Write)Ops ; mostly that they have two memref-like
+    operands.
+  }];
+  let methods = [
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getSrc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getDst">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getSrcMutable">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
+    InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
+  ];
+}
+
 #endif
