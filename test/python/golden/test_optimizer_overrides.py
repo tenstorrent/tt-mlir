@@ -14,6 +14,81 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer, _is_opmodel_e
 import os
 
 
+def check_sharded_input_output(mlir_file: str, op_name: str):
+    sharded_layouts = []
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if line.startswith("#ttnn_layout") and "sharded" in line:
+                layout = line.split("=", 1)[0].strip()
+                sharded_layouts.append(layout)
+
+            if len(sharded_layouts) > 0:
+                pattern = re.compile(
+                    rf".*{op_name}.*({'|'.join(sharded_layouts)}).*->.*({'|'.join(sharded_layouts)}).*"
+                )
+                if pattern.search(line):
+                    return True
+    return False
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (16, 32, 32, 64),
+            (64, 64, 3, 3),
+            (1, 1, 1, 64),
+            (1, 1, 1, 64),
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize(
+    "stride,padding,dilation,groups", [([1, 1], [1, 1], [1, 1], 1)]
+)
+def test_conv2d_sharding(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    request,
+):
+    def conv2d(
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        conv2d_0 = builder.conv2d(
+            in0,
+            weight,
+            bias,
+            in1,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            unit_attrs=unit_attrs,
+        )
+        builder.set_conv2d_config_override()
+        return conv2d_0
+
+    output_file_mlir = compile_ttir_to_flatbuffer(
+        conv2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+    if _is_opmodel_enabled():
+        assert check_sharded_input_output(output_file_mlir, "conv2d")
+
+
 def check_policy(mlir_file: str):
     l1 = False
     layout1 = False
@@ -89,7 +164,7 @@ def check_layouts(mlir_file: str):
     ],
 )
 @pytest.mark.parametrize("dtypes", [torch.float32], ids=["f32"])
-def test_2output_layouts(
+def test_output_layouts(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     request,
@@ -113,79 +188,3 @@ def test_2output_layouts(
     )
     if _is_opmodel_enabled():
         check_layouts(output_file_mlir)
-
-
-def check_sharded_input_output(mlir_file: str, op_name: str):
-    sharded_layouts = []
-    with open(mlir_file, "r") as f:
-        for line in f:
-            if line.startswith("#ttnn_layout") and "sharded" in line:
-                layout = line.split("=", 1)[0].strip()
-                sharded_layouts.append(layout)
-
-            if len(sharded_layouts) > 0:
-                pattern = re.compile(
-                    rf".*{op_name}.*({'|'.join(sharded_layouts)}).*->.*({'|'.join(sharded_layouts)}).*"
-                )
-                if pattern.search(line):
-                    return True
-    return False
-
-
-@pytest.mark.subprocess
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [
-            (16, 32, 32, 64),
-            (64, 64, 3, 3),
-            (1, 1, 1, 64),
-            (1, 1, 1, 64),
-        ]
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
-@pytest.mark.parametrize(
-    "stride,padding,dilation,groups", [([1, 1], [1, 1], [1, 1], 1)]
-)
-def test_conv2d_sharding(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    request,
-):
-    def conv2d(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        conv2d_0 = builder.conv2d(
-            in0,
-            weight,
-            bias,
-            in1,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
-        builder.set_conv2d_config_override()
-        return conv2d_0
-
-    output_file_mlir = compile_ttir_to_flatbuffer(
-        conv2d,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-    if _is_opmodel_enabled():
-        assert check_sharded_input_output(output_file_mlir, "conv2d")
