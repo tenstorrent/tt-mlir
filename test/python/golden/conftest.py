@@ -6,9 +6,41 @@ import ttrt
 import platform
 from functools import reduce
 import operator
+import os
+import sys
+import subprocess
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "subprocess: mark test to run in separate subprocess for isolation"
+    )
+
+
+def pytest_runtest_protocol(item, nextitem):
+    if item.get_closest_marker("subprocess") and not os.environ.get("IN_SUBPROCESS"):
+        # Run this test in subprocess
+        env = os.environ.copy()
+        env["IN_SUBPROCESS"] = "1"  # Prevent infinite recursion
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{item.fspath}::{item.name}",
+            "-v",
+            "-s",
+            "--tb=short",
+        ]
+
+        result = subprocess.run(cmd, env=env)
+        if result.returncode != 0:
+            pytest.fail(f"Subprocess test {item.name} failed")
+        return True  # Skip normal execution
+    return None  # Continue with normal execution
 
 
 def is_x86_machine():
