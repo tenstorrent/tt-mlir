@@ -1297,11 +1297,16 @@ private:
         static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
     });
 
+    // The padding attribute in PoolingOp will be in the order of [..., top,
+    // left, bottom, right, ...] MaxPool2dOp and AvgPool2dOp expect the padding
+    // to be in the order of [top, left, bottom, right]
     auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
     });
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
