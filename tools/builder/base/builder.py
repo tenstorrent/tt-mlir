@@ -140,12 +140,8 @@ class Builder:
         Parameters
         ----------
         attributes : *Dict[str, str]*
-            Dictionary of override attributes. Valid keys include:
-            - data_type: Data type override for the output tensor
-            - memory_layout: Memory layout override
-            - buffer_type: Buffer type override
-            - tensor_memory_layout: Tensor memory layout override
-            - grid_shape: Grid shape override in format '[NxM]'
+            Dictionary of override attributes
+
         op : Operand
             The operation to apply the output layout override to
         """
@@ -153,25 +149,15 @@ class Builder:
         if not op or not attributes:
             self._output_layout_params["None"] = output_layout_override
             return
+
         for key, value in attributes.items():
-            match key:
-                case "data_type":
-                    output_layout_override.set_data_type_from_str(value)
-                case "memory_layout":
-                    output_layout_override.set_memory_layout_from_str(value)
-                case "buffer_type":
-                    # output_layout_override.set_buffer_type_from_str(value)
-                    output_layout_override.buffer_type = (
-                        optimizer_overrides.BufferType.L1
-                    )
-                case "tensor_memory_layout":
-                    output_layout_override.set_tensor_memory_layout_from_str(value)
-                case "grid_shape":
-                    output_layout_override.grid = [
-                        int(x) for x in value.strip("[]").split("x")
-                    ]
-                case _:
-                    raise ValueError(f"Invalid override attribute: {key}")
+            # Dynamically find the setter method
+            setter_name = f"set_{key}_from_str"
+            if hasattr(output_layout_override, setter_name):
+                setter_method = getattr(output_layout_override, setter_name)
+                setter_method(value)
+            else:
+                raise ValueError(f"Invalid override attribute: {key}")
 
         self._output_layout_params[op.location.name_str] = output_layout_override
 
@@ -183,23 +169,8 @@ class Builder:
         Parameters
         ----------
         configs : *Dict[str, str]*
-            Dictionary of configuration overrides. Valid keys include:
-            - weights_dtype: Weights data type override
-            - activation: Activation function override ('None' or specific activation)
-            - deallocate_activation: Control activation deallocation
-            - reallocate_halo_output: Control halo output reallocation
-            - act_block_h_override: Override activation block height
-            - act_block_w_div: Activation block width division
-            - reshard_if_not_optimal: Control resharding behavior
-            - override_sharding_config: Override sharding configuration
-            - shard_layout: Layout for sharding ('None' or specific layout)
-            - core_grid: Core grid configuration
-            - transpose_shards: Control shard transposition
-            - output_layout: Specify output layout
-            - enable_act_double_buffer: Enable/disable activation double buffering
-            - enable_weights_double_buffer: Enable/disable weights double buffering
-            - enable_split_reader: Enable/disable split reader
-            - enable_subblock_padding: Enable/disable subblock padding
+            Dictionary of configuration overrides
+
         op : Operand
             The Conv2d operation to apply the configuration override to
         """
@@ -207,51 +178,15 @@ class Builder:
         if not op or not configs:
             self._conv2d_config_params["None"] = conv2d_config_override
             return
+
         for key, value in configs.items():
-            match key:
-                case "weights_dtype":
-                    conv2d_config_override.set_weights_dtype_from_str(value)
-                case "activation":
-                    conv2d_config_override.set_activation_from_str(
-                        "none" if value == "None" else value
-                    )
-                case "deallocate_activation":
-                    conv2d_config_override.set_deallocate_activation_from_str(value)
-                case "reallocate_halo_output":
-                    conv2d_config_override.set_reallocate_halo_output_from_str(value)
-                case "act_block_h_override":
-                    conv2d_config_override.set_act_block_h_override_from_str(
-                        value.strip("[]")
-                    )
-                case "act_block_w_div":
-                    conv2d_config_override.set_act_block_w_div_from_str(
-                        value.strip("[]")
-                    )
-                case "reshard_if_not_optimal":
-                    conv2d_config_override.set_reshard_if_not_optimal_from_str(value)
-                case "override_sharding_config":
-                    conv2d_config_override.set_override_sharding_config_from_str(value)
-                case "shard_layout":
-                    if value != "None":
-                        conv2d_config_override.set_shard_layout_from_str(value)
-                case "core_grid":
-                    pass
-                case "transpose_shards":
-                    conv2d_config_override.set_transpose_shards_from_str(value)
-                case "output_layout":
-                    conv2d_config_override.set_output_layout_from_str(value)
-                case "enable_act_double_buffer":
-                    conv2d_config_override.set_enable_act_double_buffer_from_str(value)
-                case "enable_weights_double_buffer":
-                    conv2d_config_override.set_enable_weights_double_buffer_from_str(
-                        value
-                    )
-                case "enable_split_reader":
-                    conv2d_config_override.set_enable_split_reader_from_str(value)
-                case "enable_subblock_padding":
-                    conv2d_config_override.set_enable_subblock_padding_from_str(value)
-                case _:
-                    raise ValueError(f"Invalid override attribute: {key}")
+            # Dynamically find the setter method
+            setter_name = f"set_{key}_from_str"
+            if hasattr(conv2d_config_override, setter_name):
+                setter_method = getattr(conv2d_config_override, setter_name)
+                setter_method(value)
+            else:
+                raise ValueError(f"Invalid override attribute: {key}")
 
         self._conv2d_config_params[op.location.name_str] = conv2d_config_override
 
