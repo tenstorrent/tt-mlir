@@ -486,19 +486,18 @@ struct ArrayAttrToFlatbufferSerializer<IntegerAttr, ValueType> {
 
 template <typename AttrType, typename ValueType>
 inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
-arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                      const ::mlir::ArrayAttr &arrayAttr) {
+toFlatbuffer(FlatbufferObjectCache &cache, const ::mlir::ArrayAttr &arrayAttr) {
   return ArrayAttrToFlatbufferSerializer<AttrType, ValueType>::impl(cache,
                                                                     arrayAttr);
 }
 
 template <typename AttrType, typename ValueType>
 inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
-arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                      const std::optional<::mlir::ArrayAttr> &arrayAttrOpt) {
-  return arrayAttrOpt.has_value() ? arrayAttrToFlatbuffer<AttrType, ValueType>(
-                                        cache, arrayAttrOpt.value())
-                                  : 0;
+toFlatbuffer(FlatbufferObjectCache &cache,
+             const std::optional<::mlir::ArrayAttr> &arrayAttrOpt) {
+  return arrayAttrOpt.has_value()
+             ? toFlatbuffer<AttrType, ValueType>(cache, arrayAttrOpt.value())
+             : 0;
 }
 
 inline flatbuffers::Offset<flatbuffers::Vector<uint32_t>>
@@ -929,6 +928,23 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
+}
+
+template <typename AttrTy>
+inline flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<AttrTy>>>
+toFlatbuffer(FlatbufferObjectCache &cache, mlir::ArrayAttr arrayAttr) {
+  return cache.fbb->CreateVector<ToFlatbufferReturnType<AttrTy>>(
+      arrayAttr.size(), [&](size_t i) {
+        return toFlatbuffer(cache, mlir::cast<AttrTy>(arrayAttr[i]));
+      });
+}
+
+template <typename AttrTy>
+inline flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<AttrTy>>>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             std::optional<mlir::ArrayAttr> arrayAttr) {
+  return arrayAttr.has_value() ? toFlatbuffer<AttrTy>(cache, arrayAttr.value())
+                               : 0;
 }
 
 } // namespace mlir::tt

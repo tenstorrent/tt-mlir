@@ -1045,8 +1045,16 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  auto postActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getPostActivations());
+  auto lhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getLhsActivations());
+  auto rhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getRhsActivations());
+
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, postActivations,
+      lhsActivations, rhsActivations, out);
 }
 
 template <typename EltwiseBinaryCompositeOp>
@@ -1089,8 +1097,15 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
 
+  auto postActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getPostActivations());
+  auto lhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getLhsActivations());
+  auto rhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getRhsActivations());
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
-      *cache.fbb, type, lhs, rhs, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, memoryConfig, postActivations, lhsActivations,
+      rhsActivations, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -1476,8 +1491,7 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
-  auto dimArg =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+  auto dimArg = toFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
                                                dimArg, op.getKeepDim());
@@ -1590,8 +1604,7 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
+  auto shape = toFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
@@ -1660,12 +1673,9 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
-  auto step =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
+  auto begins = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
+  auto ends = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+  auto step = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
 
   return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
                                            step);

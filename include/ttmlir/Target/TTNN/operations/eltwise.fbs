@@ -30,6 +30,9 @@ table EltwiseBinaryOp {
   rhs: tt.target.ttnn.TensorRef;
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
+  post_activations: [UnaryWithParam];
+  lhs_activations: [UnaryWithParam];
+  rhs_activations: [UnaryWithParam];
   out: tt.target.ttnn.TensorRef;
 }
 
@@ -50,6 +53,9 @@ table EltwiseBinaryCompositeOp {
   lhs: tt.target.ttnn.TensorRef;
   rhs: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
+  post_activations: [UnaryWithParam];
+  lhs_activations: [UnaryWithParam];
+  rhs_activations: [UnaryWithParam];
   out: tt.target.ttnn.TensorRef;
 }
 
