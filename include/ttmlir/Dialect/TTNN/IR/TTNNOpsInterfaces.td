@@ -81,11 +81,12 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*defaultImplementation=*/[{
         auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
         ::mlir::ArrayAttr currentActivations = $_op.getProperties().lhs_activations;
-        ::llvm::SmallVector<::mlir::Attribute> activations{activation};
+        ::llvm::SmallVector<::mlir::Attribute> activations;
 
         if (currentActivations) {
           activations.append(currentActivations.begin(), currentActivations.end());
         }
+        activations.push_back(activation);
 
         $_op.getProperties().lhs_activations = ::mlir::ArrayAttr::get($_op.getContext(), activations);
       }]
@@ -101,11 +102,12 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*defaultImplementation=*/[{
         auto activation = ::mlir::tt::ttnn::UnaryWithParamAttr::get($_op.getContext(), opType, params);
         ::mlir::ArrayAttr currentActivations = $_op.getProperties().rhs_activations;
-        ::llvm::SmallVector<::mlir::Attribute> activations{activation};
+        ::llvm::SmallVector<::mlir::Attribute> activations;
 
         if (currentActivations) {
           activations.append(currentActivations.begin(), currentActivations.end());
         }
+        activations.push_back(activation);
 
         $_op.getProperties().rhs_activations = ::mlir::ArrayAttr::get($_op.getContext(), activations);
       }]
