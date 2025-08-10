@@ -38,7 +38,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.23.2
         env:
           CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
-          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:latest
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:dt-5b7f94b12ee94580a8470d5c5234193710abe304c212a034f23be54db255b1c8
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: ${{ steps.strings.outputs.work-dir }}/python
@@ -82,6 +82,9 @@ jobs:
 
       - name: Build pykernel Wheel (manylinux)
         uses: pypa/cibuildwheel@v2.23.2
+        env:
+          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:dt-5b7f94b12ee94580a8470d5c5234193710abe304c212a034f23be54db255b1c8
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: ${{ steps.strings.outputs.work-dir }}/tools/pykernel
