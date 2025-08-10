@@ -153,14 +153,57 @@ private:
 } // namespace
 
 namespace {
+class TTNNBinaryOpOutputActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseUnary> {
+  using TTNNBinaryOpOutputActivation::OpInterfaceRewritePattern<
+      ElementwiseUnary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseUnary unaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(unaryOp)) {
+      return failure();
+    }
+
+    auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
+    if (!binaryOp) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      binaryOp.addPostActivation(unaryOp.getUnaryOpType(), unaryOp.getParams());
+      binaryOp->getResult(0).setType(unaryOp->getResult(0).getType());
+    });
+    rewriter.replaceOp(unaryOp, unaryOp.getInput());
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ElementwiseUnary unaryOp) const {
+    return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
+  }
+
+  ElementwiseBinary getFusableBinaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    return operand.getDefiningOp<ElementwiseBinary>();
+  }
+};
+} // namespace
+
+namespace {
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTNNConv2dWithActivation, TTNNBinaryOpInputsActivation>(
-        &getContext());
+    patterns.add<TTNNConv2dWithActivation, TTNNBinaryOpInputsActivation,
+                 TTNNBinaryOpOutputActivation>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
