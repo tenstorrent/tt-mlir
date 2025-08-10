@@ -77,6 +77,9 @@ enum class VecMode {
   Invalid = 0xFF,
 };
 
+struct UnaryOpType;
+struct UnaryWithParam;
+
 } // namespace unary
 
 namespace creation::detail {
@@ -297,6 +300,18 @@ template <>
 struct TypeName<::ttnn::operations::reduction::ReduceType> {
   inline static const std::string value =
       "::ttnn::operations::reduction::ReduceType";
+};
+
+template <>
+struct TypeName<::ttnn::operations::unary::UnaryOpType> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::UnaryOpType";
+};
+
+template <>
+struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::UnaryWithParam";
 };
 
 template <>
@@ -797,6 +812,35 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     llvm_unreachable("Unknown ttcore::ReduceType");
   }
 };
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto unaryWithParamAttr =
+            mlir::dyn_cast_if_present<ttnn::UnaryWithParamAttr>(attr)) {
+      return convert(unaryWithParamAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::UnaryWithParamAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::unary::UnaryWithParam> << "{";
+    rso << ".op_type = "
+        << TypeNameV<::ttnn::operations::unary::UnaryOpType> << "::"
+        << ttnn::stringifyUnaryOpType(attr.getOpType()).upper();
+    rso << ", .params = {";
+    llvm::interleaveComma(attr.getParams(), rso, [&](auto param) {
+      rso << EmitCTypeConverter<float>::convert(param);
+    });
+    rso << "}}";
+
+    return buf;
+  }
+};
+
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {
