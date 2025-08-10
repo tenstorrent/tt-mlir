@@ -128,7 +128,7 @@ module {
     // CHECK-NOT: "ttnn.relu"
     // CHECK-NOT: "ttnn.sigmoid"
     // CHECK: "ttnn.add"(%arg0, %arg1)
-    // CHECK-SAME: lhs_activations = [#ttnn.unary_with_param<op_type = relu>, #ttnn.unary_with_param<op_type = sigmoid>]
+    // CHECK-SAME: lhs_activations = [#ttnn.unary_with_param<op_type = sigmoid>, #ttnn.unary_with_param<op_type = relu>]
 
     return %5 : tensor<64x128xf32>
   }
@@ -148,7 +148,7 @@ module {
     // CHECK-NOT: "ttnn.tanh"
     // CHECK-NOT: "ttnn.leaky_relu"
     // CHECK: "ttnn.multiply"(%arg0, %arg1)
-    // CHECK-SAME: rhs_activations = [#ttnn.unary_with_param<op_type = tanh>, #ttnn.unary_with_param<op_type = leaky_relu, params = [2.000000e-01 : f32]>]
+    // CHECK-SAME: rhs_activations = [#ttnn.unary_with_param<op_type = leaky_relu, params = [2.000000e-01 : f32]>, #ttnn.unary_with_param<op_type = tanh>]
 
     return %5 : tensor<64x128xf32>
   }
@@ -178,8 +178,8 @@ module {
     // CHECK-NOT: "ttnn.tanh"
     // CHECK-NOT: "ttnn.gelu"
     // CHECK: "ttnn.subtract"(%arg0, %arg1)
-    // CHECK-SAME: lhs_activations = [#ttnn.unary_with_param<op_type = relu>, #ttnn.unary_with_param<op_type = sigmoid>]
-    // CHECK-SAME: rhs_activations = [#ttnn.unary_with_param<op_type = tanh>, #ttnn.unary_with_param<op_type = gelu>]
+    // CHECK-SAME: lhs_activations = [#ttnn.unary_with_param<op_type = sigmoid>, #ttnn.unary_with_param<op_type = relu>]
+    // CHECK-SAME: rhs_activations = [#ttnn.unary_with_param<op_type = gelu>, #ttnn.unary_with_param<op_type = tanh>]
 
     return %9 : tensor<64x128xf32>
   }
