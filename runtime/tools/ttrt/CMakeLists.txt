@@ -14,7 +14,8 @@ add_custom_command(
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          python3 -m pip install -vvv --force-reinstall .
+          python3 -m pip wheel -vvv .
+  COMMAND python -m pip install --force-reinstall ttrt-*.whl
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils _ttmlir_runtime
