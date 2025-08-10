@@ -939,14 +939,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::ArrayAttr arrayAttr) {
       });
 }
 
-template <typename AttrTy>
-inline flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<AttrTy>>>
-toFlatbuffer(FlatbufferObjectCache &cache,
-             std::optional<mlir::ArrayAttr> arrayAttr) {
-  return arrayAttr.has_value() ? toFlatbuffer<AttrTy>(cache, arrayAttr.value())
-                               : 0;
-}
-
 } // namespace mlir::tt
 
 #endif
