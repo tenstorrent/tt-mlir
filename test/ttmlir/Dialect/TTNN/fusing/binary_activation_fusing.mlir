@@ -85,7 +85,7 @@ module {
     %9 = "ttir.subtract"(%5, %7, %8) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
 
     // CHECK: "ttnn.add"(%arg0, %arg1)
-    // CHECK-NOT: post_activations
+    // CHECK-SAME: post_activations = []
     // CHECK: "ttnn.multiply"
     // CHECK-SAME: lhs_activations = [#ttnn.unary_with_param<op_type = relu>]
     // CHECK: "ttnn.subtract"
@@ -109,8 +109,8 @@ module {
 
     // CHECK: "ttnn.cbrt"
     // CHECK: "ttnn.add"
-    // CHECK-NOT: lhs_activations
-    // CHECK-NOT: post_activations
+    // CHECK-SAME: lhs_activations = []
+    // CHECK-SAME: post_activations = []
     // CHECK: "ttnn.cbrt"
 
     return %5 : tensor<64x128xf32>

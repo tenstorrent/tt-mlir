@@ -827,15 +827,14 @@ struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    rso << TypeNameV<::ttnn::operations::unary::UnaryWithParam> << "{";
-    rso << ".op_type = "
-        << TypeNameV<::ttnn::operations::unary::UnaryOpType> << "::"
+    rso << TypeNameV<::ttnn::operations::unary::UnaryWithParam> << "(";
+    rso << TypeNameV<::ttnn::operations::unary::UnaryOpType> << "::"
         << ttnn::stringifyUnaryOpType(attr.getOpType()).upper();
-    rso << ", .params = {";
+    rso << ", {";
     llvm::interleaveComma(attr.getParams(), rso, [&](auto param) {
       rso << EmitCTypeConverter<float>::convert(param);
     });
-    rso << "}}";
+    rso << "})";
 
     return buf;
   }
