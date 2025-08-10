@@ -1,7 +1,7 @@
-From 3341f9eb433ae46a3143110a4f386d04fbcd0ecb Mon Sep 17 00:00:00 2001
+From 20190ae8357d220b62e7da2555acc75645bdd526 Mon Sep 17 00:00:00 2001
 From: tenstorrent <tt-mlir@tenstorrent.com>
-Date: Sat, 9 Aug 2025 17:22:50 +0000
-Subject: [PATCH 1/2] tt-mlir related patch
+Date: Sun, 10 Aug 2025 18:02:25 +0000
+Subject: [PATCH] tt-mlir related patch
 
 ---
  CMakeLists.txt                                |  57 ++++++
@@ -15,8 +15,11 @@ Subject: [PATCH 1/2] tt-mlir related patch
  .../propagation/debugging/CMakeLists.txt      |  17 ++
  .../propagation/debugging/source_sharding.cc  |   1 +
  shardy/integrations/c/CMakeLists.txt          |  20 ++
- shardy/integrations/python/ir/CMakeLists.txt  |  45 +++++
- 12 files changed, 648 insertions(+)
+ shardy/integrations/python/ir/CMakeLists.txt  |  30 +++
+ shardy/integrations/python/ir/dialects/sdy.py |  20 ++
+ .../python/ir/dialects/sdy_enums.td           |  21 ++
+ .../python/ir/dialects/sdy_ops.td             |  21 ++
+ 15 files changed, 695 insertions(+)
  create mode 100755 CMakeLists.txt
  create mode 100644 shardy/common/CMakeLists.txt
  create mode 100755 shardy/dialect/sdy/ir/CMakeLists.txt
@@ -28,6 +31,9 @@ Subject: [PATCH 1/2] tt-mlir related patch
  create mode 100644 shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
  create mode 100644 shardy/integrations/c/CMakeLists.txt
  create mode 100644 shardy/integrations/python/ir/CMakeLists.txt
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy.py
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy_enums.td
+ create mode 100644 shardy/integrations/python/ir/dialects/sdy_ops.td
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 new file mode 100755
@@ -705,26 +711,11 @@ index 0000000..fdd50c4
 +)
 diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
 new file mode 100644
-index 0000000..266ef40
+index 0000000..4c82424
 --- /dev/null
 +++ b/shardy/integrations/python/ir/CMakeLists.txt
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,30 @@
 +# Shardy MLIR Module
-+
-+set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
-+
-+# Rename _sdy_enums_gen in sdy.py
-+file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
-+string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
-+file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
-+
-+if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
-+  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
-+endif()
-+file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
-+FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
 +
 +declare_mlir_python_sources(SdyPythonSources)
 +declare_mlir_python_sources(SdyPythonSources.Dialects
@@ -733,7 +724,7 @@ index 0000000..266ef40
 +
 +declare_mlir_dialect_python_bindings(
 +  ADD_TO_PARENT SdyPythonSources.Dialects
-+  ROOT_DIR "${SHARDY_MODULE_DIR}"
++  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
 +  TD_FILE dialects/sdy_ops.td
 +  GEN_ENUM_BINDINGS ON
 +  GEN_ENUM_BINDINGS_TD_FILE dialects/sdy_enums.td
@@ -754,50 +745,6 @@ index 0000000..266ef40
 +    SdyCAPI
 +    LLVMSupport
 +)
--- 
-2.34.1
-
-
-From f0f167d11c7e816f49fbfb1bde2097ec30f12e36 Mon Sep 17 00:00:00 2001
-From: tenstorrent <tt-mlir@tenstorrent.com>
-Date: Sun, 10 Aug 2025 17:03:09 +0000
-Subject: [PATCH 2/2] changes
-
----
- shardy/integrations/python/ir/CMakeLists.txt  | 15 -------------
- shardy/integrations/python/ir/dialects/sdy.py | 20 ++++++++++++++++++
- .../python/ir/dialects/sdy_enums.td           | 21 +++++++++++++++++++
- .../python/ir/dialects/sdy_ops.td             | 21 +++++++++++++++++++
- 4 files changed, 62 insertions(+), 15 deletions(-)
- create mode 100644 shardy/integrations/python/ir/dialects/sdy.py
- create mode 100644 shardy/integrations/python/ir/dialects/sdy_enums.td
- create mode 100644 shardy/integrations/python/ir/dialects/sdy_ops.td
-
-diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
-index 266ef40..4c82424 100644
---- a/shardy/integrations/python/ir/CMakeLists.txt
-+++ b/shardy/integrations/python/ir/CMakeLists.txt
-@@ -1,20 +1,5 @@
- # Shardy MLIR Module
- 
--set(SHARDY_MODULE_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/shardy/shardy/integrations/python/ir")
--
--# Rename _sdy_enums_gen in sdy.py
--file(READ "${SHARDY_MODULE_DIR}/sdy.py" FILE_CONTENTS)
--string(REPLACE "enums" "enum" FILE_CONTENTS "${FILE_CONTENTS}")
--file(WRITE "${SHARDY_MODULE_DIR}/sdy.py" "${FILE_CONTENTS}")
--
--if (EXISTS ${SHARDY_MODULE_DIR}/dialects)
--  file(REMOVE_RECURSE ${SHARDY_MODULE_DIR}/dialects)
--endif()
--file(MAKE_DIRECTORY ${SHARDY_MODULE_DIR}/dialects)
--FILE(COPY ${SHARDY_MODULE_DIR}/sdy.py DESTINATION ${SHARDY_MODULE_DIR}/dialects)
--FILE(COPY ${SHARDY_MODULE_DIR}/sdy_ops.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
--FILE(COPY ${SHARDY_MODULE_DIR}/sdy_enums.td DESTINATION ${SHARDY_MODULE_DIR}/dialects)
--
- declare_mlir_python_sources(SdyPythonSources)
- declare_mlir_python_sources(SdyPythonSources.Dialects
-   ADD_TO_PARENT SdyPythonSources
 diff --git a/shardy/integrations/python/ir/dialects/sdy.py b/shardy/integrations/python/ir/dialects/sdy.py
 new file mode 100644
 index 0000000..7cd59c6
@@ -878,6 +825,5 @@ index 0000000..30a5cf9
 +include "shardy/dialect/sdy/ir/ops.td"
 +
 +#endif
--- 
+--
 2.34.1
-
