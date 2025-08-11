@@ -1252,6 +1252,7 @@ private:
   }
 };
 
+namespace {
 class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
@@ -1385,6 +1386,225 @@ private:
     return true;
   }
 };
+} // namespace
+
+// This pattern fuses: 0.5 * x * gaussian(x)
+
+class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+public:
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp op, mlir::PatternRewriter &rewriter) const final {
+    // The root of the gelu pattern may be:
+    // 0.5 * x * gaussian(x)
+    //     ^ this multiply
+    // or
+    // 0.5 * x * gaussian(x)
+    //         ^ this multiply
+    op.dump();
+    // Find the gaussian result and its type, but only proceed if a valid
+    // gaussian is found.
+    auto [gaussianType, gaussianInput] = findGaussianFromMultiply(op);
+    Value halvingArgument = getHalvingArgument(op);
+
+    // If the gaussianInput was found, then the multiply in 0.5 * x must be an
+    // operand of 'op'
+    if (gaussianInput) {
+      // Check if 0.5 * <something> is the RHS of 'op'
+      if (MultiplyOp halvingMultiply =
+              op.getRhs().getDefiningOp<MultiplyOp>()) {
+        halvingArgument = getHalvingArgument(halvingMultiply);
+      }
+      // Check if 0.5 * <something> is the LHS of 'op'
+      else if (MultiplyOp halvingMultiply =
+                   op.getLhs().getDefiningOp<MultiplyOp>()) {
+        halvingArgument = getHalvingArgument(halvingMultiply);
+      } else {
+        // If we reach here, it means that this multiply op contains a gaussian
+        // as one of its operands, but not 0.5 * x as the other
+        return failure();
+      }
+
+      if (!halvingArgument) {
+        assert(false);
+      }
+      halvingArgument.dump();
+      gaussianInput.dump();
+
+      if (halvingArgument != gaussianInput) {
+        // if we reach here, it means that 'op' is <something> * gaussian(x)
+        // where <something> is not 0.5 * x
+        return failure();
+      }
+    }
+    // If the gaussianInput was not found, then we must check if <something> in
+    // the formula 0.5 * <something> is x * gaussian(x)
+    else if (halvingArgument) {
+      // At this point, we know that halvingArgument is <something> in the form
+      // 0.5 * <something> We will now check if the <something> is x *
+      // gaussian(x)
+      if (MultiplyOp multiply = halvingArgument.getDefiningOp<MultiplyOp>()) {
+        std::tie(gaussianType, gaussianInput) =
+            findGaussianFromMultiply(multiply);
+        if (gaussianInput != multiply.getLhs() &&
+            gaussianInput != multiply.getRhs()) {
+          // If we reach here, it means that 'multiply' is not x * gaussian(x)
+          return failure();
+        }
+      } else {
+        // If we reach here, it means that the <something> is not x *
+        // gaussian(x)
+        return failure();
+      }
+
+    } else {
+      // If we reach here, it means that this multiply op is neither 0.5 *
+      // <something>, nor is it <something> * gaussian(x)
+      return failure();
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<GeluOp>(
+        rewriter, op, op.getResult().getType(), gaussianInput);
+    return success();
+  }
+
+private:
+  enum class GaussianType { Erf, Tanh, None };
+
+  // The gaussian will be eitrher (1 + erf(x/sqrt(2))) or (1 + tanh(2/sqrt(pi) *
+  // (x + 0.044715 * x^3))) if gelu approximation is true
+  std::tuple<GaussianType, Value>
+  getGaussianTypeAndInput(Value gaussianResult) const {
+    if (Value gaussianInput = getErfGaussianInput(gaussianResult)) {
+      return std::make_tuple(GaussianType::Erf, gaussianInput);
+    }
+
+    return std::make_tuple(GaussianType::None, nullptr);
+  }
+
+  std::tuple<GaussianType, Value>
+  findGaussianFromMultiply(MultiplyOp op) const {
+    auto [lhsGaussianType, lhsGaussianInput] =
+        getGaussianTypeAndInput(op.getLhs());
+    auto [rhsGaussianType, rhsGaussianInput] =
+        getGaussianTypeAndInput(op.getRhs());
+    if (lhsGaussianType != GaussianType::None) {
+      return std::make_tuple(lhsGaussianType, lhsGaussianInput);
+    }
+
+    if (rhsGaussianType != GaussianType::None) {
+      return std::make_tuple(rhsGaussianType, rhsGaussianInput);
+    }
+    return std::make_tuple(GaussianType::None, nullptr);
+  }
+
+  Value getErfGaussianInput(Value gaussianResult) const {
+    // The final op in this pattern must be:
+    // 1 + erf(x/sqrt(2))
+    //   ^ this add
+
+    AddOp gaussianAdd = gaussianResult.getDefiningOp<AddOp>();
+    if (!gaussianAdd) {
+      return nullptr;
+    }
+
+    // The add must have a constant operand of 1
+
+    // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
+    // add op
+    bool isArgLhs = false;
+    FullOp one = gaussianAdd.getLhs().getDefiningOp<FullOp>();
+    if (!one) {
+      one = gaussianAdd.getRhs().getDefiningOp<FullOp>();
+      isArgLhs = true;
+    }
+    if (!one) {
+      return nullptr;
+    }
+    // erf must be the other operand
+    ErfOp erf = isArgLhs ? gaussianAdd.getLhs().getDefiningOp<ErfOp>()
+                         : gaussianAdd.getRhs().getDefiningOp<ErfOp>();
+    if (!erf) {
+      return nullptr;
+    }
+
+    // If this pattern does match the erf version of the gaussian, then
+    // the erf argument must evaluate to x/sqrt(2). However, that means that
+    // this patten could LITERALLY be x / sqrt(2) or x / 1.4142.. or
+    // x * reciprocal(sqrt(2)) or x * 0.7070...
+
+    // So far the decomposition we have recieved from our fronteds are in the
+    // form: x * 0.70703125 So we will only check for this pattern for now.
+
+    // TODO(@LPanosTT): Possibly add support for other equivalent patterns for
+    // x/sqrt(2)
+    MultiplyOp multiplyArg = erf.getOperand(0).getDefiningOp<MultiplyOp>();
+    if (!multiplyArg) {
+      return nullptr;
+    }
+
+    // Now, isArgLhs will track if the argument to gelu is on the lhs or rhs of
+    // the multiply op
+    isArgLhs = false;
+    FullOp reciprocalSqrtTwo = multiplyArg.getLhs().getDefiningOp<FullOp>();
+    if (!reciprocalSqrtTwo) {
+      reciprocalSqrtTwo = multiplyArg.getRhs().getDefiningOp<FullOp>();
+      isArgLhs = true;
+    }
+    if (!reciprocalSqrtTwo) {
+      return nullptr;
+    }
+
+    if (!isa<FloatAttr>(reciprocalSqrtTwo.getFillValue())) {
+      return nullptr;
+    }
+    APFloat value =
+        dyn_cast<FloatAttr>(reciprocalSqrtTwo.getFillValue()).getValue();
+    if (value.convertToFloat() == 0.70703125f) {
+      return isArgLhs ? multiplyArg.getLhs() : multiplyArg.getRhs();
+    }
+
+    return nullptr;
+  }
+
+  // The op which performs the halving of the argument may be a multiply op
+  // or a divide op, correxponding to 0.5 * x or x / 2.0. So far, the IR
+  // our frontends have provided is in the form of 0.5 * x, so we will only
+  // check for this pattern for now.
+  //
+  // TODO(@LPanosTT): Possibly add support for other equivalent patterns for
+  // x/2.0
+  //
+  // Returns the argument to the halving op, or nullptr if the op is not a
+  // halving op.
+  Value getHalvingArgument(MultiplyOp op) const {
+
+    bool argIsLhs = false;
+    FullOp half = op.getLhs().getDefiningOp<FullOp>();
+    if (!half) {
+      half = op.getRhs().getDefiningOp<FullOp>();
+      argIsLhs = true;
+    }
+    // Neither operand to the multiply op is a full op so this cannot be halving
+    // a value
+    if (!half) {
+      return nullptr;
+    }
+
+    if (!isa<FloatAttr>(half.getFillValue())) {
+      return nullptr;
+    }
+
+    APFloat value = dyn_cast<FloatAttr>(half.getFillValue()).getValue();
+    if (value.isExactlyValue(0.5)) {
+      op.dump();
+      return argIsLhs ? op.getLhs() : op.getRhs();
+    }
+
+    return nullptr;
+  }
+};
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
@@ -1427,6 +1647,8 @@ public:
           &getContext());
 
       patterns.add<BatchNormDecomposition>(&getContext());
+
+      patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

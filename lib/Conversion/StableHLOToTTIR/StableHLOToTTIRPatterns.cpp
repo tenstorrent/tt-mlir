@@ -2538,6 +2538,31 @@ private:
 };
 } // namespace
 
+namespace {
+class StableHLOErfOpMHLOConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto funcName = adaptor.getCallTargetName();
+    if (funcName != "mhlo.erf") {
+      return rewriter.notifyMatchFailure(srcOp, "Unsupported function name: " +
+                                                    funcName);
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ErfOp>(
+        rewriter, srcOp, cast<RankedTensorType>(srcOp.getResult(0).getType()),
+        srcOp.getOperand(0));
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -2791,6 +2816,12 @@ static void addRngOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addErfOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOErfOpMHLOConversionPattern>(typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2821,6 +2852,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addErfOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
