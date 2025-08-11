@@ -20,10 +20,10 @@ set(CLANG_TIDY_CI_DEPS
 # Add StableHLO dependencies when enabled
 if(TTMLIR_ENABLE_STABLEHLO)
   list(APPEND CLANG_TIDY_DEPS
-    stablehlo-headers
+    StablehloLinalgTransformsPassIncGen  # This generates the .inc file you need
   )
   list(APPEND CLANG_TIDY_CI_DEPS
-    stablehlo-headers
+    StablehloLinalgTransformsPassIncGen  # This generates the .inc file you need
   )
 endif()
 
