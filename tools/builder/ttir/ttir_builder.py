@@ -2767,13 +2767,20 @@ class TTIRBuilder(Builder):
         # Determine output type for quantized conv2d.
         # For quantized inputs, the golden function uses int_repr() so output should be the underlying int type.
         input_dtype = self._get_golden_tensor(in0).dtype
-        output_type = None
-        if input_dtype == torch.quint8:
-            output_type = self._get_type_from_torch_dtype(torch.uint8)
-        elif input_dtype == torch.qint8:
-            output_type = self._get_type_from_torch_dtype(torch.int8)
-        elif input_dtype == torch.qint32:
-            output_type = self._get_type_from_torch_dtype(torch.int32)
+        dtype_mapping = {
+            torch.quint8: torch.uint8,
+            torch.qint8: torch.int8,
+            torch.qint32: torch.int32,
+        }
+
+        output_type = (
+            self._get_type_from_torch_dtype(dtype_mapping.get(input_dtype))
+            if input_dtype in dtype_mapping
+            else None
+        )
+        # If output type is not found, use default type.
+        if output_type is None:
+            output_type = self._default_type
 
         return self._op_proxy(
             ttir.Conv2dOp,
