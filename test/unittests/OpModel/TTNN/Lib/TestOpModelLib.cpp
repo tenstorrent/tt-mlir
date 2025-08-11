@@ -971,6 +971,12 @@ using OpModelLessThanParam = OpModelBinaryEltwiseParam<LessThanOp>;
 using OpModelLogicalAndParam = OpModelBinaryEltwiseParam<LogicalAndOp>;
 using OpModelLogicalOrParam = OpModelBinaryEltwiseParam<LogicalOrOp>;
 using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
+using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
+using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
+using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
+using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
+using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
+using OpModelRemainderParam = OpModelBinaryEltwiseParam<RemainderOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -988,6 +994,12 @@ TEST_P(OpModelLessThanParam, LessThanOp) { RunTest(); }
 TEST_P(OpModelLogicalAndParam, LogicalAndOp) { RunTest(); }
 TEST_P(OpModelLogicalOrParam, LogicalOrOp) { RunTest(); }
 TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
+TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
+TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
+TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
+TEST_P(OpModelPowParam, PowOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
@@ -1069,6 +1081,20 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
+                            std::size_t extraCbRequirement = 0) {
+  // Memory requirements for bitwise ops are 2x compared to other binary ops
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    newValues.back().expectedResult.expectedCbSize *= 2;
+    newValues.back().expectedResult.expectedPeakSize *= 2;
+    newValues.back().expectedResult.expectedOutputSize *= 2;
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1120,6 +1146,27 @@ INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
 INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
                          generateBinaryEltwiseParams(
                              binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseAndTests, OpModelBitwiseAndParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(Atan2Tests, OpModelAtan2Param,
+                         generateBinaryEltwiseParams(
+                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(
+    RemainderTests, OpModelRemainderParam,
+    generateBinaryEltwiseParams(binaryEltwiseParams,
+                                /*extraCbRequirement=*/20480));
+
+INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 

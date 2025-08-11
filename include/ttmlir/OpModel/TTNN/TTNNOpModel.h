@@ -188,6 +188,19 @@ struct BinaryEltwiseOpModel {
                TTNNLayoutAttr outputLayout);
 };
 
+template <typename OpT>
+struct BinaryBitwiseOpModel {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+      TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
+      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               TTNNLayoutAttr outputLayout);
+};
+
 template <>
 struct OpModel<AddOp> : BinaryEltwiseOpModel<AddOp> {};
 
@@ -236,6 +249,24 @@ struct OpModel<LogicalOrOp> : BinaryEltwiseOpModel<LogicalOrOp> {};
 
 template <>
 struct OpModel<LogicalXorOp> : BinaryEltwiseOpModel<LogicalXorOp> {};
+
+template <>
+struct OpModel<PowOp> : BinaryEltwiseOpModel<PowOp> {};
+
+template <>
+struct OpModel<BitwiseAndOp> : BinaryBitwiseOpModel<BitwiseAndOp> {};
+
+template <>
+struct OpModel<BitwiseOrOp> : BinaryBitwiseOpModel<BitwiseOrOp> {};
+
+template <>
+struct OpModel<BitwiseXorOp> : BinaryBitwiseOpModel<BitwiseXorOp> {};
+
+template <>
+struct OpModel<Atan2Op> : BinaryBitwiseOpModel<Atan2Op> {}; // TEMPORARY
+
+template <>
+struct OpModel<RemainderOp> : BinaryBitwiseOpModel<RemainderOp> {}; // TEMPORARY
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
