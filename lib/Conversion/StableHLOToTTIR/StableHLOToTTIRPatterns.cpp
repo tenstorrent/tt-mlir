@@ -2321,27 +2321,13 @@ public:
       return legalityResult;
     }
 
-    SmallVector<Type> outputTypes;
-    llvm::SmallVector<mlir::Value> outputTensors;
-    RankedTensorType outputType;
-    for (auto type : srcOp->getResultTypes()) {
-      outputType =
-          mlir::cast<RankedTensorType>(getTypeConverter()->convertType(type));
-      outputTypes.push_back(outputType);
-      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
-          srcOp->getLoc(), outputType.getShape(), outputType.getElementType(),
-          outputType.getEncoding()));
-    }
-
-    if (outputTypes.size() == 1) {
-      IntegerType intType = IntegerType::get(getContext(), 16);
-      RankedTensorType indicesType =
-          RankedTensorType::get(outputType.getShape(), intType);
-      outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
-          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
-          indicesType.getEncoding()));
-    }
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
+    SmallVector<Type> outputTypes{outputType};
+    ttir::EmptyOp emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
+        srcOp->getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
+    llvm::SmallVector<mlir::Value> outputTensors{emptyOp};
 
     auto dim = srcOp.getDimension();
     auto isStable = srcOp.getIsStable();
@@ -2351,6 +2337,35 @@ public:
                                          "Unable to determine sort direction.");
     }
 
+    if (srcOp.getInputs().size() == 2 && hasValidInputs(srcOp.getInputs())) {
+      auto indicesType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
+          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
+    }
+    // if (srcOp.getInputs().size() == 1) {
+    else {
+      IntegerType intType = IntegerType::get(getContext(), 16);
+      RankedTensorType indicesType =
+          RankedTensorType::get(outputType.getShape(), intType);
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
+          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
+    }
+
+    /*if (outputTypes.size() == 1) {
+      IntegerType intType = IntegerType::get(getContext(), 16);
+      RankedTensorType indicesType =
+          RankedTensorType::get(outputType.getShape(), intType);
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
+          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
+    }*/
+
     ttir::SortOp sortOp = rewriter.create<mlir::tt::ttir::SortOp>(
         srcOp->getLoc(), mlir::TypeRange{outputTypes},
         adaptor.getInputs().front(), mlir::ValueRange{outputTensors},
@@ -2358,8 +2373,9 @@ public:
         rewriter.getBoolAttr(isStable));
 
     if (srcOp.getInputs().size() == 1) {
-      srcOp->getResults().front().replaceAllUsesWith(
-          sortOp->getResults().front());
+      // rewriter.replaceOp(srcOp, sortOp.getValues());
+      srcOp->getResults().front().replaceAllUsesWith(sortOp.getValues());
+      //          sortOp->getResults().front());
       rewriter.eraseOp(srcOp);
     } else {
       rewriter.replaceOp(srcOp, sortOp.getOperation());
