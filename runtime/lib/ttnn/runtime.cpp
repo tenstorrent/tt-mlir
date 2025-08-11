@@ -479,10 +479,13 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
-  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  ::ttnn::MeshShape shape(meshShape);
+Device openMeshDevice(const MeshDeviceOptions &options) {
+  std::optional<::ttnn::MeshShape> meshShape = std::nullopt;
+  if (options.meshShape.has_value()) {
+    LOG_ASSERT(options.meshShape.value().size() == 2,
+               "Mesh shape must be 2D for now");
+    meshShape = ::ttnn::MeshShape(options.meshShape.value());
+  }
 
   LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
   ::ttnn::MeshCoordinate offset(options.meshOffset);
@@ -494,7 +497,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   ::tt::tt_metal::DispatchCoreType dispatchCoreTypeValue =
       tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
 
-  ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
+  ::ttnn::MeshDeviceConfig meshConfig(meshShape, offset, options.deviceIds);
 
   std::shared_ptr<::ttnn::MeshDevice> meshDevice =
       ::ttnn::MeshDevice::create(meshConfig, l1SmallSize, traceRegionSize,

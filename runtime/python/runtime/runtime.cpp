@@ -60,6 +60,24 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_rw("num_hw_cqs", &tt::runtime::MeshDeviceOptions::numHWCQs)
       .def_rw("enable_program_cache",
               &tt::runtime::MeshDeviceOptions::enableProgramCache)
+      // NOLINTBEGIN(clang-analyzer-core.NullDereference)
+      .def_prop_rw(
+          "mesh_shape",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.meshShape.has_value() ? nb::cast(o.meshShape.value())
+                                           : nb::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, nb::handle value) {
+            if (!value.is_none() && !nb::isinstance<nb::list>(value) &&
+                !nb::isinstance<nb::tuple>(value)) {
+              throw nb::type_error("mesh_shape must be a list, tuple, or None");
+            }
+            o.meshShape = value.is_none()
+                              ? std::nullopt
+                              : std::make_optional(
+                                    nb::cast<std::vector<uint32_t>>(value));
+          })
+      // NOLINTEND(clang-analyzer-core.NullDereference)
       .def_prop_rw(
           "l1_small_size",
           [](const tt::runtime::MeshDeviceOptions &o) {
@@ -273,8 +291,9 @@ void registerRuntimeBindings(nb::module_ &m) {
         "binaries on disk.");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
-  m.def("open_mesh_device", &tt::runtime::openMeshDevice, nb::arg("mesh_shape"),
-        nb::arg("options"), "Open a parent mesh of devices");
+  m.def("open_mesh_device", &tt::runtime::openMeshDevice,
+        nb::arg("options") = tt::runtime::MeshDeviceOptions(),
+        "Open a parent mesh of devices");
   m.def("close_mesh_device", &tt::runtime::closeMeshDevice,
         nb::arg("parent_mesh"), "Close a mesh device");
   m.def("create_sub_mesh_device", &tt::runtime::createSubMeshDevice,
