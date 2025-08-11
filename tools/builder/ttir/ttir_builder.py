@@ -1999,20 +1999,23 @@ class TTIRBuilder(Builder):
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        # golden_kwargs = {"keep_dim": True, "dim_arg": dim_arg}
+        golden_kwargs = {}
         ttir_kwargs = {"keep_dim": True}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
         if dim_arg is not None:
+            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": True}
             ttir_kwargs["dim_arg"] = [dim_arg]
             output_shape = input_shape.copy()
             output_shape[dim_arg] = 1
         else:
+            golden_kwargs = {"dim_arg": None, "keep_dim": True}
             output_shape = [1] * ndim
 
         return self._op_proxy(
             ttir.MaxOp,
             [in0],
+            golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,

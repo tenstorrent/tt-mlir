@@ -735,31 +735,31 @@ def logical_xor_golden(
     return result_bool.to(input_tensor.dtype)
 
 
-def max_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+def max_golden(input_tensor, dim_arg=None, keep_dim=True):
     """
-    Golden function for max operation.
+    Custom golden function for max operation with conditional logic.
 
     Parameters
     ----------
     input_tensor : torch.Tensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - golden_dim_arg: int, optional - Dimension to reduce over (default: None, reduces over all dimensions)
-        - keep_dim: bool, optional - If True, retains reduced dimensions with length 1 (default: True)
+        Input tensor to find maximum of
+    dim_arg : int, optional
+        Dimension to find maximum along (default: None for all dimensions)
+    keep_dim : bool, optional
+        Whether to keep the reduced dimension (default: True)
 
     Returns
     -------
     torch.Tensor
-        Tensor with maximum values
+        Maximum values along specified dimension or global maximum
     """
-    dim_arg = kwargs.get("golden_dim_arg", None)
-    keep_dim = kwargs.get("keep_dim", True)
-
-    if dim_arg is None:
-        return torch.max(input_tensor)
-    else:
+    if dim_arg is not None:
         return torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
+    else:
+        # For all dimensions reduction, reshape to match expected output
+        result = torch.max(input_tensor)
+        output_shape = [1] * input_tensor.dim()
+        return result.reshape(*output_shape)
 
 
 def min_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
