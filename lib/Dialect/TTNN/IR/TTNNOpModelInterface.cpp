@@ -1606,6 +1606,91 @@ AvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct BatchNormOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> runningMeanShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> runningMeanLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> runningVarShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> runningVarLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+static BatchNormOptionalArgs
+unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                            BatchNormOp op) {
+  BatchNormOptionalArgs ret;
+  if (inputs.size() == 5) {
+    ret.runningMeanShape = op.getRunningMean().getType().getShape();
+    ret.runningVarShape = op.getRunningVar().getType().getShape();
+    ret.weightShape = op.getWeight().getType().getShape();
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.runningMeanLayout = inputs[1];
+    ret.runningVarLayout = inputs[2];
+    ret.weightLayout = inputs[3];
+    ret.biasLayout = inputs[4];
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert((inputs.size() == 1 || inputs.size() == 5) &&
+         "ttnn::batch_norm can either have 1 input tensor (representing the "
+         "main input) or 5 input tensors (representing main input tensor, "
+         "running_mean, running_var, weight and bias). The usage of this op "
+         "with 2-4 input tensors is discouraged as it's ambiguous.");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  BatchNormOptionalArgs optionalArgs =
+      unpackBatchNormOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<BatchNormOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], optionalArgs.runningMeanShape,
+      optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
+      optionalArgs.runningVarLayout, optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), getTraining(), getMomentum(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert((inputs.size() == 1 || inputs.size() == 5) &&
+         "ttnn::batch_norm can either have 1 input tensor (representing the "
+         "main input) or 5 input tensors (representing main input tensor, "
+         "running_mean, running_var, weight and bias). The usage of this op "
+         "with 2-4 input tensors is discouraged as it's ambiguous.");
+
+  const auto inputShape = getInput().getType().getShape();
+
+  BatchNormOptionalArgs optionalArgs =
+      unpackBatchNormOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<BatchNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], optionalArgs.runningMeanShape, optionalArgs.runningMeanLayout,
+      optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      getTraining(), getMomentum(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
