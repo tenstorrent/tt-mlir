@@ -2121,5 +2121,4 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
     stablehlo.AddOp: torch.add,
-
 }
