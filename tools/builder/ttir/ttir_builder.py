@@ -3475,6 +3475,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
+            golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
@@ -3482,13 +3483,74 @@ class TTIRBuilder(Builder):
                 "arange_dimension": arange_dimension,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
-            organize_golden_args=lambda i: [],
+            organize_golden_args=lambda i: [i[1]],
             output_shape=shape,
             output_type=self._get_type_from_torch_dtype(
                 self._get_golden_tensor(result).dtype
             ),
             unit_attrs=unit_attrs,
         )
+
+    # def arange(
+    #     self,
+    #     result: Operand,
+    #     start: int,
+    #     end: int,
+    #     step: int,
+    #     arange_dimension: int,
+    #     unit_attrs: Optional[List[str]] = None,
+    # ) -> OpView:
+    #     """
+    #     Creates ``ttir.arange``.
+
+    #     *Creates a 1-D tensor of sequential values.*
+
+    #     Returns a 1-D tensor of size (end - start) / step with values from start to end taken with common difference step.
+
+    #     Parameters
+    #     ----------
+    #     start : int
+    #         Starting value
+    #     end : int
+    #         Ending value (exclusive)
+    #     step : int, optional
+    #         Step size between values (default: 1)
+    #     unit_attrs : *Optional[List[str]]*
+    #         Optional list of unit attributes
+
+    #     Returns
+    #     -------
+    #     (*OpView*)
+    #         1-D tensor with sequential values
+    #     """
+    #     single_dim_tensor = torch.arange(
+    #         start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+    #     )
+    #     shape = self.get_shape(result)
+    #     repeat_dims = []
+    #     for i in range(len(shape)):
+    #         if i == arange_dimension:
+    #             repeat_dims.append(int(shape[i] / ((end - start) / step)))
+    #         else:
+    #             repeat_dims.append(shape[i])
+
+    #     return self._op_proxy(
+    #         ttir.ArangeOp,
+    #         [result, single_dim_tensor],
+    #         ttir_kwargs={
+    #             "start": start,
+    #             "end": end,
+    #             "step": step,
+    #             "arange_dimension": arange_dimension,
+    #         },
+    #         organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+    #         organize_golden_args=lambda i: [],
+    #         output_shape=shape,
+    #         output_type=self._get_type_from_torch_dtype(
+    #             self._get_golden_tensor(result).dtype
+    #         ),
+    #         unit_attrs=unit_attrs,
+    #     )
 
     # TTIR top level generic ops
     # class TTIR_GenericElementwiseUnaryOp
