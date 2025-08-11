@@ -1999,7 +1999,6 @@ class TTIRBuilder(Builder):
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        golden_kwargs = {}
         ttir_kwargs = {"keep_dim": True}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
@@ -2101,7 +2100,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceAndOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -2140,7 +2138,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceOrOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args)},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
@@ -2178,7 +2175,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ProdOp,
             [in0],
-            golden_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             unit_attrs=unit_attrs,
         )
@@ -2720,12 +2716,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
-            golden_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "dilation": dilation,
-                "groups": groups,
-            },
             ttir_kwargs={
                 "stride": (
                     IntegerAttr.get(IntegerType.get_signed(32), stride)
@@ -2890,13 +2880,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MaxPool2dOp,
             [in0],
-            golden_kwargs={
-                "kernel_size": kernel,
-                "stride": stride,
-                "dilation": dilation,
-                "padding": padding,
-                "ceil_mode": ceil_mode,
-            },
             ttir_kwargs={
                 "kernel": (
                     IntegerAttr.get(IntegerType.get_signed(32), kernel)
@@ -3002,7 +2985,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.PadOp,
             [in0, in1],
-            # golden_kwargs={"padding": padding, "value": value},
             ttir_kwargs={"padding": padding, "value": value},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
@@ -3246,7 +3228,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shape},
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
@@ -3277,7 +3258,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.OnesOp,
             [],
-            golden_kwargs={"size": shape},
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             unit_attrs=unit_attrs,
@@ -3311,7 +3291,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReverseOp,
             [in0],
-            golden_kwargs={"dims": dims},
             ttir_kwargs={"dimensions": dims},
             unit_attrs=unit_attrs,
         )
@@ -3418,7 +3397,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.PermuteOp,
             [in0, in1],
-            golden_kwargs={"dims": tuple(permutation)},
             ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
@@ -3497,13 +3475,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ArangeOp,
             [result, single_dim_tensor],
-            # golden_kwargs={"repeats": tuple(repeat_dims)},
             ttir_kwargs={
                 "start": start,
                 "end": end,
                 "step": step,
                 "arange_dimension": arange_dimension,
-                "repeats": tuple(repeat_dims),
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o),),
             organize_golden_args=lambda i: [],
