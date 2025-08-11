@@ -196,6 +196,18 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
 }
 
 /**
+ * @brief Convenience wrapper to get a memory config from a TTNNLayout attr that
+ * may be a nullptr or std::nullopt. Returns std::nullopt if layout is nullptr
+ */
+std::optional<::tt::tt_metal::MemoryConfig>
+getNullableMemoryConfig(const std::optional<TTNNLayoutAttr> &layout) {
+  if (!layout.has_value() || !layout.value()) {
+    return std::nullopt;
+  }
+  return conversion::getMemoryConfig(layout.value());
+}
+
+/**
  * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
  * may be a nullptr. Returns std::nullopt if layout is nullptr
  */
@@ -2302,7 +2314,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
     int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool ceilMode, TTNNLayoutAttr outputLayout) {
+    bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2333,7 +2345,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2348,7 +2360,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2379,10 +2391,115 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// AvgPool2D
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, int32_t batchSize, int32_t inputHeight,
+    int32_t inputWidth, int32_t inputChannels,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // convert all signed integers to unsigned integers
+  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
+  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
+
+  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
+
+  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // default values for the variables that are received by the op's invoke
+  // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
+  bool countIncludePad = true;
+  std::optional<int32_t> divisorOverride = std::nullopt;
+
+  // Create query closure
+  auto avgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::avg_pool2d, device, inputSpec, batchSizeU, inputHeightU,
+        inputWidthU, inputChannelsU,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        ceilMode, countIncludePad, divisorOverride,
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     avgPool2DQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // convert all signed integers to unsigned integers
+  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
+  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
+
+  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
+
+  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // default values for the variables that are received by the op's invoke
+  // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
+  bool countIncludePad = true;
+  std::optional<int32_t> divisorOverride = std::nullopt;
+
+  // Create query closure
+  auto avgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::avg_pool2d, device, inputSpec, batchSizeU, inputHeightU,
+        inputWidthU, inputChannelsU,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        ceilMode, countIncludePad, divisorOverride,
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+  };
+
+  return operation::getOpRuntime(avgPool2DQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

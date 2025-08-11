@@ -178,6 +178,46 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
       op.getKeepDim(), opConfig.outputLayout);
 }
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
+      inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<size_t>
+getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      opConfig.outputLayout);
+}
+
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -1540,36 +1580,29 @@ PrepareConv2dBiasOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MaxPool2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
-      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
-      getCeilMode(), opConfig.outputLayout);
+  return detail::getPoolingOpConstraints(*this, inputs, opConfig);
 }
 
 llvm::Expected<size_t>
 MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return detail::getPoolingOpRuntime(*this, inputs, opConfig);
+}
 
-  const auto inputShape = getInput().getType().getShape();
+//===----------------------------------------------------------------------===//
+// AvgPoo2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
 
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<MaxPool2dOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
-      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
-      getCeilMode(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+AvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return detail::getPoolingOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+AvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return detail::getPoolingOpRuntime(*this, inputs, opConfig);
 }
 
 //===----------------------------------------------------------------------===//

@@ -1689,7 +1689,8 @@ INSTANTIATE_TEST_SUITE_P(
         llvm::SmallVector<int32_t>{0, 0}, llvm::SmallVector<int32_t>{1, 1}, 1,
         detail::ExpectedResult{true, 0, 0, 0})));
 
-class OpModelMaxPool2DParam
+template <typename OpTy>
+class OpModelPool2DParam
     : public OpModelTest,
       public testing::WithParamInterface<
           std::tuple<detail::TestTensor,         // input
@@ -1703,105 +1704,111 @@ class OpModelMaxPool2DParam
                      llvm::SmallVector<int32_t>, // padding
                      llvm::SmallVector<int32_t>, // dilation
                      bool,                       // ceil_mode
+                     bool,                       // in_place_halo
                      bool                        // expected legal
-                     >> {};
+                     >> {
+protected:
+  void RunTest() {
+    auto params = this->GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto batchSize = std::get<2>(params);
+    const auto inputHeight = std::get<3>(params);
+    const auto inputWidth = std::get<4>(params);
+    const auto inputChannels = std::get<5>(params);
+    const auto kernelSize = std::get<6>(params);
+    const auto stride = std::get<7>(params);
+    const auto padding = std::get<8>(params);
+    const auto dilation = std::get<9>(params);
+    const auto ceilMode = std::get<10>(params);
+    const auto inPlaceHalo = std::get<11>(params);
+    const auto expectedLegal = std::get<12>(params);
 
-TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
-  // TODO(2976): Some of these test cases return L1 interleaved row major
-  // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
-  // when the linked issue is fixed
-  GTEST_SKIP();
-  auto params = GetParam();
-  const auto [inputShape, inputTensorLayout, inputBufferType,
-              inputVirtualGrid] = std::get<0>(params);
-  const auto [outputShape, outputTensorLayout, outputBufferType,
-              outputVirtualGrid] = std::get<1>(params);
-  const auto batchSize = std::get<2>(params);
-  const auto inputHeight = std::get<3>(params);
-  const auto inputWidth = std::get<4>(params);
-  const auto inputChannels = std::get<5>(params);
-  const auto kernelSize = std::get<6>(params);
-  const auto stride = std::get<7>(params);
-  const auto padding = std::get<8>(params);
-  const auto dilation = std::get<9>(params);
-  const auto ceilMode = std::get<10>(params);
-  const auto expectedLegal = std::get<11>(params);
+    const TTNNLayoutAttr inputLayout = this->CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = this->CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
-      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
-  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
-      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+    SingletonDeviceContext::resetInstance();
 
-  SingletonDeviceContext::resetInstance();
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
+        inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
+        dilation, ceilMode, inPlaceHalo, outputLayout);
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
-  auto constraintsExp = OpModel<MaxPool2dOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
-      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-      ceilMode, outputLayout);
-  if (!constraintsExp) {
-    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
-              << std::endl;
+    if (constraintsExp) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_GT(cbSize, 0);
+      EXPECT_GT(peakSize, 0);
+      EXPECT_EQ(outputSize, 0);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    SingletonDeviceContext::resetInstance();
+
+    auto runtimeExp = OpModel<OpTy>::getOpRuntime(
+        inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+        inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+        inPlaceHalo, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (runtimeExp) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
   }
-  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+};
 
-  if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
-    EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
-    EXPECT_GT(outputSize, 0);
-  } else {
-    // Must clean up the error
-    llvm::consumeError(constraintsExp.takeError());
-  }
+// Shared test values for Pool2D operations (MaxPool2D and AvgPool2D)
+const auto pool2DTestValues = ::testing::Values(
+    std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 64 * 64, 32},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
+                    llvm::SmallVector<int32_t>{2, 2},
+                    llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, true),
+    std::make_tuple(detail::TestTensor{{1, 1, 256 * 256, 32},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 64 * 128, 32},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, true),
+    std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 5 * 11, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, false));
 
-  SingletonDeviceContext::resetInstance();
+// MaxPool2D tests
+class OpModelMaxPool2DParam : public OpModelPool2DParam<MaxPool2dOp> {};
+TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) { RunTest(); }
+INSTANTIATE_TEST_SUITE_P(MaxPool2DTests, OpModelMaxPool2DParam,
+                         pool2DTestValues);
 
-  auto runtimeExp = OpModel<MaxPool2dOp>::getOpRuntime(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      outputLayout);
-  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    llvm::consumeError(runtimeExp.takeError());
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    MaxPool2DTests, OpModelMaxPool2DParam,
-    ::testing::Values(
-        std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 64 * 64, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(detail::TestTensor{{1, 1, 256 * 256, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 64 * 128, 32},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{4, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, true),
-        std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{1, 1, 5 * 11, 22},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::L1},
-                        1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{4, 2},
-                        llvm::SmallVector<int32_t>{0, 0},
-                        llvm::SmallVector<int32_t>{1, 1}, false, false)));
+// AvgPool2D tests
+class OpModelAvgPool2DParam : public OpModelPool2DParam<AvgPool2dOp> {};
+TEST_P(OpModelAvgPool2DParam, AvgPool2DParam) { RunTest(); }
+INSTANTIATE_TEST_SUITE_P(AvgPool2DTests, OpModelAvgPool2DParam,
+                         pool2DTestValues);
 
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<

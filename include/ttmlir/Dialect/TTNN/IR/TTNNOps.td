@@ -1570,7 +1570,8 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
 }
 
 class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Generic pooling op.";
     let description = [{
       Generic pooling op.
@@ -1622,9 +1623,7 @@ def TTNN_AvgPool2dOp : TTNN_PoolingOp<"avg_pool2d"> {
   }];
 }
 
-def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.

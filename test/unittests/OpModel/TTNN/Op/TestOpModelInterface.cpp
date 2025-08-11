@@ -1811,17 +1811,18 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {
-  // TODO(2976): Some of these test cases return L1 interleaved row major
-  // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
-  // when the linked issue is fixed
-  GTEST_SKIP();
-
   // Create maxPool2DOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
   llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
 
-  auto input = createEmptyTensor(tensorShapeA);
-  auto output = createEmptyTensor(tensorShapeO);
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
 
   // Input params
   int32_t batchSize = 1;
@@ -1857,7 +1858,9 @@ TEST_F(OpModelBase, maxPool2DOp) {
   constexpr int32_t numRuns = 10;
   for (int i = 0; i < numRuns; i++) {
     op_model::SingletonDeviceContext::resetInstance();
-    auto constraintsExp = getOpConstraints(maxPool2DOp.getOperation());
+    auto backend = dyn_cast<OpModel>(maxPool2DOp.getOperation());
+    auto constraintsExp = backend.getOpConstraints(
+        getInputLayouts(maxPool2DOp.getOperation()), OpConfig());
     if (!constraintsExp) {
       FAIL() << "Missing L1 constraints; Error="
              << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -1871,6 +1874,74 @@ TEST_F(OpModelBase, maxPool2DOp) {
   op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, avgPool2DOp) {
+  // Create maxPool2DOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+
+  // Input params
+  int32_t batchSize = 1;
+  int32_t inputHeight = 128;
+  int32_t inputWidth = 128;
+  int32_t numChannels = 32;
+
+  // Pooling params
+  int32_t kernelHeight = 2;
+  int32_t kernelWidth = 2;
+  int32_t strideHeight = 2;
+  int32_t strideWidth = 2;
+  int32_t dilationHeight = 1;
+  int32_t dilationWidth = 1;
+  int32_t paddingHeight = 0;
+  int32_t paddingWidth = 0;
+  MemoryConfigAttr memoryConfigAttr = nullptr;
+  TensorMemoryLayoutAttr appliedShardScheme = nullptr;
+  bool ceilMode = false;
+  bool inPlaceHalo = false;
+
+  llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
+  llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
+  llvm::SmallVector<int32_t, 2> padding = {paddingHeight, paddingWidth};
+  llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
+
+  auto avgPool2DOp = builder.create<AvgPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
+      inputWidth, numChannels, kernelSize, stride, padding, dilation,
+      memoryConfigAttr, appliedShardScheme, ceilMode, inPlaceHalo);
+  avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(avgPool2DOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(avgPool2DOp.getOperation()), OpConfig());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  auto l1 = constraintsExp.get();
+  const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(avgPool2DOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
