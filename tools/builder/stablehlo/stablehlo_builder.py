@@ -12,7 +12,7 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
-from ttmlir.dialects import stablehlo, sdy
+from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
 from builder.base import builder_golden
@@ -302,6 +302,29 @@ class StableHLOBuilder(Builder):
             unreduced_axes,
         )
 
+    def named_mesh_attr(
+        self,
+        name: str,
+        mesh_attr: sdy.MeshAttr,
+    ) -> mpmd.NamedMeshAttr:
+        """
+        Creates a named mesh attribute.
+        This attribute associates a name with a mesh attribute, allowing the mesh to be referenced by name in operations.
+
+        Parameters
+        ----------
+        name : str
+            The name of the mesh
+        mesh_attr : sdy.MeshAttr
+            The mesh attribute that defines the axes and properties of the mesh
+
+        Returns
+        -------
+        (*mpmd.NamedMeshAttr*)
+            A named mesh attribute that associates the specified name with the provided mesh attribute
+        """
+        return mpmd.NamedMeshAttr.get(name, mesh_attr)
+
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
@@ -348,3 +371,5 @@ class StableHLOBuilder(Builder):
             A sharding constraint operation that applies the specified sharding to the input tensor
         """
         return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+
+    # ----- Public Shardy Attribute Generators ----
