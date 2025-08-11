@@ -504,7 +504,6 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
 
 TEST_F(OpModelTest, SoftmaxNumericStable) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr inputLayout_dram = CreateTiledLayout(
       tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
