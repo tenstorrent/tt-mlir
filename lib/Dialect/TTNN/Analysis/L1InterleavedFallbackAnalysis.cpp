@@ -72,6 +72,9 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // Try both L1 interleaved configs until one works if there are multiple
     // (rowMajor and tiled)
     for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "=== Start of debug dump for op {} ===",
+                   op->getName().getStringRef().data());
       llvm::Expected<TTNNLayoutAttr> possibleL1Layout =
           checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
                                       /*upgradedProducerOp=*/nullptr,
@@ -252,8 +255,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         "OpModel constraints valid. Consumer: {0}\n"
         "OutputLayout: {1}\n"
         "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-        "producerL1OutputUsage: {5}, totalL1Usage: {6}\n"
-        "=== End of debug dump ===",
+        "producerL1OutputUsage: {5}, totalL1Usage: {6}",
         consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
         outputTensorUsage, producersL1OutputUsage,
         cBUsagePeak + tensorUsage + producersL1OutputUsage);
@@ -281,7 +283,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
           ttmlir::LogComponent::Optimizer,
           "L1InterleavedFallbackAnalysis: Upgrade blocked - consumer {} "
           "would exceed L1 memory: {}",
-          errorStr);
+          nextConsumerOp->getName().getStringRef().data(), errorStr);
       return llvm::createStringError(
           llvm::inconvertibleErrorCode(),
           "L1 upgrade blocked: consumer %s would exceed memory limits",
@@ -298,8 +300,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       "OpModel constraints valid. Consumer: {0}\n"
       "OutputLayout: {1}\n"
       "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-      "producerL1OutputUsage: {5}, totalL1Usage: {6}\n"
-      "=== End of debug dump ===",
+      "producerL1OutputUsage: {5}, totalL1Usage: {6}",
       consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
       outputTensorUsage, producersL1OutputUsage,
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
