@@ -7,6 +7,23 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Elementwise fusion of ttir.generic ops on tensors
+def TTIRElementwiseFusion : Pass<"ttir-elementwise-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse chains of compute-only ttir.generic elementwise ops";
+  let description = [{
+    Performs elementwise fusion for `ttir.generic` producers into consumers when
+    safe to do so. The initial implementation targets compute-only, affine-map
+    form `ttir.generic` with tensor semantics and matching device attributes
+    (grid, threads, block_factors). The pass is intended to run pre-bufferization
+    to reduce intermediary tensors and improve locality.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::ttir::TTIRDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def TTIRGenericTileComputeLoops : Pass<"ttir-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
