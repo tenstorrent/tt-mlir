@@ -413,8 +413,10 @@ std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
 
 // Must explicitly instantiate any dialects we want this pass to potentially
 // fallback elsewhere due to template in .cpp file constraints.
+#ifdef TTMLIR_ENABLE_STABLEHLO
 template std::unique_ptr<mlir::Pass>
 createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+#endif
 template std::unique_ptr<mlir::Pass>
 createTTIRHoistTransformForDialects<TTIRDialect>();
 
