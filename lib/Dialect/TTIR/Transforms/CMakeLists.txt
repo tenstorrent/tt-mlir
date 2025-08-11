@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ElementTypeNormalization.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
+        TTIRElementwiseFusion.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp

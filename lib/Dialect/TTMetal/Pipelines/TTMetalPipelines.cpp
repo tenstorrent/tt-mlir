@@ -102,6 +102,11 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  pm.addPass(ttir::createTTIRElementwiseFusion());
+  pm.addPass(createLinalgElementwiseOpFusionPass());
+  createTTIRBufferizationPipeline(pm);
+  pm.addPass(ttir::createTTIRAllocate());
+  pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
