@@ -26,12 +26,12 @@ namespace mlir::tt::transforms {
 #include "ttmlir/Transforms/Passes.h.inc"
 
 static tensor::EmptyOp findEmptyOp(Value value) {
-  // Direct tensor.empty
   if (auto emptyOp = value.getDefiningOp<tensor::EmptyOp>()) {
     return emptyOp;
   }
 
-  // Look through linalg.fill
+  // Handle cases where empty op is filled via FillOp--seems to be common
+  // pattern in linalg.
   if (auto fillOp = value.getDefiningOp<linalg::FillOp>()) {
     Value fillDest = fillOp.getDpsInitOperand(0)->get();
     return fillDest.getDefiningOp<tensor::EmptyOp>();
@@ -62,7 +62,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       return WalkResult::interrupt();
     }
 
-    // Get the output operand index
+    // Get the output operand index.
     unsigned outputArgIdx = mappingAttr.getInt();
     if (outputArgIdx >= funcOp.getNumArguments()) {
       funcOp->emitError() << "Output argument index " << outputArgIdx
@@ -78,7 +78,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     BlockArgument outputArg = funcOp.getArgument(outputArgIdx);
     if (!outputArg.use_empty()) {
       // The output argument is already being used, so DPS is already enabled
-      // Remove the mapping attribute and skip this function
+      // Remove the mapping attribute and skip this function.
       funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
       return WalkResult::skip();
     }

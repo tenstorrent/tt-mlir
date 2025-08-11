@@ -36,7 +36,6 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
-
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
           ConvertStableHLOToTTIRPass> {
@@ -45,13 +44,10 @@ struct ConvertStableHLOToTTIRPass
   ConvertStableHLOToTTIRPass(const ConvertStableHLOToTTIROptions &options)
       : Base(options) {}
 
-  // The enablePartialConversion option is automatically available as a member
-  // variable from the generated base class
-
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
 
-    // Always legal
+    // Common legal/illegal ops/dialects, regardless of partial conversion.
     target.addLegalDialect<mlir::quant::QuantDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
@@ -59,10 +55,12 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
     target.addLegalOp<mlir::func::CallOp>();
+    target.addIllegalOp<mlir::tensor::EmptyOp>();
 
     if (enablePartialConversion) {
-      // In partial conversion mode, explicitly mark only the ops we can convert
-      // Based on the patterns in addElementwiseUnaryOpsConversionPatterns
+      // In partial conversion mode, explicitly mark only the ops we can
+      // convert. Based on the patterns in
+      // addElementwiseUnaryOpsConversionPatterns.
       target.addIllegalOp<mlir::stablehlo::AbsOp, mlir::stablehlo::CbrtOp,
                           mlir::stablehlo::ConvertOp, mlir::stablehlo::CeilOp,
                           mlir::stablehlo::CosineOp, mlir::stablehlo::ExpOp,
@@ -74,14 +72,14 @@ struct ConvertStableHLOToTTIRPass
                           mlir::stablehlo::TanOp, mlir::stablehlo::TanhOp,
                           mlir::stablehlo::LogOp>();
 
-      // Based on addElementwiseBinaryOpsConversionPatterns
+      // Based on addElementwiseBinaryOpsConversionPatterns.
       target.addIllegalOp<mlir::stablehlo::AddOp, mlir::stablehlo::DivOp,
                           mlir::stablehlo::MaxOp, mlir::stablehlo::MinOp,
                           mlir::stablehlo::MulOp, mlir::stablehlo::SubtractOp,
                           mlir::stablehlo::RemOp, mlir::stablehlo::SelectOp,
                           mlir::stablehlo::PowOp, mlir::stablehlo::Atan2Op>();
 
-      // Based on other conversion patterns
+      // Based on other conversion patterns.
       target.addIllegalOp<
           mlir::stablehlo::ReduceOp, mlir::stablehlo::DotGeneralOp,
           mlir::stablehlo::GetDimensionSizeOp, mlir::stablehlo::ConstantOp,
@@ -101,16 +99,10 @@ struct ConvertStableHLOToTTIRPass
           mlir::stablehlo::ReverseOp, mlir::stablehlo::PadOp,
           mlir::stablehlo::BatchNormInferenceOp>();
 
-      // Also mark tensor.empty as illegal
-      target.addIllegalOp<mlir::tensor::EmptyOp>();
-
-      // Shardy ops if they have patterns
-      // target.addIllegalOp<mlir::sdy::...>(); // Add as needed
     } else {
-      // Full conversion - everything is illegal
+      // Full conversion - any SHLO or Sdy op is illegal.
       target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
       target.addIllegalDialect<mlir::sdy::SdyDialect>();
-      target.addIllegalOp<mlir::tensor::EmptyOp>();
     }
 
     TypeConverter typeConverter;
@@ -118,7 +110,7 @@ struct ConvertStableHLOToTTIRPass
     typeConverter.addConversion([](Type type) { return type; });
     RewritePatternSet patterns(&getContext());
 
-    // Func type conversions
+    // Func type conversions.
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
@@ -137,7 +129,7 @@ struct ConvertStableHLOToTTIRPass
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
     populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply conversion
+    // Apply full or partial conversion, based on option flag.
     if (enablePartialConversion) {
       if (failed(applyPartialConversion(getOperation(), target,
                                         std::move(patterns)))) {
@@ -153,9 +145,9 @@ struct ConvertStableHLOToTTIRPass
     }
   }
 };
-
-} // anonymous namespace
+} // namespace
 } // namespace mlir::tt::ttir
+
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {

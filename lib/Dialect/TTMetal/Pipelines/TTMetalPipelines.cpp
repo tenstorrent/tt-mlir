@@ -139,19 +139,13 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-  // Create CPUModuleOp to wrap ops tagged with explicit should_hoist attr (if
-  // any).
+  // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
-
-  // Fallback any ops which can't be lowered to TTIR Generics + any ops which
-  // are
-  pm.addPass(ttir::createTTIRHoistTransformForDialects<ttir::TTIRDialect>());
-
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 

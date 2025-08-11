@@ -12,6 +12,11 @@ def ConvertStableHLOToTTIR : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp
 let summary = "Convert StableHLO dialect to TTIR dialect.";
   let constructor = "createConvertStableHLOToTTIRPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::tt::ttir::TTIRDialect"];
+  let options = [
+    Option<"enablePartialConversion", "enable-partial-conversion", "bool",
+      /*default=*/"false",
+      "Enable partial conversion mode, allowing unconverted ops to remain">
+  ];
 }
 def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
 let summary = "Convert Arith Dialect to StableHLO dialect.";
@@ -28,12 +33,6 @@ def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-tti
   }];
 
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
-
-  let options = [
-    Option<"enablePartialConversion", "enable-partial-conversion", "bool",
-      /*default=*/"false",
-      "Enable partial conversion mode, allowing unconverted ops to remain">
-  ];
 }
 #endif
 
