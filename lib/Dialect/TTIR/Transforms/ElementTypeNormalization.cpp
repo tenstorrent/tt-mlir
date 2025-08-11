@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -17,22 +18,24 @@ namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
   ElementTypeConverter() {
-    addConversion([](RankedTensorType type) -> std::optional<RankedTensorType> {
-      Type elementType = type.getElementType();
+    addConversion(
+        [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
+          Type elementType = type.getElementType();
 
-      // Skip quantized types - don't modify them.
-      if (isa<quant::QuantizedType>(elementType)) {
-        return type;
-      }
+          // Skip quantized types - don't modify them.
+          if (mlir::isa<quant::QuantizedType>(elementType)) {
+            return type;
+          }
 
-      elementType = mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
-      if (!elementType) {
-        return {};
-      }
+          elementType =
+              mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
+          if (!elementType) {
+            return {};
+          }
 
-      return RankedTensorType::get(type.getShape(), elementType,
-                                   type.getEncoding());
-    });
+          return mlir::RankedTensorType::get(type.getShape(), elementType,
+                                             type.getEncoding());
+        });
   }
 };
 
@@ -40,15 +43,18 @@ public:
 // We need more sophisticated rewriting of the constant op,
 // since current logic doesn't rely on the type converter and
 // doesn't support DenseResourceElementsAttr conversion.
-class ConstantOpAttrRewriter : public OpRewritePattern<tt::ttir::ConstantOp> {
+class ConstantOpAttrRewriter
+    : public mlir::OpRewritePattern<tt::ttir::ConstantOp> {
 public:
-  using OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
 
-  ConstantOpAttrRewriter(const TypeConverter &converter, MLIRContext *ctx)
+  ConstantOpAttrRewriter(const mlir::TypeConverter &converter,
+                         mlir::MLIRContext *ctx)
       : OpRewritePattern(ctx), converter(converter) {}
 
-  LogicalResult matchAndRewrite(tt::ttir::ConstantOp op,
-                                PatternRewriter &rewriter) const override {
+  mlir::LogicalResult
+  matchAndRewrite(tt::ttir::ConstantOp op,
+                  mlir::PatternRewriter &rewriter) const override {
     if (auto newAttr = rebuildElementsAttr(op.getValue())) {
       if (newAttr == op.getValue()) {
         return failure();
@@ -63,7 +69,7 @@ public:
   }
 
 private:
-  TypeConverter converter;
+  mlir::TypeConverter converter;
 
   mlir::ElementsAttr rebuildElementsAttr(mlir::ElementsAttr attr) const {
     auto elementType = attr.getElementType();
@@ -73,14 +79,14 @@ private:
     // Skip rewriting if type is already supported or if the attribute is
     // DenseResourceElementsAttr (conversion not supported yet).
     if (newType.getElementType() == elementType ||
-        isa<DenseResourceElementsAttr>(attr)) {
+        mlir::isa<DenseResourceElementsAttr>(attr)) {
       return attr;
     }
 
-    if (isa<IntegerType>(elementType)) {
+    if (mlir::isa<IntegerType>(elementType)) {
       return rebuildIntAttr(attr, newType);
     }
-    if (isa<FloatType>(elementType)) {
+    if (mlir::isa<FloatType>(elementType)) {
       return rebuildFloatAttr(attr, newType);
     }
 
@@ -129,6 +135,71 @@ private:
   }
 };
 
+class FuncBodyTypeCast : public mlir::ConversionPattern {
+public:
+  FuncBodyTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
+      : mlir::ConversionPattern(converter, MatchAnyOpTypeTag(), 1, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    // Remap original operands to converted operands.
+    mlir::IRMapping mapping;
+    mapping.map(op->getOperands(), operands);
+
+    // Clone the original operation with the new operands.
+    mlir::Operation *newOp = rewriter.clone(*op, mapping);
+
+    // Convert the result types using the type converter.
+    llvm::SmallVector<Type> convertedTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                convertedTypes))) {
+      return op->emitOpError("Failed to convert result types.");
+    }
+
+    // Update result types in-place on the new operation.
+    rewriter.modifyOpInPlace(newOp, [&]() {
+      for (auto [newResult, newType] :
+           llvm::zip(newOp->getResults(), convertedTypes)) {
+        newResult.setType(newType);
+      }
+    });
+
+    // Replace the old op with the new one.
+    rewriter.replaceOp(op, newOp);
+    return success();
+  }
+
+  struct FuncBodyTypeConverter : mlir::TypeConverter {
+    FuncBodyTypeConverter() {
+      addConversion([](mlir::RankedTensorType type) -> mlir::RankedTensorType {
+        mlir::Type elementType = type.getElementType();
+        if (!mlir::isa<BFloat16Type>(elementType)) {
+          return type;
+        }
+
+        return type.clone(ttcore::TileType::get(
+            type.getContext(), ttcore::TileType::getDefaultShape(),
+            ttcore::DataType::BFP_BFloat8));
+      });
+
+      auto materializeFunc = [](mlir::OpBuilder &builder, mlir::Type type,
+                                mlir::ValueRange inputs,
+                                mlir::Location loc) -> mlir::Value {
+        mlir::RankedTensorType rankedType =
+            mlir::cast<mlir::RankedTensorType>(type);
+        return ttir::utils::createDPSOp<ttir::TypecastOp>(builder, loc,
+                                                          rankedType, inputs);
+      };
+
+      addSourceMaterialization(materializeFunc);
+      addTargetMaterialization(materializeFunc);
+    }
+  };
+};
+
+using FuncBodyTypeConverter = FuncBodyTypeCast::FuncBodyTypeConverter;
+
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -141,27 +212,58 @@ struct ElementTypeNormalization
       return;
     }
 
-    RewritePatternSet patterns(&getContext());
-    patterns.add<UniformTypeRewriter>(converter, &getContext());
-    patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
+    {
+      mlir::RewritePatternSet patterns(&getContext());
+      patterns.add<UniformTypeRewriter>(converter, &getContext());
+      patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
+      if (failed(mlir::applyPatternsGreedily(getOperation(),
+                                             std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      if (enableBfp8Conversion) {
+        mlir::ConversionTarget target(getContext());
+        FuncBodyTypeConverter funcBodyConverter;
+        target.markUnknownOpDynamicallyLegal(
+            [&funcBodyConverter](mlir::Operation *op) {
+              if (!isa<TTIRDialect>(op->getDialect())) {
+                return true;
+              }
+              if (llvm::all_of(op->getResultTypes(),
+                               [&funcBodyConverter](mlir::Type type) {
+                                 return funcBodyConverter.isLegal(type);
+                               })) {
+                return true;
+              }
+              return false;
+            });
+
+        mlir::RewritePatternSet patterns(&getContext());
+
+        patterns.add<FuncBodyTypeCast>(funcBodyConverter, &getContext());
+        if (failed(mlir::applyFullConversion(getOperation(), target,
+                                             std::move(patterns)))) {
+          signalPassFailure();
+          return;
+        }
+      }
     }
   }
 
 private:
   ElementTypeConverter converter;
 
-  bool isLegal(Type type) const {
+  bool isLegal(mlir::Type type) const {
     return converter.convertType(type) != nullptr;
   }
 
-  bool isLegal(Operation *op) const {
-    auto isTypeLegal = [this](Type type) { return isLegal(type); };
+  bool isLegal(mlir::Operation *op) const {
+    auto isTypeLegal = [this](mlir::Type type) { return isLegal(type); };
 
     // Special handling for function signature
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
+    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(op)) {
       return llvm::all_of(funcOp.getArgumentTypes(), isTypeLegal) &&
              llvm::all_of(funcOp.getResultTypes(), isTypeLegal);
     }
@@ -173,15 +275,15 @@ private:
 
   // Check that all operations in module are using supported types.
   bool checkSupportedTypes() {
-    ModuleOp moduleOp = getOperation();
-    WalkResult walkResult =
+    mlir::ModuleOp moduleOp = getOperation();
+    mlir::WalkResult walkResult =
         moduleOp->walk<WalkOrder::PreOrder>([&](Operation *op) {
           if (!isLegal(op)) {
             op->emitOpError("Unsupported type.");
-            return WalkResult::interrupt();
+            return mlir::WalkResult::interrupt();
           }
 
-          return WalkResult::advance();
+          return mlir::WalkResult::advance();
         });
 
     return !walkResult.wasInterrupted();

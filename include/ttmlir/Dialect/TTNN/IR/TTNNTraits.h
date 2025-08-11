@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_IR_TTNNTRAITS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/OpDefinition.h"
 
@@ -83,53 +84,48 @@ public:
   }
 };
 
-class HasOutputDTypeTraitBase {
-public:
-  static constexpr ::llvm::StringLiteral getOutputDTypeAttributeName() {
-    return "output_dtype";
-  }
-};
-
 template <typename ConcreteType>
 class HasOutputDTypeTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType, HasOutputDTypeTrait>,
-      public HasOutputDTypeTraitBase {
+    : public mlir::OpTrait::TraitBase<ConcreteType, HasOutputDTypeTrait> {
 public:
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     // Check if the operation defines output data type attribute.
     auto attributeNames = ConcreteType::getAttributeNames();
     if (std::find(attributeNames.begin(), attributeNames.end(),
-                  getOutputDTypeAttributeName()) == attributeNames.end()) {
+                  ttmlir::utils::g_outputDtypeAttrName) ==
+        attributeNames.end()) {
       return op->emitOpError(
           "Operation must define output data type attribute.");
     }
 
     // Retrieve output layout.
-    RankedTensorType output =
-        mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    TTNNLayoutAttr outputLayoutAttr =
-        mlir::dyn_cast_or_null<TTNNLayoutAttr>(output.getEncoding());
+    for (auto result : op->getResults()) {
+      RankedTensorType output = mlir::cast<RankedTensorType>(result.getType());
+      TTNNLayoutAttr outputLayoutAttr =
+          mlir::dyn_cast_if_present<TTNNLayoutAttr>(output.getEncoding());
 
-    // If output layout isn't present, skip the verification.
-    if (!outputLayoutAttr) {
-      return mlir::success();
-    }
+      // If output layout isn't present, skip the verification.
+      if (!outputLayoutAttr) {
+        return mlir::success();
+      }
 
-    // Retrieve output data type attribute.
-    auto outputDTypeAttr =
-        op->getAttrOfType<ttcore::DataTypeAttr>(getOutputDTypeAttributeName());
-    if (!outputDTypeAttr) {
-      return op->emitOpError("Output data type attribute is not defined for op "
-                             "that has output layout attribute.");
-    }
+      // Retrieve output data type attribute.
+      auto outputDTypeAttr = op->getAttrOfType<ttcore::DataTypeAttr>(
+          ttmlir::utils::g_outputDtypeAttrName);
+      if (!outputDTypeAttr) {
+        return op->emitOpError(
+            "Output data type attribute is not defined for op "
+            "that has output layout attribute.");
+      }
 
-    // Compare output data type attribute with output tensor data type.
-    if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
-      return op->emitOpError()
-             << "Output tensor layout data type "
-             << DataTypeEnumToString(outputLayoutAttr.getDataType())
-             << " must match output data type attribute "
-             << DataTypeEnumToString(outputDTypeAttr.getValue());
+      // Compare output data type attribute with output tensor data type.
+      if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
+        return op->emitOpError()
+               << "Output tensor layout data type "
+               << DataTypeEnumToString(outputLayoutAttr.getDataType())
+               << " must match output data type attribute "
+               << DataTypeEnumToString(outputDTypeAttr.getValue());
+      }
     }
 
     return mlir::success();
@@ -139,9 +135,48 @@ public:
 template <typename ConcreteType>
 class ExplicateOperandBroadcastsTrait
     : public mlir::OpTrait::TraitBase<ConcreteType,
-                                      ExplicateOperandBroadcastsTrait> {
+                                      ExplicateOperandBroadcastsTrait> {};
+
+// bfp8_b is tile type so we need some way to check if op which returns
+// it has correct layout information in encoding.
+template <typename ConcreteType>
+class CheckBFloat8BTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, CheckBFloat8BTrait> {
 public:
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    if (op->getNumResults() == 0) {
+      return mlir::success();
+    }
+
+    for (auto result : op->getResults()) {
+      auto resultType = mlir::dyn_cast<RankedTensorType>(result.getType());
+      if (!resultType) {
+        continue;
+      }
+
+      Type elementType = resultType.getElementType();
+      if (!mlir::isa<ttcore::TileType>(elementType)) {
+        continue;
+      }
+
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+      Type scalarElementType = layoutAttr.getScalarElementType();
+      if (elementType != scalarElementType) {
+        return op->emitOpError()
+               << "Output element type must match the scalar "
+                  "element type from encoding."
+               << " Element type: " << elementType
+               << ", Scalar element type: " << scalarElementType << ".";
+      }
+
+      if (layoutAttr.getLayout() != Layout::Tile) {
+        return op->emitOpError()
+               << "BFloat8B type is only supported in Tile layout, but got "
+               << stringifyLayout(layoutAttr.getLayout()) << ".";
+      }
+    }
+
     return mlir::success();
   }
 };

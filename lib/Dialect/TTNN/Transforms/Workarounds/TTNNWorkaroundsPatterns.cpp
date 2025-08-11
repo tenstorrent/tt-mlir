@@ -208,8 +208,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttcore::DataTypeAttr updatedDataTypeAttr =
           rewriter.getAttr<ttcore::DataTypeAttr>(
               outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
-                  updatedDataTypeAttr);
+      op->setAttr(ttmlir::utils::g_outputDtypeAttrName, updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||

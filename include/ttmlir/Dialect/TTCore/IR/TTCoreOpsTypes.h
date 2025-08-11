@@ -10,9 +10,17 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 
+#include <numeric>
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.h.inc"
 
-#include <numeric>
+#include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsAttrDefs.h.inc"
+
+#define GET_TYPEDEF_CLASSES
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h.inc"
 
 namespace mlir::tt::ttcore {
 struct PhysGridResultIdx {
@@ -126,6 +134,14 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     return DataType::BFloat16;
   }
 
+  if (auto tileType = dyn_cast<TileType>(elementType)) {
+    if (tileType.getDataType() == DataType::BFP_BFloat8) {
+      return DataType::BFP_BFloat8;
+    }
+
+    assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
+  }
+
   if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
     switch (floatType.getWidth()) {
     // Treat f64 as f32.
@@ -169,7 +185,8 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFP_Float8:
     return Float16Type::get(context);
   case DataType::BFP_BFloat8:
-    return BFloat16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_BFloat8);
   case DataType::BFP_Float4:
     return Float16Type::get(context);
   case DataType::BFP_BFloat4:
@@ -301,18 +318,6 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
     return 2;
   }
 }
-
-} // namespace mlir::tt::ttcore
-
-#include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.h.inc"
-
-#define GET_ATTRDEF_CLASSES
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsAttrDefs.h.inc"
-
-#define GET_TYPEDEF_CLASSES
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h.inc"
-
-namespace mlir::tt::ttcore {
 
 mlir::AffineMap collapsedLinearAffineMap(
     mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,
