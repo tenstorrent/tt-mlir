@@ -60,17 +60,32 @@ def TTKernel_TernaryOpTrait : TTKernel_Trait<"TTKernelTernaryOpTrait", []>;
 // TTKernel Memory Effects Resources & Traits.
 //===----------------------------------------------------------------------===//
 
+// Single resource used for *_init() op hoisting
 def HWInitState : Resource<"HWInitState">;
 
-class TTKernel_HWInitOpTraitGroup {
-        list<Trait> Traits = [
-                AlwaysSpeculatable,
-                MemoryEffects<[MemInit<HWInitState>]>
-        ];
+// Individual resources to model multi-resource *_init() op hoisting
+def RegAInitState : Resource<"RegAInitState">;
+def RegBInitState : Resource<"RegBInitState">;
+def RegCInitState : Resource<"RegCInitState">;
+def RegDInitState : Resource<"RegDInitState">;
+def RegEInitState : Resource<"RegEInitState">;
+def RegFInitState : Resource<"RegFInitState">;
+
+class TTKernel_InitOpTraitBundle<list<Resource> resources> {
+  list<Trait> Traits = [
+    AlwaysSpeculatable,
+    MemoryEffects<!foreach(r, resources, MemInit<r>)>
+  ];
 }
 
-def TTKernel_HWInitOpTraits : TTKernel_HWInitOpTraitGroup;
+def TTKernel_HWInitOpTraits : TTKernel_InitOpTraitBundle<[HWInitState]>;
 
+def TTKernel_ATestInitTraits : TTKernel_InitOpTraitBundle<[RegAInitState]>;
+def TTKernel_BTestInitTraits : TTKernel_InitOpTraitBundle<[RegBInitState]>;
+def TTKernel_FTestInitTraits : TTKernel_InitOpTraitBundle<[RegFInitState]>;
+def TTKernel_ACTestInitTraits : TTKernel_InitOpTraitBundle<[RegAInitState, RegCInitState]>;
+def TTKernel_CDTestInitTraits : TTKernel_InitOpTraitBundle<[RegCInitState, RegDInitState]>;
+def TTKernel_EFTestInitTraits : TTKernel_InitOpTraitBundle<[RegEInitState, RegFInitState]>;
 
 //===----------------------------------------------------------------------===//
 // Base TTKernel operation definitions.
@@ -85,10 +100,10 @@ class TTKernel_FPUOp<string mnemonic, list<Trait> traits = []> :
 class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = []> :
         TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait] # traits>;
 
-//class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
-//        TTKernel_Op<mnemonic, !listconcat([TTKernel_InitOpTrait], TTKernel_HWInitOpTraits.Traits) # traits>;
-
 class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
+       TTKernel_Op<mnemonic, !listconcat([TTKernel_InitOpTrait], TTKernel_HWInitOpTraits.Traits) # traits>;
+
+class TTKernel_TestInitOp<string mnemonic, list<Trait> traits = []> :
         TTKernel_Op<mnemonic, [TTKernel_InitOpTrait] # traits>;
 
 #endif

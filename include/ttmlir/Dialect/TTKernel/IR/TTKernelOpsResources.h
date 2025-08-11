@@ -17,6 +17,67 @@ struct HWInitState
 
   llvm::StringRef getName() override { return "HWInitState"; }
 };
+
+struct RegAInitState
+    : public ::mlir::SideEffects::Resource::Base<RegAInitState> {
+  static RegAInitState *get() {
+    static RegAInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegAInitState"; }
+};
+
+struct RegBInitState
+    : public ::mlir::SideEffects::Resource::Base<RegBInitState> {
+  static RegBInitState *get() {
+    static RegBInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegBInitState"; }
+};
+
+struct RegCInitState
+    : public ::mlir::SideEffects::Resource::Base<RegCInitState> {
+  static RegCInitState *get() {
+    static RegCInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegCInitState"; }
+};
+
+struct RegDInitState
+    : public ::mlir::SideEffects::Resource::Base<RegDInitState> {
+  static RegDInitState *get() {
+    static RegDInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegDInitState"; }
+};
+
+struct RegEInitState
+    : public ::mlir::SideEffects::Resource::Base<RegEInitState> {
+  static RegEInitState *get() {
+    static RegEInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegEInitState"; }
+};
+
+struct RegFInitState
+    : public ::mlir::SideEffects::Resource::Base<RegFInitState> {
+  static RegFInitState *get() {
+    static RegFInitState instance;
+    return &instance;
+  }
+
+  llvm::StringRef getName() override { return "RegFInitState"; }
+};
+
 } // namespace mlir::tt::ttkernel
 
 #endif // TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSRESOURCES_H 

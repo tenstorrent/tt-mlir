@@ -1921,4 +1921,80 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
     }];
 }
 
+//===----------------------------------------------------------------------===//
+// Placeholder Ops for Verifying Multi-Resource Memory Inits
+//===----------------------------------------------------------------------===//
+
+def TTKernel_ATestInitOp : TTKernel_TestInitOp<"A_test_init", TTKernel_ATestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ATestOp : TTKernel_Op<"A_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BTestInitOp : TTKernel_TestInitOp<"B_test_init", TTKernel_BTestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BTestOp : TTKernel_Op<"B_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_FTestInitOp : TTKernel_TestInitOp<"F_test_init", TTKernel_FTestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_FTestOp : TTKernel_Op<"F_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ACTestInitOp : TTKernel_TestInitOp<"AC_test_init", TTKernel_ACTestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ACTestOp : TTKernel_Op<"AC_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_CDTestInitOp : TTKernel_TestInitOp<"CD_test_init", TTKernel_CDTestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_CDTestOp : TTKernel_Op<"CD_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EFTestInitOp : TTKernel_TestInitOp<"EF_test_init", TTKernel_EFTestInitTraits.Traits> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EFTestOp : TTKernel_Op<"EF_test"> {
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 #endif
