@@ -251,14 +251,12 @@ public:
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
 
-    // Handle broadcast operation (always present with keep_dim=true).
-    mlir::Value maxValue = subtractedValue;
     auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
-    if (broadcastOp) {
-      maxValue = broadcastOp.getInput();
-    } else {
+    if (!broadcastOp) {
       return mlir::failure();
     }
+
+    mlir::Value maxValue = broadcastOp.getInput();
 
     // Check if the broadcasted value is a max operation.
     auto maxOp = maxValue.getDefiningOp<MaxOp>();

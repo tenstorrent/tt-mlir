@@ -1229,7 +1229,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout), numericStable);
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt, // compute_kernel_config,
+        numericStable);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1257,7 +1259,9 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout), numericStable);
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt, // compute_kernel_config,
+        numericStable);
   };
 
   return operation::getOpRuntime(softmaxOpQuery);
