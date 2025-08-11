@@ -210,7 +210,7 @@ def discover_input_tensor_paths(tensor_folder):
     except OSError as e:
         raise OSError(f"Failed to read tensor folder {tensor_folder}: {e}")
 
-    return input_paths
+    return sorted(input_paths, key=lambda p: int(p.stem))
 
 
 if __name__ == "__main__":

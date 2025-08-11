@@ -395,6 +395,22 @@ def custom_embeding(input, weight):
     return torch.nn.functional.embedding(input.long(), weight)
 
 
+def custom_subtract(x, y):
+    """
+    Custom subtract function that handles boolean tensors.
+    For boolean tensors, subtract is interpreted as x AND (NOT y).
+    """
+    # Check if either input is boolean
+    if x.dtype == torch.bool or y.dtype == torch.bool:
+        # Convert both to boolean if needed
+        x_bool = x.to(torch.bool) if x.dtype != torch.bool else x
+        y_bool = y.to(torch.bool) if y.dtype != torch.bool else y
+        # For boolean tensors, x - y is equivalent to x AND (NOT y)
+        return torch.logical_and(x_bool, torch.logical_not(y_bool))
+    # Normal numeric subtraction
+    return torch.subtract(x, y)
+
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
@@ -441,11 +457,15 @@ ttir_to_torch_mapping = {
     "ttir.squeeze": OpMapping(torch.squeeze, unpack_inputs=False),
     "ttir.repeat_interleave": OpMapping(torch.repeat_interleave, unpack_inputs=False),
     "ttir.sin": OpMapping(torch.sin, unpack_inputs=False),
+    "ttir.clamp_scalar": OpMapping(torch.clamp, unpack_inputs=False),
+    "ttir.clamp_tensor": OpMapping(torch.clamp, unpack_inputs=False),
     "ttir.softmax": OpMapping(
-        torch.nn.functional.softmax, {"dimension": "dim"}, unpack_inputs=False
+        torch.nn.functional.softmax,
+        {"dimension": "dim", "stable": ""},
+        unpack_inputs=False,
     ),
     "ttir.sigmoid": OpMapping(torch.sigmoid, unpack_inputs=False),
-    "ttir.subtract": OpMapping(torch.subtract),
+    "ttir.subtract": OpMapping(custom_subtract),
     "ttir.sum": OpMapping(
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),

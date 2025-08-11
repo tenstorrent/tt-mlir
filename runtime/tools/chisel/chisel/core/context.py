@@ -535,6 +535,8 @@ class ChiselContext:
             tensor = torch.load(path)
             arg_name = arg.get_name()
 
+            print(arg_name, tensor.shape)
+
             golden_tensor = TensorValue(arg_name, tensor, ExecutionType.GOLDEN)
             golden_tensor.set_execution_data()
             self.golden_tensor_pool[arg_name] = golden_tensor
@@ -554,7 +556,6 @@ class ChiselContext:
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
-            print(arg_name)
             if torch_dtype.is_floating_point:
                 tensor = torch.randn(shape, dtype=torch_dtype)
             else:
