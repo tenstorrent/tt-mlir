@@ -13,6 +13,8 @@
 #include "ttmlir/Target/GPU/program_generated.h"
 #include "llvm/ADT/StringMap.h"
 
+#include <cuda.h>
+
 namespace tt::runtime::cuda {
 
 /**
@@ -34,8 +36,10 @@ private:
   const ::gpu::Program *program;
   ::tt::runtime::Binary executableHandle;
   std::vector<::tt::runtime::Tensor> programInputs;
-  llvm::StringMap<void *> tensorMap;
+  llvm::StringMap<CUdeviceptr> tensorMap;
   llvm::StringMap<const ::gpu::MemRefDesc *> memrefDescMap;
+  CUdevice device;
+  CUcontext context;
 
   void runKernel(const ::gpu::Kernel *kernel);
 };

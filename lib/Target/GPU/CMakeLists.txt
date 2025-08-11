@@ -26,6 +26,10 @@ add_mlir_translation_library(TTGPUTargetFlatbuffer
     MLIRArithToLLVM
     MLIRFuncToLLVM
     MLIRTranslateLib
+    MLIRReconcileUnrealizedCasts
+    MLIRGPUToGPURuntimeTransforms
+    TTMLIRTransforms
+    MLIRNVVMToLLVM
 
     MLIRTTCoreDialect
     GPU_FBS

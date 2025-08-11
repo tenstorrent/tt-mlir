@@ -18,6 +18,9 @@ ProgramExecutor::ProgramExecutor(
     std::vector<::tt::runtime::Tensor> &programInputs)
     : executableHandle(executableHandle), programInputs(programInputs) {
   program = ::gpu::GetSizePrefixedProgram(executableHandle.handle.get());
+  cuInit(0);
+  cuDeviceGet(&device, 0);
+  cuCtxCreate(&context, 0, device);
 }
 
 static int64_t getDim(std::string typeStr) {
@@ -52,7 +55,7 @@ void ProgramExecutor::execute() {
 
   for (auto *memref : *program->memrefs()) {
     int64_t dim = 1;
-    void *devicePtr = nullptr;
+
     std::string typeStr = memref->type()->str();
     while (typeStr.find("x") != std::string::npos) {
       dim *= std::stoi(typeStr.substr(0, typeStr.find("x")));
@@ -64,7 +67,8 @@ void ProgramExecutor::execute() {
                    << "\n";
       return;
     }
-    auto cudaStatus = cudaMalloc(reinterpret_cast<void **>(&devicePtr), size);
+    CUdeviceptr devicePtr;
+    auto cudaStatus = cuMemAlloc(&devicePtr, size);
     if (cudaStatus != 0) {
       llvm::errs() << "cudaMalloc failed for tensor " << memref->name()->str()
                    << " with error code " << cudaStatus << "\n";
@@ -73,34 +77,16 @@ void ProgramExecutor::execute() {
     memrefDescMap.insert({memref->name()->str(), memref});
 
     if (memref->name()->str().find("%arg") != std::string::npos) {
-
       size_t i = std::stoi(memref->name()->str().substr(4));
-      cudaMemcpy(devicePtr, programInputs[i].data.get(), dim * sizeof(float),
-                 cudaMemcpyHostToDevice);
-    }
-
-    if (memref->value()->str().size() > 0) {
-      if (memref->type()->str().find("f32") != std::string::npos) {
-        float value = std::stof(memref->value()->str());
-        cudaMemcpy(devicePtr, &value, sizeof(float), cudaMemcpyHostToDevice);
-      } else if (memref->type()->str().find("i32") != std::string::npos) {
-        int32_t value = std::stoi(memref->value()->str());
-        cudaMemcpy(devicePtr, &value, sizeof(int32_t), cudaMemcpyHostToDevice);
-      } else if (memref->type()->str().find("i64") != std::string::npos) {
-        int64_t value = std::stoll(memref->value()->str());
-        cudaMemcpy(devicePtr, &value, sizeof(int64_t), cudaMemcpyHostToDevice);
-      } else {
-        llvm::errs() << "Unsupported tensor type: " << memref->type()->str()
-                     << "\n";
-      }
+      cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
     }
   }
 
   for (const auto *kernel : *program->kernels()) {
     runKernel(kernel);
   }
-  void *returnPtr = nullptr;
-  void *returnTensor = tensorMap[program->return_variable()->str()];
+
+  CUdeviceptr returnTensor = tensorMap[program->return_variable()->str()];
   std::string returnTypeStr =
       memrefDescMap[program->return_variable()->str()]->type()->str();
   int64_t returnDim = 1;
@@ -109,20 +95,22 @@ void ProgramExecutor::execute() {
     returnTypeStr = returnTypeStr.substr(returnTypeStr.find("x") + 1);
   }
   size_t returnSize = getDim(returnTypeStr) * returnDim;
-  llvm::outs() << "Return size: " << returnSize << "\n";
-  cudaMemcpy(returnPtr, returnTensor, returnSize, cudaMemcpyDeviceToHost);
+  void *returnPtr = std::malloc(returnSize);
+  cuMemcpyDtoH(returnPtr, returnTensor, returnSize);
   if (!returnPtr) {
     llvm::errs() << "Failed to copy return value\n";
     return;
   }
   float *returnFloatPtr = reinterpret_cast<float *>(returnPtr);
-  for (size_t i = 0; i < returnSize; i++) {
-    llvm::outs() << returnFloatPtr[i] << " ";
+  for (int64_t i = 0; i < returnDim; i++) {
+    llvm::outs() << returnFloatPtr[i] << "\n";
   }
   llvm::outs() << "\n";
   for (const auto &pair : tensorMap) {
-    cudaFree(pair.second);
+    cuMemFree(pair.second);
   }
+
+  cuCtxDestroy(context);
 }
 
 void ProgramExecutor::runKernel(const ::gpu::Kernel *kernel) {
@@ -134,11 +122,25 @@ void ProgramExecutor::runKernel(const ::gpu::Kernel *kernel) {
       llvm::errs() << "Tensor not found: " << arg->str() << "\n";
       return;
     }
-    void *devicePtr = tensorMap[arg->str()];
     if (memrefDescMap[arg->str()]->value()->str().size() > 0) {
-      kernelArgs[i] = devicePtr;
+      if (memrefDescMap[arg->str()]->type()->str().find("f32") !=
+          std::string::npos) {
+        float value = std::stof(memrefDescMap[arg->str()]->value()->str());
+        kernelArgs[i] = &value;
+      } else if (memrefDescMap[arg->str()]->type()->str().find("i32") !=
+                 std::string::npos) {
+        int32_t value = std::stoi(memrefDescMap[arg->str()]->value()->str());
+        kernelArgs[i] = &value;
+      } else if (memrefDescMap[arg->str()]->type()->str().find("i64") !=
+                 std::string::npos) {
+        int64_t value = std::stoll(memrefDescMap[arg->str()]->value()->str());
+        kernelArgs[i] = &value;
+      } else {
+        llvm::errs() << "Unsupported tensor type: "
+                     << memrefDescMap[arg->str()]->type()->str() << "\n";
+      }
     } else {
-      kernelArgs[i] = &devicePtr;
+      kernelArgs[i] = &tensorMap[arg->str()];
     }
     i++;
   }
@@ -155,6 +157,7 @@ void ProgramExecutor::runKernel(const ::gpu::Kernel *kernel) {
   cuLaunchKernel(function, gridSize.x, gridSize.y, gridSize.z, blockSize.x,
                  blockSize.y, blockSize.z, 0, 0, kernelArgs.get(), nullptr);
   cudaDeviceSynchronize();
+  cuModuleUnload(module);
 }
 
 } // namespace tt::runtime::cuda
