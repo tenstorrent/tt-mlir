@@ -399,12 +399,73 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
 }
 
+class BinaryBitwiseOpModelTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<BinaryOpTestParams> {
+protected:
+  void SetUp() override {
+    OpModelBase::SetUp();
+    params = GetParam();
+  }
+
+  BinaryOpTestParams params;
+};
+
+TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {workerCoresN300, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {workerCoresN300, 1024};
+
+  auto inputLayoutA = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved);
+  auto inputLayoutB = CreateTiledLayoutInt32(tensorShapeB, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved);
+
+  auto input1 =
+      createEmptyTensor(tensorShapeA, builder.getI32Type(), inputLayoutA);
+  auto input2 =
+      createEmptyTensor(tensorShapeB, builder.getI32Type(), inputLayoutB);
+  auto outputType =
+      createRankedTensorType(tensorShapeA, builder.getI32Type(), outputLayout);
+
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  mlir::ValueRange{input1, input2});
+
+  // Test constraints using the created layouts
+  OpModel backend = dyn_cast<OpModel>(op);
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(op), OpConfig(outputLayout));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto constraints = constraintsExp.get();
+  EXPECT_EQ(constraints.cbL1PeakSize, params.expectedResult.expectedCbSize);
+  EXPECT_EQ(constraints.tensorL1PeakSize,
+            params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(constraints.outputL1BufferSize,
+            params.expectedResult.expectedOutputSize);
+
+  // Test runtime
+  auto runtimeExp = getOpRuntime(op);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for " << params.testName
+           << "; Error=" << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 // The default expected result for binary operations:
 const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
 // Some binary ops (such as divide, logicalOr, etc.) require extra circular
 // buffer memory which is captured via the following expected values:
 const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
 const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
+const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
+    true, 12288 + 4096, 2048 + 30720, 2048};
+const ExpectedResult binaryExpected_extraCb20480_extraPeak26624{
+    true, 12288 + 20480, 2048 + 26624, 2048};
+const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 0};
 
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
@@ -453,6 +514,29 @@ const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
 const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<MinimumOp>(l, t, r).getOperation();
 };
+const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<Atan2Op>(l, t, r).getOperation();
+};
+const auto createRemainder = [](OpBuilder &b, Location l, Type t,
+                                ValueRange r) {
+  return b.create<RemainderOp>(l, t, r).getOperation();
+};
+const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<PowOp>(l, t, r).getOperation();
+};
+const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
+                                 ValueRange r) {
+  return b.create<BitwiseAndOp>(l, t, r).getOperation();
+};
+const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t,
+                                ValueRange r) {
+  return b.create<BitwiseOrOp>(l, t, r).getOperation();
+};
+const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
+                                 ValueRange r) {
+  return b.create<BitwiseXorOp>(l, t, r).getOperation();
+};
+
 //===---------------------------------------------------------===
 
 // Define the test parameters for binary operations
@@ -471,7 +555,18 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"LogicalOr", createOr, binaryExpected_extraCb4096},
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
-    {"Minimum", createMin, binaryExpected}};
+    {"Minimum", createMin, binaryExpected},
+    {"Atan2", createAtan2,
+     binaryExpected_extraCb4096_extraPeak30720}, // PENDING
+    {"Remainder", createRemainder,
+     binaryExpected_extraCb20480_extraPeak26624}, // PENDING
+    {"Pow", createPow, binaryExpected}};
+
+// Define the test parameters for binary bitwise operations
+const std::vector<BinaryOpTestParams> binaryBitwiseOpTestParams = {
+    {"BitwiseAnd", createBitwiseAnd, binaryBitwiseExpected},
+    {"BitwiseOr", createBitwiseOr, binaryBitwiseExpected},
+    {"BitwiseXor", createBitwiseXor, binaryBitwiseExpected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
@@ -480,6 +575,56 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
       return info.param.testName;
     });
+
+// Instantiate the test suite
+INSTANTIATE_TEST_SUITE_P(
+    BinaryBitwiseOpModelTests, BinaryBitwiseOpModelTest,
+    ::testing::ValuesIn(binaryBitwiseOpTestParams),
+    [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
+      return info.param.testName;
+    });
+
+/*TEST_F(OpModelBase, BitwiseAndOpInterface) {
+  // create BitwiseAndOp
+  llvm::SmallVector<int64_t> tensorShapeA = {workerCoresN300, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {workerCoresN300, 1024};
+
+  auto inputLayoutA = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto inputLayoutB = CreateTiledLayoutInt32(tensorShapeB, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+
+  auto inputA = createEmptyTensor(tensorShapeA, builder.getI32Type(),
+inputLayoutA); auto inputB = createEmptyTensor(tensorShapeB,
+builder.getI32Type(), inputLayoutB); auto outputType =
+createRankedTensorType(tensorShapeA, builder.getI32Type(), outputLayout);
+
+  auto bitwiseAnd =
+      builder.create<BitwiseAndOp>(builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB});
+
+  // test BitwiseAndOp interface using the created layouts
+  OpModel backend = dyn_cast<OpModel>(bitwiseAnd.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(bitwiseAnd),
+OpConfig(outputLayout));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto constraints = constraintsExp.get();
+  EXPECT_EQ(constraints.cbL1PeakSize, 24576);
+  EXPECT_EQ(constraints.tensorL1PeakSize, 0);
+  EXPECT_EQ(constraints.outputL1BufferSize, 0);
+
+  auto runtimeExp = getOpRuntime(bitwiseAnd.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for BitwiseAnd; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}*/
 
 // Separate test for BitwiseNot with integer data types
 TEST_F(OpModelBase, BitwiseNotOpInterface) {
