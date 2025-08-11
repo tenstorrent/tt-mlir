@@ -27,8 +27,7 @@ Contents
    :maxdepth: 2
 
    builder/builder
+   builder/builder-golden
+   builder/builder-utils
    builder/stablehlo-builder
-   builder/stablehlo-utils
    builder/ttir-builder
-   builder/ttir-utils
-   builder/ttir-golden

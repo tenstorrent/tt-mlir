@@ -14,6 +14,12 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include <optional>
 
+// TODO (azecevic): Forward declaration is a temporary solution to avoid
+// circular dependency issue. https://github.com/tenstorrent/tt-mlir/issues/4405
+namespace mlir::tt::ttnn {
+class SortOp;
+} // namespace mlir::tt::ttnn
+
 namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
@@ -286,6 +292,10 @@ public:
   static TTNNOperandsWorkarounds
   createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
                                         bool allDimensions);
+
+  // Create workarounds for sort op operands.
+  static TTNNOperandsWorkarounds
+  createSortOpOperandsWorkarounds(ttnn::SortOp op);
 };
 
 } // namespace mlir::tt::ttnn::wa

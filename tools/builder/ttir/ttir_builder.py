@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.ttir import ttir_golden
+from builder.base import builder_golden
 
 
 class TTIRBuilder(Builder):
@@ -115,7 +115,7 @@ class TTIRBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = ttir_golden.get_golden_function(
+            op_golden_function = builder_golden.get_golden_function(
                 op_ttir_function, **golden_kwargs
             )
 
@@ -2763,6 +2763,7 @@ class TTIRBuilder(Builder):
         """
         if not bias:
             bias = None
+
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
@@ -3295,6 +3296,8 @@ class TTIRBuilder(Builder):
         ----------
         shape : Shape
             Shape of the output tensor
+        data_type : *Optional[Type]*, optional
+            Optional data type of the output tensor
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3303,8 +3306,8 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor of zeros with specified shape
         """
-        output = self._create_ranked_tensor_type(shape)
-        dtype = data_type if data_type is not None else self._default_type
+        dtype = self._get_type_from_torch_dtype(data_type)
+        output = self._create_ranked_tensor_type(shape, dtype)
         return self._op_proxy(
             ttir.ZerosOp,
             [],
