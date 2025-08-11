@@ -1191,6 +1191,35 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   return success();
 }
 
+// Fold the operation if the type of the input and output types are the same.
+static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// Back to back reshapes can be replaced with the final reshape.
+static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
+  if (auto reshapeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+    op.getOperation()->setOperand(0, reshapeOperand.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
+// ReshapeOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::ReshapeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityReshape(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
