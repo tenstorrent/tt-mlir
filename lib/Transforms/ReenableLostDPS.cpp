@@ -25,20 +25,35 @@ namespace mlir::tt::transforms {
 #define GEN_PASS_DEF_REENABLELOSTDPS
 #include "ttmlir/Transforms/Passes.h.inc"
 
+static tensor::EmptyOp findEmptyOp(Value value) {
+  // Direct tensor.empty
+  if (auto emptyOp = value.getDefiningOp<tensor::EmptyOp>()) {
+    return emptyOp;
+  }
+
+  // Look through linalg.fill
+  if (auto fillOp = value.getDefiningOp<linalg::FillOp>()) {
+    Value fillDest = fillOp.getDpsInitOperand(0)->get();
+    return fillDest.getDefiningOp<tensor::EmptyOp>();
+  }
+
+  return nullptr;
+}
+
 // Function to transform defining ops of return values s.t. they use original
 // DPS parameter (stashed in return_to_output_mapping attr) instead of empty ops
 // created during lowering.
 static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
   IRRewriter rewriter(moduleOp.getContext());
 
-  // Find all functions with the return_to_output_mapping attribute
+  // Find all functions with the return_to_output_mapping attribute.
   auto result = moduleOp.walk([&](func::FuncOp funcOp) {
-    // Only process functions that have the mapping attribute
+    // Only process functions that have the mapping attribute.
     if (!funcOp->hasAttr(ttir::ReturnToOutputMappingAttr::name)) {
       return WalkResult::skip();
     }
 
-    // Get the return_to_output_mapping attribute
+    // Get the return_to_output_mapping attribute.
     auto mappingAttr = funcOp->getAttrOfType<IntegerAttr>(
         ttir::ReturnToOutputMappingAttr::name);
     if (!mappingAttr) {
@@ -68,7 +83,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       return WalkResult::skip();
     }
 
-    // Find the return operation
+    // Find the return operation.
     func::ReturnOp returnOp;
     for (Block &block : funcOp.getBlocks()) {
       if (auto retOp = llvm::dyn_cast<func::ReturnOp>(block.getTerminator())) {
@@ -111,22 +126,22 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
                                         outputTensor);
       }
 
-      // Remove the mapping attribute since we've applied it
+      // Remove the mapping attribute since we've applied it.
       funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
       return WalkResult::skip();
     }
 
-    // Find the operation that produces the return value
+    // Find the operation that produces the return value.
     Operation *producer = returnVal.getDefiningOp();
     if (!producer) {
       funcOp->emitError() << "Return value is not produced by an operation";
       return WalkResult::interrupt();
     }
 
-    // Handle different types of operations
+    // Handle different types of operations.
     bool transformed = false;
 
-    // Helper lambda to replace tensor.empty with output tensor
+    // Helper lambda to replace tensor.empty with output tensor.
     auto replaceEmptyWithOutput =
         [&](tensor::EmptyOp emptyOp, Value outputTensor,
             ArrayRef<ReassociationIndices> reassocIndices = {}) {
@@ -138,7 +153,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
           if (outputTensorType.getRank() != emptyOpType.getRank() &&
               !reassocIndices.empty()) {
-            // Need to collapse the output tensor to match the expected shape
+            // Need to collapse the output tensor to match the expected shape.
             auto collapsedType = RankedTensorType::get(
                 emptyOpType.getShape(), outputTensorType.getElementType());
 
@@ -147,62 +162,24 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
             rewriter.replaceOp(emptyOp, collapsedTensor);
           } else {
-            // Ranks match or no reassociation provided, replace directly
+            // Ranks match or no reassociation provided, replace directly.
             rewriter.replaceOp(emptyOp, outputTensor);
           }
           return true;
         };
 
-    // Helper lambda to find and replace empty ops in DPS init operands
-    auto processInitOperands = [&](Operation *op) {
-      auto dpsInterface = llvm::dyn_cast<DestinationStyleOpInterface>(op);
-      if (!dpsInterface) {
-        return false;
-      }
-
-      bool found = false;
-      for (OpOperand &initOperand : dpsInterface.getDpsInitsMutable()) {
-        Value initValue = initOperand.get();
-        if (auto emptyOp = initValue.getDefiningOp<tensor::EmptyOp>()) {
-          Value outputTensor = funcOp.getArgument(outputArgIdx);
-          replaceEmptyWithOutput(emptyOp, outputTensor);
-          found = true;
-        }
-      }
-      return found;
-    };
-
-    // Handle tensor.expand_shape operations
+    // Special handling for tensor.expand_shape.
     if (auto expandOp = mlir::dyn_cast<tensor::ExpandShapeOp>(producer)) {
-      // Get the input to the expand_shape operation
+      // For expand_shape, we need to look at its input producer.
       Value expandInput = expandOp.getSrc();
-      Operation *expandInputProducer = expandInput.getDefiningOp();
-
-      // Check if the input is produced by a linalg.reduce operation
-      if (auto reduceOp =
-              mlir::dyn_cast_or_null<linalg::ReduceOp>(expandInputProducer)) {
-        // Find the tensor.empty operation that feeds into the linalg.reduce
-        for (OpOperand &output : reduceOp->getOpOperands()) {
-          // Check if this is an output operand (init tensor)
-          if (reduceOp.isInitTensor(&output)) {
-            Value outputBuffer = output.get();
-
-            // Check if it's defined by a linalg.fill operation
-            if (auto fillOp = mlir::dyn_cast_or_null<linalg::FillOp>(
-                    outputBuffer.getDefiningOp())) {
-              // Get the destination of the fill operation
-              Value fillDest = fillOp.getDpsInitOperand(0)->get();
-
-              // Check if it's defined by a tensor.empty operation
-              if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
-                      fillDest.getDefiningOp())) {
-                Value outputTensor = funcOp.getArgument(outputArgIdx);
-                transformed = replaceEmptyWithOutput(
-                    emptyOp, outputTensor, expandOp.getReassociationIndices());
-              }
-            } else if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
-                           outputBuffer.getDefiningOp())) {
+      if (Operation *inputProducer = expandInput.getDefiningOp()) {
+        if (auto dpsOp =
+                mlir::dyn_cast<DestinationStyleOpInterface>(inputProducer)) {
+          // Process the DPS operation that feeds into expand_shape.
+          for (OpOperand &initOperand : dpsOp.getDpsInitsMutable()) {
+            if (auto emptyOp = findEmptyOp(initOperand.get())) {
               Value outputTensor = funcOp.getArgument(outputArgIdx);
+              // For expand_shape, we need reassociation indices.
               transformed = replaceEmptyWithOutput(
                   emptyOp, outputTensor, expandOp.getReassociationIndices());
             }
@@ -210,12 +187,18 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
         }
       }
     }
-    // Handle operations implementing DestinationStyleOpInterface
+    // Handle regular DPS operations.
     else if (auto dpsOp =
                  mlir::dyn_cast<DestinationStyleOpInterface>(producer)) {
-      transformed = processInitOperands(producer);
+      // Process all init operands.
+      for (OpOperand &initOperand : dpsOp.getDpsInitsMutable()) {
+        if (auto emptyOp = findEmptyOp(initOperand.get())) {
+          Value outputTensor = funcOp.getArgument(outputArgIdx);
+          transformed = replaceEmptyWithOutput(emptyOp, outputTensor);
+        }
+      }
     }
-    // Handle other operations that might create temporary tensors
+    // Handle other operations.
     else {
       funcOp->emitWarning()
           << "Unhandled operation type: " << producer->getName().getStringRef()
@@ -229,7 +212,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       return WalkResult::skip();
     }
 
-    // Remove the mapping attribute since we've applied it
+    // Remove the mapping attribute since we've applied it.
     funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
 
     return WalkResult::advance();
