@@ -216,28 +216,14 @@ static mlir::LogicalResult updateManualAxes(MLIRContext *context,
               globalMeshOp.getMesh(), oldType,
               tensorShardings[arg.getArgNumber()]);
 
-      // Print the raw MLIR string for op, oldType, and newType for debugging
-      {
-        FailureOr<mlir::RankedTensorType> newType_debug =
-            shardy_utils::populateShardedOutputType(
-                globalMeshOp.getMesh(), oldType,
-                tensorShardings[arg.getArgNumber()]);
-        std::string opStr;
-        std::string oldTypeStr, newTypeStr;
-        llvm::raw_string_ostream os(opStr);
-        op->print(os);
-        llvm::raw_string_ostream osOld(oldTypeStr);
-        oldType.print(osOld);
-        llvm::raw_string_ostream osNew(newTypeStr);
-        (*newType_debug).print(osNew);
-        llvm::errs() << "ManualComputationOp arg " << i << " op: " << opStr
-                     << "\n";
-        llvm::errs() << "OldType: " << oldTypeStr << " NewType: " << newTypeStr
-                     << "\n";
-      }
       if (failed(newType)) {
-        manualComputationOp.emitError("Could not apply propagated tensor "
-                                      "shardings to tensor dimensions");
+        // Debug printout of variables passed to populateShardedOutputType
+        std::string errorMsg = "Could not apply propagated tensor shardings to tensor dimensions. ";
+        errorMsg += "globalMeshOp.getMesh(): " + std::to_string(globalMeshOp.getMesh().getAxes().size()) + " axes, ";
+        errorMsg += "oldType: " + std::to_string(oldType.getRank()) + "D tensor, ";
+        errorMsg += "arg.getArgNumber(): " + std::to_string(arg.getArgNumber());
+        
+        manualComputationOp.emitError(errorMsg);
         return WalkResult::interrupt();
       }
 
