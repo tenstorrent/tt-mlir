@@ -4,7 +4,15 @@ Welcome to the `tt-explorer` wiki! The Wiki will serve as a source for documenta
 
 ## Overview
 
-Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
+Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gamify_ model tuning.
+
+## Server and Client Architecture
+
+`tt-explorer` is build as two tools that connect to each other, one is a server, and the other is a client UI.
+
+The server is responsible for calling the `tt-mlir` toolchain and processing graphs through it. Where the client is responsible for visualizing the processed results and sending commands to the server.
+
+Both tools are started together when you run `tt-explorer`, but they can be run separately for testing or independence between the tools.
 
 ## Quick Start
 
@@ -14,7 +22,7 @@ Here is a summary of the steps needed:
 
 1. Clone `tt-mlir` and build the environment
 2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-3. Ensure `tt-mlir` is built with atleast these flags:
+3. Ensure `tt-mlir` is built with at least these flags:
    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
    - `-DTTMLIR_ENABLE_RUNTIME=ON`
    - `-DTT_RUNTIME_DEBUG=ON`
@@ -93,3 +101,16 @@ export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn
 # Run Tests
 pytest tools/explorer/test/run_tests.py
 ```
+
+## Running the UI Client separately
+
+The UI client is built as a statically hosted web application. So it can be hosted by any static file server.
+
+To build the UI client you need to go to the UI folder (`src/ui`) and then run the build command, like this:
+
+```sh
+cd <repository root>/src/ui/
+npm run build
+```
+
+This command will build the UI and output it to the `dist` folder.

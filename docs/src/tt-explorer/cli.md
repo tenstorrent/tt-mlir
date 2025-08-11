@@ -32,6 +32,9 @@ tt-explorer -p <port> -u <url> -q
 
 <dt><code>-q, --no-browser</code></dt>
   <dd>Create server without opening a browser tab.</dd>
+
+<dt><code>-c, --cors_host</code></dt>
+  <dd>The host to allow for CORS requests. Default is "None".</dd>
 </dl>
 
 Example usage:
