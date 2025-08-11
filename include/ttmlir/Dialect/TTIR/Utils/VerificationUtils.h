@@ -533,6 +533,17 @@ mlir::LogicalResult verifyPool2dOutputDims(PoolOp *op,
     calculatedWOut = llvm::divideCeil(paddedWidth - effectiveKernelWidth,
                                       params.stride.horizontal) +
                      1;
+
+    // Adjust the output shape if the last kernel position is in the padding
+    // region
+    if ((calculatedHOut - 1) * params.stride.vertical >=
+        inputDims.inputHeight + params.padding.top) {
+      calculatedHOut--;
+    }
+    if ((calculatedWOut - 1) * params.stride.horizontal >=
+        inputDims.inputWidth + params.padding.left) {
+      calculatedWOut--;
+    }
   } else {
     // Floor mode: use floor division (standard integer division).
     calculatedHOut =

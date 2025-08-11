@@ -46,8 +46,8 @@ module {
   }
 
   // Test 4: AvgPool2dOp with flattened compat info and with kernel, stride, padding and ceil_mode specified
-  func.func @avg_pool2d_flattened_with_kernel_stride_dilation_padding_ceil(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x18x18x64xbf16> {
-    %0 = ttir.empty() : tensor<1x18x18x64xbf16>
+  func.func @avg_pool2d_flattened_with_kernel_stride_dilation_padding_ceil(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x17x17x64xbf16> {
+    %0 = ttir.empty() : tensor<1x17x17x64xbf16>
     // CHECK: ttnn.avg_pool2d
     %1 = "ttir.avg_pool2d"(%arg0, %0) <{
       kernel = array<i32: 3, 3>,
@@ -55,7 +55,7 @@ module {
       dilation = array<i32: 1, 1>,
       padding = array<i32: 2, 2, 2, 2>,
       ceil_mode = true
-    }> : (tensor<1x32x32x64xbf16>, tensor<1x18x18x64xbf16>) -> tensor<1x18x18x64xbf16>
-    return %1 : tensor<1x18x18x64xbf16>
+    }> : (tensor<1x32x32x64xbf16>, tensor<1x17x17x64xbf16>) -> tensor<1x17x17x64xbf16>
+    return %1 : tensor<1x17x17x64xbf16>
   }
 }
