@@ -635,6 +635,19 @@ mlir::LogicalResult verifyPool2dParams(PoolOp *op, const Pool2dParams &params) {
     return op->emitOpError("padding attribute values must be >= 0");
   }
 
+  int64_t maxVerticalPadding = params.kernel.vertical / 2;
+  int64_t maxHorizontalPadding = params.kernel.horizontal / 2;
+  if (params.padding.top > maxVerticalPadding ||
+      params.padding.bottom > maxVerticalPadding ||
+      params.padding.left > maxHorizontalPadding ||
+      params.padding.right > maxHorizontalPadding) {
+    return op->emitOpError()
+           << "padding (" << params.padding.top << ", " << params.padding.bottom
+           << ", " << params.padding.left << ", " << params.padding.right
+           << ") should not exceed half of kernel size ("
+           << params.kernel.vertical << ", " << params.kernel.horizontal << ")";
+  }
+
   return mlir::success();
 }
 
