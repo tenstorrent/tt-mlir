@@ -196,18 +196,6 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
 }
 
 /**
- * @brief Convenience wrapper to get a memory config from a TTNNLayout attr that
- * may be a nullptr or std::nullopt. Returns std::nullopt if layout is nullptr
- */
-std::optional<::tt::tt_metal::MemoryConfig>
-getNullableMemoryConfig(const std::optional<TTNNLayoutAttr> &layout) {
-  if (!layout.has_value() || !layout.value()) {
-    return std::nullopt;
-  }
-  return conversion::getMemoryConfig(layout.value());
-}
-
-/**
  * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
  * may be a nullptr. Returns std::nullopt if layout is nullptr
  */
