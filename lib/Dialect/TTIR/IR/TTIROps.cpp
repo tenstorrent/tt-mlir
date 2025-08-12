@@ -1068,13 +1068,21 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
       mlir::cast<RankedTensorType>(sourceOperands[1].getType())
           .getElementType());
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+
+  // Pass back axes needed for computation of output scale and zero point.
+  mlir::tt::ttir::ConvolutionLayoutAttr layout = getConvolutionLayout();
+  const int64_t outFeatAxis = layout.getOutputFeatureDimension();
+  const int64_t weightOcAxis = layout.getKernelOutputFeatureDimension();
+  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
+
   mlir::quant::QuantizedType quantOutputType =
       mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
-          quantInputType, quantWeightType, storageType, getLoc());
+          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
+          weightOcAxis, ocSize);
   if (!quantOutputType) {
     return nullptr;
   }
-  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
   auto quantConvOutputType =
       quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
   if (!quantConvOutputType) {
@@ -1086,10 +1094,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantConv =
       mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
           rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
-          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
-          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
-          getBatchGroupCountAttr());
+          getBias(), getWindowStridesAttr(), getPaddingAttr(),
+          getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowReversalAttr(), getConvolutionLayoutAttr(),
+          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
   return quantConv.getOperation();
 }
 
