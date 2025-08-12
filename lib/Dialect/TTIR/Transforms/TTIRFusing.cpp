@@ -34,8 +34,6 @@ public:
 
     if (bias.getDefiningOp() &&
         !bias.getDefiningOp()->isBeforeInBlock(conv2dOp)) {
-      llvm::outs() << "Bias defining op is not before Conv2dOp in block\n";
-      // return mlir::failure();
       SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
       SetVector<Operation *> udChainOps =
           ttmlir::utils::filterOperations(udChain.getArrayRef());
@@ -43,13 +41,9 @@ public:
 
       for (auto *op : udChainSorted) {
         if (op->isBeforeInBlock(conv2dOp)) {
-          llvm::outs() << "Skipping op: " << op->getName() << " "
-                       << op->getLoc() << "\n";
           continue;
         }
         op->moveBefore(conv2dOp);
-        llvm::outs() << "Moved op: " << op->getName() << " " << op->getLoc()
-                     << "\n";
       }
     }
 
@@ -57,54 +51,14 @@ public:
                              [&]() { conv2dOp.getBiasMutable().assign(bias); });
     rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
 
-    // The original conv2d op will be removed by DCE since it's no longer
-    // used.
-    llvm::outs() << "Fused Conv2d with bias into Conv2d with bias\n";
     return mlir::success();
   }
 
 private:
   bool isFusable(ttir::Conv2dOp conv2dOp,
                  mlir::TypedValue<mlir::RankedTensorType> bias) const {
-
-    if (bias.getDefiningOp()) {
-      llvm::outs() << "Bias defining op: " << bias.getDefiningOp()->getName()
-                   << "\n";
-    }
-
-    if (!conv2dOp) {
-      llvm::outs() << "Conv2dOp is null\n";
-      return false;
-    }
-    llvm::outs() << "Conv2dOp exists\n";
-
-    if (conv2dOp.getBias()) {
-      llvm::outs() << "Conv2dOp already has bias\n";
-      return false;
-    }
-    llvm::outs() << "Conv2dOp does not have bias\n";
-
-    if (!conv2dOp->hasOneUse()) {
-      llvm::outs() << "Conv2dOp has multiple uses\n";
-      return false;
-    }
-    llvm::outs() << "Conv2dOp has only one use\n";
-
-    if (!conv2dOp.isBiasCompatible(bias.getType().getShape())) {
-      llvm::outs() << "Bias is not compatible with Conv2dOp\n";
-      return false;
-    }
-    llvm::outs() << "Bias is compatible with Conv2dOp\n";
-
-    // if (bias.getDefiningOp() &&
-    //     !bias.getDefiningOp()->isBeforeInBlock(conv2dOp)) {
-    //   llvm::outs() << "Bias defining op is not before Conv2dOp in block\n";
-    //   return false;
-    // }
-    llvm::outs() << "Bias ordering is valid\n";
-
-    llvm::outs() << "All conditions met for Conv2d bias fusion\n";
-    return true;
+    return conv2dOp && !conv2dOp.getBias() && conv2dOp->hasOneUse() &&
+           conv2dOp.isBiasCompatible(bias.getType().getShape());
   }
 
   std::optional<std::pair<ttir::Conv2dOp, mlir::Value>>
@@ -113,17 +67,6 @@ private:
     auto rhs = srcOp.getRhs();
     auto lhsConv2dOp = lhs.getDefiningOp<ttir::Conv2dOp>();
     auto rhsConv2dOp = rhs.getDefiningOp<ttir::Conv2dOp>();
-    llvm::outs() << "Attempting to match Conv2d with bias pattern\n";
-    llvm::outs() << "LHS type: " << lhs.getType() << "\n";
-    llvm::outs() << "RHS type: " << rhs.getType() << "\n";
-    if (lhsConv2dOp) {
-      llvm::outs() << "LHS Conv2d output type: "
-                   << lhsConv2dOp.getResult().getType() << "\n";
-    }
-    if (rhsConv2dOp) {
-      llvm::outs() << "RHS Conv2d output type: "
-                   << rhsConv2dOp.getResult().getType() << "\n";
-    }
     if (isFusable(lhsConv2dOp, rhs)) {
       return std::make_pair(lhsConv2dOp, rhs);
     }
@@ -412,8 +355,6 @@ public:
     rewriter.modifyOpInPlace(
         conv2dOp, [&]() { conv2dOp.getWeightMutable().assign(scaledWeights); });
     rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
-    llvm::outs()
-        << "Fused Conv2d with multiply into Conv2d with scaled weights\n";
 
     return mlir::success();
   }
@@ -441,7 +382,6 @@ private:
     if (!conv2dOp || !conv2dOp.getResult().hasOneUse()) {
       return false;
     }
-    llvm::outs() << "Conv2d with multiply pattern matched\n";
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
@@ -466,12 +406,8 @@ private:
             mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
       scaleType = bcastOp.getInput().getType();
     }
-
-    llvm::outs() << "Scale type: " << scaleType << "\n";
     // Check if scale shape is with conv2d weight.
     if (!hasValidScaleShape(conv2dOp, scaleType)) {
-      llvm::outs() << "Scale shape is not valid for Conv2d with multiply "
-                      "pattern\n";
       return false;
     }
 
@@ -482,19 +418,14 @@ private:
     SetVector<BlockArgument> useDefChainBlockArgs =
         ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
     if (!all_of(useDefChainBlockArgs, isConstant)) {
-      llvm::outs() << "Scale chain is not constant evaluable for Conv2d with "
-                      "multiply pattern\n";
       return false;
     }
 
     // Since we want to move the scale chain before conv2dOp we want to make
     // sure that the scale chain does not contain conv2dOp.
     if (useDefChain.contains(conv2dOp)) {
-      llvm::outs() << "Scale chain contains conv2dOp for Conv2d with multiply "
-                      "pattern\n";
       return false;
     }
-    llvm::outs() << "Conv2d with multiply pattern is valid\n";
     return true;
   }
 
