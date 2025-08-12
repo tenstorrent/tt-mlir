@@ -149,7 +149,7 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   // In case the opLayout is not in L1 memory space, L1 memory usage is 0.
   //
-  if (opLayout.hasDRAMBufferType()) {
+  if (!opLayout.hasL1BufferType()) {
     return 0;
   }
 
