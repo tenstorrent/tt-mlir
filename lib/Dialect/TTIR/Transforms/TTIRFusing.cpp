@@ -535,6 +535,8 @@ public:
 
 // This pattern decomposes BatchNorm op into basic arithmetic ops
 // so that it can be fused using existing patterns.
+// It is used only when following a conv2d that can fuse multiply and add
+// into its weights and bias.
 class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
   using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
 
@@ -622,6 +624,7 @@ public:
     return mlir::success();
   }
 };
+
 class CacheFillUpdatePattern : public mlir::OpRewritePattern<ScatterOp> {
   using mlir::OpRewritePattern<ScatterOp>::OpRewritePattern;
 
