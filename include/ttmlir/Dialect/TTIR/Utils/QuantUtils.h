@@ -72,7 +72,10 @@ areQuantizationParamsAligned(mlir::ArrayRef<mlir::Value> quantizedValues) {
 // length) Returns scale[i] = input_scale * weight_scale[i] for each channel.
 inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     quant::QuantizedType quantInputType, quant::QuantizedType quantWeightType,
-    mlir::IntegerType storageType, mlir::Location loc) {
+    mlir::IntegerType storageType, mlir::Location loc,
+    std::optional<int64_t> requiredOutAxis = std::nullopt,
+    std::optional<int64_t> requiredWeightAxis = std::nullopt,
+    std::optional<int64_t> requiredAxisSize = std::nullopt) {
   // Find the min/max of the output storage type.
   mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
       getStorageTypeMinMax(storageType, loc);
@@ -124,6 +127,23 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
       return nullptr;
     }
     zeroPoints.assign(weightZeroPoints.begin(), weightZeroPoints.end());
+
+    // Check if the weight axis is the same as the required weight axis.
+    if (requiredWeightAxis &&
+        perAxisType.getQuantizedDimension() != *requiredWeightAxis) {
+      emitError(loc, "Per-axis weight axis must be kernel_output_feature.");
+      return nullptr;
+    }
+    // Check if the number of per-axis weight scales is the same as the required
+    // axis size.
+    if (requiredAxisSize &&
+        static_cast<int64_t>(perAxisType.getScales().size()) !=
+            *requiredAxisSize) {
+      emitError(loc,
+                "Number of per-axis weight scales must equal output channels.");
+      return nullptr;
+    }
+
     ArrayRef<double> weightScales = perAxisType.getScales();
     scales.assign(weightScales.begin(), weightScales.end());
     for (double &scale : scales) {
@@ -147,11 +167,13 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     // Per-axis output type (same as the axis for the weight).
     quant::UniformQuantizedPerAxisType perAxisWeightType =
         dyn_cast<quant::UniformQuantizedPerAxisType>(quantWeightType);
+    // The output axis is the same as the weight axis if not specified.
+    const int64_t outAxis =
+        requiredOutAxis.value_or(perAxisWeightType.getQuantizedDimension());
     quantOutputType = quant::UniformQuantizedPerAxisType::get(
         perAxisWeightType.getFlags(), storageType,
         perAxisWeightType.getExpressedType(), scalesAndZeroPoints.first,
-        scalesAndZeroPoints.second, perAxisWeightType.getQuantizedDimension(),
-        storageTypeMin, storageTypeMax);
+        scalesAndZeroPoints.second, outAxis, storageTypeMin, storageTypeMax);
   }
   return quantOutputType;
 }
