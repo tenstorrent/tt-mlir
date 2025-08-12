@@ -31,6 +31,7 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <numeric>
@@ -1167,21 +1168,6 @@ static bool isIdentityPool2d(Pool2dOp op) {
          llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
-// Checks if a PoolingOp is an identity operation.
-// Identity operations can be folded away when all window dimensions=1,
-// strides=1, dilations=1, and padding=0.
-static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
-  return llvm::all_of(op.getWindowDimensions(),
-                      [](int64_t dim) { return dim == 1; }) &&
-         llvm::all_of(op.getWindowStrides(),
-                      [](int64_t stride) { return stride == 1; }) &&
-         llvm::all_of(op.getBaseDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getWindowDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
-}
-
 //===----------------------------------------------------------------------===//
 // PoolingOp
 // Ensures the following constraints:
@@ -1273,17 +1259,6 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   return newOp.getOperation();
 }
 
-// Folds PoolingOp when it is an identity operation.
-::mlir::LogicalResult
-mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
-                                SmallVectorImpl<OpFoldResult> &results) {
-  if (isIdentityPooling(*this)) {
-    results.append(getInputs().begin(), getInputs().end());
-    return mlir::success();
-  }
-  return mlir::failure();
-}
-
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
@@ -1346,6 +1321,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   if (isIdentityPool2d(*this)) {
     return getInput();
   }
+
   return {};
 }
 
@@ -4011,12 +3987,84 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 // FullOp
 //===----------------------------------------------------------------------===//
 
+mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
+  Attribute fillAttr = adaptor.getFillValue();
+
+  RankedTensorType type = getType();
+  Type outputElementType = type.getElementType();
+
+  // fill_value type and output tensor type might be different
+  if (isa<FloatAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
+    FloatType outputElementFloatType = cast<FloatType>(outputElementType);
+    bool losesInfo = false;
+    llvm::APFloat value = cast<FloatAttr>(fillAttr).getValue();
+    // Convert float type of fill value to float type of output tensor
+    value.convert(outputElementFloatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    return mlir::DenseElementsAttr::get(type, value);
+  }
+  if (isa<IntegerAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
+    IntegerType outputElementIntegerType = cast<IntegerType>(outputElementType);
+    llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
+    llvm::APInt convertedValue =
+        llvm::APInt(outputElementIntegerType.getWidth(), value.getZExtValue(),
+                    outputElementIntegerType.isSigned());
+    return mlir::DenseElementsAttr::get(type, convertedValue);
+  }
+  if (isa<IntegerAttr>(fillAttr) && isa<FloatType>(outputElementType)) {
+    FloatType outputElementFloatType = cast<FloatType>(outputElementType);
+    // If the fill value is an integer, and the output tensor is a float, this
+    // must be because we represent boolean as Bfloat16. Assert that the output
+    // type is Bfloat16, and that the fill value is 0 or 1.
+    assert(outputElementFloatType.isBF16() &&
+           "Bfloat16 is the only supported float type for boolean");
+    llvm::APInt value = cast<IntegerAttr>(fillAttr).getValue();
+    assert(value.getZExtValue() == 0 ||
+           value.getZExtValue() == 1 && "Fill value must be 0 or 1");
+    llvm::APFloat floatValue(0.0f);
+    if (value.getZExtValue() == 0) {
+      floatValue =
+          llvm::APFloat::getZero(outputElementFloatType.getFloatSemantics());
+    } else {
+      floatValue =
+          llvm::APFloat::getOne(outputElementFloatType.getFloatSemantics());
+    }
+    return mlir::DenseElementsAttr::get(type, floatValue);
+  }
+  if (isa<FloatAttr>(fillAttr) && isa<IntegerType>(outputElementType)) {
+    llvm_unreachable(
+        "Fill value is a float, but the result type is an integer.");
+  }
+
+  llvm_unreachable("unhandled fill_value and/or result type");
+}
+
 // FullOp verification
 mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   // Verify that the shape is the shape of the output.
   if (!llvm::equal(getShape(), getType().getShape())) {
     return emitOpError() << "expected shape (" << getType().getShape()
                          << "), got (" << getShape() << ")";
+  }
+
+  if (isa<IntegerAttr>(getFillValueAttr())) {
+    if (isa<FloatType>(getType().getElementType())) {
+      if (!cast<FloatType>(getType().getElementType()).isBF16()) {
+        return emitOpError() << "fill value is an integer and the result type "
+                                "is a float which is not BFloat16. This is "
+                                "only allowed if the result type is BFloat16.";
+      }
+    } else if (!isa<IntegerType>(getType().getElementType())) {
+      return emitOpError() << "fill value is an integer and the result type is "
+                              "not an integer or BFloat16.";
+    }
+  } else if (isa<FloatAttr>(getFillValueAttr())) {
+    if (!isa<FloatType>(getType().getElementType())) {
+      return emitOpError()
+             << "fill value is a float, but result type is not a float.";
+    }
+  } else {
+    return emitOpError() << "fill value is not a float or integer.";
   }
 
   return mlir::success();
@@ -4934,5 +4982,53 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       getOperation(),
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
+}
+
+FullOp getFullOpThroughTMs(Operation *op) {
+  while (op && isa_and_nonnull<ReshapeOp, PermuteOp, BroadcastOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  return dyn_cast_or_null<FullOp>(op);
+}
+
+Value foldConstantMultiplyDivide(DivOp op) {
+  // Find the divisor full op. It may lay behind some number of TMs.
+  Operation *divisor = op.getRhs().getDefiningOp();
+  FullOp divisorScale = getFullOpThroughTMs(divisor);
+  if (!divisorScale) {
+    return nullptr;
+  }
+
+  // Check that the div's numerator is a multiply op.
+  auto numeratorMultiplyOp = op.getLhs().getDefiningOp<MultiplyOp>();
+  if (!numeratorMultiplyOp) {
+    return nullptr;
+  }
+
+  // Check both lhs and rhs of the multiply for a constant scale.
+  FullOp lhsScale =
+      getFullOpThroughTMs(numeratorMultiplyOp.getLhs().getDefiningOp());
+  FullOp rhsScale =
+      getFullOpThroughTMs(numeratorMultiplyOp.getRhs().getDefiningOp());
+
+  // If the lhs of the mulitply traces up to a full op, and has the same
+  // fill value as the divisor, then the rhs of the multiply can replace
+  // the use of the div result.
+  if (lhsScale && lhsScale.getFillValue() == divisorScale.getFillValue()) {
+    return numeratorMultiplyOp.getRhs();
+  }
+
+  // Same as above except the full op is on the rhs of the multiply.
+  if (rhsScale && rhsScale.getFillValue() == divisorScale.getFillValue()) {
+    return numeratorMultiplyOp.getLhs();
+  }
+  return nullptr;
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::DivOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldConstantMultiplyDivide(*this)) {
+    return foldResult;
+  }
+  return nullptr;
 }
 } // namespace mlir::tt::ttir
