@@ -609,6 +609,7 @@ class Run:
 
                     fb_mesh_shape = bin.get_program(0).mesh_shape
                     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+                    mesh_options.mesh_shape = fb_mesh_shape
 
                     # Verify that the expected number of devices in the fb mesh shape is valid on this system
                     if num_mesh_devices > num_devices:
@@ -621,7 +622,7 @@ class Run:
                             parse_fabric_config(self["--fabric-config"])
                         )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
-                    device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
+                    device = ttrt.runtime.open_mesh_device(mesh_options)
 
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
