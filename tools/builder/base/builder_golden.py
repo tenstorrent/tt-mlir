@@ -65,21 +65,50 @@ def conv2d_golden(
     torch.Tensor
         Result of 2D convolution with layout transformation
     """
-    # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
+    # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias to be rank 1: [C_out].
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 
-    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes.
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
-    result = torch.nn.functional.conv2d(
-        input_tensor,
-        weight,
-        bias=bias,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-        groups=groups,
-    )
+
+    if input_tensor.is_quantized:
+        if not weight.is_quantized:
+            raise ValueError("Quantized input requires quantized weight.")
+        # if input tensor and weight tensor zero points are different, error out
+        if (input_tensor.q_zero_point() - 128) != weight.q_zero_point():
+            raise ValueError("Input and weight zero points must be the same.")
+        # Pack weights and bias for quantized conv.
+        packed_weight = torch.ops.quantized.conv2d_prepack(
+            weight,
+            bias,
+            stride=[stride] * 2 if isinstance(stride, int) else stride,
+            padding=[padding] * 2 if isinstance(padding, int) else padding,
+            dilation=[dilation] * 2 if isinstance(dilation, int) else dilation,
+            groups=groups,
+        )
+
+        # Convert to int_repr to match the builder golden function.
+        result = torch.ops.quantized.conv2d(
+            input_tensor,
+            packed_weight,
+            input_tensor.q_scale() * weight.q_scale(),
+            input_tensor.q_zero_point(),
+        ).int_repr()
+
+    else:
+        if bias is not None:
+            bias = bias.squeeze()
+
+        result = torch.nn.functional.conv2d(
+            input_tensor,
+            weight,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
     result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 

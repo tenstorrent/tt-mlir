@@ -930,13 +930,30 @@ def test_concat(shapes: List[Shape], dim: int, request):
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize(
+    "input_dtypes",
+    [
+        [torch.float32, torch.float32, torch.float32, torch.float32],
+        # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
+        pytest.param(
+            [
+                TypeInfo(torch.quint8, scale=0.1, zero_point=128),
+                TypeInfo(torch.qint8, scale=0.1, zero_point=0),
+                torch.float32,
+                torch.int8,
+            ],
+            marks=pytest.mark.skip(
+                reason="Issue: https://github.com/tenstorrent/tt-metal/issues/26568"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
 def test_conv2d(
     shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    input_dtypes: List[Union[torch.dtype, TypeInfo]],
     stride: List[int],
     padding: List[int],
     dilation: List[int],
@@ -966,7 +983,7 @@ def test_conv2d(
     compile_ttir_to_flatbuffer(
         conv2d,
         shapes,
-        dtypes,
+        input_dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
