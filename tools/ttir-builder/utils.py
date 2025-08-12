@@ -484,12 +484,8 @@ def compile_to_flatbuffer(
         mlir_suffix = "_ttnn.mlir"
         target_extension = "ttnn"
     elif target == "ttmetal":
-        ttir_to_ttmetal_pipeline = create_custom_pipeline_fn(
-            "ttir-to-ttmetal-pipeline", print_ir=print_ir
-        )
         pipeline_fn = (
-            # custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
-            custom_pipeline if custom_pipeline else ttir_to_ttmetal_pipeline
+            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
         )
         to_target = ttmetal_to_flatbuffer_file
         mlir_suffix = "_ttm.mlir"

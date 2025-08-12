@@ -2063,7 +2063,6 @@ def test_unary_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        print_ir=True,
         pipeline_options=pipeline_options,
     )
 
