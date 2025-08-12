@@ -193,11 +193,9 @@ convertToOptionalTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
         detail::convertToTensorSpec(device, shape.value(), layout.value());
     if (!retExp) {
       // This is a common pattern for preventing the function to return
-      // llvm::Expected when std::optional is needed:
-      auto error = retExp.takeError();
-      std::string errorMessage = llvm::toString(std::move(error));
-      llvm::consumeError(std::move(error));
-      assert(false && errorMessage.c_str());
+      // llvm::Expected when std::optional is needed (by consuming the error).
+      llvm::consumeError(retExp.takeError());
+      assert(false && "Failed to convert to TensorSpec");
       return std::nullopt;
     }
     ret = retExp.get();
