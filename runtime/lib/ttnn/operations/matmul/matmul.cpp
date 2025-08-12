@@ -32,10 +32,13 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
       matmulProgramConfig = utils::createMatmulProgramConfigIfNeeded(op);
 
+  ::ttnn::WormholeComputeKernelConfig compute_kernel_config(
+      MathFidelity::HiFi4, true, true, false, false);
+
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, matmulProgramConfig,
-      /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
+      /*activation=*/std::nullopt, /*compute_kernel_config=*/compute_kernel_config,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
