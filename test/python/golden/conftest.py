@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import ttrt
+import json
 import platform
 from functools import reduce
 import operator
@@ -110,11 +111,11 @@ def torch_dtype_to_abbrev(dtype):
     """Convert torch dtype to abbreviated string representation"""
     dtype_str = str(dtype)
 
-    # Handle torch.dtype format
+    # Handle torch.dtype format.
     if dtype_str.startswith("torch."):
-        dtype_str = dtype_str[6:]  # Remove "torch." prefix
+        dtype_str = dtype_str[6:]  # Remove "torch." prefix.
 
-    # Map common torch dtypes to abbreviations
+    # Map common torch dtypes to abbreviations.
     dtype_mapping = {
         "float32": "f32",
         "float16": "f16",
@@ -222,7 +223,7 @@ def pytest_runtest_makereport(item, call):
             if not isinstance(shapes_param, list):
                 shapes_param = [shapes_param]
             # Format shapes as strings for XML.
-            item.user_properties.append(("input_shapes", str(shapes_param)))
+            item.user_properties.append(("input_shapes", json.dumps(shapes_param)))
 
             # Extract dtypes information.
             # This needs to happen iff the shapes work, since we need to know
@@ -239,8 +240,8 @@ def pytest_runtest_makereport(item, call):
             if not isinstance(dtypes_param, list):
                 # Handle single dtype, broadcast it across all inputs if only one is supplied as it is in certain tests.
                 dtypes_param = [dtypes_param] * len(shapes_param)
-            dtypes_str = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
-            item.user_properties.append(("input_dtypes", str(dtypes_str)))
+            dtypes_list = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
+            item.user_properties.append(("input_dtypes", str(dtypes_list)))
 
         # Extract operation name from various sources.
         op_name = None
@@ -267,7 +268,7 @@ def pytest_runtest_makereport(item, call):
             # For now, use the same op_name as framework_op_name.
 
             # TODO(ctod): Extract actual framework (torch) operation name in the
-            # future, once we have access to it via golden checking.
+            # future, once we have access to it via golden checking. (#4094)
             item.user_properties.append(("framework_op_name", op_name))
 
         # Extract backend from target parameter, default to "ttnn" if not present.
@@ -278,13 +279,13 @@ def pytest_runtest_makereport(item, call):
         if params:
             # Parameters already covered by setup-time logging.
             covered_params = {
-                "shapes",
-                "shape",
-                "input_shape",
-                "inputs_shapes",  # shape parameters
-                "dtypes",
-                "dtype",
-                "inputs_dtypes",  # dtype parameters
+                "shapes",  # shape parameters
+                "shape",  # |
+                "input_shape",  # |
+                "inputs_shapes",  # |
+                "dtypes",  # dtype parameters
+                "dtype",  # |
+                "inputs_dtypes",  # |
                 "test_fn",  # operation name extraction
                 "target",  # backend extraction
             }
@@ -292,12 +293,14 @@ def pytest_runtest_makereport(item, call):
             # Add uncovered parameters as individual properties with "param_" prefix.
             for key, value in params.items():
                 if key not in covered_params:
-                    try:
-                        value_str = str(value)
-                        item.user_properties.append((f"param_{key}", value_str))
-                    except:
-                        value_str = repr(value)
-                        item.user_properties.append((f"param_{key}", value_str))
+                    if isinstance(value, torch.dtype):
+                        value_str = torch_dtype_to_abbrev(value)
+                    else:
+                        try:
+                            value_str = json.dumps(value)
+                        except:
+                            value_str = repr(value)
+                    item.user_properties.append((f"param_{key}", value_str))
 
     # CALL PHASE: Extract runtime information (failure stage, error messages, etc.).
     if call.when == "call":
@@ -308,7 +311,7 @@ def pytest_runtest_makereport(item, call):
             # Test failed, determine failure stage from exception type only.
             exc_type = call.excinfo.type
 
-            # TODO(ctod): Capture stderr from test execution (to be implemented later).
+            # TODO(ctod): Capture stderr from test execution (to be implemented later). (#4094)
 
             # Check for specific TTIR exception types.
             if exc_type and exc_type.__name__ == "TTIRCompileException":
