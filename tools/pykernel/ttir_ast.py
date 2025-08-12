@@ -151,7 +151,7 @@ class TTIRCompiler(TTKernelCompiler):
     def visit_BinOp(self, node):
         lconst = isinstance(node.left, ast.Constant)
         rconst = isinstance(node.right, ast.Constant)
-        assert not (lconst or rconst), "Unable to handle binops with constants (yet)."
+        assert not (lconst and rconst), "Do not BinOp two constants."
         shape = None
         lhs = None
         rhs = None
@@ -258,6 +258,18 @@ class TTIRCompiler(TTKernelCompiler):
 
         sym_table = self.symbol_tables[-1]
         sym_table[name] = value
+
+    # Literals
+    def visit_Constant(self, node, tensor_shape=[]):
+        assert tensor_shape, "Tensor shape must be provided for constants"
+        if isinstance(node.value, float):
+            attr = FloatAttr.get(F32Type.get(self.ctx), node.value)
+        else:
+            raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
+
+        tensor_type = RankedTensorType.get(tensor_shape, attr.type)
+        dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        return ttir.ConstantOp(tensor_type, dense_attr)
 
 
 def ttir_compile(verbose: bool = False, to_flatbuffer_file=""):

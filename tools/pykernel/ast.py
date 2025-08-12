@@ -1043,22 +1043,6 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Constant(self, node, tensor_shape=[]):
-        if tensor_shape:
-            if isinstance(node.value, int):
-                attr = IntegerAttr.get(
-                    IntegerType.get_signless(32, self.ctx), node.value
-                )
-            elif isinstance(node.value, float):
-                attr = FloatAttr.get(F32Type.get(self.ctx), node.value)
-            else:
-                raise NotImplementedError(
-                    f"Unsupported constant type: {type(node.value)}"
-                )
-
-            tensor_type = RankedTensorType.get(tensor_shape, attr.type)
-            dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
-            return ttir.ConstantOp(tensor_type, dense_attr)
-
         as_attr = getattr(node, "_ttkernel_as_attr", False)
         op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
         if isinstance(node.value, bool):
@@ -1084,7 +1068,12 @@ class TTKernelCompiler(ast.NodeVisitor):
             method_name = "visit_" + node.__class__.__name__
             visitor = getattr(self, method_name, self.generic_visit)
 
-            return visitor(node, **kwargs)
+            params = inspect.signature(visitor).parameters
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
+            if filtered_kwargs:
+                return visitor(node, **filtered_kwargs)
+            else:
+                return visitor(node)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
