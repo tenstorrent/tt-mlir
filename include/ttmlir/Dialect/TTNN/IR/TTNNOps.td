@@ -1247,12 +1247,9 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-            getResult().getType().getEncoding());
-        ::mlir::ArrayAttr begins = getBegins();
         ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceStaticOpOperandsWorkarounds(layoutAttr, begins, step);
+            createSliceStaticOpOperandsWorkarounds(step);
       }
     }];
 
