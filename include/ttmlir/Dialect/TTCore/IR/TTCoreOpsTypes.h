@@ -138,6 +138,10 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     switch (tileType.getDataType()) {
     case DataType::BFP_BFloat8:
     case DataType::BFP_BFloat4:
+    case DataType::BFP_BFloat2:
+    case DataType::BFP_Float8:
+    case DataType::BFP_Float4:
+    case DataType::BFP_Float2:
       return tileType.getDataType();
     default:
       assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
@@ -187,19 +191,23 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFloat16:
     return BFloat16Type::get(context);
   case DataType::BFP_Float8:
-    return Float16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_Float8);
   case DataType::BFP_BFloat8:
     return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
                                  DataType::BFP_BFloat8);
   case DataType::BFP_Float4:
-    return Float16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_Float4);
   case DataType::BFP_BFloat4:
     return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
                                  DataType::BFP_BFloat4);
   case DataType::BFP_Float2:
-    return Float16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_Float2);
   case DataType::BFP_BFloat2:
-    return BFloat16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_BFloat2);
   case DataType::UInt32:
     return IntegerType::get(context, 32,
                             IntegerType::SignednessSemantics::Unsigned);
