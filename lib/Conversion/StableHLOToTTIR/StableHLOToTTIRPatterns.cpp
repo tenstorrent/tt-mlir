@@ -2347,7 +2347,10 @@ namespace {
 //   inputs.
 // - Replace the original stablehlo::SortOp with the results of the new
 //   operations.
-//
+// - TTIR GatherOp is based on StableHLO GatherOp which requires full
+//   multi-dimensional index tuples for each index into the input. This is
+//   generated using iota (ArangeOp) tensors for static dimensions and using
+//   ConcatOp to combine them with the index tensor.
 class StableHLOToTTIRSortOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SortOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -2358,11 +2361,11 @@ public:
                   mlir::stablehlo::SortOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = srcOp.getLoc();
-    // Get sorting metadata
+    // Get sorting metadata.
     int64_t sortDim = srcOp.getDimension();
     bool isStable = srcOp.getIsStable();
-    auto isDescending = getSortDirection(srcOp);
-    if (!isDescending.has_value()) {
+    mlir::FailureOr<bool> isDescending = getSortDirection(srcOp);
+    if (mlir::failed(isDescending)) {
       return rewriter.notifyMatchFailure(srcOp,
                                          "Cannot determine sort direction");
     }
@@ -2394,7 +2397,7 @@ public:
       sortType = (srcOp.getInputs().size() == 1) ? SortType::kValueOnly
                                                  : SortType::kKeyValue;
 
-      IntegerType indexType = IntegerType::get(getContext(), 16);
+      IntegerType indexType = rewriter.getI32Type();
       RankedTensorType indicesType = RankedTensorType::get(
           valueType.getShape(), indexType, valueType.getEncoding());
 
@@ -2404,7 +2407,7 @@ public:
           indicesType.getEncoding()));
     }
 
-    // Step 3: Emit SortOp
+    // Step 3: Emit SortOp.
 
     auto sortOp = rewriter.create<ttir::SortOp>(
         loc, outputTypes, adaptor.getInputs().front(), outputTensors,
@@ -2432,21 +2435,12 @@ public:
 
     // TTIR GatherOp is based on StableHLO GatherOp which requires full
     // multi-dimensional index tuples for each index into the input. This is
-    // generted using iota (ArangeOp) tensors for static dimensions and using
+    // generated using iota (ArangeOp) tensors for static dimensions and using
     // ConcatOp to combine them with the index tensor.
     SmallVector<int64_t> shape(indicesType.getShape());
     shape.push_back(1);
     auto expandedType = RankedTensorType::get(
         shape, indicesType.getElementType(), indicesType.getEncoding());
-
-    // Generate iota-based index components (for all dims except sorting dim).
-    SmallVector<Value> toConcat;
-    for (int64_t idx = 0; idx < rank - 1; ++idx) {
-      Value arangeOp = rewriter.create<ttir::ArangeOp>(
-          loc, expandedType, /*start=*/0,
-          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
-      toConcat.push_back(arangeOp);
-    }
 
     // Reshape indices to [*shape, 1]
     SmallVector<int32_t> reshapeDim(shape.begin(), shape.end());
@@ -2454,7 +2448,20 @@ public:
         rewriter, loc, expandedType, indices,
         rewriter.getI32ArrayAttr(reshapeDim));
 
-    toConcat.push_back(reshape);
+    // Generate iota-based index components (for all dims except sorting dim).
+    // Sorted indices is used for sorting dim.
+    SmallVector<Value> toConcat;
+    for (int64_t idx = 0; idx < rank; ++idx) {
+      if (idx == sortDim) {
+        toConcat.push_back(reshape);
+        continue;
+      }
+
+      Value arangeOp = rewriter.create<ttir::ArangeOp>(
+          loc, expandedType, /*start=*/0,
+          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
+      toConcat.push_back(arangeOp);
+    }
 
     // Concat along new trailing dimension to get [*, rank].
     shape.back() = rank;
@@ -2487,7 +2494,7 @@ public:
     // - operand_batch_dims: for batching in the input tensor
     // - start_index_batch_dims: for batching in the start_indices tensor
     // Since we're gathering without batching semantics, these remain empty.
-    SmallVector<int64_t> empty;
+    llvm::ArrayRef<int64_t> empty;
 
     // sliceSizes determines the size of the slice to extract at each index.
     // Since we are gathering scalars (individual elements), the slice size is 1
@@ -2537,7 +2544,7 @@ private:
     return isa_and_nonnull<mlir::stablehlo::IotaOp>(op);
   }
 
-  std::optional<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
+  mlir::FailureOr<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
     Block &block = srcOp.getComparator().front();
     for (auto &op : block.getOperations()) {
       auto cmpOp = dyn_cast<mlir::stablehlo::CompareOp>(op);
@@ -2550,7 +2557,7 @@ private:
       return cmpOp.getComparisonDirection() ==
              mlir::stablehlo::ComparisonDirection::GT;
     }
-    return std::nullopt;
+    return mlir::failure();
   }
 };
 

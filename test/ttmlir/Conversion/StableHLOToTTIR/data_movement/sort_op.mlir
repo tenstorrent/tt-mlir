@@ -38,8 +38,8 @@ func.func @test_sort_values_only(%arg0: tensor<2x3xi32>) -> (tensor<2x3xi32> {ja
   // CHECK-LABEL: @test_sort_values_only
   // CHECK: %{{.*}}, %{{.*}} = "ttir.sort"(%arg0, %{{[0-9]+}}, %{{[0-9]+}})
   // CHECK-SAME: <{descending = false, dim = 1 : si32, stable = true}>
-  // CHECK-SAME: (tensor<2x3xi32>, tensor<2x3xi32>, tensor<2x3xi16>)
-  // CHECK-SAME: -> (tensor<2x3xi32>, tensor<2x3xi16>)
+  // CHECK-SAME: (tensor<2x3xi32>, tensor<2x3xi32>, tensor<2x3xi32>)
+  // CHECK-SAME: -> (tensor<2x3xi32>, tensor<2x3xi32>)
   %0 = "stablehlo.sort"(%arg0) <{dimension = 1 : i64, is_stable = true}> ({
   ^bb0(%arg1: tensor<i32>, %arg2: tensor<i32>):
     %1 = stablehlo.compare  LT, %arg1, %arg2,  SIGNED : (tensor<i32>, tensor<i32>) -> tensor<i1>
@@ -52,11 +52,28 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   // CHECK-LABEL: @test_sort_key_values
   // CHECK: %{{.*}}, %[[INDICES:.*]] = "ttir.sort"(%arg0, %{{[0-9]+}}, %{{[0-9]+}})
   // CHECK-SAME: <{descending = false, dim = 3 : si32, stable = true}>
-  // CHECK-SAME: (tensor<1x4x64x64xf32>, tensor<1x4x64x64xf32>, tensor<1x4x64x64xi16>)
-  // CHECK-SAME: -> (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi16>)
-  // CHECK: %{{.*}} = "ttir.gather"(%arg1, %{{[0-9]+}}, %{{[0-9]+}})
-  // CHECK: %{{.*}} = "ttir.gather"(%arg2, %{{[0-9]+}}, %{{[0-9]+}})
-  // CHECK: %{{.*}} = "ttir.gather"(%arg3, %{{[0-9]+}}, %{{[0-9]+}})
+  // CHECK-SAME: (tensor<1x4x64x64xf32>, tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>)
+  // CHECK-SAME: -> (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>)
+  // CHECK: %[[INDICES_RESHAPE:[0-9]+]] = "ttir.reshape"(%[[INDICES]], %{{[0-9]+}})
+  // CHECK-SAME: <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32, 1 : i32]}>
+  // CHECK-SAME: (tensor<1x4x64x64xi32>, tensor<1x4x64x64x1xi32>) -> tensor<1x4x64x64x1xi32>
+  // CHECK: %[[ARANGE0:[0-9]+]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
+  // CHECK: %[[ARANGE1:[0-9]+]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 1 : i64, end = 4 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
+  // CHECK: %[[ARANGE2:[0-9]+]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 2 : i64, end = 64 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
+  // CHECK: %[[REORDER_INDICES:[0-9]+]] = "ttir.concat"
+  // CHECK-SAME: (%[[ARANGE0]], %[[ARANGE1]], %[[ARANGE2]], %[[INDICES_RESHAPE]], %{{[0-9]+}})
+  // CHECK-SAME: <{dim = 4 : si32}>
+  // CHECK-SAME: (tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x4xi32>)
+  // CHECK-SAME: -> tensor<1x4x64x64x4xi32>
+  // CHECK: %{{.*}} = "ttir.gather"(%arg1, %[[REORDER_INDICES]], %{{[0-9]+}})
+  // CHECK: %{{.*}} = "ttir.gather"(%arg2, %[[REORDER_INDICES]], %{{[0-9]+}})
+  // CHECK: %{{.*}} = "ttir.gather"(%arg3, %[[REORDER_INDICES]], %{{[0-9]+}})
   %0:4 = "stablehlo.sort"(%arg0, %arg1, %arg2, %arg3) <{dimension = 3 : i64, is_stable = true}> ({
   ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>, %arg6: tensor<i32>, %arg7: tensor<i32>, %arg8: tensor<i32>, %arg9: tensor<i32>, %arg10: tensor<i32>, %arg11: tensor<i32>):
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
