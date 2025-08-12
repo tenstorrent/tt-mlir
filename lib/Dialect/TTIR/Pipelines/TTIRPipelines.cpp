@@ -153,19 +153,6 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining SCF operations to control flow and LLVM dialect.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
-
-  // Converts remaining GPU dialect operations to LLVM dialect,
-  //  using bare pointers for both host and device code.
-  GpuToLLVMConversionPassOptions gputollvmOptions;
-  gputollvmOptions.hostBarePtrCallConv = true;
-  gputollvmOptions.kernelBarePtrCallConv = true;
-  manager.addPass(createGpuToLLVMConversionPass(gputollvmOptions));
-  // Resolves any remaining type conversion issues by reconciling unrealized
-  // cast operations.
-  manager.addPass(createReconcileUnrealizedCastsPass());
-
-  // Extracts GPU kernel functions from LLVM into a single module.
-  manager.addPass(transforms::createExtractGPUModules());
 }
 
 #endif
