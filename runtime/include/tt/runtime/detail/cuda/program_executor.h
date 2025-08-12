@@ -12,7 +12,6 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
-
 #include "llvm/ADT/StringMap.h"
 
 #include <cuda.h>
