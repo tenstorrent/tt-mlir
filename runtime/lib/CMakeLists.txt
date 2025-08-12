@@ -1,8 +1,9 @@
-message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}]")
+message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}] CUDA[${TT_RUNTIME_ENABLE_CUDA}]")
 
 add_subdirectory(common)
 add_subdirectory(ttnn)
 add_subdirectory(ttmetal)
+add_subdirectory(cuda)
 
 add_library(TTBinary STATIC binary.cpp)
 set_property(TARGET TTBinary PROPERTY CXX_STANDARD 20)
@@ -38,6 +39,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeSysDesc
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeCUDA
     TTRuntimeContext
     TTRuntimeDebug
     TTRuntimePerf
@@ -57,7 +59,7 @@ target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime FBS_GENERATION)
+add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeContext TTRuntimeDebug TTRuntimePerf TTRuntimeWorkarounds TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal TTRuntimeCUDA FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set(TTMLIR_RUNTIME_PUBLIC_HEADERS
