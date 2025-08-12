@@ -24,16 +24,6 @@ class StableHLOBuilder(Builder):
     def __init__(self, ctx: Context, location: Location):
         super().__init__(ctx, location)
 
-        # output golden info for populating shlo
-        self._output_info: Dict[Operation, (Shape, Type)] = {}
-        self._output_create_fn: Dict[Operation, Callable] = {}
-
-    def populate_goldens(self):
-        for op, output_info in self._output_info.items():
-            output = self._output_create_fn[op](*output_info)
-            golden = self._goldens[op]
-            self._override_golden(output, golden)
-
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(
         self,
@@ -109,6 +99,7 @@ class StableHLOBuilder(Builder):
                 if loc is not None
                 else self._get_loc_of_extra_file_callee(id=id)
             )
+            print("LOCCC,", loc, ".....", id)
 
             op = op_stablehlo_function(
                 *inputs,
@@ -122,11 +113,14 @@ class StableHLOBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
             self._id_golden_map[str(loc)] = golden
+            # print("2222", self._id_golden_map)
             self._store_golden(op, golden)
-            self._output_info[op] = (output_shape, output_type)
-            self._output_create_fn[op] = (
-                output_create_fn if output_create_fn else self._empty
-            )
+            # self._output_info[op] = (output_shape, output_type)
+            # self._output_create_fn[op] = (
+            #    output_create_fn if output_create_fn else self._empty
+            # )
+            # print("3333", self._id_golden_map)
+            print(op)
             return op
 
     def _eltwise_proxy(
@@ -256,7 +250,7 @@ class StableHLOBuilder(Builder):
 
     def dimension_sharding_attr(
         self,
-        axes: List[sdy.AxisRefAttr],
+        axes: List[str],
         is_closed: bool,
         priority: Optional[int] = None,
     ) -> sdy.DimensionShardingAttr:
@@ -279,12 +273,16 @@ class StableHLOBuilder(Builder):
         (*sdy.DimensionShardingAttr*)
             A dimension sharding attribute that describes how a tensor is distributed across the mesh
         """
+        # Convert string axes to AxisRefAttr
+        axes = [self.axis_ref_attr(name=axis) for axis in axes]
         return sdy.DimensionShardingAttr.get(axes, is_closed, priority)
 
     def tensor_sharding_attr(
         self,
         mesh_name: str,
-        dimension_shardings: List[sdy.DimensionShardingAttr],
+        dimension_shardings: List[
+            DimensionShardingAttr
+        ],  # List[(List[str], Optional[bool])],
         replicated_axes: List[sdy.AxisRefAttr] = [],
         unreduced_axes: List[sdy.AxisRefAttr] = [],
     ) -> sdy.TensorShardingAttr:
@@ -308,6 +306,14 @@ class StableHLOBuilder(Builder):
         -------
         (*sdy.TensorShardingAttr*)
             A tensor sharding attribute that describes how a tensor is distributed across the mesh
+
+        dimension_shardings = [
+            self.dimension_sharding_attr(
+                axes=dim_tuple[0],
+                is_closed=dim_tuple[1],
+            )
+            for dim_tuple in dimension_shardings
+        ]
         """
         return sdy.TensorShardingAttr.get(
             mesh_name,
@@ -352,6 +358,8 @@ class StableHLOBuilder(Builder):
         (*sdy.ManualAxesAttr*)
             A manual axes attribute representing the specified axes for manual computation or sharding
         """
+        # Convert string axes to StringAttr
+        axes = [StringAttr.get(axis) for axis in axes]
         return sdy.ManualAxesAttr.get(axes)
 
     # ----- Public Shardy Op Generators ----
@@ -403,11 +411,11 @@ class StableHLOBuilder(Builder):
 
     def manual_computation(
         self,
-        results: List[Operand],
-        tensors: List[Operand],
+        # results: List[Operand],
+        ops: List[Operand],
         in_shardings: sdy.TensorShardingPerValueAttr,
         out_shardings: sdy.TensorShardingPerValueAttr,
-        manual_axes: sdy.ManualAxesAttr,
+        manual_axes: List[str],
     ) -> sdy.ManualComputationOp:
         """
         Creates a manual computation operation.
@@ -429,9 +437,11 @@ class StableHLOBuilder(Builder):
         (*sdy.ManualComputationOp*)
             A manual computation operation that encapsulates per-device local code with explicit collectives
         """
+        manual_axes = self.manual_axes_attr(axes=manual_axes)
+        results = [self._create_ranked_tensor_type((128, 128))]
         return sdy.ManualComputationOp(
             results_=results,
-            tensors=tensors,
+            tensors=ops,
             in_shardings=in_shardings,
             out_shardings=out_shardings,
             manual_axes=manual_axes,

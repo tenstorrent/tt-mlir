@@ -258,7 +258,7 @@ def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
@@ -327,7 +327,7 @@ def compile_ttir_to_flatbuffer(
         - A str: "ttir-lower-to-layout,ttir-bufferization-pipeline"
 
     system_desc_path : str, optional
-        Path to the system descriptor file. Default is "ttrt-artifacts/system_desc.ttsys".
+        Path to the system descriptor file. Default is None.
 
     pipeline_options : *Optional[List[str]]*, optional
         Pipeline options to be added to the pass. Default is None.
@@ -346,7 +346,7 @@ def compile_ttir_to_flatbuffer(
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
     # Compile model to TTIR MLIR
-    module, builder = build_ttir_module(
+    module, ttir_builder = build_ttir_module(
         fn,
         inputs_shapes,
         inputs_types,
@@ -359,7 +359,7 @@ def compile_ttir_to_flatbuffer(
 
     return compile_ttir_module_to_flatbuffer(
         module,
-        builder,
+        ttir_builder,
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
@@ -496,6 +496,8 @@ def build_stablehlo_module(
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
                 input_goldens = []
+                print(stablehlo_builder.golden_map)
+                print(stablehlo_builder)
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens.append(
                         stablehlo_builder._generate_input_golden(
@@ -521,6 +523,7 @@ def build_stablehlo_module(
         if module_dump:
             with open(filename, "w") as f:
                 f.write(str(module))
+                # print("StableHLO module, after running stablehlo_pipeline")
                 print(module)
 
         return module, stablehlo_builder
@@ -530,7 +533,7 @@ def compile_stablehlo_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
@@ -609,7 +612,7 @@ def compile_stablehlo_to_flatbuffer(
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
     # Compile model to StableHLO and run stablehlo pipeline to TTIR MLIR
-    module, builder = build_stablehlo_module(
+    module, stablehlo_builder = build_stablehlo_module(
         fn,
         inputs_shapes,
         inputs_types,
@@ -619,10 +622,26 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
+    print("StableHLO module, just built ^^^")
+    # print(module)
     stablehlo_pipeline(module)
-    print(module)
+
+    print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+
+    test_base = fn.__name__ if test_base is None else test_base
+
+    filename = _get_target_path(output_root, test_base + "_shlo2.mlir", test_base)
+
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+            print("StableHLO module, after running stablehlo_pipeline")
+            print(module)
+
     stablehlo_to_ttir_pipeline(module)
+    print("After stablehlo_to_ttir_pipeline")
     print(module)
+    builder.populate_goldens()
 
     filename = _get_target_path(
         output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
@@ -633,7 +652,7 @@ def compile_stablehlo_to_flatbuffer(
 
     return compile_ttir_module_to_flatbuffer(
         module,
-        builder,
+        stablehlo_builder,
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
@@ -651,7 +670,7 @@ def compile_stablehlo_to_flatbuffer(
 def compile_ttir_module_to_flatbuffer(
     module: Module,
     builder: Union[TTIRBuilder, StableHLOBuilder],
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
     builder_dir: str = "ttir-builder",
@@ -679,7 +698,7 @@ def compile_ttir_module_to_flatbuffer(
         The builder instance containing golden reference values
 
     system_desc_path : str, optional
-        Path to the system descriptor file. Default is "ttrt-artifacts/system_desc.ttsys"
+        Path to the system descriptor file. Default is None
 
     test_base : str, optional
         The string to be used as the base name for dumped files. Default is "test"

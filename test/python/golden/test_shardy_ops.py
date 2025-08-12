@@ -29,11 +29,11 @@ def sharding_constraint(
         mesh_name="mesh",
         dimension_shardings=[
             builder.dimension_sharding_attr(
-                axes=[builder.axis_ref_attr(name="x")],
+                axes=["x"],
                 is_closed=True,
             ),
             builder.dimension_sharding_attr(
-                axes=[builder.axis_ref_attr(name="y")],
+                axes=["y"],
                 is_closed=False,
             ),
         ],
@@ -52,6 +52,149 @@ def sharding_constraint(
     ],
 )
 def test_sharding_constraint(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    request,
+):
+    compile_stablehlo_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape, shape],
+        inputs_types=[dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
+    )
+
+
+def reshard(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    tensor_sharding_attr = builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[
+            builder.dimension_sharding_attr(
+                axes=["y"],
+                is_closed=True,
+            ),
+            builder.dimension_sharding_attr(
+                axes=["x"],
+                is_closed=False,
+            ),
+            builder.dimension_sharding_attr(
+                axes=[],
+                is_closed=True,
+            ),
+        ],
+    )
+    builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+    out_sharding = builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[
+            builder.dimension_sharding_attr(
+                axes=[],
+                is_closed=True,
+            ),
+            builder.dimension_sharding_attr(
+                axes=["x"],
+                is_closed=True,
+            ),
+            builder.dimension_sharding_attr(
+                axes=["y"],
+                is_closed=True,
+            ),
+        ],
+    )
+    return builder.reshard(in0, sharding=out_sharding)
+
+
+@pytest.mark.parametrize("shape", [(8, 8, 8)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        reshard,
+    ],
+)
+def test_reshard(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    request,
+):
+    compile_stablehlo_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def manual_computation(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    dim_sharding_none = builder.dimension_sharding_attr(
+        axes=[],
+        is_closed=True,
+    )
+    dim_sharding_x = builder.dimension_sharding_attr(
+        axes=["x"],
+        is_closed=True,
+    )
+    dim_sharding_y = builder.dimension_sharding_attr(
+        axes=["y"],
+        is_closed=False,
+    )
+    in_shardings = builder.tensor_sharding_per_value_attr(
+        [
+            builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[dim_sharding_x, dim_sharding_y],
+            ),
+            builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[dim_sharding_y, dim_sharding_none],
+            ),
+        ]
+    )
+    out_shardings = builder.tensor_sharding_per_value_attr(
+        [
+            builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[dim_sharding_x, dim_sharding_none],
+            ),
+        ]
+    )
+    # manual_axes = builder.manual_axes_attr(["y", "x"])
+    add_0 = builder.add(in0, in1, unit_attrs=unit_attrs)
+    add_1 = builder.add(in0, add_0, unit_attrs=unit_attrs)
+    # rtt = builder.create_ranked_tensor_type((128, 128))
+    return builder.manual_computation(
+        # [rtt],
+        [add_0, add_1],
+        in_shardings=in_shardings,
+        out_shardings=out_shardings,
+        manual_axes=["y", "x"],
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        manual_computation,
+    ],
+)
+def test_manual_computation(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
