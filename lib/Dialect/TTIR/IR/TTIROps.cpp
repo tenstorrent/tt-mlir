@@ -1068,13 +1068,21 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
       mlir::cast<RankedTensorType>(sourceOperands[1].getType())
           .getElementType());
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+
+  // Pass back axes needed for computation of output scale and zero point.
+  mlir::tt::ttir::ConvolutionLayoutAttr layout = getConvolutionLayout();
+  const int64_t outFeatAxis = layout.getOutputFeatureDimension();
+  const int64_t weightOcAxis = layout.getKernelOutputFeatureDimension();
+  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
+
   mlir::quant::QuantizedType quantOutputType =
       mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
-          quantInputType, quantWeightType, storageType, getLoc());
+          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
+          weightOcAxis, ocSize);
   if (!quantOutputType) {
     return nullptr;
   }
-  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
   auto quantConvOutputType =
       quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
   if (!quantConvOutputType) {
@@ -1086,10 +1094,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantConv =
       mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
           rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
-          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
-          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
-          getBatchGroupCountAttr());
+          getBias(), getWindowStridesAttr(), getPaddingAttr(),
+          getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowReversalAttr(), getConvolutionLayoutAttr(),
+          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
   return quantConv.getOperation();
 }
 
@@ -4881,6 +4889,69 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
     return getInput();
   }
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+// ConcatenateHeadsOp verification
+::mlir::LogicalResult mlir::tt::ttir::ConcatenateHeadsOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Input tensor must be 4D tensor
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "expected rank of input tensor is 4, got rank "
+                         << inputType.getRank();
+  }
+
+  // Output tensor must be 3D tensor.
+  if (outputType.getRank() != 3) {
+    return emitOpError() << "expected rank of output tensor is 3, got rank "
+                         << outputType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size].
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  // Output tensor dimensions [batch_size, sequence_size, num_heads *
+  // head_size].
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+  // Verify batch_size dimension matches.
+  if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
+    return emitOpError() << "expected output batch dimension to be "
+                         << inputShape[INPUT_BATCH] << ", got "
+                         << outputShape[OUTPUT_BATCH];
+  }
+
+  // Verify sequence_size dimension matches.
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError() << "expected output sequence dimension to be "
+                         << inputShape[INPUT_SEQ] << ", got "
+                         << outputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension.
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "expected output hidden dimension to be num_heads * "
+              "head_size = "
+           << expectedHiddenSize << ", got " << outputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

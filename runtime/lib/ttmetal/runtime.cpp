@@ -142,10 +142,13 @@ void disablePersistentKernelCache() {
 
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
-  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  tt_metal::distributed::MeshShape shape(meshShape);
+Device openMeshDevice(const MeshDeviceOptions &options) {
+  std::optional<tt_metal::distributed::MeshShape> meshShape = std::nullopt;
+  if (options.meshShape.has_value()) {
+    LOG_ASSERT(options.meshShape.value().size() == 2,
+               "Mesh shape must be 2D for now");
+    meshShape = tt_metal::distributed::MeshShape(options.meshShape.value());
+  }
 
   LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
   tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
@@ -156,7 +159,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   tt_metal::DispatchCoreType dispatchCoreType =
       common::getDispatchCoreType(options.dispatchCoreType);
 
-  tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
+  tt_metal::distributed::MeshDeviceConfig meshConfig(meshShape, offset,
                                                      options.deviceIds);
 
   std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
