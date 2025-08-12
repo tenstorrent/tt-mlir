@@ -548,11 +548,10 @@ public:
   mlir::LogicalResult
   matchAndRewrite(BatchNormOp batchNormOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Used only paired with convolution
-    Operation *definingOp = batchNormOp.getOperand().getDefiningOp();
 
-    if (!definingOp ||
-        !(isa<Conv2dOp>(definingOp) && definingOp->hasOneUse())) {
+    // Used only paired with convolution
+    if (auto conv2dOp = batchNormOp.getOperand().getDefiningOp<Conv2dOp>();
+        !conv2dOp || !conv2dOp->hasOneUse()) {
       return mlir::failure();
     }
 
@@ -587,16 +586,16 @@ public:
     auto alpha =
         utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
 
-    // beta = offset - alpha * mean
     auto alphaMean = utils::createDPSOp<MultiplyOp>(
         rewriter, loc, mean.getType(), mean, alpha);
 
-    auto beta = utils::createDPSOp<AddOp>(rewriter, loc, offset.getType(),
-                                          offset, alphaMean);
+    // beta = offset - alpha * mean
+    auto beta = utils::createDPSOp<SubtractOp>(rewriter, loc, offset.getType(),
+                                               offset, alphaMean);
 
-    // Reshape alpha and beta to match the input shape based on the dimension
-    // parameter : for dimension 3 and input shape (N, H, W, C), it is
-    // reshaped from (C) to (1, 1, 1, C).
+    // Reshape alpha and beta along the specified dimension to match the input
+    // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
+    // to (1, 1, 1, C).
 
     SmallVector<int64_t> reshapeShape(4, 1);
     reshapeShape[dimension] = std.getType().getShape()[0];
