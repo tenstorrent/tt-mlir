@@ -1163,6 +1163,8 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
