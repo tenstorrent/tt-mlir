@@ -1419,7 +1419,7 @@ def reduce_or(
     )
 
 
-# Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
+# Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775.
 @pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
@@ -2756,7 +2756,7 @@ def test_gather(
     ids=["simple_1d", "complex_indices"],
 )
 # Note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-# Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849
+# Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849.
 @pytest.mark.run_error
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
