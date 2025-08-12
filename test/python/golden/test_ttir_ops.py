@@ -2144,8 +2144,8 @@ def test_unary_ops(
 
 
 unary_ops_int32 = [
-    # abs,
-    # neg,
+    abs,
+    neg,
     pytest.param(
         relu,
         marks=pytest.mark.skip(
