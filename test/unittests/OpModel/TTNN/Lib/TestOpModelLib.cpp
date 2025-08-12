@@ -1582,6 +1582,131 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true, 0, 0, 0})));
 
+TEST_F(OpModelTest, Conv2dL1InputDRAMOutput) {
+  // Input tensor shape: [1, 1, 401408, 3] - in L1
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 401408, 3};
+
+  // Weight tensor shape: [64, 3, 7, 7] - in SystemMemory
+  const llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+
+  // Bias tensor shape: [1, 1, 1, 64] - in SystemMemory
+  const llvm::SmallVector<int64_t> biasShape = {1, 1, 1, 64};
+
+  // Output tensor shape: [1, 1, 100352, 64] - in DRAM
+  const llvm::SmallVector<int64_t> outputShape = {1, 1, 100352, 64};
+
+  // Virtual grids - all tensors use <1x1> grid
+  const llvm::SmallVector<int64_t> inputVirtualGrid = {1, 1};
+  const llvm::SmallVector<int64_t> weightVirtualGrid = {1, 1};
+  const llvm::SmallVector<int64_t> biasVirtualGrid = {1, 1};
+  const llvm::SmallVector<int64_t> outputVirtualGrid = {1, 1};
+
+  // Create layouts to match your operation
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
+      weightShape, BufferType::SystemMemory, TensorMemoryLayout::Interleaved);
+
+  const TTNNLayoutAttr biasLayout = CreateRowMajorLayout(
+      biasShape, BufferType::SystemMemory, TensorMemoryLayout::Interleaved);
+
+  // Output in DRAM interleaved
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  // Conv2d parameters from your operation
+  const uint32_t in_channels = 3;
+  const uint32_t out_channels = 64;
+  const uint32_t batch_size = 8;
+  const uint32_t input_height = 224;
+  const uint32_t input_width = 224;
+  const llvm::SmallVector<int32_t> kernel_size = {7, 7};
+  const llvm::SmallVector<int32_t> stride = {2, 2};
+  const llvm::SmallVector<int32_t> padding = {3, 3, 3,
+                                              3}; // [top, bottom, left, right]
+  const llvm::SmallVector<int32_t> dilation = {1, 1};
+  const uint32_t groups = 1;
+  auto conv2dConfig = std::nullopt;
+  // Would be accurate according to debug logs in Resnet,
+  // but gives even more inaccurate results than the default here.
+  //   auto conv2dConfig = Conv2dConfigAttr::get(&context)
+  //                           .withWeightsDtype(ttcore::DataType::BFloat16)
+  //                           .withActivation(builder.getStringAttr("relu"));
+
+  // Device config
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  // Reset device context to avoid hangs
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = OpModel<Conv2dOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      biasShape, biasLayout, in_channels, out_channels, batch_size,
+      input_height, input_width, kernel_size, stride, padding, dilation, groups,
+      conv2dConfig, deviceConfig, outputLayout);
+
+  // Verify the constraints match your expected values
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+
+    // Current possibly incorrect calculation for L1 Interleaved producer usage,
+    // should instead be returned by getOpConstraints:
+    auto producersL1OutputUsage = utils::getOpOutputL1Usage(inputLayout);
+
+    // l1UsageSize = cbSize + peakSize + producersL1OutputUsage;
+
+    // Current values from ResNet for this conv2d operation:
+    // - producerL1OutputUsage: 401408
+    // - cbSize: 233536 (in this test, it's 634944)
+    // - peakSize: 889048
+    // - outputSize: 0 (DRAM output, so no L1 usage)
+    // - l1UsageSize: 1523992 (in this test, it's 1925400)
+
+    // Memory validation logic from L1InterleavedFallbackAnalysis:
+    // bool l1UsageValid = l1UsageSize < tensorL1UsageCap * usableL1CacheSize;
+    //
+    // where:
+    // - tensorL1UsageCap = 0.8 (experimentally chosen 80% threshold)
+    // - usableL1CacheSize = chipDesc.getUsableL1Size()
+    //   where in Optimizer.cpp, chipDesc is obtained from:
+    //       ModuleOp moduleOp = getOperation();
+    //       ttcore::SystemDescAttr systemDesc =
+    //          mlir::cast<ttcore::SystemDescAttr>(
+    //           moduleOp->getAttr(ttcore::SystemDescAttr::name));
+    //       ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    //       chipDesc = systemDesc.getChipDescs()[0]
+
+    // If l1UsageValid is true, then the op fits in L1 with given configuration,
+    // This particular operation doesn't fit in L1 due to high memory
+    // requirements.
+
+    llvm::outs() << "Big Conv2d L1 Input DRAM Output Constraints:\n";
+    llvm::outs() << "- producersL1OutputUsage: " << producersL1OutputUsage
+                 << "\n";
+    llvm::outs() << "- cbSize: " << cbSize << "\n";
+    llvm::outs() << "- peakSize: " << peakSize << "\n";
+    llvm::outs() << "- outputSize: " << outputSize << "\n";
+    llvm::outs() << "- l1UsageSize: "
+                 << cbSize + peakSize + producersL1OutputUsage << "\n";
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+    ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
 class OpModelConvTranspose2dParam
     : public OpModelTest,
       public testing::WithParamInterface<
