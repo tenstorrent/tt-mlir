@@ -2347,7 +2347,10 @@ namespace {
 //   inputs.
 // - Replace the original stablehlo::SortOp with the results of the new
 //   operations.
-//
+// - TTIR GatherOp is based on StableHLO GatherOp which requires full
+//   multi-dimensional index tuples for each index into the input. This is
+//   generated using iota (ArangeOp) tensors for static dimensions and using
+//   ConcatOp to combine them with the index tensor.
 class StableHLOToTTIRSortOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SortOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -2358,11 +2361,11 @@ public:
                   mlir::stablehlo::SortOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = srcOp.getLoc();
-    // Get sorting metadata
+    // Get sorting metadata.
     int64_t sortDim = srcOp.getDimension();
     bool isStable = srcOp.getIsStable();
-    auto isDescending = getSortDirection(srcOp);
-    if (!isDescending.has_value()) {
+    mlir::FailureOr<bool> isDescending = getSortDirection(srcOp);
+    if (mlir::failed(isDescending)) {
       return rewriter.notifyMatchFailure(srcOp,
                                          "Cannot determine sort direction");
     }
@@ -2404,7 +2407,7 @@ public:
           indicesType.getEncoding()));
     }
 
-    // Step 3: Emit SortOp
+    // Step 3: Emit SortOp.
 
     auto sortOp = rewriter.create<ttir::SortOp>(
         loc, outputTypes, adaptor.getInputs().front(), outputTensors,
@@ -2432,7 +2435,7 @@ public:
 
     // TTIR GatherOp is based on StableHLO GatherOp which requires full
     // multi-dimensional index tuples for each index into the input. This is
-    // generted using iota (ArangeOp) tensors for static dimensions and using
+    // generated using iota (ArangeOp) tensors for static dimensions and using
     // ConcatOp to combine them with the index tensor.
     SmallVector<int64_t> shape(indicesType.getShape());
     shape.push_back(1);
@@ -2537,7 +2540,7 @@ private:
     return isa_and_nonnull<mlir::stablehlo::IotaOp>(op);
   }
 
-  std::optional<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
+  mlir::FailureOr<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
     Block &block = srcOp.getComparator().front();
     for (auto &op : block.getOperations()) {
       auto cmpOp = dyn_cast<mlir::stablehlo::CompareOp>(op);
@@ -2550,7 +2553,7 @@ private:
       return cmpOp.getComparisonDirection() ==
              mlir::stablehlo::ComparisonDirection::GT;
     }
-    return std::nullopt;
+    return mlir::failure();
   }
 };
 
