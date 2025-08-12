@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "llvm/ADT/DenseSet.h"
 
@@ -327,13 +328,16 @@ public:
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout =
+          {},
       std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                    Operation *, OpConfig)>
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
-  bool supportsInterleavedInputShardedOutput(Operation *op,
-                                             OpConfig outputConfig);
+  bool
+  supportsInterleavedInputShardedOutput(Operation *op, OpConfig outputConfig,
+                                        bool rowMajorInputOverride = false);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
   bool resolve();
@@ -364,6 +368,8 @@ private:
 
   // Edges indicated for resharding.
   llvm::DenseSet<Edge> memReconfigEdges;
+  // Override output layout parameters.
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
   std::function<llvm::Expected<TTNNLayoutAttr>(mlir::Value, TTNNLayoutAttr,
                                                mlir::Operation *, OpConfig)>

@@ -14,8 +14,8 @@ namespace mlir::tt::ttnn::op_model {
 // getOpRuntime() uses trace capture to run and measure the runtime of an op.
 // This requires the device to be opened with sufficient trace region size. This
 // number is currently set based on manual testing of supported ops to
-// accommodate the highest required trace buffer size (400384B)
-static constexpr size_t opModelDefaultTraceRegionSize = 500000;
+// accommodate the highest required trace buffer size (2004992B)
+static constexpr size_t opModelDefaultTraceRegionSize = 5000000;
 
 SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
   openDevice(traceRegionSize);

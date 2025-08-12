@@ -55,6 +55,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -255,6 +256,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::RandOp: {
+    return operations::rand::run(op->type_as_RandOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
                                           getContext());
@@ -361,7 +365,7 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
-    ::tt::tt_metal::DumpMeshDeviceProfileResults(context->getMeshDevice());
+    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
     counter = 0;
   }
 #endif

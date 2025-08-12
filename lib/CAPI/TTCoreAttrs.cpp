@@ -39,9 +39,9 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-    unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
-    MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
-    unsigned dstRegisterSizeTiles, unsigned numCBs, unsigned numComputeThreads,
+    unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
+    MlirAttribute *supportedTileSizes, unsigned dstRegisterSizeTiles,
+    unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   std::vector<int64_t> coordTranslationOffsetsVec(
@@ -53,8 +53,6 @@ MlirAttribute ttmlirTTChipDescAttrGet(
       nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
       l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
       dramUnreservedEnd,
-      mlir::dyn_cast<ChipPhysicalHelperCoresAttr>(
-          unwrap(chipPhysicalHelperCores)),
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)),
       dstRegisterSizeTiles, numCBs, numComputeThreads, numDatamovementThreads));
@@ -129,12 +127,15 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
 
 MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
                                          const int64_t *logicalShape,
+                                         intptr_t gridRank,
+                                         const int64_t *gridShape,
                                          unsigned oobVal,
                                          unsigned memorySpace) {
 
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
+  llvm::ArrayRef<int64_t> gridShapeRef(gridShape, gridRank);
 
-  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, logicalRank,
+  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, gridShapeRef,
                                    static_cast<OOBVal>(oobVal),
                                    static_cast<MemorySpace>(memorySpace)));
 }
@@ -172,27 +173,6 @@ MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(MlirContext ctx,
 
 MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(TileSizeAttr::get(unwrap(ctx), y, x));
-}
-
-MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
-    MlirContext ctx, MlirAttribute *dram, size_t dramSize, MlirAttribute *eth,
-    size_t ethSize, MlirAttribute *eth_inactive, size_t eth_inactiveSize) {
-  std::vector<CoreCoordAttr> dramVec, ethVec, ethInactiveVec;
-  for (size_t i = 0; i < dramSize; i++) {
-    dramVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(dram[i])));
-  }
-
-  for (size_t i = 0; i < ethSize; i++) {
-    ethVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(eth[i])));
-  }
-
-  for (size_t i = 0; i < eth_inactiveSize; i++) {
-    ethInactiveVec.push_back(
-        mlir::cast<CoreCoordAttr>(unwrap(eth_inactive[i])));
-  }
-
-  return wrap(ChipPhysicalHelperCoresAttr::get(unwrap(ctx), dramVec, ethVec,
-                                               ethInactiveVec));
 }
 
 MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {

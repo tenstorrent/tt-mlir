@@ -20,10 +20,11 @@ void populateTTModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             uint32_t oobValValue, uint32_t memorySpaceValue) {
+             std::vector<int64_t> gridShape, uint32_t oobValValue,
+             uint32_t memorySpaceValue) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                logicalShape.size(),
+                ArrayRef<int64_t>(gridShape),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue)));
           })
@@ -121,18 +122,16 @@ void populateTTModule(nb::module_ &m) {
              unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
              unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
              unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-             unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
-             MlirAttribute supportedDataTypes, MlirAttribute supportedTileSizes,
-             unsigned dstRegisterSizeTiles, unsigned numCBs,
-             unsigned numComputeThreads, unsigned numDatamovementThreads) {
+             unsigned dramUnreservedEnd, MlirAttribute supportedDataTypes,
+             MlirAttribute supportedTileSizes, unsigned dstRegisterSizeTiles,
+             unsigned numCBs, unsigned numComputeThreads,
+             unsigned numDatamovementThreads) {
             return wrap(tt::ttcore::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ttcore::ArchAttr>(unwrap(arch)),
                 grid, coordTranslationOffsets, l1Size, numDramChannels,
                 dramChannelSize, nocL1AddressAlignBytes, pcieAddressAlignBytes,
                 nocDRAMAddressAlignBytes, l1UnreservedBase,
                 eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
-                mlir::dyn_cast<tt::ttcore::ChipPhysicalHelperCoresAttr>(
-                    unwrap(chipPhysicalHelperCores)),
                 mlir::cast<tt::ttcore::DataTypeAttr>(
                     unwrap(supportedDataTypes)),
                 mlir::cast<tt::ttcore::TileSizeAttr>(
@@ -170,8 +169,6 @@ void populateTTModule(nb::module_ &m) {
                    &tt::ttcore::ChipDescAttr::getDramUnreservedBase)
       .def_prop_ro("dram_unreserved_end",
                    &tt::ttcore::ChipDescAttr::getDramUnreservedEnd)
-      .def_prop_ro("chip_physical_helper_cores",
-                   &tt::ttcore::ChipDescAttr::getChipPhysicalHelperCores)
       .def_prop_ro("supported_data_types",
                    [](tt::ttcore::ChipDescAttr self) {
                      return self.getSupportedDataTypes().vec();
@@ -190,29 +187,6 @@ void populateTTModule(nb::module_ &m) {
                   })
       .def_prop_ro("y", &tt::ttcore::TileSizeAttr::getY)
       .def_prop_ro("x", &tt::ttcore::TileSizeAttr::getX);
-
-  tt_attribute_class<tt::ttcore::ChipPhysicalHelperCoresAttr>(
-      m, "ChipPhysicalHelperCoresAttr")
-      .def_static("get",
-                  [](MlirContext ctx,
-                     std::vector<tt::ttcore::CoreCoordAttr> dram,
-                     std::vector<tt::ttcore::CoreCoordAttr> eth,
-                     std::vector<tt::ttcore::CoreCoordAttr> eth_inactive) {
-                    return wrap(tt::ttcore::ChipPhysicalHelperCoresAttr::get(
-                        unwrap(ctx), dram, eth, eth_inactive));
-                  })
-      .def_prop_ro("dram",
-                   [](tt::ttcore::ChipPhysicalHelperCoresAttr self) {
-                     return self.getDram().vec();
-                   })
-      .def_prop_ro("eth",
-                   [](tt::ttcore::ChipPhysicalHelperCoresAttr self) {
-                     return self.getEth().vec();
-                   })
-      .def_prop_ro("eth_inactive",
-                   [](tt::ttcore::ChipPhysicalHelperCoresAttr self) {
-                     return self.getEthInactive().vec();
-                   });
 
   tt_attribute_class<tt::ttcore::CoreCoordAttr>(m, "CoreCoordAttr")
       .def_static("get",

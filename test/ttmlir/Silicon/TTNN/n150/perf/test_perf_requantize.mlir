@@ -11,7 +11,7 @@ func.func @requantize_per_tensor_scales_per_tensor_zps(%arg0: tensor<1x3x320x320
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0 : i32
-    // CHECK-SAME: -> tensor<1xf32,
+    // CHECK-SAME: -> tensor<1xi32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 1.000000e-01 : f32
     // CHECK-SAME: -> tensor<1xf32,

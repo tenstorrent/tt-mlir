@@ -5,11 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
-#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -24,15 +21,12 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <optional>
 
@@ -1659,6 +1653,40 @@ private:
 };
 } // namespace
 
+// Rand op conversion pattern
+//
+namespace {
+class RandOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RandOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RandOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSize()),
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getLow()),
+        emitter.emit(srcOp.getHigh()),
+        emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
 namespace {
@@ -1769,16 +1797,10 @@ public:
     // we need to create a utility function that does this. This is achieved
     // by using EmitC's VerbatimOp.
 
-    // Try to find if utility vec creation function is already defined in the
-    // module. If not, insert it.
-    //
-    mlir::tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter,
-                                                                 tupleOp);
-
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
-        mlir::tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-        nullptr, adaptor.getOperands());
+        mlir::tt::ttnn_to_emitc::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getOperands());
     return success();
   }
 };
@@ -1803,11 +1825,6 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // Get the callee function
     llvm::StringRef callee = srcOp.getCallee();
-
-    // Try to find if utility vec creation function is already defined in the
-    // module. If not, insert it.
-    mlir::tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter,
-                                                                 srcOp);
 
     // Create a tuple of all input tensors
     auto tupleType = emitc::OpaqueType::get(rewriter.getContext(),
@@ -1853,8 +1870,8 @@ public:
 
     auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), tupleType,
-        mlir::tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-        nullptr, adaptor.getInputs());
+        mlir::tt::ttnn_to_emitc::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getInputs());
     Value tupleValue = tupleOp.getResult(0);
 
     // Get a reference to the global variable using GetGlobalOp
@@ -2050,8 +2067,7 @@ public:
         emitter.emit(srcOp.getScatterDim()),
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getDevice()),
-        mlir::tt::ttnn_to_emitc::utils::convertReduceType(
-            rewriter, srcOp.getReduceType()),
+        emitter.emit(srcOp.getReduceType()),
         /*numLinks=*/emitter.emit(1),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*ttnn::ccl::Topology=*/
@@ -2112,15 +2128,86 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Create SmallVector variable for begins
+    auto beginsAttr =
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins());
+    auto beginsVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        beginsAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto beginsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{beginsVar.getResult()});
+
+    // Create SmallVector variable for ends
+    auto endsAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds());
+    auto endsVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        endsAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto endsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{endsVar.getResult()});
+
+    // Create SmallVector variable for step
+    auto stepAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep());
+    auto stepVar = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::SmallVector<int32_t>"),
+        stepAttr);
+
+    // Create span from SmallVector variable using CallOpaqueOp
+    auto stepSpanVar = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "::ttsl::Span<const int32_t>"),
+        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
+        mlir::ValueRange{stepVar.getResult()});
+
+    // Collect operands: input + all SmallVector variables + all span variables
+    llvm::SmallVector<mlir::Value> operands;
+
+    // Add input operand (this will be the first operand from the source op)
+    operands.push_back(adaptor.getOperands()[0]);
+
+    // Add our SmallVector variables (needed for the span construction)
+    operands.push_back(beginsVar.getResult());
+    operands.push_back(endsVar.getResult());
+    operands.push_back(stepVar.getResult());
+
+    // Add our span variables
+    operands.push_back(beginsSpanVar.getResult(0));
+    operands.push_back(endsSpanVar.getResult(0));
+    operands.push_back(stepSpanVar.getResult(0));
+
+    // Create args array with index references
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
-        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
+        rewriter.getIndexAttr(0), // Reference to input
+        rewriter.getIndexAttr(4), // Reference to beginsSpanVar
+        rewriter.getIndexAttr(5), // Reference to endsSpanVar
+        rewriter.getIndexAttr(6), // Reference to stepSpanVar
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Manually create the CallOpaqueOp
+    auto resultType =
+        this->getTypeConverter()->convertType(srcOp.getResult().getType());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultType, this->convertOpName(srcOp),
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
 
     return success();
   }
@@ -2288,7 +2375,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
+               RandOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops

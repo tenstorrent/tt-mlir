@@ -5,7 +5,6 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
-#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -88,6 +87,10 @@ using OptionalMeshDevice =
 namespace conv::conv2d {
 struct Conv2dConfig;
 } // namespace conv::conv2d
+
+namespace reduction {
+enum class ReduceType;
+} // namespace reduction
 } // namespace operations
 } // namespace ttnn
 
@@ -288,6 +291,12 @@ struct TypeName<::ttnn::BufferType> {
 template <>
 struct TypeName<::ttnn::Shape> {
   inline static const std::string value = "::ttnn::Shape";
+};
+
+template <>
+struct TypeName<::ttnn::operations::reduction::ReduceType> {
+  inline static const std::string value =
+      "::ttnn::operations::reduction::ReduceType";
 };
 
 template <>
@@ -562,28 +571,28 @@ struct EmitCTypeConverter<::ttnn::DataType> {
     switch (attr) {
     case ttcore::DataType::BFloat16:
       rso << "BFLOAT16";
-      break;
+      return buf;
     case ttcore::DataType::Float32:
       rso << "FLOAT32";
-      break;
+      return buf;
     case ttcore::DataType::UInt32:
       rso << "UINT32";
-      break;
+      return buf;
     case ttcore::DataType::BFP_BFloat8:
       rso << "BFLOAT8_B";
-      break;
+      return buf;
     case ttcore::DataType::BFP_BFloat4:
       rso << "BFLOAT4_B";
-      break;
+      return buf;
     case ttcore::DataType::UInt8:
       rso << "UINT8";
-      break;
+      return buf;
     case ttcore::DataType::UInt16:
       rso << "UINT16";
-      break;
+      return buf;
     case ttcore::DataType::Int32:
       rso << "INT32";
-      break;
+      return buf;
     case ttcore::DataType::Float16:
     case ttcore::DataType::BFP_Float2:
     case ttcore::DataType::BFP_Float4:
@@ -592,7 +601,7 @@ struct EmitCTypeConverter<::ttnn::DataType> {
       llvm_unreachable("Unsupported ttnn::DataType");
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttcore::DataType");
   }
 };
 
@@ -625,19 +634,19 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
     switch (attr) {
     case ttnn::TensorMemoryLayout::BlockSharded:
       rso << "BLOCK_SHARDED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::HeightSharded:
       rso << "HEIGHT_SHARDED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::Interleaved:
       rso << "INTERLEAVED";
-      break;
+      return buf;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
-      break;
+      return buf;
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
   }
 };
 
@@ -665,15 +674,16 @@ struct EmitCTypeConverter<::ttnn::Layout> {
     switch (attr) {
     case ttnn::Layout::RowMajor:
       rso << "ROW_MAJOR";
-      break;
+      return buf;
     case ttnn::Layout::Tile:
       rso << "TILE";
-      break;
+      return buf;
     case ttnn::Layout::Invalid:
       rso << "INVALID";
-      break;
+      return buf;
     }
-    return buf;
+
+    llvm_unreachable("Unknown ttnn::Layout");
   }
 };
 
@@ -699,22 +709,22 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
     switch (attr) {
     case ttnn::BufferType::DRAM:
       rso << "DRAM";
-      break;
+      return buf;
     case ttnn::BufferType::L1:
       rso << "L1";
-      break;
+      return buf;
     case ttnn::BufferType::L1Small:
       rso << "L1_SMALL";
-      break;
+      return buf;
     case ttnn::BufferType::SystemMemory:
       rso << "SYSTEM_MEMORY";
-      break;
+      return buf;
     case ttnn::BufferType::Trace:
       rso << "TRACE";
-      break;
+      return buf;
     }
 
-    return buf;
+    llvm_unreachable("Unknown ttnn::BufferType");
   }
 };
 
@@ -744,6 +754,49 @@ struct EmitCTypeConverter<::ttnn::Shape> {
   }
 };
 
+template <>
+struct EmitCTypeConverter<ttcore::ReduceType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto reduceTypeAttr =
+            mlir::dyn_cast_if_present<ttcore::ReduceTypeAttr>(attr)) {
+      return convert(reduceTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttcore::ReduceTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttcore::ReduceType attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::reduction::ReduceType> << "::";
+    switch (attr) {
+    case ttcore::ReduceType::Sum:
+      rso << "SUM";
+      return buf;
+    case ttcore::ReduceType::Mean:
+      rso << "MEAN";
+      return buf;
+    case ttcore::ReduceType::Max:
+      rso << "MAX";
+      return buf;
+    case ttcore::ReduceType::Min:
+      rso << "MIN";
+      return buf;
+    case ttcore::ReduceType::Std:
+      rso << "STD";
+      return buf;
+    case ttcore::ReduceType::Var:
+      rso << "VAR";
+      return buf;
+    }
+
+    llvm_unreachable("Unknown ttcore::ReduceType");
+  }
+};
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {
@@ -1217,11 +1270,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
       firstElement = false;
     }
-    if (attr.getEnableSubblockPadding()) {
-      rso << (firstElement ? "" : ", ") << ".enable_subblock_padding = "
-          << EmitCTypeConverter<bool>::convert(attr.getEnableSubblockPadding());
-      firstElement = false;
-    }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
@@ -1329,6 +1377,10 @@ struct IsMLIRType {
 
 template <typename T>
 static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
+
+// Name for the function that creates a std::vector from a variadic number of
+// `ttnn::Tensor`s.
+inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
@@ -1482,11 +1534,28 @@ public:
       return emit(std::nullopt);
     }
 
-    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *> ||
-                  std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice>) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *>) {
       unsigned index = getOperandIndex(device);
       operands.push_back(adaptor.getOperands()[index]);
 
+      return rewriter.getIndexAttr(index);
+    } else if constexpr (std::is_same_v<TargetTy,
+                                        ::ttnn::distributed::MeshDevice>) {
+      unsigned index = getOperandIndex(device);
+      mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
+
+      // ttnn::distributed::MeshDevice does not support copy/move constructor.
+      // So a reference variable is created to be used as function argument.
+      // ::ttnn::distributed::MeshDevice& deviceRef = *devicePtr;
+      emitc::ApplyOp meshDeviceOp = rewriter.create<emitc::ApplyOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<TargetTy> +
+                                     "&"), // ::ttnn::distributed::MeshDevice&
+          "*",                             // Dereference operator
+          deviceValueFromOperandsList);
+
+      operands.push_back(meshDeviceOp.getResult());
       return rewriter.getIndexAttr(index);
     } else if constexpr (std::is_same_v<TargetTy,
                                         ::ttnn::operations::creation::detail::
@@ -1637,15 +1706,12 @@ public:
 
 private:
   mlir::Value createVector(ValueRange operands) {
-    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
-
     return rewriter
         .create<emitc::CallOpaqueOp>(
             op.getLoc(),
             emitc::OpaqueType::get(rewriter.getContext(),
                                    TypeNameV<std::vector<::ttnn::Tensor>>),
-            tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-            nullptr, operands)
+            kCreateVectorFunctionName, nullptr, nullptr, operands)
         ->getResult(0);
   }
 

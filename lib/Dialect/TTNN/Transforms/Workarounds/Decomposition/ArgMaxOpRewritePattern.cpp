@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -42,7 +43,8 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
 
   // Create reshape op to unsqueeze input tensor to 4D.
   ReshapeOp preReshapeOp = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getInput(), reshapeOutputShape, rewriter);
+      srcOp.getInput(), reshapeOutputShape, rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_reshapeInput"));
 
   // Create output layout attribute with new output tensor shape and create new
   // output type.
@@ -66,7 +68,8 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
 
   // Create ttnn.reshape op after performing ttnn.argmax op.
   ReshapeOp postReshapeOp = ttir_to_ttnn::utils::generateReshape(
-      argMaxOp, outputType.getShape(), rewriter);
+      argMaxOp, outputType.getShape(), rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_reshapeOutput"));
 
   rewriter.replaceOp(srcOp, postReshapeOp);
 

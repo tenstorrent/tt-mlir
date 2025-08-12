@@ -10,6 +10,7 @@ table TTNNBinary {
   schema_hash: string;
   ttmlir_git_hash: string;
   system_desc: tt.target.SystemDesc;
+  mlir: MLIR;
   programs: [Program];
 }
 

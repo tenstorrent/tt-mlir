@@ -5,7 +5,6 @@
 #include "OpModelFixture.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -219,6 +218,66 @@ const auto createLog = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<LogOp>(loc, type, ops).getOperation();
 };
+const auto createAbs = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<AbsOp>(loc, type, ops).getOperation();
+};
+const auto createCeil = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CeilOp>(loc, type, ops).getOperation();
+};
+const auto createSign = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<SignOp>(loc, type, ops).getOperation();
+};
+const auto createErf = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<ErfOp>(loc, type, ops).getOperation();
+};
+const auto createErfc = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<ErfcOp>(loc, type, ops).getOperation();
+};
+const auto createFloor = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<FloorOp>(loc, type, ops).getOperation();
+};
+const auto createGelu = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<GeluOp>(loc, type, ops).getOperation();
+};
+const auto createIsFinite = [](OpBuilder &b, Location loc, Type type,
+                               ValueRange ops) {
+  return b.create<IsFiniteOp>(loc, type, ops).getOperation();
+};
+const auto createLogicalNot = [](OpBuilder &b, Location loc, Type type,
+                                 ValueRange ops) {
+  return b.create<LogicalNotOp>(loc, type, ops).getOperation();
+};
+const auto createNeg = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<NegOp>(loc, type, ops).getOperation();
+};
+const auto createTan = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<TanOp>(loc, type, ops).getOperation();
+};
+const auto createAtan = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AtanOp>(loc, type, ops).getOperation();
+};
+const auto createRsqrt = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<RsqrtOp>(loc, type, ops).getOperation();
+};
+const auto createLog1p = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Log1pOp>(loc, type, ops).getOperation();
+};
+const auto createExpm1 = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Expm1Op>(loc, type, ops).getOperation();
+};
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
@@ -232,7 +291,22 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Exp", createExp, expected},
     {"Tanh", createTanh, expected},
     {"Log", createLog, expected},
-    {"Reciprocal", createReciprocal, expected}};
+    {"Abs", createAbs, expected},
+    {"Ceil", createCeil, expected},
+    {"Sign", createSign, expected},
+    {"Erf", createErf, expected},
+    {"Erfc", createErfc, expected},
+    {"Floor", createFloor, expected},
+    {"Reciprocal", createReciprocal, expected},
+    {"Gelu", createGelu, expected},
+    {"IsFinite", createIsFinite, expected},
+    {"LogicalNot", createLogicalNot, expected},
+    {"Neg", createNeg, expected},
+    {"Tan", createTan, expected},
+    {"Atan", createAtan, expected},
+    {"Rsqrt", createRsqrt, expected},
+    {"Log1p", createLog1p, expected},
+    {"Expm1", createExpm1, expected}};
 
 // Instantiate the test suite
 INSTANTIATE_TEST_SUITE_P(
@@ -386,7 +460,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"GreaterThan", createGT, binaryExpected},
     {"LessEqual", createLE, binaryExpected},
     {"LessThan", createLT, binaryExpected},
-    {"LogicalAnd", createAnd, binaryExpected},
+    {"LogicalAnd", createAnd, binaryExpected_extraCb4096},
     {"LogicalOr", createOr, binaryExpected_extraCb4096},
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
@@ -762,6 +836,9 @@ TEST_F(OpModelBase, SumOpInterface) {
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
       /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
@@ -772,6 +849,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
@@ -782,6 +861,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -801,6 +882,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
@@ -813,6 +896,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
   if (cachedRuntimeExp) {
@@ -826,6 +911,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, SliceOpInterface) {
@@ -1067,8 +1154,6 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1120,7 +1205,7 @@ TEST_F(OpModelBase, Conv2dInterface) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(peakSize, 190572);
   EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
@@ -1136,8 +1221,6 @@ TEST_F(OpModelBase, Conv2dInterface) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1191,7 +1274,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(peakSize, 190572);
   EXPECT_EQ(outputSize, 28672);
 
   ASSERT_TRUE(outputLayout);
@@ -1248,9 +1331,6 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
-  // TODO(3901): Skipped due to hang. See
-  // https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1307,7 +1387,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -1347,7 +1426,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
@@ -1373,9 +1451,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 }
 
 TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
-  // TODO(3901): Skipped due to hang. See
-  // https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1445,9 +1520,6 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 }
 
 TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3970
-  GTEST_SKIP();
-
   // create ConvTranspose2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {3, 64, 7, 7};
@@ -1501,7 +1573,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
@@ -1588,6 +1659,46 @@ TEST_F(OpModelBase, maxPool2DOp) {
   op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, LeakyReluOp) {
+  // Create LeakyReluOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input param
+  float slope = 0.01f;
+
+  // Convert float value to APFloat object
+  llvm::APFloat slopeAPF(slope);
+
+  LeakyReluOp leakyReluOp = builder.create<LeakyReluOp>(
+      builder.getUnknownLoc(), outputType, input, slopeAPF);
+  leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 8192);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
@@ -1806,6 +1917,49 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   }
 }
 
+TEST_F(OpModelBase, EmbeddingBackwardOp) {
+  llvm::SmallVector<int64_t> inputShape = {2, 1024};
+  llvm::SmallVector<int64_t> weightShape = {3200, 4096};
+  llvm::SmallVector<int64_t> inGradientShape = {1, 1, 2048, 4096};
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(inputShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(weightShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto inGradient = createEmptyTensor(inGradientShape);
+  auto outputType = createRankedTensorType(
+      inGradientShape, builder.getBF16Type(),
+      CreateTiledLayout(inGradientShape, BufferType::L1,
+                        TensorMemoryLayout::Interleaved));
+
+  auto embeddingBackward = builder.create<EmbeddingBackwardOp>(
+      builder.getUnknownLoc(), outputType,
+      ::mlir::ValueRange{input, weight, inGradient});
+
+  auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12400);
+    EXPECT_EQ(peakSize, 409600);
+    EXPECT_EQ(outputSize, 409600);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(embeddingBackward.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, CacheOpConstraintsTest) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
@@ -1916,8 +2070,8 @@ TEST_F(OpModelBase, WhereOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 10240);
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="

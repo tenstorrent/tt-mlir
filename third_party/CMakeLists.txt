@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "94e5d6df95db69c08502c9079eb24ba790c05c85")
+set(TT_METAL_VERSION "f86a09ddb2fba35b788ea4bf0c2607a5d94a8921")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -39,7 +39,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
-  ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
+  ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
@@ -50,6 +50,7 @@ set(TTMETAL_INCLUDE_DIRS
   PARENT_SCOPE
 )
 
+set(TTMETAL_BUILD_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
 
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
@@ -63,6 +64,7 @@ else()
   set(TRACY_LIBRARY_PATH "")
 endif()
 
+set(TTMETAL_BUILD_DIR ${TTMETAL_BUILD_DIR} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
 set(TTNN_PY_LIBRARY_PATH ${TTNN_PY_LIBRARY_PATH} PARENT_SCOPE)
@@ -77,7 +79,7 @@ if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   set(TTMETAL_DISABLE_PRECOMPILE_HEADERS ON)
 endif()
 
-if (TTMLIR_ENABLE_RUNTIME)
+if (TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL)
 set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
@@ -180,7 +182,7 @@ install(
   DIRECTORY
     ${CPM_SOURCE_CACHE}/boost
     ${CPM_SOURCE_CACHE}/fmt
-    ${CPM_SOURCE_CACHE}/magic_enum
+    ${CPM_SOURCE_CACHE}/enchantum
     ${CPM_SOURCE_CACHE}/nlohmann_json
     ${CPM_SOURCE_CACHE}/reflect
     ${CPM_SOURCE_CACHE}/spdlog
@@ -232,7 +234,7 @@ install(CODE
     )"
     COMPONENT SharedLib
 )
-else() # TTMLIR_ENABLE_RUNTIME
+else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(tt-metal INTERFACE)
   add_library(TTNN_LIBRARY INTERFACE)
   add_library(TTNN_PY_LIBRARY INTERFACE)
@@ -241,4 +243,4 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
-endif() # TTMLIR_ENABLE_RUNTIME
+endif() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL

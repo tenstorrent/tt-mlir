@@ -9,9 +9,6 @@ module {
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<1xf32,
-    // CHECK: "ttnn.typecast"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 2.000000e-02
@@ -35,9 +32,6 @@ module {
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<3xf32,
-    // CHECK: "ttnn.typecast"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<3xsi32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: axis = 0 : i32

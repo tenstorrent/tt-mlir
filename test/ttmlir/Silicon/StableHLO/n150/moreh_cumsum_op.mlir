@@ -79,16 +79,16 @@ module @moreh_cumsum attributes {} {
     %c = stablehlo.constant dense<0> : tensor<i64>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: {shape = [1 : i32, 10 : i32, 1 : i32, 1 : i32]}
-    // CHECK-SAME: tensor<1x10xf32
-    // CHECK-SAME: -> tensor<1x10x1x1xf32
+    // CHECK-SAME: tensor<1x10xsi32
+    // CHECK-SAME: -> tensor<1x10x1x1xsi32
     // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"
     // CHECK-SAME: <{dim = 1 : i64}>
     // CHECK-SAME: tensor<1x10x1x1xsi32
     // CHECK-SAME: -> tensor<1x10x1x1xsi32
     // CHECK: %[[RESHAPE_FINAL:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: <{shape = [1 : i32, 10 : i32]}>
-    // CHECK-SAME: tensor<1x10x1x1xf32
-    // CHECK-SAME: -> tensor<1x10xf32
+    // CHECK-SAME: tensor<1x10x1x1xsi32
+    // CHECK-SAME: -> tensor<1x10xsi32
     %0 = "stablehlo.reduce_window"(%arg0, %c) <{padding = dense<[[0, 0], [9, 0]]> : tensor<2x2xi64>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 1, 10>, window_strides = array<i64: 1, 1>}> ({
     ^bb0(%arg1: tensor<i64>, %arg2: tensor<i64>):
       %1 = stablehlo.add %arg1, %arg2 : tensor<i64>

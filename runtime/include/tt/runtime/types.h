@@ -221,11 +221,11 @@ struct Flatbuffer : public detail::ObjectImpl {
 
   void store(const char *path) const;
   void storeToMemory(std::vector<std::byte> &serializedFlatbuffer) const;
-  std::string_view getFileIdentifier() const;
+  std::string getFileIdentifier() const;
   std::string getVersion() const;
-  std::string_view getSchemaHash() const;
+  std::string getSchemaHash() const;
   bool checkSchemaHash() const;
-  std::string_view getTTMLIRGitHash() const;
+  std::string getTTMLIRGitHash() const;
   std::string asJson() const;
 };
 
@@ -267,8 +267,7 @@ struct Binary : public Flatbuffer {
   std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
-  std::string getProgramMlirAsJson(std::uint32_t programIndex) const;
-  std::string getProgramCpp(std::uint32_t programIndex) const;
+  std::string getMlirAsJson() const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;

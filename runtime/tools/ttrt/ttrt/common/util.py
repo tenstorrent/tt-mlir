@@ -487,6 +487,8 @@ class FileManager:
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
+        # Sort files alphabetically to ensure consistent ordering.
+        ttnn_files.sort()
         return ttnn_files
 
     def find_ttmetal_binary_paths(self, path):
@@ -517,6 +519,8 @@ class FileManager:
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
+        # Sort files alphabetically to ensure consistent ordering.
+        ttmetal_files.sort()
         return ttmetal_files
 
     def find_ttsys_binary_paths(self, path):
@@ -547,6 +551,8 @@ class FileManager:
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
+        # Sort files alphabetically to ensure consistent ordering.
+        ttsys_files.sort()
         return ttsys_files
 
 

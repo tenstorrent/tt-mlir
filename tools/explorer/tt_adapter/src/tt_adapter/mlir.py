@@ -237,59 +237,6 @@ def parse_tt_system_desc(attr):
                 ),
             )
         )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-dram-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.dram
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-eth-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.eth
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-eth-inactive-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_helper_cores.eth_inactive
-                    ]
-                ),
-            )
-        )
-        result.append(
-            graph_builder.KeyValue(
-                key=f"chip#{i}-worker-core-coords",
-                value=", ".join(
-                    [
-                        "x".join(
-                            map(
-                                str,
-                                (
-                                    chip_desc.coord_translation_offsets[0] + y,
-                                    chip_desc.coord_translation_offsets[1] + x,
-                                ),
-                            )
-                        )
-                        for y in range(chip_desc.grid[0])
-                        for x in range(chip_desc.grid[1])
-                    ]
-                ),
-            )
-        )
     return result
 
 
@@ -669,18 +616,6 @@ def parse_conv2d_config(attr):
             graph_builder.KeyValue(
                 key="enable_split_reader",
                 value=str(conv2d_config.enable_split_reader),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": ["True", "False"],
-            },
-        )
-    )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
-                key="enable_subblock_padding",
-                value=str(conv2d_config.enable_subblock_padding),
             ),
             editable={
                 "input_type": "value_list",

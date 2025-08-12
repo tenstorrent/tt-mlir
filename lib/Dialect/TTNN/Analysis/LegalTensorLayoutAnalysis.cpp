@@ -255,7 +255,7 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
 
-  // Categorize layouts by scalar type, memory layout, and data layout
+  // Categorize layouts by scalar type, memory layout, and page layout
   for (const TTNNLayoutAttr &layout : layouts) {
     Type scalarType = layout.getScalarElementType();
 

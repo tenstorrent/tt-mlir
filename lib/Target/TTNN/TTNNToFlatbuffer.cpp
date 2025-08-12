@@ -26,6 +26,7 @@
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
+#include "ttmlir/Target/TTNN/operations/rand_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -838,17 +839,14 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
           getOperandThroughDPSOps(op.getInput()));
   flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation =
       toFlatbuffer(cache, op.getPermutation());
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   float padValue = op.getPadValue().convertToFloat();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  return ::tt::target::ttnn::CreatePermuteOp(
-      *cache.fbb, input, permutation,
-      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0, padValue,
-      output);
+  return ::tt::target::ttnn::CreatePermuteOp(*cache.fbb, input, permutation,
+                                             memoryConfig, padValue, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>
@@ -1143,15 +1141,6 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
       // Recurse on the returned value.
       return getAttrFromConstantChain<AttrType>(returnOp.getOperand(0),
                                                 expectedTypeMsg);
-    }
-  }
-  if constexpr (std::is_same_v<AttrType, int32_t>) {
-    // typecast first op for per-tensor zp
-    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
-      firstInput = typeCastOp.getInput();
-    } else {
-      llvm_unreachable(
-          "Expected ttnn.typecast as defining op for per-tensor zp.");
     }
   }
   ttnn::FullOp fullOp =
@@ -1610,6 +1599,26 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   return ::tt::target::ttnn::CreateReshapeOp(
       *cache.fbb, in, out, shape,
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RandOp>
+createRandOp(FlatbufferObjectCache &cache, RandOp op) {
+  auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  ::tt::target::DataType dtype =
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
+  ::tt::target::TensorLayout layout =
+      ::mlir::tt::ttnn::utils::toTargetTensorLayout(op.getLayout());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig());
+  float low = op.getLow().convertToFloat();
+  float high = op.getHigh().convertToFloat();
+  uint32_t seed = op.getSeed();
+
+  return ::tt::target::ttnn::CreateRandOp(
+      *cache.fbb, size, cache.at<::tt::target::DeviceRef>(device), dtype,
+      layout, memoryConfig, low, high, seed, out);
 }
 
 template <typename RepeatOp>
@@ -2244,6 +2253,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createConcatOp(cache, concatOp), debugString,
                            locInfo);
   }
+  if (auto randOp = dyn_cast<RandOp>(op); randOp) {
+    return createOperation(cache, createRandOp(cache, randOp), debugString,
+                           locInfo);
+  }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
                            debugString, locInfo);
@@ -2375,13 +2388,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
+  flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
+      toMLIR(fbb, "ttnn", rootModule);
 
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               module->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
+      debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2472,7 +2487,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
-      ::ttmlir::getGitHash(), systemDesc, &programs);
+      ::ttmlir::getGitHash(), systemDesc, binaryMLIR, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

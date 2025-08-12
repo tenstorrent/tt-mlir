@@ -63,6 +63,46 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RandOp::verify() {
+  ttcore::DataType dtype = getDtype();
+  ttcore::DataType outputType = mlir::tt::ttcore::elementTypeToDataType(
+      getResult().getType().getElementType());
+
+  if (dtype != outputType) {
+    return emitOpError() << "dtype does not match with output tensor type.";
+  }
+
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  auto layout =
+      mlir::cast<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())
+          .getLayout();
+  if (getLayout() != layout) {
+    return emitOpError() << "Layout argument does not match with output tensor "
+                            "encoding. [Layout = ("
+                         << stringifyEnum(getLayout())
+                         << "), output tensor encoding = ("
+                         << stringifyEnum(layout) << ")].";
+  }
+
+  if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = ("
+           << getSize().getShape() << "), output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
@@ -1249,15 +1289,16 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
     }
     inputShapeStream << ")";
     std::string inputShapeStr = inputShapeStream.str();
+    bool isEmptySliceOp = adjustedEnd == adjustedBegin;
 
-    if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+    if (!isEmptySliceOp && (adjustedBegin < 0 || adjustedBegin >= dimSize)) {
       return emitOpError() << "Invalid begin index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
                            << "), got " << begin
                            << ". Input shape: " << inputShapeStr;
     }
-    if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+    if (!isEmptySliceOp && (adjustedEnd < 0 || adjustedEnd > dimSize)) {
       return emitOpError() << "Invalid end index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
@@ -1987,8 +2028,8 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   auto indicesType =
       mlir::cast<RankedTensorType>(getResults().back().getType());
   auto elementType = indicesType.getElementType();
-  if (!elementType.isInteger(16)) {
-    return emitOpError("Expected data type for indices is i16 but got ")
+  if (!isa<IntegerType>(elementType)) {
+    return emitOpError("Expected integer data type for indices but got ")
            << elementType;
   }
 

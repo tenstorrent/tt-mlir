@@ -92,10 +92,8 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
-        bool validForSharding =
-            llvm::isa<ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
-                      ttnn::ReluOp, ttnn::Conv2dOp>(currentOp) &&
-            legalConfigs.lookup(currentOp).size() > 0;
+        bool validForSharding = llvm::isa<ttnn::Conv2dOp>(currentOp) &&
+                                legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
           OpL1MemSpec shardSpec;
@@ -152,7 +150,7 @@ void DFShardingPolicy::run() {
     progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
-        overrideReshardEdges);
+        overrideReshardEdges, overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

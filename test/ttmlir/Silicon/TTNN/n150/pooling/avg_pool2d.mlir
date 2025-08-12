@@ -53,7 +53,7 @@ module {
       kernel = array<i32: 3, 3>,
       stride = array<i32: 2, 2>,
       dilation = array<i32: 1, 1>,
-      padding = array<i32: 2, 2, 2, 2>,
+      padding = array<i32: 1, 1, 1, 1>,
       ceil_mode = true
     }> : (tensor<1x32x32x64xbf16>, tensor<1x17x17x64xbf16>) -> tensor<1x17x17x64xbf16>
     return %1 : tensor<1x17x17x64xbf16>

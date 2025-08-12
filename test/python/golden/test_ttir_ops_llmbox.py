@@ -5,8 +5,11 @@ import torch
 import pytest
 
 from typing import List, Tuple
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+from collections import OrderedDict
+
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.llmbox
 
@@ -66,8 +69,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(2, -1),
         )
 
-    compile_to_flatbuffer(
-        all_gather, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+    compile_ttir_to_flatbuffer(
+        all_gather,
+        [shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
     )
 
 
@@ -119,8 +126,12 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(2, -1),
         )
 
-    compile_to_flatbuffer(
-        all_reduce, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+    compile_ttir_to_flatbuffer(
+        all_reduce,
+        [shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
     )
 
 
@@ -186,10 +197,11 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(2, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         reduce_scatter,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -260,10 +272,11 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(2, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         collective_permute,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -335,10 +348,11 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_dims=(0, -1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_2x4,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -405,10 +419,11 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_dims=(-1,),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_1x8,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -453,10 +468,11 @@ def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_2x4,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -501,10 +517,11 @@ def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(1, -1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_2x4_cluster_0,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -549,10 +566,11 @@ def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_2x4_cluster_1,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -597,10 +615,11 @@ def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], req
             shard_dims=(3, 1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_2x4_reversed_cluster,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -645,10 +664,11 @@ def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], r
             shard_dims=(3, -1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_2x4_reversed_cluster_0,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -694,10 +714,11 @@ def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 3),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_1x8_dim_3,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -743,10 +764,11 @@ def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_dims=(-1, 1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         neg_1x8_dim_1,
         [shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -800,10 +822,11 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
             shard_dims=(0, 1),
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         eltwise_multidevice,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
     )
 
@@ -856,10 +879,11 @@ def test_matmul_and_binary_op(
         output = builder.add(unsharded, in2)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -911,10 +935,11 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         output = builder.neg(unsharded)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1004,10 +1029,11 @@ def test_matmul_and_binary_op_2(
         output = builder.add(matmul_0, matmul_2)
         return output
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         matmul_test,
         shapes,
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1098,10 +1124,11 @@ def all_to_all_test(
             shard_dims=shard_dims,
         )
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         all_to_all,
         [input_shape],
-        mesh_shape=mesh_shape,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1187,4 +1214,90 @@ def test_all_to_all_4d(
         cluster_axis=cluster_axis,
         replica_groups=replica_groups,
         request=request,
+    )
+
+
+def pseudo_golden_collective_broadcast(
+    input_tensor: torch.Tensor,
+    mesh_shape: Tuple[int, int],
+    replica_groups: List[Tuple[int, int]],
+):
+    # sharding
+    shards = [
+        chunk
+        for shard in torch.chunk(input_tensor, mesh_shape[0], dim=2)
+        for chunk in torch.chunk(shard, mesh_shape[1], dim=3)
+    ]
+
+    # permute
+    for group in replica_groups:
+        for device in group:
+            shards[device] = shards[group[0]]
+
+    # unsharding
+    return torch.cat(
+        [
+            torch.cat(shards[i : i + mesh_shape[1]], dim=3)
+            for i in range(0, len(shards), mesh_shape[1])
+        ],
+        dim=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 256, 4096),
+        (1, 1, 128, 256),
+        (1, 1, 64, 128),
+    ],
+)
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((2, 4), [(0, 1, 2, 3), (4, 5, 6, 7)]),
+        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
+        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
+        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
+        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
+    ],
+)
+def test_collective_broadcast(
+    shape: Shape, mesh_shape: Tuple[int, int], replica_groups, request
+):
+    shard_shape = (1, 1) + mesh_shape
+
+    def collective_broadcast(in0: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        golden_output = pseudo_golden_collective_broadcast(
+            input, mesh_shape, replica_groups
+        )
+        builder.set_graph_input_output([input], [golden_output])
+        sharded = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=(2, 3),
+        )
+        reduced = builder.collective_broadcast(
+            sharded,
+            replica_groups=replica_groups,
+        )
+        return builder.mesh_shard(
+            reduced,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=(2, 3),
+        )
+
+    compile_ttir_to_flatbuffer(
+        collective_broadcast,
+        [shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )

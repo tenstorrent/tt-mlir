@@ -112,11 +112,6 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
         conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
   }
 
-  if (overrides.enableSubblockPadding.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withEnableSubblockPadding(
-        *overrides.enableSubblockPadding);
-  }
-
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
 
