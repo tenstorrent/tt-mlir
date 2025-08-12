@@ -33,7 +33,24 @@ _SAFE_TENSOR_ATTRS = {
 
 
 class ShardedTensor:
-    """A logical tensor split into equal-shaped shards."""
+    """
+    ShardedTensor is a utility class for managing golden tensors produced by the TTIR Builder.
+
+    What is the purpose of this class?
+      - It organizes and manipulates golden tensors for TTIR Builder workflows.
+      - It represents tensors that are sharded across multiple devices.
+
+    How does this class simulate sharded tensors across multiple TT devices?
+      - ShardedTensor simulates a multi-device tensor by storing a list of torch.Tensor objects, each representing a shard.
+      - The `shard_shape` argument specifies the arrangement of these shards, as if each shard resides on a different TT device.
+      - All shards must have the same shape, dtype, and device.
+
+    How is this class compatible with torch.* operations?
+      - For read-only tensor attributes (like shape, dtype, device, etc.), ShardedTensor forwards attribute access to the first shard.
+      - For torch.* operations, the class implements the `__torch_function__` protocol.
+      - When a torch function is called on a ShardedTensor, the function is applied independently to each shard.
+      - The results are collected into a new ShardedTensor.
+    """
 
     # ------------------------------------------------------------
     # internal helpers (static)
