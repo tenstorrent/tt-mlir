@@ -164,13 +164,14 @@ func.func @hoist_multi_resource_comprehensive() attributes {} {
         }
 
         // CHECK: ttkernel.AC_test_init() : () -> ()
-        scf.for %arg6 = %c0_i32 to %c1_i32 step %c2_i32  : i32 { 
+        scf.for %arg6 = %c0_i32 to %c1_i32 step %c2_i32  : i32 {
           ttkernel.AC_test_init() : () -> ()
           ttkernel.AC_test() : () -> ()
         }
       }
     } 
     else {
+      // CHECK: ttkernel.F_test_init() : () -> ()
       ttkernel.F_test_init() : () -> ()
       ttkernel.F_test() : () -> ()
     }
