@@ -12,6 +12,8 @@ module  {
     // CHECK-SAME: tensor<32x32x!ttcore.tile<32x32, bfp_bf8
     // CHECK-SAME: -> tensor<32x32x!ttcore.tile<32x32, bfp_bf8
     %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    // CHECK: return
+    // CHECK-SAME: tensor<32x32xbf16
     return %1 : tensor<32x32xbf16>
   }
 }

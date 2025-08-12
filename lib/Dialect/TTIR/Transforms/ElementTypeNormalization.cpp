@@ -135,6 +135,14 @@ private:
   }
 };
 
+// This pattern is currently used only for conversion between bf16 and bfp8.
+// In future it will be extended to support other types as well.
+//
+// This pattern converts types of operations in the function body and
+// inserts materialization operations at the begining of the function body
+// and at the end of the function body just before the return operation.
+// This way we ensure that input and output types of original function
+// are preserved while the body is converted to use TTMLIR types.
 class FuncBodyTypeCast : public mlir::ConversionPattern {
 public:
   FuncBodyTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
@@ -175,6 +183,12 @@ public:
       addConversion([](mlir::RankedTensorType type) -> mlir::RankedTensorType {
         mlir::Type elementType = type.getElementType();
         if (!mlir::isa<BFloat16Type>(elementType)) {
+          assert(mlir::isa<ttcore::TileType>(elementType) &&
+                 "Expected TileType for non-bfloat16 element type.");
+          assert(
+              mlir::cast<ttcore::TileType>(elementType).getDataType() ==
+                  ttcore::DataType::BFP_BFloat8 &&
+              "Expected BFP_BFloat8 TileType for non-bfloat16 element type.");
           return type;
         }
 
@@ -212,42 +226,39 @@ struct ElementTypeNormalization
       return;
     }
 
-    {
+    mlir::RewritePatternSet patterns(&getContext());
+    patterns.add<UniformTypeRewriter>(converter, &getContext());
+    patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
+    if (failed(
+            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+
+    if (enableBfp8Conversion) {
+      mlir::ConversionTarget target(getContext());
+      FuncBodyTypeConverter funcBodyConverter;
+      target.markUnknownOpDynamicallyLegal(
+          [&funcBodyConverter](mlir::Operation *op) {
+            if (!isa<TTIRDialect>(op->getDialect())) {
+              return true;
+            }
+            if (llvm::all_of(op->getResultTypes(),
+                             [&funcBodyConverter](mlir::Type type) {
+                               return funcBodyConverter.isLegal(type);
+                             })) {
+              return true;
+            }
+            return false;
+          });
+
       mlir::RewritePatternSet patterns(&getContext());
-      patterns.add<UniformTypeRewriter>(converter, &getContext());
-      patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-      if (failed(mlir::applyPatternsGreedily(getOperation(),
-                                             std::move(patterns)))) {
+
+      patterns.add<FuncBodyTypeCast>(funcBodyConverter, &getContext());
+      if (failed(mlir::applyFullConversion(getOperation(), target,
+                                           std::move(patterns)))) {
         signalPassFailure();
         return;
-      }
-    }
-    {
-      if (enableBfp8Conversion) {
-        mlir::ConversionTarget target(getContext());
-        FuncBodyTypeConverter funcBodyConverter;
-        target.markUnknownOpDynamicallyLegal(
-            [&funcBodyConverter](mlir::Operation *op) {
-              if (!isa<TTIRDialect>(op->getDialect())) {
-                return true;
-              }
-              if (llvm::all_of(op->getResultTypes(),
-                               [&funcBodyConverter](mlir::Type type) {
-                                 return funcBodyConverter.isLegal(type);
-                               })) {
-                return true;
-              }
-              return false;
-            });
-
-        mlir::RewritePatternSet patterns(&getContext());
-
-        patterns.add<FuncBodyTypeCast>(funcBodyConverter, &getContext());
-        if (failed(mlir::applyFullConversion(getOperation(), target,
-                                             std::move(patterns)))) {
-          signalPassFailure();
-          return;
-        }
       }
     }
   }

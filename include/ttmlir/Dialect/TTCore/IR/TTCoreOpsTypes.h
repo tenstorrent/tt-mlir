@@ -135,11 +135,13 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
   }
 
   if (auto tileType = dyn_cast<TileType>(elementType)) {
-    if (tileType.getDataType() == DataType::BFP_BFloat8) {
-      return DataType::BFP_BFloat8;
+    switch (tileType.getDataType()) {
+    case DataType::BFP_BFloat8:
+    case DataType::BFP_BFloat4:
+      return tileType.getDataType();
+    default:
+      assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
     }
-
-    assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
   }
 
   if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
@@ -153,7 +155,9 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     default:
       return {};
     }
-  } else if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
+  }
+
+  if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
     switch (intType.getWidth()) {
     // Booleans treated as bfloat16.
     case 1:
@@ -190,7 +194,8 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFP_Float4:
     return Float16Type::get(context);
   case DataType::BFP_BFloat4:
-    return BFloat16Type::get(context);
+    return ttcore::TileType::get(context, ttcore::TileType::getDefaultShape(),
+                                 DataType::BFP_BFloat4);
   case DataType::BFP_Float2:
     return Float16Type::get(context);
   case DataType::BFP_BFloat2:

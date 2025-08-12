@@ -169,12 +169,6 @@ public:
                << " Element type: " << elementType
                << ", Scalar element type: " << scalarElementType << ".";
       }
-
-      if (layoutAttr.getLayout() != Layout::Tile) {
-        return op->emitOpError()
-               << "BFloat8B type is only supported in Tile layout, but got "
-               << stringifyLayout(layoutAttr.getLayout()) << ".";
-      }
     }
 
     return mlir::success();
