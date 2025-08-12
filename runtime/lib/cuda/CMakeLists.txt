@@ -1,4 +1,4 @@
-if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_CUDA)
+if (TT_RUNTIME_ENABLE_CUDA)
   set(CUDA_RUNTIME_ENABLED ON)
 else()
   set(CUDA_RUNTIME_ENABLED OFF)
@@ -25,7 +25,7 @@ target_compile_definitions(TTRuntimeCUDA PUBLIC TT_RUNTIME_ENABLE_CUDA)
 target_include_directories(TTRuntimeCUDA PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-  ${PROJECT_BINARY_DIR}/include/ttmlir/Target/GPU
+  ${PROJECT_BINARY_DIR}/include/ttmlir/Target/CUDA
    ${CUDA_INCLUDE_DIRS}
 )
 
