@@ -7,9 +7,12 @@
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+//===----------------------------------------------------------------------===//
+// Singular Memory Resource Used for 'Init' Hoisting with LICM
+//===----------------------------------------------------------------------===//
+
 namespace mlir::tt::ttkernel {
-struct HWInitState
-    : public ::mlir::SideEffects::Resource::Base<HWInitState> {
+struct HWInitState : public ::mlir::SideEffects::Resource::Base<HWInitState> {
   static HWInitState *get() {
     static HWInitState instance;
     return &instance;
@@ -17,6 +20,10 @@ struct HWInitState
 
   llvm::StringRef getName() override { return "HWInitState"; }
 };
+
+//===----------------------------------------------------------------------===//
+// Placeholder Resources for Verifying Multi-Resource Memory Inits
+//===----------------------------------------------------------------------===//
 
 struct RegAInitState
     : public ::mlir::SideEffects::Resource::Base<RegAInitState> {
@@ -80,4 +87,4 @@ struct RegFInitState
 
 } // namespace mlir::tt::ttkernel
 
-#endif // TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSRESOURCES_H 
+#endif // TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSRESOURCES_H

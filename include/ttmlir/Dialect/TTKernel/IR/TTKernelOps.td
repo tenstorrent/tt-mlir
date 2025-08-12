@@ -655,7 +655,7 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let description = [{
       Must be run before exp_tile.
     }];
-  
+
     let arguments = (ins);
 
     let assemblyFormat = [{

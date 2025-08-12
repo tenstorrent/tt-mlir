@@ -80,6 +80,7 @@ class TTKernel_InitOpTraitBundle<list<Resource> resources> {
 
 def TTKernel_HWInitOpTraits : TTKernel_InitOpTraitBundle<[HWInitState]>;
 
+// placeholders for verifying multi-resource memory inits
 def TTKernel_ATestInitTraits : TTKernel_InitOpTraitBundle<[RegAInitState]>;
 def TTKernel_BTestInitTraits : TTKernel_InitOpTraitBundle<[RegBInitState]>;
 def TTKernel_FTestInitTraits : TTKernel_InitOpTraitBundle<[RegFInitState]>;
