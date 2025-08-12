@@ -629,9 +629,11 @@ class TTKernelCompiler(ast.NodeVisitor):
                 )
             return func_arg
 
-        if node.func.id == "print":
-            return self.visit_Print(node.args)
         if not isinstance(node.func, ast.Attribute):
+            # print is special case to handle string formatting
+            if node.func.id == "print":
+                return self.visit_Print(node.args)
+
             # if not an Attribute, it's just a kernel api call.
             assert (
                 node.func.id in self.ttkernel_fn_map

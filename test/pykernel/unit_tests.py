@@ -419,6 +419,8 @@ def test_attributes():
 
     # CHECK: ttkernel.tensor_accessor_get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
     noc_addr = ta.get_noc_addr(bank_id, 0)
+    return
+
 
 @ttkernel_compile(optimize=False)
 def test_print():
