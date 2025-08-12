@@ -240,12 +240,8 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 
 // Factory method to create a set of workarounds for slice op input operands.
 // ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
-// ttnn::SliceStaticOp requires row major layout if 'begins' elements
-// (corresponding to Width and Height) are not divisible by tile width and
-// height.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
-    ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
   // slice operation.
@@ -254,40 +250,13 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     return intAttr.getInt() > 1;
   });
 
-  // Compute Width Index.
-  int64_t idxWidth = begins.size() - 1;
-  // Compute Height Index; 0 if input tensor is 1D.
-  int64_t idxHeight = begins.size() > 1 ? begins.size() - 2 : 0;
-
-  // Determine if workaround for row major layout is required.
-  bool isLayoutWARequired = layoutAttr.isTiled();
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isLayoutWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  isLayoutWARequired &=
-      ((mlir::dyn_cast<mlir::IntegerAttr>(begins[idxWidth]).getInt() %
-            tileWidth !=
-        0) ||
-       (mlir::dyn_cast<mlir::IntegerAttr>(begins[idxHeight]).getInt() %
-            tileHeight !=
-        0));
-
-  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  TTNNOperandWorkarounds BF16Workaround;
   if (isStridedSliceOp) {
-    rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-        ttcore::DataType::BFloat16;
-  }
-  if (!isStridedSliceOp && isLayoutWARequired) {
-    rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+    BF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+      .addInputOperandWorkaround(BF16Workaround)
+      .addOutputOperandWorkaround(BF16Workaround);
 }
 
 // Factory method to create a set of workarounds for dynamic slice op input

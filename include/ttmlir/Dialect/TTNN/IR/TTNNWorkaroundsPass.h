@@ -243,9 +243,7 @@ public:
 
   // Create workarounds for slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceStaticOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
-                                         mlir::ArrayAttr begins,
-                                         mlir::ArrayAttr step);
+  createSliceStaticOpOperandsWorkarounds(mlir::ArrayAttr step);
 
   // Create workarounds for dynamic slice op operands.
   static TTNNOperandsWorkarounds
