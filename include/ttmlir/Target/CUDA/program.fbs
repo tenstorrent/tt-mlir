@@ -1,0 +1,27 @@
+namespace cuda;
+
+table Kernel {
+  name: string;
+  ptx: string;
+  grid_size_x: uint64;
+  grid_size_y: uint64;
+  grid_size_z: uint64;
+  block_size_x: uint64;
+  block_size_y: uint64;
+  block_size_z: uint64;
+  input_names: [string];
+}
+
+table MemRefDesc {
+  name: string;
+  type: string;
+  value: string;
+}
+
+table Program {
+  kernels: [Kernel];
+  memrefs: [MemRefDesc];
+  return_variable: string;
+}
+
+root_type Program;
