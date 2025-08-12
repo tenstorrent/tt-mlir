@@ -13,7 +13,7 @@ import re
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from builder.base.sharded_tensor import ShardedTensor, TensorLike
+from builder.base.sharded_tensor import ShardedTensor
 
 # ----- Public APIs -----
 
@@ -30,7 +30,7 @@ class TypeInfo:
 
 @dataclass(frozen=True)
 class Golden:
-    tensor: TensorLike
+    tensor: Union[torch.Tensor, ShardedTensor]
     seed: Optional[int] = None
 
     def contiguous(self) -> Golden:

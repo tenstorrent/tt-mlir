@@ -24,7 +24,7 @@ from ttmlir.ir import (
     DenseI32ArrayAttr,
     DenseI64ArrayAttr,
 )
-from builder.base.sharded_tensor import ShardedTensor, TensorLike
+from builder.base.sharded_tensor import ShardedTensor
 
 
 def unpack_mlir_attr(attr):
@@ -1721,19 +1721,19 @@ def _unsharding(
 
 
 def mesh_shard_golden(
-    input: TensorLike,
+    input: Union[torch.Tensor, ShardedTensor],
     mesh_shape: Tuple[int, int],
     shard_type: Attribute,
     shard_direction: Attribute,
     shard_shape: Tuple[int, int],
     shard_dims: List[int],
-) -> TensorLike:
+) -> Union[torch.Tensor, ShardedTensor]:
     """
-    Return a TensorLike which was sharded or unsharded by mesh_shard.
+    Return a tensor which was sharded or unsharded by mesh_shard.
 
     Parameters
     ----------
-    input : TensorLike
+    input : Union[torch.Tensor, ShardedTensor]
         Input tensor to be sharded or ShardedTensor to be unsharded
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -1749,7 +1749,7 @@ def mesh_shard_golden(
     Returns
     -------
     ShardedTensor
-        TensorLike which was sharded or unsharded by mesh_shard.
+        Union[torch.Tensor, ShardedTensor] which was sharded or unsharded by mesh_shard.
     """
     shard_direction_str = str(shard_direction).lower()
     shard_type_str = str(shard_type).lower()

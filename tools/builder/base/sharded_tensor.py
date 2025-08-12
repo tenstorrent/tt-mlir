@@ -206,6 +206,3 @@ class ShardedTensor:
             f"dtype={self._shards[0].dtype}, "
             f"device={self._shards[0].device})"
         )
-
-
-TensorLike = Union[torch.Tensor, ShardedTensor]
