@@ -2117,6 +2117,12 @@ public:
 namespace {
 class SliceStaticOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SliceStaticOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.slice_static";
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::slice"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::SliceStaticOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2220,6 +2226,12 @@ namespace {
 class SliceDynamicOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::SliceDynamicOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.slice_dynamic";
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::slice"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::SliceDynamicOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2231,51 +2243,15 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceDynamicOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // Create SmallVector variable for step.
-    auto stepAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep());
-    auto stepVar = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(),
-                               "::ttsl::SmallVector<int32_t>"),
-        stepAttr);
-
-    // Create span from SmallVector variable using CallOpaqueOp.
-    auto stepSpanVar = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(),
-                               "::ttsl::Span<const int32_t>"),
-        "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
-        mlir::ValueRange{stepVar.getResult()});
-
-    // Collect operands: input + step SmallVector variable + step span variable.
-    llvm::SmallVector<mlir::Value> operands;
-
-    // Add input operands.
-    operands.push_back(adaptor.getOperands()[0]); // input
-    operands.push_back(adaptor.getOperands()[1]); // begins
-    operands.push_back(adaptor.getOperands()[2]); // ends
-
-    // Add our SmallVector variable (needed for the span construction).
-    operands.push_back(stepVar.getResult());
-
-    // Add our span variable.
-    operands.push_back(stepSpanVar.getResult(0));
-
-    // Create args array with index references.
     llvm::SmallVector<mlir::Attribute> args{
-        rewriter.getIndexAttr(0), // Reference to input
-        rewriter.getIndexAttr(1), // Reference to begins
-        rewriter.getIndexAttr(2), // Reference to ends
-        rewriter.getIndexAttr(4), // Reference to stepSpanVar
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBegins()),
+        emitter.emit(srcOp.getEnds()),
+        emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    // Manually create the CallOpaqueOp.
-    auto resultType =
-        this->getTypeConverter()->convertType(srcOp.getResult().getType());
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, resultType, this->convertOpName(srcOp),
-        rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }

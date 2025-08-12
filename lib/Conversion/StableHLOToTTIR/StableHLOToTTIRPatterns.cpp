@@ -2225,18 +2225,14 @@ public:
 
     // Create an add op that adds the slice sizes to start indices to get end
     // indices.
-    auto endIndices = ttir::utils::createDPSOp<mlir::tt::ttir::AddOp>(
+    auto endIndicesTensor = ttir::utils::createDPSOp<mlir::tt::ttir::AddOp>(
         rewriter, srcOp.getLoc(), startIndicesTensorType.getShape(),
         startIndexElementType, startIndicesTensorType.getEncoding(),
         startIndicesTensor, sliceSizesConstant);
 
-    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
-        outputType.getEncoding());
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceDynamicOp>(
-        srcOp, outputType, adaptor.getOperand(), startIndicesTensor, endIndices,
-        outputTensor, ArrayAttr());
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::SliceDynamicOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), startIndicesTensor,
+        endIndicesTensor, ArrayAttr());
 
     return success();
   }

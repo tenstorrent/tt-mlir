@@ -1684,7 +1684,7 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
         ::tt::target::ttnn::CreateSliceStaticOpParams(*cache.fbb, begins, ends)
             .Union();
   } else {
-    llvm_unreachable("unhandled SliceOp");
+    llvm_unreachable("Unhandled SliceOp");
   }
 
   auto in = cache.at<::tt::target::ttnn::TensorRef>(

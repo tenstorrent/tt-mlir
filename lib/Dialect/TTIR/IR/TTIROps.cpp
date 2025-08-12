@@ -1839,18 +1839,18 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   // Verify that begins and ends are 1D tensors.
-  size_t begins_rank = static_cast<size_t>(beginsType.getRank());
-  size_t ends_rank = static_cast<size_t>(endsType.getRank());
-  if (begins_rank != 1 || ends_rank != 1) {
+  size_t beginsRank = static_cast<size_t>(beginsType.getRank());
+  size_t endsRank = static_cast<size_t>(endsType.getRank());
+  if (beginsRank != 1 || endsRank != 1) {
     return emitOpError("Begins and ends must be 1D tensors");
   }
 
   // Verify that the input rank matches number of elements in begins, ends, and
   // step.
-  auto input_rank = inputType.getRank();
+  auto inputRank = inputType.getRank();
 
-  if (input_rank != beginsShape[0] || input_rank != endsShape[0] ||
-      (stepAttr && static_cast<size_t>(input_rank) != stepAttr.size())) {
+  if (inputRank != beginsShape[0] || inputRank != endsShape[0] ||
+      (stepAttr && static_cast<size_t>(inputRank) != stepAttr.size())) {
     return emitOpError("Begins, ends, and step must have the same "
                        "number of elements as the input tensor rank");
   }
@@ -1870,7 +1870,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 
   if (stepAttr) {
     // Verify that step isn't zero for any dimension.
-    for (auto i = 0; i < input_rank; ++i) {
+    for (auto i = 0; i < inputRank; ++i) {
       int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[i]).getInt();
       if (step == 0) {
         return emitOpError("Step value for dimension " + std::to_string(i) +

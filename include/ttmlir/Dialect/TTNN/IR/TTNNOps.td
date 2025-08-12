@@ -1236,6 +1236,7 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
       indices for each dimension. The `begins` and `ends` parameters are attributes with fixed values.
+      Maps to ttnn::slice.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -1260,7 +1261,7 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
     let summary = "Dynamic slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      indices for each dimension. Maps to ttnn::slice.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
