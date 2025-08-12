@@ -1388,124 +1388,209 @@ private:
 };
 } // namespace
 
-// This pattern fuses: 0.5 * x * gaussian(x)
-
+// This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussian CDF is the
+// cumulative distribution function of a gaussian distribution (or an
+// approximation of one)
 class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
 public:
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp op, mlir::PatternRewriter &rewriter) const final {
-    // The root of the gelu pattern may be:
-    // 0.5 * x * gaussian(x)
-    //     ^ this multiply
-    // or
-    // 0.5 * x * gaussian(x)
-    //         ^ this multiply
-    op.dump();
-    // Find the gaussian result and its type, but only proceed if a valid
-    // gaussian is found.
-    auto [gaussianType, gaussianInput] = findGaussianFromMultiply(op);
-    Value halvingArgument = getHalvingArgument(op);
 
-    // If the gaussianInput was found, then the multiply in 0.5 * x must be an
-    // operand of 'op'
-    if (gaussianInput) {
-      // Check if 0.5 * <something> is the RHS of 'op'
-      if (MultiplyOp halvingMultiply =
-              op.getRhs().getDefiningOp<MultiplyOp>()) {
-        halvingArgument = getHalvingArgument(halvingMultiply);
-      }
-      // Check if 0.5 * <something> is the LHS of 'op'
-      else if (MultiplyOp halvingMultiply =
-                   op.getLhs().getDefiningOp<MultiplyOp>()) {
-        halvingArgument = getHalvingArgument(halvingMultiply);
-      } else {
-        // If we reach here, it means that this multiply op contains a gaussian
-        // as one of its operands, but not 0.5 * x as the other
-        return failure();
-      }
-
-      if (!halvingArgument) {
-        assert(false);
-      }
-      halvingArgument.dump();
-      gaussianInput.dump();
-
-      if (halvingArgument != gaussianInput) {
-        // if we reach here, it means that 'op' is <something> * gaussian(x)
-        // where <something> is not 0.5 * x
-        return failure();
-      }
-    }
-    // If the gaussianInput was not found, then we must check if <something> in
-    // the formula 0.5 * <something> is x * gaussian(x)
-    else if (halvingArgument) {
-      // At this point, we know that halvingArgument is <something> in the form
-      // 0.5 * <something> We will now check if the <something> is x *
-      // gaussian(x)
-      if (MultiplyOp multiply = halvingArgument.getDefiningOp<MultiplyOp>()) {
-        std::tie(gaussianType, gaussianInput) =
-            findGaussianFromMultiply(multiply);
-        if (gaussianInput != multiply.getLhs() &&
-            gaussianInput != multiply.getRhs()) {
-          // If we reach here, it means that 'multiply' is not x * gaussian(x)
-          return failure();
-        }
-      } else {
-        // If we reach here, it means that the <something> is not x *
-        // gaussian(x)
-        return failure();
-      }
-
-    } else {
-      // If we reach here, it means that this multiply op is neither 0.5 *
-      // <something>, nor is it <something> * gaussian(x)
+    // arg1, arg2, and arg3 shall be some permutation of 0.5, x, and
+    // gaussianCDF(x)
+    auto [arg1, arg2, arg3] = getTripleMultiplyArgs(op);
+    if (!arg1 || !arg2 || !arg3) {
       return failure();
     }
 
+    Value halfConstantArg;
+    Value gaussianResultArg;
+
+    if (isScalarValue(arg1, 0.5)) {
+      halfConstantArg = arg1;
+    } else if (isScalarValue(arg2, 0.5)) {
+      halfConstantArg = arg2;
+    } else if (isScalarValue(arg3, 0.5)) {
+      halfConstantArg = arg3;
+    } else {
+      return failure();
+    }
+
+    GaussianCDFType gaussianCDFType;
+    Value geluInput;
+    if (auto [gaussianCDFType_, gaussianCDFInput_] =
+            getGaussianCDFTypeAndInput(arg1);
+        gaussianCDFType_ != GaussianCDFType::None) {
+      gaussianResultArg = arg1;
+      gaussianCDFType = gaussianCDFType_;
+      geluInput = gaussianCDFInput_;
+    } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+                   getGaussianCDFTypeAndInput(arg2);
+               gaussianCDFType_ != GaussianCDFType::None) {
+      gaussianResultArg = arg2;
+      gaussianCDFType = gaussianCDFType_;
+      geluInput = gaussianCDFInput_;
+    } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+                   getGaussianCDFTypeAndInput(arg3);
+               gaussianCDFType_ != GaussianCDFType::None) {
+      gaussianResultArg = arg3;
+    } else {
+      return failure();
+    }
+
+    // Now one of the three arguments must be the gelu input
+    if (geluInput != arg1 && geluInput != arg2 && geluInput != arg3) {
+      return failure();
+    }
+
+    // TODO(@LPanosTT): When the 'approximate' flag is modelled in
+    // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
+    // gaussianCDFType is Tanh
+    //  For now, we will always use the default erf version. This should be OK
+    //  as the tanh approximation is incredibly accurate.
+    (void)gaussianCDFType;
     ttir::utils::replaceOpWithNewDPSOp<GeluOp>(
-        rewriter, op, op.getResult().getType(), gaussianInput);
+        rewriter, op, op.getResult().getType(), geluInput);
+
     return success();
   }
 
 private:
-  enum class GaussianType { Erf, Tanh, None };
+  enum class GaussianCDFType { Erf, Tanh, None };
 
-  // The gaussian will be eitrher (1 + erf(x/sqrt(2))) or (1 + tanh(2/sqrt(pi) *
-  // (x + 0.044715 * x^3))) if gelu approximation is true
-  std::tuple<GaussianType, Value>
-  getGaussianTypeAndInput(Value gaussianResult) const {
-    if (Value gaussianInput = getErfGaussianInput(gaussianResult)) {
-      return std::make_tuple(GaussianType::Erf, gaussianInput);
+  // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
+  // multiply(multiply(a, b), c) or multiply(a, multiply(b, c))
+  std::tuple<Value, Value, Value>
+  getTripleMultiplyArgs(MultiplyOp multiplyOp) const {
+    Value arg1 = multiplyOp.getLhs();
+    Value arg2 = multiplyOp.getRhs();
+    if (MultiplyOp multiplyOp2 = arg1.getDefiningOp<MultiplyOp>()) {
+      if (!multiplyOp2.getRhs().getDefiningOp<MultiplyOp>() &&
+          !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
+        return std::make_tuple(arg2, multiplyOp2.getLhs(),
+                               multiplyOp2.getRhs());
+      }
+    } else if (MultiplyOp multiplyOp2 = arg2.getDefiningOp<MultiplyOp>()) {
+      if (!multiplyOp2.getRhs().getDefiningOp<MultiplyOp>() &&
+          !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
+        return std::make_tuple(multiplyOp2.getLhs(), multiplyOp2.getRhs(),
+                               arg1);
+      }
     }
 
-    return std::make_tuple(GaussianType::None, nullptr);
+    return std::make_tuple(nullptr, nullptr, nullptr);
   }
 
-  std::tuple<GaussianType, Value>
-  findGaussianFromMultiply(MultiplyOp op) const {
-    auto [lhsGaussianType, lhsGaussianInput] =
-        getGaussianTypeAndInput(op.getLhs());
-    auto [rhsGaussianType, rhsGaussianInput] =
-        getGaussianTypeAndInput(op.getRhs());
-    if (lhsGaussianType != GaussianType::None) {
-      return std::make_tuple(lhsGaussianType, lhsGaussianInput);
+  // This will return the input value to the gelu op when the pattern is:
+  // 0.5 * x * gaussianCDF(x)
+  //     ^ this multiply
+  std::tuple<Value, GaussianCDFType>
+  findGELUInputPatternA(MultiplyOp geluOutput) const {
+
+    // Retrieve the value being halved, which should be: x * gaussianCDF(x)
+    Value halvedArgument;
+    if (isScalarValue(geluOutput.getLhs(), 0.5)) {
+      halvedArgument = geluOutput.getRhs();
+    } else if (isScalarValue(geluOutput.getRhs(), 0.5)) {
+      halvedArgument = geluOutput.getLhs();
+    } else {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
     }
 
-    if (rhsGaussianType != GaussianType::None) {
-      return std::make_tuple(rhsGaussianType, rhsGaussianInput);
+    MultiplyOp halvedArgumentOp = halvedArgument.getDefiningOp<MultiplyOp>();
+    if (!halvedArgumentOp) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
     }
-    return std::make_tuple(GaussianType::None, nullptr);
+
+    bool argIsLhs = false;
+    auto [gaussianCDFType, gaussianCDFInput] =
+        getGaussianCDFTypeAndInput(halvedArgumentOp.getLhs());
+    if (gaussianCDFType == GaussianCDFType::None) {
+      argIsLhs = true;
+      std::tie(gaussianCDFType, gaussianCDFInput) =
+          getGaussianCDFTypeAndInput(halvedArgumentOp.getRhs());
+    }
+    if (gaussianCDFType == GaussianCDFType::None) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    // Ensure that:
+    // x * gaussianCDF(x)
+    // ^ --------------^-------- these two values are the same
+    if ((argIsLhs && gaussianCDFInput != halvedArgumentOp.getLhs()) ||
+        (!argIsLhs && gaussianCDFInput != halvedArgumentOp.getRhs())) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    return std::make_tuple(gaussianCDFInput, gaussianCDFType);
   }
 
-  Value getErfGaussianInput(Value gaussianResult) const {
+  // This will return the input value to the gelu op when the pattern is:
+  // 0.5 * x * gaussianCDF(x)
+  //         ^ this multiply
+  std::tuple<Value, GaussianCDFType>
+  findGELUInputPatternB(MultiplyOp geluOutput) const {
+
+    bool halfIsLhs = false;
+    auto [gaussianCDFType, gaussianCDFInput] =
+        getGaussianCDFTypeAndInput(geluOutput.getLhs());
+    if (gaussianCDFType == GaussianCDFType::None) {
+      halfIsLhs = true;
+      std::tie(gaussianCDFType, gaussianCDFInput) =
+          getGaussianCDFTypeAndInput(geluOutput.getRhs());
+    }
+    if (gaussianCDFType == GaussianCDFType::None) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    MultiplyOp halvingOp =
+        halfIsLhs ? geluOutput.getLhs().getDefiningOp<MultiplyOp>()
+                  : geluOutput.getRhs().getDefiningOp<MultiplyOp>();
+    if (!halvingOp) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    // Ensure that:
+    // x * gaussianCDF(x)
+    // ^ --------------^-------- these two values are the same
+    Value halvingArgument;
+    if (isScalarValue(halvingOp.getLhs(), 0.5)) {
+      halvingArgument = halvingOp.getRhs();
+    } else if (isScalarValue(halvingOp.getRhs(), 0.5)) {
+      halvingArgument = halvingOp.getLhs();
+    } else {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    if (halvingArgument != gaussianCDFInput) {
+      return std::make_tuple(nullptr, GaussianCDFType::None);
+    }
+
+    return std::make_tuple(gaussianCDFInput, gaussianCDFType);
+  }
+
+  // The gaussianCDF will be eitrher (1 + erf(x/sqrt(2))) or (1 +
+  // tanh(2/sqrt(pi) * (x + 0.044715 * x^3))) if gelu approximation is true
+  std::tuple<GaussianCDFType, Value>
+  getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
+    if (Value gaussianCDFInput = getErfGaussianCDFInput(gaussianCDFResult)) {
+      return std::make_tuple(GaussianCDFType::Erf, gaussianCDFInput);
+    }
+    if (Value gaussianCDFInput = getTanhGaussianCDFInput(gaussianCDFResult)) {
+      return std::make_tuple(GaussianCDFType::Tanh, gaussianCDFInput);
+    }
+    return std::make_tuple(GaussianCDFType::None, nullptr);
+  }
+
+  Value getTanhGaussianCDFInput(Value gaussianCDFResult) const {
     // The final op in this pattern must be:
-    // 1 + erf(x/sqrt(2))
+    // 1 + tanh(2/sqrt(pi) * (x + 0.044715 * x^3))
     //   ^ this add
 
-    AddOp gaussianAdd = gaussianResult.getDefiningOp<AddOp>();
-    if (!gaussianAdd) {
+    AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();
+    if (!gaussianCDFAdd) {
       return nullptr;
     }
 
@@ -1514,95 +1599,238 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    FullOp one = gaussianAdd.getLhs().getDefiningOp<FullOp>();
+    FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = gaussianAdd.getRhs().getDefiningOp<FullOp>();
+      one = getFullOpThroughTMChain(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
       return nullptr;
     }
+
+    if (!isa<FloatAttr>(one.getFillValue())) {
+      return nullptr;
+    }
+    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
+    if (!value.isExactlyValue(1.0)) {
+      return nullptr;
+    }
+
+    // The other operand must be tanh
+    TanhOp tanh = isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<TanhOp>()
+                           : gaussianCDFAdd.getRhs().getDefiningOp<TanhOp>();
+    if (!tanh) {
+      return nullptr;
+    }
+
+    // The argument to tanh must be:
+    // tanh(2/sqrt(pi) * (x + 0.044715 * x^3))
+    //                 ^ this multiply
+
+    MultiplyOp multiplyArg = tanh.getInput().getDefiningOp<MultiplyOp>();
+    if (!multiplyArg) {
+      return nullptr;
+    }
+
+    bool argIsLhs;
+    Value scalingArgument;
+    if (isScalarValue(multiplyArg.getLhs(), 0.7968750)) {
+      argIsLhs = false;
+      scalingArgument = multiplyArg.getRhs();
+    } else if (isScalarValue(multiplyArg.getRhs(), 0.7968750)) {
+      argIsLhs = true;
+      scalingArgument = multiplyArg.getLhs();
+    } else {
+      return nullptr;
+    }
+
+    // Scaling argument must be the result of:
+    // x + 0.044715 * x^3
+    //   ^ this add
+    AddOp xPlusScaledXCubed = argIsLhs
+                                  ? multiplyArg.getLhs().getDefiningOp<AddOp>()
+                                  : multiplyArg.getRhs().getDefiningOp<AddOp>();
+    if (!xPlusScaledXCubed) {
+      return nullptr;
+    }
+
+    Value xCubedResult;
+    Value x;
+
+    bool foundX = false;
+    if (MultiplyOp lhs =
+            xPlusScaledXCubed.getLhs().getDefiningOp<MultiplyOp>()) {
+      x = xPlusScaledXCubed.getRhs();
+      xCubedResult =
+          isScalarValue(lhs.getLhs(), 0.044715) ? lhs.getRhs() : nullptr;
+      if (!xCubedResult) {
+        xCubedResult =
+            isScalarValue(lhs.getRhs(), 0.044715) ? lhs.getLhs() : nullptr;
+      }
+      if (xCubedResult) {
+        foundX = x == getXCubedInput(xCubedResult);
+      }
+    }
+
+    if (MultiplyOp rhs = xPlusScaledXCubed.getRhs().getDefiningOp<MultiplyOp>();
+        !foundX && rhs) {
+      x = xPlusScaledXCubed.getLhs();
+      xCubedResult =
+          isScalarValue(rhs.getLhs(), 0.044715) ? rhs.getRhs() : nullptr;
+      if (!xCubedResult) {
+        xCubedResult =
+            isScalarValue(rhs.getRhs(), 0.044715) ? rhs.getLhs() : nullptr;
+      }
+      if (xCubedResult) {
+        foundX = x == getXCubedInput(xCubedResult);
+      }
+    }
+
+    if (!foundX) {
+      return nullptr;
+    }
+
+    return x;
+  }
+
+  // This will return the input Value of a dequence of ops which computes x^3 if
+  // it exists, given the result of the sequence
+  Value getXCubedInput(Value xCubedResult) const {
+    if (PowOp xCubed = xCubedResult.getDefiningOp<PowOp>()) {
+      FullOp power = xCubed.getRhs().getDefiningOp<FullOp>();
+      if (!power) {
+        return nullptr;
+      }
+      if (!isa<FloatAttr>(power.getFillValue())) {
+        return nullptr;
+      }
+
+      APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
+      if (powerValue.convertToFloat() - 3.0 > 1.5e-3 ||
+          powerValue.convertToFloat() - 3.0 < -1.5e-3) {
+        return nullptr;
+      }
+
+      return xCubed.getLhs();
+    }
+    if (MultiplyOp xCubed = xCubedResult.getDefiningOp<MultiplyOp>()) {
+
+      Value lhs = xCubed.getLhs();
+      Value rhs = xCubed.getRhs();
+
+      if (MultiplyOp lhsMultiply = lhs.getDefiningOp<MultiplyOp>()) {
+        if (rhs == lhsMultiply.getRhs() && rhs == lhsMultiply.getLhs()) {
+          return lhsMultiply.getLhs();
+        }
+      }
+
+      if (MultiplyOp rhsMultiply = rhs.getDefiningOp<MultiplyOp>()) {
+        if (lhs == rhsMultiply.getRhs() && lhs == rhsMultiply.getLhs()) {
+          return rhsMultiply.getLhs();
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  Value getErfGaussianCDFInput(Value gaussianCDFResult) const {
+    // The final op in this pattern must be:
+    // 1 + erf(x/sqrt(2)))
+    //   ^ this add
+
+    AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();
+    if (!gaussianCDFAdd) {
+      return nullptr;
+    }
+
+    // The add must have a constant operand of 1
+
+    // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
+    // add op
+    bool isArgLhs = false;
+    FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<FullOp>();
+    if (!one) {
+      one = gaussianCDFAdd.getRhs().getDefiningOp<FullOp>();
+      isArgLhs = true;
+    }
+    if (!one) {
+      return nullptr;
+    }
+
+    if (!isa<FloatAttr>(one.getFillValue())) {
+      return nullptr;
+    }
+    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
+    if (!value.isExactlyValue(1.0)) {
+      return nullptr;
+    }
+
     // erf must be the other operand
-    ErfOp erf = isArgLhs ? gaussianAdd.getLhs().getDefiningOp<ErfOp>()
-                         : gaussianAdd.getRhs().getDefiningOp<ErfOp>();
+    ErfOp erf = isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<ErfOp>()
+                         : gaussianCDFAdd.getRhs().getDefiningOp<ErfOp>();
     if (!erf) {
       return nullptr;
     }
 
-    // If this pattern does match the erf version of the gaussian, then
+    // If this pattern does match the erf version of the gaussianCDF, then
     // the erf argument must evaluate to x/sqrt(2). However, that means that
-    // this patten could LITERALLY be x / sqrt(2) or x / 1.4142.. or
+    // this patten could be x / sqrt(2) or x / 1.4142.. or
     // x * reciprocal(sqrt(2)) or x * 0.7070...
 
     // So far the decomposition we have recieved from our fronteds are in the
     // form: x * 0.70703125 So we will only check for this pattern for now.
-
-    // TODO(@LPanosTT): Possibly add support for other equivalent patterns for
-    // x/sqrt(2)
     MultiplyOp multiplyArg = erf.getOperand(0).getDefiningOp<MultiplyOp>();
     if (!multiplyArg) {
       return nullptr;
     }
 
-    // Now, isArgLhs will track if the argument to gelu is on the lhs or rhs of
-    // the multiply op
-    isArgLhs = false;
-    FullOp reciprocalSqrtTwo = multiplyArg.getLhs().getDefiningOp<FullOp>();
-    if (!reciprocalSqrtTwo) {
-      reciprocalSqrtTwo = multiplyArg.getRhs().getDefiningOp<FullOp>();
-      isArgLhs = true;
-    }
-    if (!reciprocalSqrtTwo) {
+    Value scalingArgument;
+    if (isScalarValue(multiplyArg.getLhs(), 0.70703125)) {
+      scalingArgument = multiplyArg.getRhs();
+    } else if (isScalarValue(multiplyArg.getRhs(), 0.70703125)) {
+      scalingArgument = multiplyArg.getLhs();
+    } else {
       return nullptr;
     }
 
-    if (!isa<FloatAttr>(reciprocalSqrtTwo.getFillValue())) {
-      return nullptr;
-    }
-    APFloat value =
-        dyn_cast<FloatAttr>(reciprocalSqrtTwo.getFillValue()).getValue();
-    if (value.convertToFloat() == 0.70703125f) {
-      return isArgLhs ? multiplyArg.getLhs() : multiplyArg.getRhs();
-    }
-
-    return nullptr;
+    return scalingArgument;
   }
 
-  // The op which performs the halving of the argument may be a multiply op
-  // or a divide op, correxponding to 0.5 * x or x / 2.0. So far, the IR
-  // our frontends have provided is in the form of 0.5 * x, so we will only
-  // check for this pattern for now.
-  //
-  // TODO(@LPanosTT): Possibly add support for other equivalent patterns for
-  // x/2.0
-  //
-  // Returns the argument to the halving op, or nullptr if the op is not a
-  // halving op.
-  Value getHalvingArgument(MultiplyOp op) const {
-
-    bool argIsLhs = false;
-    FullOp half = op.getLhs().getDefiningOp<FullOp>();
-    if (!half) {
-      half = op.getRhs().getDefiningOp<FullOp>();
-      argIsLhs = true;
-    }
-    // Neither operand to the multiply op is a full op so this cannot be halving
-    // a value
-    if (!half) {
-      return nullptr;
+  // This function will return true if the Value 'val' is a FullOp (or the
+  // result of tms beginning with a FullOp), with the fill_value near 'scalar'.
+  // It allows for a en error of 1.5%
+  bool isScalarValue(Value val, double scalar) const {
+    if (FullOp fullOp = getFullOpThroughTMChain(val)) {
+      if (isa<FloatAttr>(fullOp.getFillValue())) {
+        APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
+        if (value.convertToFloat() / scalar - 1.0 <= 1.5e-3 &&
+            value.convertToFloat() / scalar - 1.0 >= -1.5e-3) {
+          return true;
+        }
+      }
     }
 
-    if (!isa<FloatAttr>(half.getFillValue())) {
-      return nullptr;
-    }
+    return false;
+  }
 
-    APFloat value = dyn_cast<FloatAttr>(half.getFillValue()).getValue();
-    if (value.isExactlyValue(0.5)) {
-      op.dump();
-      return argIsLhs ? op.getLhs() : op.getRhs();
-    }
+  FullOp getFullOpThroughTMChain(Value value) const {
+    Operation *currentOp = value.getDefiningOp();
 
-    return nullptr;
+    do {
+      if (!currentOp) {
+        return nullptr;
+      }
+
+      if (auto fullOp = dyn_cast<FullOp>(currentOp)) {
+        return fullOp;
+      }
+
+      if (isa<ReshapeOp, BroadcastOp, PermuteOp>(currentOp)) {
+        currentOp = currentOp->getOperand(0).getDefiningOp();
+      } else {
+        return nullptr;
+      }
+    } while (true);
   }
 };
 
