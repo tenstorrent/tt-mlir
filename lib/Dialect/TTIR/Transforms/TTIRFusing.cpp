@@ -34,6 +34,10 @@ public:
 
     if (bias.getDefiningOp() &&
         !bias.getDefiningOp()->isBeforeInBlock(conv2dOp)) {
+
+      // To move bias before conv2d, we need to ensure that all operations
+      // in the UD chain are also moved before conv2dOp.
+
       SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
       SetVector<Operation *> udChainOps =
           ttmlir::utils::filterOperations(udChain.getArrayRef());
@@ -340,7 +344,15 @@ public:
     SetVector<Operation *> udChainOps =
         ttmlir::utils::filterOperations(udChain.getArrayRef());
     SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+
+    // We are not moving ops in UD chain that are already before the conv2d, as
+    // they could have descendants that are also before conv2d but are not in
+    // the UD chain.
+
     for (auto *op : udChainSorted) {
+      if (op->isBeforeInBlock(conv2dOp)) {
+        continue;
+      }
       op->moveBefore(conv2dOp);
     }
 
@@ -395,9 +407,9 @@ private:
     };
 
     // If weight is not constant, we cannot commute.
-    // if (!isConstant(conv2dOp.getWeight())) {
-    //   return false;
-    // }
+    if (!isConstant(conv2dOp.getWeight())) {
+      return false;
+    }
 
     RankedTensorType scaleType = scale.getType();
     // If scale is comming from broadcast then we want to use the input type
@@ -573,7 +585,6 @@ public:
     auto variance = batchNormOp.getVariance();
     auto input = batchNormOp.getOperand();
     auto epsilon = batchNormOp.getEpsilon();
-    auto dimension = batchNormOp.getDimension();
     auto dimension = batchNormOp.getDimension();
 
     Location loc = batchNormOp.getLoc();
