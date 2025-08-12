@@ -420,7 +420,8 @@ public:
 
     auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
-        reshapedGradShape, rewriter, "_reshaped_grad");
+        reshapedGradShape, rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
@@ -1127,14 +1128,13 @@ public:
 
     // Transposed convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C).
-    llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
+    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
     llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
     outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
         outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
-    ttnn::ConvTranspose2dOp new_conv = rewriter.create<ttnn::ConvTranspose2dOp>(
+    ttnn::ConvTranspose2dOp newConv = rewriter.create<ttnn::ConvTranspose2dOp>(
         op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
@@ -1143,8 +1143,9 @@ public:
         /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
+    Value output = ttir_to_ttnn::utils::generateReshape(
+        newConv, outputShape, rewriter,
+        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshape"));
 
     rewriter.replaceOp(op, output);
     return success();
