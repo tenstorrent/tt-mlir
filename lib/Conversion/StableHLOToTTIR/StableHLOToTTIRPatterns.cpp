@@ -2305,153 +2305,228 @@ public:
 } // namespace
 
 namespace {
+// Conversion: stablehlo::SortOp → ttir::SortOp + optional ttir::GatherOp(s)
+//
+// StableHLO's SortOp supports sorting tuples of tensors with an arbitrary
+// comparator function. This pattern lowers such SortOps into TTIR by
+// decomposing them into one or more of the following:
+//   - ttir::SortOp: handles sorting a single tensor and producing sorted tensor
+//                   along with sort indices.
+//   - ttir::GatherOp: reorders other tensors based on the computed indices.
+//
+// This conversion supports three types of SortOps:
+//
+// [1] ValueOnly Sort:
+//     - Only one input (e.g., SortOp(values))
+//     - Lowered to ttir::SortOp producing sorted values
+//     - indices output ignored.
+//     - No gather needed.
+//
+// [2] ValueIndex Sort:
+//     - Two inputs: a value tensor and an index tensor.
+//     - If the second input is a recognized as stablehlo::iota (possibly after
+//       reshape/broadcast), the pattern assumes it's requesting both sorted
+//       values and their original indices.
+//     - Lowered to ttir::SortOp producing both values and indices
+//     - No gather needed.
+//
+// [3] KeyValue Sort:
+//     - More than one input, or two inputs where the second is not a recognized
+//       iota.
+//     - Only the first input is directly sorted.
+//     - The resulting indices are used to reorder all other inputs via
+//       ttir::GatherOp
+//     - This emulates tuple sorting (e.g., SortOp(keys, values, ...)) by
+//       aligning all value tensors with the sorted indices of the key.
+//
+// Key implementation steps:
+// - Determine SortType (ValueOnly, ValueIndex, or KeyValue) based on input
+//   count and type.
+// - Emit ttir::SortOp using only the first input tensor.
+// - If needed, emit one or more ttir::GatherOps to reorder the rest of the
+//  inputsl
+// - Replace the original stablehlo::SortOp with the results of the new
+//  operations.
+//
 class StableHLOToTTIRSortOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SortOp> {
-
-  using OpConversionPattern<mlir::stablehlo::SortOp>::OpConversionPattern;
+  using OpConversionPattern::OpConversionPattern;
 
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::SortOp srcOp,
                   mlir::stablehlo::SortOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult =
-        checkConversionLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
-    RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
-    SmallVector<Type> outputTypes{outputType};
-    ttir::EmptyOp emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
-        srcOp->getLoc(), outputType.getShape(), outputType.getElementType(),
-        outputType.getEncoding());
-    llvm::SmallVector<mlir::Value> outputTensors{emptyOp};
-
-    auto dim = srcOp.getDimension();
-    auto isStable = srcOp.getIsStable();
+    Location loc = srcOp.getLoc();
+    // Get sorting metadata
+    int64_t sortDim = srcOp.getDimension();
+    bool isStable = srcOp.getIsStable();
     auto isDescending = getSortDirection(srcOp);
-    if (!isDescending) {
+    if (!isDescending.has_value()) {
       return rewriter.notifyMatchFailure(srcOp,
-                                         "Unable to determine sort direction.");
+                                         "Cannot determine sort direction");
     }
 
-    if (srcOp.getInputs().size() == 2 && hasValidInputs(srcOp.getInputs())) {
-      auto indicesType = mlir::cast<RankedTensorType>(
+    // Step 1: Type conversion and output tensor preparation for 'values'.
+
+    auto valueType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
+    SmallVector<Type> outputTypes{valueType};
+
+    SmallVector<Value> outputTensors{rewriter.create<ttir::EmptyOp>(
+        loc, valueType.getShape(), valueType.getElementType(),
+        valueType.getEncoding())};
+
+    // Step 2: Determine Sort Type and output tensor preparation for 'indices'.
+
+    SortType sortType;
+    if (isValueIndexSort(srcOp.getInputs())) {
+      sortType = SortType::kValueIndex;
+
+      auto indicesType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
-      outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
-          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
-          indicesType.getEncoding()));
-    }
-    // if (srcOp.getInputs().size() == 1) {
-    else {
-      IntegerType intType = IntegerType::get(getContext(), 16);
-      RankedTensorType indicesType =
-          RankedTensorType::get(outputType.getShape(), intType);
-      outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
-          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
-          indicesType.getEncoding()));
-    }
 
-    /*if (outputTypes.size() == 1) {
-      IntegerType intType = IntegerType::get(getContext(), 16);
-      RankedTensorType indicesType =
-          RankedTensorType::get(outputType.getShape(), intType);
       outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<mlir::tt::ttir::EmptyOp>(
-          srcOp->getLoc(), indicesType.getShape(), indicesType.getElementType(),
+      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
+          loc, indicesType.getShape(), indicesType.getElementType(),
           indicesType.getEncoding()));
-    }*/
-
-    ttir::SortOp sortOp = rewriter.create<mlir::tt::ttir::SortOp>(
-        srcOp->getLoc(), mlir::TypeRange{outputTypes},
-        adaptor.getInputs().front(), mlir::ValueRange{outputTensors},
-        rewriter.getSI32IntegerAttr(dim), rewriter.getBoolAttr(*isDescending),
-        rewriter.getBoolAttr(isStable));
-
-    if (srcOp.getInputs().size() == 1) {
-      // rewriter.replaceOp(srcOp, sortOp.getValues());
-      srcOp->getResults().front().replaceAllUsesWith(sortOp.getValues());
-      //          sortOp->getResults().front());
-      rewriter.eraseOp(srcOp);
     } else {
-      rewriter.replaceOp(srcOp, sortOp.getOperation());
+      sortType = (srcOp.getInputs().size() == 1) ? SortType::kValueOnly
+                                                 : SortType::kKeyValue;
+
+      IntegerType indexType = IntegerType::get(getContext(), 16);
+      RankedTensorType indicesType = RankedTensorType::get(
+          valueType.getShape(), indexType, valueType.getEncoding());
+
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
+          loc, indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
     }
 
+    // Step 3: Emit SortOp
+
+    auto sortOp = rewriter.create<ttir::SortOp>(
+        loc, outputTypes, adaptor.getInputs().front(), outputTensors,
+        rewriter.getSI32IntegerAttr(sortDim),
+        rewriter.getBoolAttr(*isDescending), rewriter.getBoolAttr(isStable));
+
+    // Step 4: SortType-specific lowering.
+
+    // SortType::kValueOnly - Replace values output and ingnore indices output.
+    if (sortType == SortType::kValueOnly) {
+      rewriter.replaceOp(srcOp, sortOp.getValues());
+      return success();
+    }
+
+    // SortType::kValueIndex - Replace the source op with values/indices output.
+    if (sortType == SortType::kValueIndex) {
+      rewriter.replaceOp(srcOp, sortOp->getResults());
+      return success();
+    }
+
+    // SortType::kKeyValue — sort additional inputs using indices and GatherOp.
+    Value indices = sortOp.getIndices();
+    auto indicesType = cast<RankedTensorType>(indices.getType());
+    int64_t rank = indicesType.getRank();
+
+    SmallVector<int64_t> shape(indicesType.getShape());
+    shape.push_back(1);
+    auto expandedType = RankedTensorType::get(
+        shape, indicesType.getElementType(), indicesType.getEncoding());
+
+    // Generate iota-based index components (for all dims except sorting dim)
+    SmallVector<Value> toConcat;
+    for (int64_t idx = 0; idx < rank - 1; ++idx) {
+      Value iota = rewriter.create<ttir::ArangeOp>(
+          loc, expandedType, /*start=*/0,
+          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
+      toConcat.push_back(iota);
+    }
+
+    // Reshape indices to [*shape, 1]
+    SmallVector<int32_t> reshapeDim(shape.begin(), shape.end());
+    auto reshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, expandedType, indices,
+        rewriter.getI32ArrayAttr(reshapeDim));
+
+    toConcat.push_back(reshape);
+
+    // Concat along new trailing dimension to get [*, rank]
+    shape.back() = rank;
+    auto concatType = RankedTensorType::get(shape, indicesType.getElementType(),
+                                            indicesType.getEncoding());
+
+    Value concatIndices = ttir::utils::createDPSOp<ttir::ConcatOp>(
+        rewriter, loc, concatType, toConcat, rank);
+
+    // Prepare Gather attributes
+    SmallVector<int64_t> collapsedDims(rank), startIndexMap(rank);
+    std::iota(collapsedDims.begin(), collapsedDims.end(), 0);
+    std::iota(startIndexMap.begin(), startIndexMap.end(), 0);
+    SmallVector<int64_t> empty;
+    SmallVector<int64_t> sliceSizes(rank, 1);
+
+    // Collect output values: sorted keys + gathered values
+    SmallVector<Value> results{sortOp.getValues()};
+
+    for (size_t i = 1; i < srcOp.getInputs().size(); ++i) {
+      auto valType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResultTypes()[i]));
+
+      auto gathered = ttir::utils::createDPSOp<ttir::GatherOp>(
+          rewriter, loc, valType, srcOp.getInputs()[i], concatIndices,
+          /*offsetDims=*/empty,
+          /*collapsedSliceDims=*/collapsedDims,
+          /*operandBatchDims=*/empty,
+          /*startIndexBatchDims=*/empty,
+          /*startIndexMap=*/startIndexMap,
+          /*indexVectorDim=*/rank,
+          /*sliceSizes=*/sliceSizes,
+          /*indicesAreSorted=*/false);
+
+      results.push_back(gathered);
+    }
+
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 
 private:
-  LogicalResult
-  checkConversionLegality(mlir::stablehlo::SortOp &srcOp,
-                          mlir::stablehlo::SortOp::Adaptor adaptor,
-                          ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getInputs().size() != srcOp->getResults().size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Number of inputs and outputs must match.");
-    }
+  enum SortType { kValueOnly = 0, kValueIndex = 1, kKeyValue = 2 };
 
-    if (srcOp.getInputs().size() == 1) {
-      return success();
-    }
-
-    if (srcOp.getInputs().size() > 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "Expecting two inputs (values, indices); got more than two inputs");
-    }
-
-    if (!hasValidInputs(srcOp.getInputs())) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Invalid inputs. Expecting two inputs (values, indices).");
-    }
-    if (srcOp->getResults().size() != 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Invalid number of outputs. Expected to generate two outputs "
-                 "(sorted values and indices).");
-    }
-
-    return success();
-  }
-
-  // Validate the inputs.
-  // SortOp has two inputs:
-  // 1) values,
-  // 2) indices (created with stablehlo.iota op).
-  bool hasValidInputs(mlir::OperandRange inputs) const {
+  bool isValueIndexSort(mlir::OperandRange inputs) const {
     if (inputs.size() != 2) {
       return false;
     }
 
-    mlir::Value value = inputs.back();
-    Operation *valueDef = value.getDefiningOp();
-
-    // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
+    Operation *op = inputs.back().getDefiningOp();
     while (
         isa_and_nonnull<mlir::stablehlo::BroadcastInDimOp,
                         mlir::stablehlo::ReshapeOp, mlir::stablehlo::ConvertOp>(
-            valueDef)) {
-      valueDef = valueDef->getOperand(0).getDefiningOp();
+            op)) {
+      op = op->getOperand(0).getDefiningOp();
     }
-
-    return isa_and_nonnull<mlir::stablehlo::IotaOp>(valueDef);
+    return isa_and_nonnull<mlir::stablehlo::IotaOp>(op);
   }
 
-  // Determine if sort is performed in ascending or descending order.
   std::optional<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
-    mlir::Block &compare = srcOp.getComparator().getBlocks().front();
-    auto compareOp =
-        mlir::cast<mlir::stablehlo::CompareOp>(compare.getOperations().front());
-    if (!compareOp) {
-      return std::nullopt;
+    Block &block = srcOp.getComparator().front();
+    for (auto &op : block.getOperations()) {
+      auto cmpOp = dyn_cast<mlir::stablehlo::CompareOp>(op);
+      if (!cmpOp || !(cmpOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::LT ||
+                      cmpOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::GT)) {
+        continue;
+      }
+      return cmpOp.getComparisonDirection() ==
+             mlir::stablehlo::ComparisonDirection::GT;
     }
-    return compareOp.getComparisonDirection() ==
-           mlir::stablehlo::ComparisonDirection::GT;
+    return std::nullopt;
   }
 };
+
 } // namespace
 
 namespace {
