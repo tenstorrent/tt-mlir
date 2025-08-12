@@ -1390,7 +1390,7 @@ private:
 
 namespace {
 // This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussianCDF is a
-// linearly transformed cummulative distribution function of a gaussian
+// linearly transformed cumulative distribution function of the gaussian
 // distribution (or an approximation of one)
 class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
 public:
@@ -1437,6 +1437,8 @@ public:
                    getGaussianCDFTypeAndInput(arg3);
                gaussianCDFType_ != GaussianCDFType::None) {
       gaussianResultArg = arg3;
+      gaussianCDFType = gaussianCDFType_;
+      geluInput = gaussianCDFInput_;
     } else {
       return failure();
     }
@@ -1572,8 +1574,8 @@ private:
     return std::make_tuple(gaussianCDFInput, gaussianCDFType);
   }
 
-  // The gaussianCDF will be eitrher (1 + erf(x/sqrt(2))) or (1 +
-  // tanh(2/sqrt(pi) * (x + 0.044715 * x^3))) if gelu approximation is true
+  // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or ( +
+  // tanh(2/sqrt(pi) * (x + 0.044715 * x^3)) if gelu approximation is true
   std::tuple<GaussianCDFType, Value>
   getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
     if (Value gaussianCDFInput = getErfGaussianCDFInput(gaussianCDFResult)) {
@@ -1720,7 +1722,7 @@ private:
     return x;
   }
 
-  // This will return the input Value of a dequence of ops which computes x^3 if
+  // This will return the input Value of a sequence of ops which computes x^3 if
   // it exists, given the result of the sequence
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<PowOp>()) {
@@ -1761,7 +1763,7 @@ private:
 
   Value getErfGaussianCDFInput(Value gaussianCDFResult) const {
     // The final op in this pattern must be:
-    // 1 + erf(x/sqrt(2)))
+    // 1 + erf(x/sqrt(2))
     //   ^ this add
 
     AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();
@@ -1798,12 +1800,12 @@ private:
       return nullptr;
     }
 
-    // If this pattern does match the erf version of the gaussianCDF, then
+    // If this pattern matches the erf version of the gaussianCDF, then
     // the erf argument must evaluate to x/sqrt(2). However, that means that
-    // this patten could be x / sqrt(2) or x / 1.4142.. or
+    // this pattern could be x / sqrt(2) or x / 1.4142.. or
     // x * reciprocal(sqrt(2)) or x * 0.7070...
 
-    // So far the decomposition we have recieved from our fronteds are in the
+    // So far the decomposition we have received from our frontends are in the
     // form: x * 0.70703125 So we will only check for this pattern for now.
     MultiplyOp multiplyArg = erf.getOperand(0).getDefiningOp<MultiplyOp>();
     if (!multiplyArg) {
@@ -1829,7 +1831,7 @@ private:
 
   // This function will return true if the Value 'val' is a FullOp (or the
   // result of tms beginning with a FullOp), with the fill_value near 'scalar'.
-  // It allows for a en error of 1.5%
+  // It allows for an error of 1.5%
   bool isScalarValue(Value val, double scalar) const {
     if (FullOp fullOp = getFullOpThroughTMChain(val)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {
