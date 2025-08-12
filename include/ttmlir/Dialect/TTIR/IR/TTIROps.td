@@ -508,7 +508,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
