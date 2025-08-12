@@ -561,6 +561,7 @@ public:
     auto variance = batchNormOp.getVariance();
     auto input = batchNormOp.getOperand();
     auto epsilon = batchNormOp.getEpsilon();
+    auto dimension = batchNormOp.getDimension();
 
     Location loc = batchNormOp.getLoc();
     RankedTensorType resultType = batchNormOp.getResult().getType();
@@ -591,9 +592,12 @@ public:
     auto beta = utils::createDPSOp<AddOp>(rewriter, loc, offset.getType(),
                                           offset, alphaMean);
 
-    // Reshape all parameters from (C) to (1, C, 1, 1) to match the input shape
-    // of (N, C, H, W)
-    SmallVector<int64_t> reshapeShape = {1, std.getType().getShape()[0], 1, 1};
+    // Reshape alpha and beta to match the input shape based on the dimension
+    // parameter : for dimension 3 and input shape (N, H, W, C), it is
+    // reshaped from (C) to (1, 1, 1, C).
+
+    SmallVector<int64_t> reshapeShape(4, 1);
+    reshapeShape[dimension] = std.getType().getShape()[0];
     SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                          reshapeShape.end());
     auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
