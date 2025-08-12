@@ -2411,4 +2411,195 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true, 0, 0, 0})));
 
+//===----------------------------------------------------------------------===//
+// BatchNormOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelBatchNormParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // running_mean
+                     std::optional<detail::TestTensor>, // running_var
+                     std::optional<detail::TestTensor>, // weight
+                     std::optional<detail::TestTensor>, // bias
+                     bool,                              // training
+                     float,                             // epsilon
+                     float,                             // momentum
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelBatchNormParam, BatchNormParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto runningMeanOpt = std::get<2>(params);
+  const auto runningVarOpt = std::get<3>(params);
+  const auto weightOpt = std::get<4>(params);
+  const auto biasOpt = std::get<5>(params);
+  const auto training = std::get<6>(params);
+  const auto epsilon = llvm::APFloat(std::get<7>(params));
+  const auto momentum = llvm::APFloat(std::get<8>(params));
+  const auto expectedResult = std::get<9>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create optional layouts for running_mean, running_var, weight, bias
+  std::optional<llvm::ArrayRef<int64_t>> runningMeanShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> runningMeanLayout = std::nullopt;
+  if (runningMeanOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] =
+        runningMeanOpt.value();
+    runningMeanShape = shape;
+    runningMeanLayout =
+        CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> runningVarShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> runningVarLayout = std::nullopt;
+  if (runningVarOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] =
+        runningVarOpt.value();
+    runningVarShape = shape;
+    runningVarLayout =
+        CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  if (weightOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = weightOpt.value();
+    weightShape = shape;
+    weightLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  if (biasOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = biasOpt.value();
+    biasShape = shape;
+    biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  // Test getOpConstraints
+  auto constraintsExp = op_model::OpModel<BatchNormOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, runningMeanShape,
+      runningMeanLayout, runningVarShape, runningVarLayout, weightShape,
+      weightLayout, biasShape, biasLayout, epsilon, training, momentum,
+      outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
+    EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = op_model::OpModel<BatchNormOp>::getOpRuntime(
+      inputShape, inputLayout, runningMeanShape, runningMeanLayout,
+      runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
+      biasLayout, epsilon, training, momentum, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+// Shared test values for BatchNormOp operations
+const auto batchNormTestValues = ::testing::Values(
+    // Test case 1: Basic BatchNorm with all optional tensors (4D input)
+    std::make_tuple(
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 0, 0}),
+
+    // Test case 2: BatchNorm without optional tensors (training mode)
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, std::nullopt, std::nullopt, true, 1e-05f,
+        0.1f, detail::ExpectedResult{true, 49152, 0, 0}),
+
+    // Test case 3: Failing case: BatchNorm supports tensors of rank 4 only.
+    std::make_tuple(
+        detail::TestTensor{{1, 16, 256, 256},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 16, 256, 256},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, 1e-05f, 0.01f, detail::ExpectedResult{false, 0, 0, 0}),
+
+    // Test case 4: BatchNorm with L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 2048, 2048}),
+
+    // Test case 5: Failing case: running_mean and running_var must be defined
+    // in evaluation mode
+    std::make_tuple(
+        detail::TestTensor{{1, 64, 112, 112},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 64, 112, 112},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::nullopt, std::nullopt,
+        std::make_optional(detail::TestTensor{
+            {1, 64, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {1, 64, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, 1e-05f, 0.1f, detail::ExpectedResult{false, 0, 0, 0}));
+
+INSTANTIATE_TEST_SUITE_P(BatchNormTests, OpModelBatchNormParam,
+                         batchNormTestValues);
+
 } // namespace mlir::tt::ttnn::op_model

@@ -183,6 +183,28 @@ convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
       "Unable to create TensorSpec out of given shape and layout");
 }
 
+std::optional<::ttnn::TensorSpec>
+convertToOptionalTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
+                            std::optional<llvm::ArrayRef<int64_t>> shape,
+                            std::optional<TTNNLayoutAttr> layout) {
+  std::optional<::ttnn::TensorSpec> ret = std::nullopt;
+  if (shape.has_value() && layout.has_value()) {
+    auto retExp =
+        detail::convertToTensorSpec(device, shape.value(), layout.value());
+    if (!retExp) {
+      // This is a common pattern for preventing the function to return
+      // llvm::Expected when std::optional is needed:
+      auto error = retExp.takeError();
+      std::string errorMessage = llvm::toString(std::move(error));
+      llvm::consumeError(std::move(error));
+      assert(false && errorMessage.c_str());
+      return std::nullopt;
+    }
+    ret = retExp.get();
+  }
+  return ret;
+}
+
 /**
  * @brief Convenience wrapper to get a memory config from a TTNNLayout attr that
  * may be a nullptr. Returns std::nullopt if layout is nullptr
@@ -2488,6 +2510,116 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+    std::optional<TTNNLayoutAttr> runningMeanLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+    std::optional<TTNNLayoutAttr> runningVarLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    bool training, llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+      detail::convertToOptionalTensorSpec(device, runningMeanShape,
+                                          runningMeanLayout);
+  std::optional<::ttnn::TensorSpec> runningVarSpec =
+      detail::convertToOptionalTensorSpec(device, runningVarShape,
+                                          runningVarLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  // The following arguments are received by the invoke method of batch norm but
+  // they don't exist in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+
+  auto batchNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
+        training, epsilon.convertToFloat(), momentum.convertToFloat(),
+        weightSpec, biasSpec, outputSpec,
+        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     batchNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+    std::optional<TTNNLayoutAttr> runningMeanLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+    std::optional<TTNNLayoutAttr> runningVarLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    bool training, llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+      detail::convertToOptionalTensorSpec(device, runningMeanShape,
+                                          runningMeanLayout);
+  std::optional<::ttnn::TensorSpec> runningVarSpec =
+      detail::convertToOptionalTensorSpec(device, runningVarShape,
+                                          runningVarLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  // The following arguments are received by the invoke method of batch norm but
+  // they don't exist in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+  // Create query closure
+  auto batchNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
+        training, epsilon.convertToFloat(), momentum.convertToFloat(),
+        weightSpec, biasSpec, outputSpec,
+        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+  };
+
+  return operation::getOpRuntime(batchNormQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

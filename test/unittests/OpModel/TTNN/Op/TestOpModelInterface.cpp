@@ -2369,4 +2369,154 @@ TEST_F(OpModelBase, WhereOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, batchNormOp) {
+  // Test case 1: Basic BatchNorm with all optional tensors (inference mode)
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
+  llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> weightShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> biasShape = {1, 32, 1, 1};
+
+  auto input = createEmptyTensor(inputShape);
+  auto runningMean = createEmptyTensor(runningMeanShape);
+  auto runningVar = createEmptyTensor(runningVarShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // BatchNorm parameters
+  bool training = false;
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      training, epsilon, momentum, weight, bias, nullptr);
+  batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 36864);
+  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(outputSize, 16384);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, batchNormOpTraining) {
+  // Test case 2: BatchNorm in training mode without optional tensors
+  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // BatchNorm parameters for training mode
+  bool training = true;
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
+      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, training,
+      epsilon, momentum, nullptr, nullptr, nullptr);
+  batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 49152);
+  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(outputSize, 8192);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, batchNormOpL1Memory) {
+  // Test case 3: BatchNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
+  llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> weightShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> biasShape = {1, 32, 1, 1};
+
+  // Create tensors with L1 memory layout
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      runningMeanShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto runningMean = createEmptyTensor(runningMeanShape, builder.getBF16Type(),
+                                       tensorLayout_L1);
+  auto runningVar = createEmptyTensor(runningVarShape, builder.getBF16Type(),
+                                      tensorLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  // BatchNorm parameters
+  bool training = false;
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      training, epsilon, momentum, weight, bias, nullptr);
+  batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 36864);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn
