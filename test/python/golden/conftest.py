@@ -9,6 +9,7 @@ from functools import reduce
 import operator
 import torch
 import subprocess
+from typing import Any, Dict, List, Optional
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -49,7 +50,7 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
         )
         git_sha = result.stdout.strip()
         record_testsuite_property("git_sha", git_sha)
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         # If git command fails or git is not available, record as unknown.
         record_testsuite_property("git_sha", "unknown")
 
@@ -130,18 +131,154 @@ def torch_dtype_to_abbrev(dtype):
     return dtype_mapping.get(dtype_str, dtype_str)
 
 
-def pytest_runtest_makereport(item, call):
+# Utility functions for fault-tolerant metadata extraction
+def safe_add_property(item: pytest.Item, key: str, value: Any) -> bool:
+    """Safely add a property to the test item, returning success status"""
+    try:
+        if not hasattr(item, "user_properties"):
+            return False
+        item.user_properties.append((key, str(value)))
+        return True
+    except Exception:
+        return False
+
+
+def safe_serialize(value: Any) -> str:
+    """Safely serialize a value to string with fallbacks"""
+    if isinstance(value, torch.dtype):
+        return torch_dtype_to_abbrev(value)
+
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        try:
+            return repr(value)
+        except Exception:
+            return f"<serialization_error: {type(value).__name__}>"
+
+
+def get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
+    """Get shapes parameter from various possible keys"""
+    shape_keys = ["shapes", "shape", "input_shape", "inputs_shapes"]
+    for key in shape_keys:
+        if key in params:
+            return params[key]
+    return None
+
+
+def get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
+    """Get dtypes parameter, broadcasting single dtype if needed"""
+    dtype_keys = ["dtypes", "dtype", "inputs_dtypes"]
+    dtypes_param = torch.float32  # Default.
+
+    for key in dtype_keys:
+        if key in params:
+            dtypes_param = params[key]
+            break
+
+    if not isinstance(dtypes_param, list):
+        return [dtypes_param] * num_shapes
+    return dtypes_param
+
+
+def extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> None:
+    """Extract and record shape and dtype information"""
+    shapes_param = get_shapes_param(params)
+    if shapes_param is None:
+        return
+
+    if not isinstance(shapes_param, list):
+        shapes_param = [shapes_param]
+
+    # Record shapes.
+    shapes_success = safe_add_property(item, "input_shapes", json.dumps(shapes_param))
+
+    if shapes_success:
+        # Only extract dtypes if shapes extraction succeeded.
+        dtypes_param = get_dtypes_param(params, len(shapes_param))
+        dtypes_list = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
+        safe_add_property(item, "input_dtypes", str(dtypes_list))
+
+
+def extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
+    """Extract and record operation name"""
+    op_name = None
+
+    # Try test_fn parameter first.
+    if "test_fn" in params:
+        test_fn = params["test_fn"]
+        if hasattr(test_fn, "__name__"):
+            op_name = test_fn.__name__
+
+    # Fall back to test function name.
+    if not op_name:
+        test_name = item.name.split("[")[0]
+        if test_name.startswith("test_"):
+            op_name = test_name[5:]
+
+    if op_name:
+        # Handle hoisted operations.
+        if op_name.startswith("hoisted_"):
+            op_name = op_name[8:]
+
+        safe_add_property(item, "op_name", op_name)
+        # TODO(ctod): Extract actual framework (torch) operation name in the
+        # future, once we have access to it via golden checking. (#4094)
+        safe_add_property(item, "framework_op_name", op_name)
+
+
+def extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
+    """Extract backend and remaining parameters"""
+    # Extract backend.
+    backend = params.get("target", "ttnn")
+    safe_add_property(item, "backend", backend)
+
+    # Extract remaining parameters.
+    covered_params = {
+        "shapes",
+        "shape",
+        "input_shape",
+        "inputs_shapes",
+        "dtypes",
+        "dtype",
+        "inputs_dtypes",
+        "test_fn",
+        "target",
+    }
+
+    for key, value in params.items():
+        if key not in covered_params:
+            value_str = safe_serialize(value)
+            safe_add_property(item, f"param_{key}", value_str)
+
+
+def extract_failure_stage(
+    item: pytest.Item, excinfo: Optional[pytest.ExceptionInfo[BaseException]]
+) -> None:
+    """Extract and record failure stage information."""
+    TTIR_EXCEPTIONS = {
+        "TTIRCompileException": "compile",
+        "TTIRRuntimeException": "runtime",
+        "TTIRGoldenException": "golden",
+    }
+
+    failure_stage = "success"  # Default to success.
+
+    if excinfo is not None and hasattr(excinfo, "type") and excinfo.type is not None:
+        exc_type = excinfo.type
+        exc_name = exc_type.__name__
+
+        if exc_name in TTIR_EXCEPTIONS:
+            failure_stage = TTIR_EXCEPTIONS[exc_name]
+
+    safe_add_property(item, "failure_stage", failure_stage)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item: pytest.Item):
     """
-    Extract test metadata and runtime information for XML reporting.
+    Extract test metadata during setup phase for XML reporting.
 
-    This pytest hook runs during multiple phases of test execution to collect
-    comprehensive metadata that gets embedded in the junit XML report. The
-    purpose of the expressiveness here is to be ingested by some sort of parser
-    after CI runs of these tests for easy triaging and organization. The hook
-    operates in two distinct phases:
-
-    SETUP PHASE (`call.when == "setup"`):
-    =====================================
     Extracts parameter-based metadata from all parametrized tests, including skipped ones.
     This ensures that even tests that don't execute still have their metadata captured.
 
@@ -166,28 +303,6 @@ def pytest_runtest_makereport(item, call):
        - param_groups: Grouping parameters
        - param_*: Any other test-specific parameters
 
-    CALL PHASE (`call.when == "call"`):
-    ==================================
-    Extracts runtime information from tests that actually execute. This includes
-    failure classification and error reporting.
-
-    Runtime report data includes:
-    - failure_stage: Categorizes where in the compilation pipeline the test failed
-      - "success": Test passed completely
-      - "compile": Failed during TTIR compilation (TTIRCompileException)
-      - "runtime": Failed during execution (TTIRRuntimeException)
-      - "golden": Failed golden result verification (TTIRGoldenException)
-    The "runtime" and "golden" are currently unused, but are needed for
-    downstream schemas to support future features once pytest itself
-    orchestrates the running of the generated flatbuffers
-
-
-    NOTES:
-        - Currently, the `framework_op_name` field is directly copied from op
-          name. This is not always correct, but is a best guess for the time
-          being
-
-
     XML Output Example:
     ===================
     <properties>
@@ -200,129 +315,39 @@ def pytest_runtest_makereport(item, call):
         <property name="param_padding" value="[2, 1]" />
         <property name="param_dilation" value="[2, 1]" />
         <property name="param_groups" value="2" />
-        <property name="failure_stage" value="success" />
     </properties>
+
+    Note that the above example excludes the "failure_stage" entry. This is
+    handled by the hookwrapper for `pytest_runtest_makereport` below
     """
+    yield
 
-    # SETUP PHASE: Extract parameter information (for all tests including skipped ones).
-    if call.when == "setup" and hasattr(item, "callspec"):
+    if hasattr(item, "callspec"):
         params = item.callspec.params
+        extract_shapes_and_dtypes(item, params)
+        extract_operation_name(item, params)
+        extract_backend_and_params(item, params)
 
-        # Extract shapes information.
-        shapes_param = None
-        if "shapes" in params:
-            shapes_param = params["shapes"]
-        elif "shape" in params:
-            shapes_param = params["shape"]
-        elif "input_shape" in params:
-            shapes_param = params["input_shape"]
-        elif "inputs_shapes" in params:
-            shapes_param = params["inputs_shapes"]
 
-        if shapes_param is not None:
-            if not isinstance(shapes_param, list):
-                shapes_param = [shapes_param]
-            # Format shapes as strings for XML.
-            item.user_properties.append(("input_shapes", json.dumps(shapes_param)))
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> None:
+    """
+    Extract runtime information from tests that actually execute.
 
-            # Extract dtypes information.
-            # This needs to happen iff the shapes work, since we need to know
-            # `len(shapes_param)` to properly broadcast types to a list of that
-            # length in the case where only one type is provided.
-            dtypes_param = torch.float32  # default to float32.
-            if "dtypes" in params:
-                dtypes_param = params["dtypes"]
-            elif "dtype" in params:
-                dtypes_param = params["dtype"]
-            elif "inputs_dtypes" in params:
-                dtypes_param = params["inputs_dtypes"]
+    This includes failure classification and error reporting during the call phase.
 
-            if not isinstance(dtypes_param, list):
-                # Handle single dtype, broadcast it across all inputs if only one is supplied as it is in certain tests.
-                dtypes_param = [dtypes_param] * len(shapes_param)
-            dtypes_list = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
-            item.user_properties.append(("input_dtypes", str(dtypes_list)))
-
-        # Extract operation name from various sources.
-        op_name = None
-
-        # First try to get from `test_fn` parameter (for parametrized op tests).
-        if "test_fn" in params:
-            test_fn = params["test_fn"]
-            if hasattr(test_fn, "__name__"):
-                op_name = test_fn.__name__
-
-        # If no `test_fn`, try to extract from test function name.
-        if not op_name:
-            test_name = item.name.split("[")[0]  # Remove parameter part.
-            if test_name.startswith("test_"):
-                op_name = test_name[5:]  # Remove "test_" prefix.
-
-        if op_name:
-
-            # Handle hoisted operations.
-            if op_name.startswith("hoisted_"):
-                op_name = op_name[8:]  # Remove "hoisted_" prefix.
-
-            item.user_properties.append(("op_name", op_name))
-            # For now, use the same op_name as framework_op_name.
-
-            # TODO(ctod): Extract actual framework (torch) operation name in the
-            # future, once we have access to it via golden checking. (#4094)
-            item.user_properties.append(("framework_op_name", op_name))
-
-        # Extract backend from target parameter, default to "ttnn" if not present.
-        backend = params.get("target", "ttnn")
-        item.user_properties.append(("backend", backend))
-
-        # Add remaining parameters (excluding those already covered) as prefixed properties.
-        if params:
-            # Parameters already covered by setup-time logging.
-            covered_params = {
-                "shapes",  # shape parameters
-                "shape",  # |
-                "input_shape",  # |
-                "inputs_shapes",  # |
-                "dtypes",  # dtype parameters
-                "dtype",  # |
-                "inputs_dtypes",  # |
-                "test_fn",  # operation name extraction
-                "target",  # backend extraction
-            }
-
-            # Add uncovered parameters as individual properties with "param_" prefix.
-            for key, value in params.items():
-                if key not in covered_params:
-                    if isinstance(value, torch.dtype):
-                        value_str = torch_dtype_to_abbrev(value)
-                    else:
-                        try:
-                            value_str = json.dumps(value)
-                        except:
-                            value_str = repr(value)
-                    item.user_properties.append((f"param_{key}", value_str))
-
-    # CALL PHASE: Extract runtime information (failure stage, error messages, etc.).
+    Runtime report data includes:
+    - failure_stage: Categorizes where in the compilation pipeline the test failed
+      - "success": Test passed completely
+      - "compile": Failed during TTIR compilation (TTIRCompileException)
+      - "runtime": Failed during execution (TTIRRuntimeException)
+      - "golden": Failed golden result verification (TTIRGoldenException)
+    The "runtime" and "golden" are currently unused, but are needed for
+    downstream schemas to support future features once pytest itself
+    orchestrates the running of the generated flatbuffers
+    """
+    # Only process call phase; setup phase was managed by `pytest_runtest_setup`.
     if call.when == "call":
-        # Determine failure stage based on test outcomes and exceptions from `compile_ttir_to_flatbuffer`.
-        failure_stage = "success"  # Default to success.
-
-        if hasattr(call, "excinfo") and call.excinfo is not None:
-            # Test failed, determine failure stage from exception type only.
-            exc_type = call.excinfo.type
-
-            # TODO(ctod): Capture stderr from test execution (to be implemented later). (#4094)
-
-            # Check for specific TTIR exception types.
-            if exc_type and exc_type.__name__ == "TTIRCompileException":
-                failure_stage = "compile"
-            elif exc_type and exc_type.__name__ == "TTIRRuntimeException":
-                failure_stage = "runtime"
-            elif exc_type and exc_type.__name__ == "TTIRGoldenException":
-                failure_stage = "golden"
-            # If no specific TTIR exception, leave as "success" default.
-
-        item.user_properties.append(("failure_stage", failure_stage))
+        extract_failure_stage(item, call.excinfo)
 
 
 def pytest_collection_modifyitems(config, items):
