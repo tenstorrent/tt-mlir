@@ -99,7 +99,7 @@ public:
     }
 
     // Retrieve output layout.
-    for (auto result : op->getResults()) {
+    for (Value result : op->getResults()) {
       RankedTensorType output = mlir::cast<RankedTensorType>(result.getType());
       TTNNLayoutAttr outputLayoutAttr =
           mlir::dyn_cast_if_present<TTNNLayoutAttr>(output.getEncoding());
@@ -148,20 +148,20 @@ public:
       return mlir::success();
     }
 
-    for (auto result : op->getResults()) {
+    for (mlir::Value result : op->getResults()) {
       auto resultType = mlir::dyn_cast<RankedTensorType>(result.getType());
       if (!resultType) {
         continue;
       }
 
-      Type elementType = resultType.getElementType();
+      mlir::Type elementType = resultType.getElementType();
       if (!mlir::isa<ttcore::TileType>(elementType)) {
         continue;
       }
 
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
-      Type scalarElementType = layoutAttr.getScalarElementType();
+      mlir::Type scalarElementType = layoutAttr.getScalarElementType();
       if (elementType != scalarElementType) {
         return op->emitOpError()
                << "Output element type must match the scalar "
