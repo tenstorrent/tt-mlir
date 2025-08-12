@@ -1389,9 +1389,9 @@ private:
 } // namespace
 
 namespace {
-// This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussian CDF is the
-// cumulative distribution function of a gaussian distribution (or an
-// approximation of one)
+// This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussianCDF is a
+// linearly transformed cummulative distribution function of a gaussian
+// distribution (or an approximation of one)
 class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
 public:
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -1658,30 +1658,56 @@ private:
     Value xCubedResult;
     Value x;
 
+    // Find the value of x in the pattern: x + 0.044715 * x^3.
     bool foundX = false;
-    if (MultiplyOp lhs =
+    if (MultiplyOp lhsMultiply =
             xPlusScaledXCubed.getLhs().getDefiningOp<MultiplyOp>()) {
       x = xPlusScaledXCubed.getRhs();
-      xCubedResult =
-          isScalarValue(lhs.getLhs(), 0.044715) ? lhs.getRhs() : nullptr;
+
+      // find x^3 in the pattern: 0.044715 * x^3.
+
+      // If the lhs of lhsMultiply is the scaling constant, then the rhs of
+      // lhsMultiply must be the result of x^3.
+      xCubedResult = isScalarValue(lhsMultiply.getLhs(), 0.044715)
+                         ? lhsMultiply.getRhs()
+                         : nullptr;
+
+      // Otherwise, the rhs of lhsMultiply must be the result of x^3.
       if (!xCubedResult) {
-        xCubedResult =
-            isScalarValue(lhs.getRhs(), 0.044715) ? lhs.getLhs() : nullptr;
+        xCubedResult = isScalarValue(lhsMultiply.getRhs(), 0.044715)
+                           ? lhsMultiply.getLhs()
+                           : nullptr;
       }
+      // Ensure that x is the same value which is cubed in the pattern.
+      // If xCubedResult is not found (i.e neither argument to the multiply is
+      // the result of a cubing), then foundX will remain false.
       if (xCubedResult) {
         foundX = x == getXCubedInput(xCubedResult);
       }
     }
 
-    if (MultiplyOp rhs = xPlusScaledXCubed.getRhs().getDefiningOp<MultiplyOp>();
-        !foundX && rhs) {
+    if (MultiplyOp rhsMultiply =
+            xPlusScaledXCubed.getRhs().getDefiningOp<MultiplyOp>();
+        !foundX && rhsMultiply) {
       x = xPlusScaledXCubed.getLhs();
-      xCubedResult =
-          isScalarValue(rhs.getLhs(), 0.044715) ? rhs.getRhs() : nullptr;
+
+      // find x^3 in the pattern: 0.044715 * x^3.
+
+      // If the lhs of rhsMultiply is the scaling constant, then the rhs of
+      // rhsMultiply must be the result of x^3.
+      xCubedResult = isScalarValue(rhsMultiply.getLhs(), 0.044715)
+                         ? rhsMultiply.getRhs()
+                         : nullptr;
+
+      // Otherwise, the rhs of rhsMultiply must be the result of x^3.
       if (!xCubedResult) {
-        xCubedResult =
-            isScalarValue(rhs.getRhs(), 0.044715) ? rhs.getLhs() : nullptr;
+        xCubedResult = isScalarValue(rhsMultiply.getRhs(), 0.044715)
+                           ? rhsMultiply.getLhs()
+                           : nullptr;
       }
+      // Ensure that x is the same value which is cubed in the pattern.
+      // If xCubedResult is not found (i.e neither argument to the multiply is
+      // the result of a cubing), then foundX will remain false.
       if (xCubedResult) {
         foundX = x == getXCubedInput(xCubedResult);
       }

@@ -2550,8 +2550,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto funcName = adaptor.getCallTargetName();
     if (funcName != "mhlo.erf") {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported function name: " +
-                                                    funcName);
+      return failure();
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ErfOp>(
