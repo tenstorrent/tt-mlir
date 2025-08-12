@@ -36,7 +36,6 @@ struct StableHLOToTTIRPipelineOptions
 };
 #endif
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
 // Options for the TTIR to NVVM backend pipeline.
 struct TTIRToNVVMPipelineOptions
     : public PassPipelineOptions<TTIRToNVVMPipelineOptions> {
@@ -53,7 +52,6 @@ struct TTIRToNVVMPipelineOptions
                            llvm::cl::desc("Optimization level."),
                            llvm::cl::init(2)};
 };
-#endif
 
 struct LinalgToLLVMPipelineOptions
     : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
@@ -71,10 +69,8 @@ void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
 #endif
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
 void createTTIRToNVVMPipeline(OpPassManager &manager,
                               const TTIRToNVVMPipelineOptions &options);
-#endif
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);

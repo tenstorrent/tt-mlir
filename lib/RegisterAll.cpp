@@ -44,7 +44,6 @@
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
 
-#if TTMLIR_ENABLE_TTIRTONVVM
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
@@ -58,7 +57,6 @@
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
-#endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
@@ -96,7 +94,6 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
-#if TTMLIR_ENABLE_TTIRTONVVM
   vector::registerConvertVectorToLLVMInterface(registry);
   registerConvertComplexToLLVMInterface(registry);
   registerConvertNVVMToLLVMInterface(registry);
@@ -109,7 +106,6 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   cf::registerConvertControlFlowToLLVMInterface(registry);
   registerConvertFuncToLLVMInterface(registry);
   registerAllToLLVMIRTranslations(registry);
-#endif
 }
 
 void mlir::tt::registerAllPasses() {

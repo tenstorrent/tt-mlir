@@ -30,7 +30,6 @@
 #include "stablehlo/transforms/optimization/Passes.h"
 #endif
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
@@ -41,7 +40,6 @@
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
-#endif
 
 namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
@@ -66,7 +64,6 @@ void createStableHLOToTTIRPipeline(
 }
 #endif
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
 void createTTIRToNVVMPipeline(OpPassManager &manager,
                               const TTIRToNVVMPipelineOptions &options) {
   // These are initial passes to ensure we start with well-form linalg dialect
@@ -82,9 +79,9 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
-  // Now everything is in linalg, we can bufferize.
-  // One-shot bufferize passes convert tensors into memrefs, which we can lower
-  // into LLVM Dialect.  See:
+  // Everything is converted to linalg, which can be bufferized.
+  // One-shot bufferize passes convert tensors into memrefs, which can be
+  // lowered into LLVM Dialect.  See:
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   bufferization::OneShotBufferizePassOptions bufferizePassOptions;
   bufferizePassOptions.bufferizeFunctionBoundaries = true;
@@ -97,8 +94,6 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
-
-  // Maybe canonicalizer pass should be added here?
 
   // This transforms high-level linalg operations into affine loop nests that
   //  explicitly iterate over tensor elements.
@@ -138,8 +133,7 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   manager.addPass(createConvertGpuOpsToNVVMOps(convertGpuOpsToNVVMOpsOptions));
 
   // Attaches target-specific information to the NVVM module, specifying the GPU
-  // architecture,
-  //  PTX version features, and optimization level.
+  // architecture, PTX version features, and optimization level.
 
   GpuNVVMAttachTargetOptions gpunvvmOptions;
   gpunvvmOptions.chip = options.chip;
@@ -154,8 +148,6 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
 }
-
-#endif
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
@@ -260,11 +252,9 @@ void registerTTIRPipelines() {
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
 #endif
 
-#ifdef TTMLIR_ENABLE_TTIRTONVVM
   mlir::PassPipelineRegistration<TTIRToNVVMPipelineOptions>(
       "convert-ttir-to-nvvm", "Pipeline lowering ttir to nvvm dialect.",
       mlir::tt::ttir::createTTIRToNVVMPipeline);
-#endif
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
       "linalg-to-llvm-pipeline", "Pipeline lowering linalg to llvm dialect.",
       mlir::tt::ttir::createLinalgToLLVMPipeline);
