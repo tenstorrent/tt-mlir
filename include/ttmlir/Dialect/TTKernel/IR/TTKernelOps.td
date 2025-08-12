@@ -2037,7 +2037,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
 
     let hasVerifier = 1;
 
-    let assemblyFormat = "`(` $fmt `,` $argv `)` attr-dict `:` `(` type($argv) `)`";
+    let assemblyFormat = "`(` $fmt (`,` $argv^)? `)` attr-dict `:` functional-type($argv, results)";
 
     let extraClassDeclaration = [{
       template <typename... Args>
