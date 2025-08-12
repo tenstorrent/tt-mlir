@@ -1388,6 +1388,7 @@ private:
 };
 } // namespace
 
+namespace {
 // This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussian CDF is the
 // cumulative distribution function of a gaussian distribution (or an
 // approximation of one)
@@ -1833,6 +1834,7 @@ private:
     } while (true);
   }
 };
+} // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
