@@ -1087,6 +1087,20 @@ generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParamsSameLayout(
+    std::initializer_list<BinaryEltwiseParam> values) {
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
+        (newValues.back().inputA.layout != newValues.back().output.layout)) {
+      newValues.back().expectedResult.expectedLegal = false;
+    }
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1145,14 +1159,13 @@ INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
 INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
                          generateBinaryBitwiseParams(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(Atan2Tests, OpModelAtan2Param,
-                         generateBinaryEltwiseParams(
-                             binaryEltwiseParams, /*extraCbRequirement=*/4096));
+INSTANTIATE_TEST_SUITE_P(
+    Atan2Tests, OpModelAtan2Param,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(
     RemainderTests, OpModelRemainderParam,
-    generateBinaryEltwiseParams(binaryEltwiseParams,
-                                /*extraCbRequirement=*/20480));
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
