@@ -12,12 +12,21 @@ import os
 
 class DPrintPyKernelOp(PyKernelOp):
     @reader_thread()
-    def dprint():
-        x = 1
-        y = 2
+    def dprint(
+        cb_in: CircularBuffer,
+        cb_out: CircularBuffer,
+        src_addr,
+        dst_addr,
+        num_tiles,
+        start_id,
+    ):
         print("Hello world\\n")
-        print("Hello", x, "world", y, "goodbye\\n")
-        print("Hello {} world Goodbye {} world\\n".format(x, y))
+        print("cb_in: ", cb_in, "cb_out: ", cb_out, "\\n")
+        print(
+            "src_addr={}, dst_addr={}, num_tiles={}, start_id={}\\n".format(
+                src_addr, dst_addr, num_tiles, start_id
+            )
+        )
 
         return
 
@@ -26,9 +35,19 @@ class DPrintPyKernelOp(PyKernelOp):
         in_tensor,
         out_tensor,
     ):
+        cb_in = self.create_cb(in_tensor, 0)
+        cb_out = self.create_cb(out_tensor, 1)
+        start_id = 0
+        num_tiles = 1
         kernels = [
             self.create_kernel(
                 DPrintPyKernelOp.dprint,
+                cb_in,
+                cb_out,
+                in_tensor.buffer_address(),
+                out_tensor.buffer_address(),
+                num_tiles,
+                start_id,
             ),
         ]
 
