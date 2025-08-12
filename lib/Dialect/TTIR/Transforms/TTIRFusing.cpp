@@ -1707,8 +1707,7 @@ private:
       }
 
       APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
-      if (powerValue.convertToFloat() - 3.0 > 1.5e-3 ||
-          powerValue.convertToFloat() - 3.0 < -1.5e-3) {
+      if (!checkFloatIsNear(powerValue.convertToFloat(), 3.0)) {
         return nullptr;
       }
 
@@ -1762,7 +1761,7 @@ private:
       return nullptr;
     }
     APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!value.isExactlyValue(1.0)) {
+    if (!checkFloatIsNear(value.convertToFloat(), 1.0)) {
       return nullptr;
     }
 
@@ -1797,6 +1796,11 @@ private:
     return scalingArgument;
   }
 
+  bool checkFloatIsNear(double value, double trueValue) const {
+    return value / trueValue - 1.0 <= 1.5e-3 &&
+           value / trueValue - 1.0 >= -1.5e-3;
+  }
+
   // This function will return true if the Value 'val' is a FullOp (or the
   // result of tms beginning with a FullOp), with the fill_value near 'scalar'.
   // It allows for a en error of 1.5%
@@ -1804,8 +1808,7 @@ private:
     if (FullOp fullOp = getFullOpThroughTMChain(val)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {
         APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
-        if (value.convertToFloat() / scalar - 1.0 <= 1.5e-3 &&
-            value.convertToFloat() / scalar - 1.0 >= -1.5e-3) {
+        if (checkFloatIsNear(value.convertToFloat(), scalar)) {
           return true;
         }
       }
