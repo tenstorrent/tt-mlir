@@ -2143,6 +2143,62 @@ def test_unary_ops(
     )
 
 
+unary_ops_int32 = [
+    # abs,
+    # neg,
+    pytest.param(
+        relu,
+        marks=pytest.mark.skip(
+            reason="Relu does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26719"
+        ),
+    ),
+    pytest.param(
+        sum,
+        marks=pytest.mark.skip(
+            reason="Sum does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26724"
+        ),
+    ),
+    pytest.param(
+        max,
+        marks=pytest.mark.skip(
+            reason="Max does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    pytest.param(
+        min,
+        marks=pytest.mark.skip(
+            reason="Min does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    get_dimension_size
+    | Marks(
+        pytest.mark.skip_config(["ttmetal"]),
+        pytest.mark.skip_config(["ttnn-standalone"]),
+    ),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+# TODO (anuragsingh): Add tt-metal and ttnn-standalone tests. Link to issue: https://github.com/tenstorrent/tt-mlir/issues/4444
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", unary_ops_int32)
+def test_unary_ops_int32(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
