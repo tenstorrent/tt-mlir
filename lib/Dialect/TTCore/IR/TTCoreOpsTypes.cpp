@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -752,6 +753,9 @@ llvm::SmallVector<int64_t>
 MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
                                 ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> physicalShape = getPhysicalShape(tileShape);
+  llvm::errs() << "physical shape: ";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "\n";
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
@@ -833,6 +837,9 @@ llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
+  llvm::errs() << "device grid shape: ";
+  llvm::interleaveComma(deviceGridShape, llvm::errs());
+  llvm::errs() << "\n";
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
   llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
   // Handle the last two intervals (which will map to tiles) with
@@ -866,6 +873,10 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     // Set alignment on the first dimension of the interval.
     dimAlignmentsVec[intervalStart] = alignment;
   }
+
+  llvm::errs() << "dim alignments computed: ";
+  llvm::interleaveComma(dimAlignmentsVec, llvm::errs());
+  llvm::errs() << "\n";
   return dimAlignmentsVec;
 }
 

@@ -20,14 +20,16 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include <array>
 
-// ----------------------------------------------------------------------------
 namespace mlir::tt {
 
-using namespace llvm;
-
 namespace {
+// ----------------------------------------------------------------------------
+//
+// Rewrite elementwise ops by emitting a matching tile version of the op
+// into a ttir.generic/linang.generic nest.
 class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
@@ -219,9 +221,7 @@ protected:
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 };
 } // namespace
-// ............................................................................
-// Rewrite elementwise ops by emitting a matching tile version of the op
-// into a ttir.generic/linang.generic nest.
+
 namespace {
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
@@ -332,7 +332,9 @@ private:
   }
 };
 } // namespace
-// ............................................................................
+
+// ----------------------------------------------------------------------------
+//
 // Rewriting reduction ops is similar to the elementwise group except for
 // ops whose tiled counterparts require a scaler operand ('weights', etc).
 // This rewriter will emit a single tile scaler operand that will be
@@ -568,7 +570,11 @@ private:
   }
 };
 } // namespace
-// ............................................................................
+
+// ----------------------------------------------------------------------------
+//
+// Rewrite a MatmulOp into either a TileMatmulOp or TileMatmulBlockOp (selected
+// by TileOp template).
 namespace {
 template <typename TileOp>
 class TTIRMatmulRewriter final
@@ -720,10 +726,116 @@ private:
   }
 };
 } // namespace
-} // namespace mlir::tt
-// ............................................................................
-namespace mlir::tt {
 
+// ----------------------------------------------------------------------------
+//
+// Lower TransposeOp into a ViewLayoutOp, which tranposes via view (i.e. without
+// actually moving memory).
+namespace {
+class TTIRPermuteRewriter final
+    : public mlir::OpConversionPattern<ttir::PermuteOp>,
+      TTIRNamedRewriterCommon {
+
+  using ConcreteOp = ttir::PermuteOp;
+
+public:
+  TTIRPermuteRewriter(const TypeConverter &typeConverter,
+                      mlir::MLIRContext *ctx,
+                      ttcore::MemorySpace defaultInputMemSpace,
+                      ttcore::MemorySpace defaultOutputMemSpace,
+                      const llvm::SmallVector<int64_t> &targetGridShape)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::Location loc = op->getLoc();
+
+    // Get the input and permutation
+    Value input = adaptor.getInput();
+    auto permutation = op.getPermutation();
+
+    // Get input and output types
+    // auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto outputType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+
+    // Apply layout transformation to the input if needed
+    Value layoutInput = createOptimalLayoutOp(input, memorySpaces[0],
+                                              /*tiled*/ true, rewriter);
+
+    // Get the type after layout transformation
+    auto layoutInputType =
+        mlir::cast<mlir::RankedTensorType>(layoutInput.getType());
+
+    // For tiled tensors, we need to preserve the tiled structure
+    // Get the layout attribute to access the logical shape
+    auto layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(layoutInputType.getEncoding());
+
+    // Create the permuted logical shape
+    ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
+    ArrayRef<int64_t> gridShape = layout.getGridShape(layoutInputType);
+    llvm::SmallVector<int64_t> permutedLogicalShape;
+    llvm::SmallVector<int64_t> permutedGridShape;
+    permutedLogicalShape.reserve(permutation.size());
+    for (auto dim : permutation) {
+      permutedLogicalShape.push_back(logicalShape[dim]);
+      permutedGridShape.push_back(gridShape[dim]);
+    }
+
+    // Create a new layout with the permuted logical shape
+    auto permutedLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), permutedLogicalShape, targetGridShape,
+        layout.getOobVal(), layout.getMemorySpace());
+
+    llvm::errs() << "permuted layout: " << permutedLayout << "\n";
+
+    // Calculate the new physical shape for the permuted layout
+    Type elementType = layoutInputType.getElementType();
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+      tileShape = llvm::SmallVector<int64_t>(tileType.getShape());
+    }
+
+    llvm::errs() << "grid shape: ";
+    llvm::interleaveComma(permutedGridShape, llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "tile shape: ";
+    llvm::interleaveComma(tileShape, llvm::errs());
+    llvm::errs() << "\n";
+
+    // Get the permuted physical shape
+    llvm::SmallVector<int64_t> permutedPhysicalShape =
+        permutedLayout.getDeviceShape(permutedGridShape, tileShape);
+
+    llvm::errs() << "permuted physical shape: ";
+    llvm::interleaveComma(permutedPhysicalShape, llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "permutedLayout: " << permutedLayout << "\n";
+
+    // Create the result type with the permuted shape and layout
+    auto permutedType = mlir::RankedTensorType::get(
+        permutedPhysicalShape, elementType, permutedLayout);
+
+    // Create ViewLayoutOp with the properly computed type
+    auto viewLayoutOp = rewriter.create<ttir::ViewLayoutOp>(
+        loc, permutedType, layoutInput, /*reinterpretLayout*/ false);
+
+    // Convert back to the original output type if needed
+    Operation *result =
+        unLayoutResult(rewriter, viewLayoutOp.getResult(), outputType);
+
+    rewriter.replaceOp(op, result->getResults());
+    return llvm::success();
+  }
+};
+} // namespace
+} // namespace mlir::tt
+
+namespace mlir::tt {
 void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
@@ -731,7 +843,7 @@ void populateTTIRToTTIRGenericPatterns(
     const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
   // clang-format off
   patterns.add<
-    // Elementwise.
+    // Elementwise ops.
     TTIRNamedElementwiseRewriter<ttir::AbsOp,        ttir::TileAbsOp>,
     TTIRNamedElementwiseRewriter<ttir::AddOp,        ttir::TileAddOp>,
     TTIRNamedElementwiseRewriter<ttir::CeilOp,       ttir::TileCeilOp>,
@@ -752,14 +864,17 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,
     TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
-    // Reductions.
+    // Reduction ops.
     TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
-    // Data movement.
-    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
+    // Data movement op.
+    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
+    // Permute op (also handles tranpose ops, since they're canonicalized to permutes).
+    TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
 
-  // Matmul.
+
+  // Matmul op.
   if (useTileMatmul) {
     patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   }
