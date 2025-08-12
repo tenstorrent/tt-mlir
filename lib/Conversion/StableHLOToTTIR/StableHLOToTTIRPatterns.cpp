@@ -2331,8 +2331,8 @@ namespace {
 //     - No gather needed.
 //
 // [3] KeyValue Sort:
-//     - More than one input, or two inputs where the second is not a recognized
-//       iota.
+//     - Two inputs where the second input is not recognized as iota or
+//       more than two inputs.
 //     - Only the first input is directly sorted.
 //     - The resulting indices are used to reorder all other inputs via
 //       ttir::GatherOp
@@ -2344,9 +2344,9 @@ namespace {
 //   count and type.
 // - Emit ttir::SortOp using only the first input tensor.
 // - If needed, emit one or more ttir::GatherOps to reorder the rest of the
-//  inputsl
+//   inputs.
 // - Replace the original stablehlo::SortOp with the results of the new
-//  operations.
+//   operations.
 //
 class StableHLOToTTIRSortOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SortOp> {
@@ -2430,18 +2430,22 @@ public:
     auto indicesType = cast<RankedTensorType>(indices.getType());
     int64_t rank = indicesType.getRank();
 
+    // TTIR GatherOp is based on StableHLO GatherOp which requires full
+    // multi-dimensional index tuples for each index into the input. This is
+    // generted using iota (ArangeOp) tensors for static dimensions and using
+    // ConcatOp to combine them with the index tensor.
     SmallVector<int64_t> shape(indicesType.getShape());
     shape.push_back(1);
     auto expandedType = RankedTensorType::get(
         shape, indicesType.getElementType(), indicesType.getEncoding());
 
-    // Generate iota-based index components (for all dims except sorting dim)
+    // Generate iota-based index components (for all dims except sorting dim).
     SmallVector<Value> toConcat;
     for (int64_t idx = 0; idx < rank - 1; ++idx) {
-      Value iota = rewriter.create<ttir::ArangeOp>(
+      Value arangeOp = rewriter.create<ttir::ArangeOp>(
           loc, expandedType, /*start=*/0,
           /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
-      toConcat.push_back(iota);
+      toConcat.push_back(arangeOp);
     }
 
     // Reshape indices to [*shape, 1]
@@ -2452,19 +2456,42 @@ public:
 
     toConcat.push_back(reshape);
 
-    // Concat along new trailing dimension to get [*, rank]
+    // Concat along new trailing dimension to get [*, rank].
     shape.back() = rank;
     auto concatType = RankedTensorType::get(shape, indicesType.getElementType(),
                                             indicesType.getEncoding());
-
+    // Concatenate iota(s) with the original indices tensor; this will act as
+    // index tensor for GatherOp.
     Value concatIndices = ttir::utils::createDPSOp<ttir::ConcatOp>(
         rewriter, loc, concatType, toConcat, rank);
 
     // Prepare Gather attributes
-    SmallVector<int64_t> collapsedDims(rank), startIndexMap(rank);
-    std::iota(collapsedDims.begin(), collapsedDims.end(), 0);
-    std::iota(startIndexMap.begin(), startIndexMap.end(), 0);
+    // collapsedDims specifies which dimensions of the gathered slice should be
+    // "collapsed" (i.e., dropped from the result shape).
+    // Since we're gathering scalar elements (sliceSize = 1 in every dimension),
+    // we collapse all dimensions to get a scalar output at each gather point.
+    // collapsedDims = [0, 1, ..., rank-1]
+    SmallVector<int64_t> collapsedDims(/*size=*/rank);
+    std::iota(collapsedDims.begin(), collapsedDims.end(), /*start_value=*/0);
+
+    // startIndexMap defines how to map each element of a start index vector to
+    // a dimension in the input.
+    // A value of `i` at position `i` means index[i] maps to dimension i in the
+    // input. This is a one-to-one mapping from index vector components to input
+    // dimensions.
+    // startIndexMap = [0, 1, ..., rank-1]
+    SmallVector<int64_t> startIndexMap(/*size=*/rank);
+    std::iota(startIndexMap.begin(), startIndexMap.end(), /*start_value=*/0);
+
+    // These are left empty because we are not using batching in this gather.
+    // - operand_batch_dims: for batching in the input tensor
+    // - start_index_batch_dims: for batching in the start_indices tensor
+    // Since we're gathering without batching semantics, these remain empty.
     SmallVector<int64_t> empty;
+
+    // sliceSizes determines the size of the slice to extract at each index.
+    // Since we are gathering scalars (individual elements), the slice size is 1
+    // in every dimension. e.g., for rank=4 → [1, 1, 1, 1]
     SmallVector<int64_t> sliceSizes(rank, 1);
 
     // Collect output values: sorted keys + gathered values
