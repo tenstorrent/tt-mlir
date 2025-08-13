@@ -514,7 +514,7 @@ jobs:
     - name: Install tt-alchemist wheel
       shell: bash
       run: |
-        python3 -m venv testenv
+        python3.12 -m venv testenv
         source testenv/bin/activate
         pip install tt_alchemist-*.whl --force-reinstall
         echo "Wheel installed successfully"
@@ -640,7 +640,7 @@ jobs:
         # to avoid GitHub API timeouts for heavily loaded
         # pull requests
         suggestions_per_comment: 10
-        python_path: "python3"
+        python_path: "python3.12"
 
   debug:
     needs: build-image
