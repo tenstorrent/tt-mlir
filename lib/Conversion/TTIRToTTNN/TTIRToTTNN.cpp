@@ -660,9 +660,50 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape(), /*memory_config=*/nullptr);
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto resultType = mlir::cast<RankedTensorType>(op.getType());
+
+    // Get input layout and data type
+    ttnn::TTNNLayoutAttr inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    ttcore::DataType inputDataType = inputLayoutAttr.getDataType();
+
+    // Check if input is u8
+    if (inputDataType == ttcore::DataType::UInt8) {
+
+      // Step 1: Cast input to bfloat16
+      auto bfloat16DataType = ttcore::DataType::BFloat16;
+
+      // Create intermediate type for casting to bfloat16
+      RankedTensorType inputBfloat16Type =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType,
+                                                       bfloat16DataType);
+      Value castToBfloat16 = rewriter.create<ttnn::TypecastOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(inputBfloat16Type),
+          adaptor.getInput(), bfloat16DataType);
+
+      // Step 2: Perform reshape on bfloat16
+      RankedTensorType resultBfloat16Type =
+          ttnn::utils::RankedTensorTypeFactory::create(resultType,
+                                                       bfloat16DataType);
+      Value reshapedBfloat16 = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(),
+          this->getTypeConverter()->convertType(resultBfloat16Type),
+          castToBfloat16, adaptor.getShape(), /*memory_config=*/nullptr);
+
+      // Step 3: Cast back to original data type
+      Value castBackToOriginal = rewriter.create<ttnn::TypecastOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          reshapedBfloat16, inputDataType);
+
+      rewriter.replaceOp(op, castBackToOriginal);
+    } else {
+      // Original reshape logic for other data types
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), adaptor.getShape(), /*memory_config=*/nullptr);
+    }
+
     return success();
   }
 };
@@ -1579,32 +1620,104 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!hasValidInsertedWindowDims(op)) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn and tt-metal have limited scatter support. Inserted window "
-              "dimenstion must be 1 in the input tensor shape.");
+
+    // Get the dimension configuration from TTIR attributes
+    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
+    auto indexVectorDim = op.getIndexVectorDim();
+
+    // Extract the dimension to scatter along
+    // TODO: Check dim is not negative
+    int32_t dim = scatterDimsToOperandDims[scatterDimsToOperandDims.size() - 1];
+
+    // Get the input tensor (tensor being updated)
+    Value inputTensor = adaptor.getInput();
+
+    // Get the source tensor (values to scatter)
+    Value sourceTensor = adaptor.getUpdate();
+
+    // Find dimIndex for scatter_indices.select(index_vector_dim,
+    // scatter_dims_to_operand_dims.index(dim))
+    auto it = std::find(scatterDimsToOperandDims.begin(),
+                        scatterDimsToOperandDims.end(), dim);
+    int32_t dimIndex = std::distance(scatterDimsToOperandDims.begin(), it);
+
+    // Create index tensor using slice operation
+    Value scatterIndices = adaptor.getScatterIndices();
+    auto scatterIndicesType =
+        mlir::cast<::mlir::RankedTensorType>(scatterIndices.getType());
+    auto scatterIndicesShape = scatterIndicesType.getShape();
+
+    llvm::SmallVector<int32_t> begins(scatterIndicesShape.size(), 0);
+    llvm::SmallVector<int32_t> ends(scatterIndicesShape.begin(),
+                                    scatterIndicesShape.end());
+    llvm::SmallVector<int32_t> steps(scatterIndicesShape.size(), 1);
+
+    begins[indexVectorDim] = dimIndex;
+    ends[indexVectorDim] = dimIndex + 1;
+
+    llvm::SmallVector<int64_t> indexTensorShape(scatterIndicesShape.begin(),
+                                                scatterIndicesShape.end());
+    indexTensorShape.erase(indexTensorShape.begin() +
+                           indexVectorDim); // Remove the sliced dimension
+
+    // Create temporary slice shape with size 1 in the sliced dimension
+    llvm::SmallVector<int64_t> sliceShape(scatterIndicesShape.begin(),
+                                          scatterIndicesShape.end());
+    sliceShape[indexVectorDim] = 1;
+
+    RankedTensorType sliceType =
+        RankedTensorType::get(sliceShape, scatterIndicesType.getElementType(),
+                              scatterIndicesType.getEncoding());
+
+    ttnn::SliceStaticOp sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+        op.getLoc(), sliceType, scatterIndices,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
+
+    Value slicedTensor = sliceOp.getResult();
+
+    // Build the new shape by removing the sliced dimension
+    llvm::SmallVector<int32_t> newShape;
+    ::mlir::RankedTensorType slicedTensorType =
+        mlir::cast<::mlir::RankedTensorType>(slicedTensor.getType());
+    auto slicedShape = slicedTensorType.getShape();
+    for (int64_t i = 0; i < static_cast<int64_t>(slicedShape.size()); ++i) {
+      if (i == indexVectorDim) {
+        continue; // Skip the dimension that was sliced to size 1
+      }
+      newShape.push_back(slicedShape[i]);
     }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
+
+    // Create the new shape attribute
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+
+    // Create result type for reshape
+    RankedTensorType indexTensorType = RankedTensorType::get(
+        indexTensorShape, scatterIndicesType.getElementType(),
+        scatterIndicesType.getEncoding());
+
+    ttnn::ReshapeOp reshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), indexTensorType, slicedTensor, shapeAttr,
+        /*memory_config=*/nullptr);
+
+    auto indexTensor = reshapeOp.getResult();
+
+    // Create the dim attribute for TTNN scatter
+    auto dimAttr = rewriter.getI32IntegerAttr(dim);
+
+    // Convert the result type
+    Type convertedResultType =
+        this->getTypeConverter()->convertType(op.getType());
+
+    // Create the TTNN scatter operation
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, convertedResultType,
+                                                 inputTensor,  // input_tensor
+                                                 indexTensor,  // index_tensor
+                                                 sourceTensor, // source_tensor
+                                                 dimAttr,      // dim
+                                                 /*memory_config=*/nullptr);
 
     return success();
-  }
-
-private:
-  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
-    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
-
-    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
-      if (insertedWindowDims < inputShape.size() &&
-          inputShape[insertedWindowDims] != 1) {
-        return false;
-      }
-    }
-
-    return true;
   }
 };
 } // namespace
@@ -1962,12 +2075,12 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
            ReduceScatterOpConversionPattern,
+           ScatterOpConversionPattern,
            CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
