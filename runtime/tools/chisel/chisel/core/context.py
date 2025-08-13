@@ -550,7 +550,6 @@ class ChiselContext:
         """
         for arg in self.device_ir_module.get_function_inputs():
             arg_name = arg.get_name()
-
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
