@@ -86,7 +86,7 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 # If there are multiple python env we need to explicitly set the python3 executable
-set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3.12)
+set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3.11)
 
 include(FindMLIR)
 include(TTMLIRVersion)
