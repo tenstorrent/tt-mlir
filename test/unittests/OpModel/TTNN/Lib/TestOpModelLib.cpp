@@ -851,6 +851,9 @@ struct BinaryEltwiseParam {
   detail::TestTensor inputA;
   detail::TestTensor inputB;
   detail::TestTensor output;
+  llvm::SmallVector<ttnn::UnaryOpType> postActivations;
+  llvm::SmallVector<ttnn::UnaryOpType> lhsActivations;
+  llvm::SmallVector<ttnn::UnaryOpType> rhsActivations;
   detail::ExpectedResult expectedResult;
 };
 
@@ -877,9 +880,29 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    // Convert UnaryOpType vectors to UnaryWithParamAttr vectors
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> postActivationsAttrs;
+    for (auto opType : GetParam().postActivations) {
+      postActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> lhsActivationsAttrs;
+    for (auto opType : GetParam().lhsActivations) {
+      lhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> rhsActivationsAttrs;
+    for (auto opType : GetParam().rhsActivations) {
+      rhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, {}, {}, {}, outputLayout);
+        inputLayoutB, postActivationsAttrs, lhsActivationsAttrs,
+        rhsActivationsAttrs, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -895,9 +918,10 @@ protected:
       llvm::consumeError(constraintsExp.takeError());
     }
 
-    llvm::Expected<size_t> runtimeExp =
-        OpModel<OpTy>::getOpRuntime(inputShapeA, inputLayoutA, inputShapeB,
-                                    inputLayoutB, {}, {}, {}, outputLayout);
+    llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -991,33 +1015,69 @@ TEST_P(OpModelLogicalOrParam, LogicalOrOp) { RunTest(); }
 TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
+    {detail::interleavedN300X1024Dram,
      detail::interleaved2048X2048Dram,
+     detail::interleaved2048X2048Dram,
+     {},
+     {},
+     {},
      detail::ExpectedResult{false, 0, 0, 0}}, // incompatible dimensions at
                                               // the input
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
      detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024L1,
      detail::interleavedN300X1024Dram,
-     detail::ExpectedResult{true, 12288, 0, 0}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
      detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 0, 0}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024L1,
      detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+    {detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 2048, 2048}},
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 12288, 2048, 2048}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::HeightSharded,
@@ -1030,6 +1090,9 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 4096, 262144, 262144}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::HeightSharded,
@@ -1041,6 +1104,9 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
      detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
                         BufferType::DRAM},
+     {},
+     {},
+     {},
      detail::ExpectedResult{true, 8192, 0, 0}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
@@ -1052,7 +1118,58 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true, 8192, 262144, 262144}}};
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true, 8192, 262144, 262144}},
+    // Test cases with activations using UnaryOpType
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    // Combinations of pre and post activations
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Gelu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
+     detail::ExpectedResult{true, 12288, 0, 0}},
+    // Multiple activations in chains
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Gelu, ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true, 12288, 0, 0}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sqrt, ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Abs},
+     detail::ExpectedResult{true, 12288, 0, 0}},
+};
 
 ::testing::internal::ParamGenerator<BinaryEltwiseParam>
 generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
