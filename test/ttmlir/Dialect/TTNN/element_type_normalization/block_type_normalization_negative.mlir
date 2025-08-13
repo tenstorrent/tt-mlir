@@ -5,7 +5,7 @@
 module {
   // CHECK: error: 'ttnn.add' op Output element type must match the scalar element type from encoding. Element type: '!ttcore.tile<32x32, bfp_bf8>', Scalar element type: 'bf16'.
   func.func @forward(%arg0 : tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>) -> tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout> {
-    %0 = "ttnn.add"(%arg0, %arg0) <{ output_dtype = #ttcore.supportedDataTypes<bfp_bf8> }> : (tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>, tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>) -> tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>
+    %0 = "ttnn.add"(%arg0, %arg0) <{ output_dtype = #ttcore.supportedDataTypes<bfp_bf8>, post_activations = [], lhs_activations = [], rhs_activations = [] }> : (tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>, tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>) -> tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>
     return %0 : tensor<32x32x!ttcore.tile<32x32, bfp_bf8>, #ttnn_layout>
   }
 }
