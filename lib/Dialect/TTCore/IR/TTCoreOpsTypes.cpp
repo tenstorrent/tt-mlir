@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <numeric>
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.cpp.inc"
@@ -1138,6 +1139,9 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<int64_t> meshShape) {
   int64_t numChips = ttmlir::utils::volume(meshShape);
+  std::cout << "[HET DEBUG GET] numChips: " << numChips << std::endl;
+  std::cout << "[HET DEBUG GET] systemDesc.getChipDescIndices().size(): "
+            << systemDesc.getChipDescIndices().size() << std::endl;
   assert(systemDesc.getChipDescIndices().size() >=
              static_cast<size_t>(numChips) &&
          "expected at least one chip");
