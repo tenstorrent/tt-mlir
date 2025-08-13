@@ -141,7 +141,7 @@ TEST_F(AssertsTest, BinaryExprDecomposition) {
     reset();
 
     // Note that the stringifier macro will capture the source
-    // test but the runtime message will show the evaluated
+    // text but the runtime message will show the evaluated
     // literal. This is ok.
 
     TT_assert(2 + 2 == 3);

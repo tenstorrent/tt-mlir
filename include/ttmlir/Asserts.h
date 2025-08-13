@@ -131,7 +131,6 @@ struct PrintAdaptor<T, Stream,
 
 // llvm raw streams have ambiguous overloads for std::nullptr_t.
 template <typename T, typename Stream>
-
 struct PrintAdaptor<
     T, Stream,
     std::enable_if_t<std::is_null_pointer_v<std::remove_reference_t<T>>>> {
