@@ -48,9 +48,11 @@ class TTIRBuilder(Builder):
         else:
             grid_shape = list(grid)
 
+        worker_grid = [8, 8]
+
         # Create layout with original logical shape.
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, shape, grid_shape, oobVal, memorySpace
+            ctx, shape, worker_grid, oobVal, memorySpace
         )
         # Sharded shape = grid + logical shape.
         device_shape = grid_shape + list(shape)
