@@ -879,7 +879,7 @@ protected:
 
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, outputLayout);
+        inputLayoutB, {}, {}, {}, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -895,8 +895,9 @@ protected:
       llvm::consumeError(constraintsExp.takeError());
     }
 
-    llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+    llvm::Expected<size_t> runtimeExp =
+        OpModel<OpTy>::getOpRuntime(inputShapeA, inputLayoutA, inputShapeB,
+                                    inputLayoutB, {}, {}, {}, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
