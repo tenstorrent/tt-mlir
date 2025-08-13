@@ -103,6 +103,11 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   //  outside loops when possible to reduce redundant calculations.
   manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());
 
+  // Wrap single AffineFor loops with outer dummy loops to ensure proper
+  // nesting structure required for GPU kernel generation.
+  manager.addNestedPass<func::FuncOp>(
+      transforms::createWrapSingleAffineLoops());
+
   // Maps affine loops to GPU execution model, distributing iterations across
   //   GPU threads and blocks.
   manager.addNestedPass<func::FuncOp>(mlir::createConvertAffineForToGPUPass());
