@@ -420,7 +420,8 @@ public:
 
     auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
-        reshapedGradShape, rewriter, "_reshaped_grad");
+        reshapedGradShape, rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
@@ -1127,14 +1128,13 @@ public:
 
     // Transposed convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C).
-    llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
+    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
     llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
     outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
         outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
-    ttnn::ConvTranspose2dOp new_conv = rewriter.create<ttnn::ConvTranspose2dOp>(
+    ttnn::ConvTranspose2dOp newConv = rewriter.create<ttnn::ConvTranspose2dOp>(
         op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
@@ -1143,8 +1143,9 @@ public:
         /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
+    Value output = ttir_to_ttnn::utils::generateReshape(
+        newConv, outputShape, rewriter,
+        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshape"));
 
     rewriter.replaceOp(op, output);
     return success();
@@ -1439,6 +1440,50 @@ public:
 } // namespace
 
 namespace {
+class RandOpConversionPattern : public OpConversionPattern<ttir::RandOp> {
+public:
+  using OpConversionPattern<ttir::RandOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RandOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Get ttnn::TTNNLayoutAttr of the result type.
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    mlir::tt::ttcore::DataType dtype =
+        mlir::tt::ttcore::elementTypeToDataType(adaptor.getDtype());
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::Layout ttnnLayoutEnum =
+        layoutAttr.isTiled() ? ttnn::Layout::Tile : ttnn::Layout::RowMajor;
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+
+    ttnn::ShapeAttr sizeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getResult().getType().getShape());
+
+    rewriter.replaceOpWithNewOp<ttnn::RandOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), sizeAttr,
+        device, dTypeAttr, tensorLayoutAttr, memoryConfigAttr,
+        adaptor.getLowAttr(), adaptor.getHighAttr(), adaptor.getSeedAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
@@ -1617,6 +1662,20 @@ public:
   }
 };
 
+class ConcatenateHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::ConcatenateHeadsOp> {
+public:
+  using OpConversionPattern<ttir::ConcatenateHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatenateHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ConcatenateHeadsOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), /*memory_config=*/nullptr);
+    return success();
+  }
+};
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
@@ -1813,13 +1872,15 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReduceScatterOpConversionPattern,
            CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
+           RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
-           CollectiveBroadcastOpConversionPattern
+           CollectiveBroadcastOpConversionPattern,
+           ConcatenateHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

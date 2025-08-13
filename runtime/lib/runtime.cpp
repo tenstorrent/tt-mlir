@@ -94,11 +94,12 @@ void dumpMemoryReport(Device device) {
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
 }
 
-void dumpDeviceProfileResults(Device device) {
+void readDeviceProfilerResults(Device device) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::dumpDeviceProfileResults(device); },
-      [&]() { ::tt::runtime::ttmetal::dumpDeviceProfileResults(device); });
+      RetType,
+      [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
+      [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); });
 }
 
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
@@ -393,16 +394,13 @@ size_t getNumAvailableDevices() {
       });
 }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
+Device openMeshDevice(const MeshDeviceOptions &options) {
   using RetType = Device;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::openMeshDevice(options); },
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::openMeshDevice(meshShape, options);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::openMeshDevice(meshShape, options);
+        return ::tt::runtime::ttmetal::openMeshDevice(options);
       });
 }
 

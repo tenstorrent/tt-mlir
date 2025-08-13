@@ -191,13 +191,6 @@ class Run:
             help="disable blackhole workarounds",
         )
         Run.register_arg(
-            name="--enable-d2m-return-event",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="enable d2m return event",
-        )
-        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -329,6 +322,13 @@ class Run:
             default=None,
             choices=None,
             help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
+        )
+        Run.register_arg(
+            name="--disable-ttrt-callbacks",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable ttrt callbacks",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -575,7 +575,6 @@ class Run:
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
-                self["--enable-d2m-return-event"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {
@@ -617,6 +616,7 @@ class Run:
 
                     fb_mesh_shape = bin.get_program(0).mesh_shape
                     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+                    mesh_options.mesh_shape = fb_mesh_shape
 
                     # Verify that the expected number of devices in the fb mesh shape is valid on this system
                     if num_mesh_devices > num_devices:
@@ -629,7 +629,7 @@ class Run:
                             parse_fabric_config(self["--fabric-config"])
                         )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
-                    device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
+                    device = ttrt.runtime.open_mesh_device(mesh_options)
 
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
@@ -658,10 +658,11 @@ class Run:
                         self["--debugger"],
                     )
 
-                    callback_env = ttrt.runtime.DebugHooks.get(
-                        pre_op_get_callback_fn(pre_op_callback_runtime_config),
-                        post_op_get_callback_fn(post_op_callback_runtime_config),
-                    )
+                    if not self["--disable-ttrt-callbacks"]:
+                        callback_env = ttrt.runtime.DebugHooks.get(
+                            pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                            post_op_get_callback_fn(post_op_callback_runtime_config),
+                        )
 
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
@@ -1113,8 +1114,8 @@ class Run:
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
 
-                        # Dump the perf data before deallocating buffers
-                        device.dump_device_profile_results()
+                        # Read the perf data before deallocating buffers
+                        device.read_device_profiler_results()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:

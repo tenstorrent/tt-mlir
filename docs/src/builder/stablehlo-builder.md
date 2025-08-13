@@ -54,3 +54,52 @@ module {
   }
 }
 ```
+
+## Creating a StableHLO module with Shardy annotations
+
+`StableHLOBuilder` allows you to attach shardy annotations to the generated mlir graph.
+
+### Example
+
+```python
+from builder.base.builder import Operand
+from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+from builder.stablehlo.stablehlo_utils import build_stablehlo_module
+
+shapes = [(32, 32), (32, 32)]
+
+def model(in0: Operand, in1: Operand, shlo_builder: StableHLOBuilder):
+    tensor_sharding_attr = shlo_builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[
+            shlo_builder.dimension_sharding_attr(
+                axes=[shlo_builder.axis_ref_attr(name="x")],
+                is_closed=True,
+            ),
+            shlo_builder.dimension_sharding_attr(
+                axes=[shlo_builder.axis_ref_attr(name="y")],
+                is_closed=False,
+            )
+        ]
+    )
+
+    shlo_builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+    return shlo_builder.add(in0, in1)
+
+module, shlo_builder = build_stablehlo_module(model, shapes)
+```
+
+#### Returns
+
+An MLIR module containing shardy annotations.
+
+```mlir
+module {
+  sdy.mesh @mesh = <["x"=1, "y"=8]>
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = sdy.sharding_constraint %arg0 <@mesh, [{"x"}, {"y", ?}]> : tensor<32x32xf32>
+    %1 = stablehlo.add %arg0, %arg1 : tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}
+```

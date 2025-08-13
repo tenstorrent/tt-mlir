@@ -104,6 +104,12 @@ struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
 template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
+template <>
+struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
+
+template <>
+struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
+
 template <typename OpT>
 struct UnaryEltwiseWithFastApproxModeOpModel {
   static llvm::Expected<OpConstraints>
@@ -614,6 +620,25 @@ struct OpModel<EmbeddingOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
                TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<EmbeddingBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+      TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> inGradientShape,
+      TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> inGradientShape,
+               TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

@@ -1,6 +1,7 @@
 .local
 **/build
 third_party/tt-metal
+third_party/ttnn-python
 .DS_STORE
 .vscode/*
 .cache
@@ -34,6 +35,7 @@ test/lit.site.cfg.py
 /ttir/
 /ttnn/
 /ttmetal/
+/ttnn-standalone/
 
 # TTNN and TTMetal flatbuffers
 *.ttnn

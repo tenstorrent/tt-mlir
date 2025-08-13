@@ -405,6 +405,51 @@ def test_array_with_expressions():
     return
 
 
+@ttkernel_compile(optimize=False)
+def test_attributes():
+    # CHECK-LABEL: func.func @test_attributes
+    # TEST: Define variables
+    # CHECK: %[[BANK_ID:.*]] = arith.constant
+    bank_id = 1
+    args = TensorAccessorArgs(2, 0)
+
+    # TEST: Check member function is called correctly
+    # CHECK: %[[TA:.*]] = ttkernel.TensorAccessor({{.*}})
+    ta = TensorAccessor(args, 0, 1024)
+
+    # CHECK: ttkernel.tensor_accessor_get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
+    noc_addr = ta.get_noc_addr(bank_id, 0)
+    return
+
+
+@ttkernel_compile(optimize=False)
+def test_print():
+    # CHECK-LABEL: func.func @test_print
+
+    # TEST: Define variables
+    # CHECK: %[[X:.*]] = arith.constant
+    # CHECK: %[[Y:.*]] = arith.constant
+    x = 1
+    y = 2
+
+    # TEST: dprint with just var
+    # CHECK: ttkernel.dprint("{}", %[[X]])
+    print(x)
+
+    # TEST: dprint with no args
+    # CHECK: ttkernel.dprint("Hello world")
+    print("Hello world")
+
+    # TEST: dprint with args
+    # CHECK: ttkernel.dprint("Hello world {} {} goodbye.", %[[X]], %[[Y]])
+    print("Hello world", x, y, "goodbye.")
+
+    # TEST: dprint with string and format args
+    # CHECK: ttkernel.dprint("Hello {} world Goodbye {} world", %[[X]], %[[Y]])
+    print("Hello {} world".format(x), "Goodbye {} world".format(y))
+    return
+
+
 test_assign()
 test_ifstmt()
 test_for()
@@ -418,3 +463,5 @@ test_array_iteration()
 test_array_additional()
 test_multidim_arrays()
 test_array_with_expressions()
+test_attributes()
+test_print()

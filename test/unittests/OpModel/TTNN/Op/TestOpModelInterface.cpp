@@ -5,7 +5,6 @@
 #include "OpModelFixture.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -193,6 +192,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 }
 
 const ExpectedResult expected{true, 8192, 2048, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -283,6 +283,11 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
 };
+const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CbrtOp>(loc, type, ops).getOperation();
+};
+
 //===---------------------------------------------------------===
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
@@ -299,6 +304,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
     {"Reciprocal", createReciprocal, expected},
+    {"Cbrt", createCbrt, cbrtExpected},
     {"Gelu", createGelu, expected},
     {"IsFinite", createIsFinite, expected},
     {"LogicalNot", createLogicalNot, expected},
@@ -474,6 +480,57 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
       return info.param.testName;
     });
+
+// Separate test for BitwiseNot with integer data types
+TEST_F(OpModelBase, BitwiseNotOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create TTNNLayoutAttr with Int32 data type manually
+  // (CreateTiledLayout only supports FloatType, not IntegerType)
+  auto int32DataType = ttcore::DataType::Int32;
+  auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
+  auto bufferType = BufferType::L1;
+  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  auto memLayout =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
+                                         bufferType, grid, memLayout);
+
+  // Create tensors with the proper Int32 layout
+  auto intType = builder.getIntegerType(32);
+  auto inputType = createRankedTensorType(tensorShape, intType, int32Layout);
+  auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
+
+  // Create input tensor using OnesOp with Int32 layout
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      ShapeAttr::get(&context, tensorShape),
+                                      nullptr, nullptr, nullptr, nullptr);
+
+  auto bitwiseNot = builder.create<BitwiseNotOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
+
+  // Test BitwiseNot interface
+  auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints for BitwiseNot; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(bitwiseNot.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for BitwiseNot; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
 
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
@@ -1155,8 +1212,6 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1208,7 +1263,7 @@ TEST_F(OpModelBase, Conv2dInterface) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(peakSize, 190572);
   EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
@@ -1224,8 +1279,6 @@ TEST_F(OpModelBase, Conv2dInterface) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1279,7 +1332,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(peakSize, 190572);
   EXPECT_EQ(outputSize, 28672);
 
   ASSERT_TRUE(outputLayout);
@@ -1336,9 +1389,6 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
-  // TODO(3901): Skipped due to hang. See
-  // https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1395,7 +1445,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -1435,7 +1484,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
@@ -1461,9 +1509,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 }
 
 TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
-  // TODO(3901): Skipped due to hang. See
-  // https://github.com/tenstorrent/tt-mlir/issues/3901
-  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1533,9 +1578,6 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 }
 
 TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3970
-  GTEST_SKIP();
-
   // create ConvTranspose2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {3, 64, 7, 7};
@@ -1589,7 +1631,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_split_reader=*/BoolAttr::get(&context, false),
-      /*enable_subblock_padding=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
@@ -1927,6 +1968,49 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   // Test EmbeddingOp runtime
   auto runtimeExp = embedding.getOpRuntime(getInputLayouts(embedding),
                                            OpConfig(/*outputLayout=*/nullptr));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, EmbeddingBackwardOp) {
+  llvm::SmallVector<int64_t> inputShape = {2, 1024};
+  llvm::SmallVector<int64_t> weightShape = {3200, 4096};
+  llvm::SmallVector<int64_t> inGradientShape = {1, 1, 2048, 4096};
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(inputShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(),
+                        CreateRowMajorLayout(weightShape, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto inGradient = createEmptyTensor(inGradientShape);
+  auto outputType = createRankedTensorType(
+      inGradientShape, builder.getBF16Type(),
+      CreateTiledLayout(inGradientShape, BufferType::L1,
+                        TensorMemoryLayout::Interleaved));
+
+  auto embeddingBackward = builder.create<EmbeddingBackwardOp>(
+      builder.getUnknownLoc(), outputType,
+      ::mlir::ValueRange{input, weight, inGradient});
+
+  auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12400);
+    EXPECT_EQ(peakSize, 409600);
+    EXPECT_EQ(outputSize, 409600);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(embeddingBackward.getOperation());
   if (runtimeExp) {
     EXPECT_GT(runtimeExp.get(), 0);
   } else {

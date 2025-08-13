@@ -14,6 +14,12 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include <optional>
 
+// TODO (azecevic): Forward declaration is a temporary solution to avoid
+// circular dependency issue. https://github.com/tenstorrent/tt-mlir/issues/4405
+namespace mlir::tt::ttnn {
+class SortOp;
+} // namespace mlir::tt::ttnn
+
 namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
@@ -226,14 +232,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for zeros op operands.
-  static TTNNOperandsWorkarounds
-  createZerosOpOperandsWorkarounds(RankedTensorType outputType);
-
-  // Create workarounds for full op operands.
-  static TTNNOperandsWorkarounds
-  createFullOpOperandsWorkarounds(RankedTensorType outputType);
-
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
@@ -256,9 +254,6 @@ public:
   // Create workarounds for WhereOp operands.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
-
-  static TTNNOperandsWorkarounds
-  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
@@ -297,6 +292,10 @@ public:
   static TTNNOperandsWorkarounds
   createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
                                         bool allDimensions);
+
+  // Create workarounds for sort op operands.
+  static TTNNOperandsWorkarounds
+  createSortOpOperandsWorkarounds(ttnn::SortOp op);
 };
 
 } // namespace mlir::tt::ttnn::wa

@@ -142,10 +142,13 @@ void disablePersistentKernelCache() {
 
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
-  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  tt_metal::distributed::MeshShape shape(meshShape);
+Device openMeshDevice(const MeshDeviceOptions &options) {
+  std::optional<tt_metal::distributed::MeshShape> meshShape = std::nullopt;
+  if (options.meshShape.has_value()) {
+    LOG_ASSERT(options.meshShape.value().size() == 2,
+               "Mesh shape must be 2D for now");
+    meshShape = tt_metal::distributed::MeshShape(options.meshShape.value());
+  }
 
   LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
   tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
@@ -156,7 +159,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   tt_metal::DispatchCoreType dispatchCoreType =
       common::getDispatchCoreType(options.dispatchCoreType);
 
-  tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
+  tt_metal::distributed::MeshDeviceConfig meshConfig(meshShape, offset,
                                                      options.deviceIds);
 
   std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
@@ -185,7 +188,7 @@ void closeMeshDevice(Device parentMesh) {
   }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(metalMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(metalMeshDevice);
 #endif
 
   metalMeshDevice.close();
@@ -322,7 +325,7 @@ void dumpMemoryReport(Device deviceHandle) {
   }
 }
 
-void dumpDeviceProfileResults(Device deviceHandle) {
+void readDeviceProfilerResults(Device deviceHandle) {
   tt_metal::distributed::MeshDevice &metalMeshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
@@ -331,7 +334,7 @@ void dumpDeviceProfileResults(Device deviceHandle) {
              "Mesh device must be a parent mesh");
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(metalMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(metalMeshDevice);
 #endif
 }
 
@@ -365,10 +368,11 @@ void setFabricConfig(FabricConfig config) {
 }
 
 void wait(Event event) {
-  std::shared_ptr<tt_metal::Event> eventPtr =
-      event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);
+  std::shared_ptr<tt_metal::distributed::MeshEvent> eventPtr =
+      event.asSharedPtr<tt_metal::distributed::MeshEvent>(
+          DeviceRuntime::TTMetal);
   if (eventPtr) {
-    tt_metal::EventSynchronize(eventPtr);
+    tt_metal::distributed::EventSynchronize(*eventPtr);
   }
 }
 

@@ -4,12 +4,12 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.ttir.ttir_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import Marks, shape_str
 
 
@@ -44,7 +44,7 @@ def logical_not(
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
     input_tensor = input_tensor.to(dtype)
-    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype
+    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
     builder.set_graph_input_output(
         [input_tensor], [golden_output_tensor], override=True
@@ -907,7 +907,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
     ):
         return concat(in0, in1, in2, dim, builder, unit_attrs)
 
-    # Set the name for better test identification
+    # Set the name for better test identification.
     concat_wrapper.__name__ = "concat"
 
     compile_ttir_to_flatbuffer(
@@ -930,13 +930,30 @@ def test_concat(shapes: List[Shape], dim: int, request):
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize(
+    "input_dtypes",
+    [
+        [torch.float32, torch.float32, torch.float32, torch.float32],
+        # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
+        pytest.param(
+            [
+                TypeInfo(torch.quint8, scale=0.1, zero_point=128),
+                TypeInfo(torch.qint8, scale=0.1, zero_point=0),
+                torch.float32,
+                torch.int8,
+            ],
+            marks=pytest.mark.skip(
+                reason="Issue: https://github.com/tenstorrent/tt-metal/issues/26568"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
 def test_conv2d(
     shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    input_dtypes: List[Union[torch.dtype, TypeInfo]],
     stride: List[int],
     padding: List[int],
     dilation: List[int],
@@ -966,7 +983,7 @@ def test_conv2d(
     compile_ttir_to_flatbuffer(
         conv2d,
         shapes,
-        dtypes,
+        input_dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1190,15 +1207,19 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
     )
 
 
-# TODO: these three nullary tensor creation ops can probably be combined in some way
+# TODO (ctod): These three nullary tensor creation ops can probably be combined in some way.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_zeros(shape: Shape, request):
+@pytest.mark.parametrize(
+    "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
+)
+def test_zeros(shape: Shape, dtype: torch.dtype, request):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.zeros(shape, unit_attrs=unit_attrs)
+        return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         zeros,
         inputs_shapes=[],
+        inputs_types=[],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1527,7 +1548,19 @@ def embedding(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.qint32])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.qint32,
+        pytest.param(
+            torch.qint8,
+            marks=pytest.mark.skip(
+                reason="qint8 quantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 def test_quantize(
     shape: Shape, scale: float, zero_point: int, dtype: torch.dtype, request
 ):
@@ -1536,22 +1569,32 @@ def test_quantize(
     ):
         return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         quantize,
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("input_dtype", [TypeInfo(torch.qint32, 0.1, 0)])
+@pytest.mark.parametrize(
+    "input_dtype",
+    [
+        TypeInfo(torch.qint32, 0.1, 0),
+        pytest.param(
+            TypeInfo(torch.qint8, 0.1, 0),
+            marks=pytest.mark.skip(
+                reason="qint8 dequantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_dequantize(
     shape: Shape,
     input_dtype: TypeInfo,
@@ -1565,7 +1608,6 @@ def test_dequantize(
     ):
         return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         dequantize,
         [shape],
@@ -1573,15 +1615,34 @@ def test_dequantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("input_dtype", [TypeInfo(torch.qint32, 0.1, 0)])
+@pytest.mark.parametrize(
+    "input_dtype",
+    [
+        TypeInfo(torch.qint32, 0.1, 0),
+        pytest.param(
+            TypeInfo(torch.qint8, 0.1, 0),
+            marks=pytest.mark.skip(
+                reason="qint8 requantize not supported. issue https://github.com/tenstorrent/tt-metal/issues/26414"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.qint32])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.qint32,
+        pytest.param(
+            torch.qint8, marks=pytest.mark.skip(reason="qint8 quantize not supported")
+        ),
+    ],
+    ids=["qint32", "qint8"],
+)
 def test_requantize(
     shape: Shape,
     input_dtype: TypeInfo,
@@ -1595,7 +1656,6 @@ def test_requantize(
     ):
         return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_ttir_to_flatbuffer(
         requantize,
         [shape],
@@ -1603,7 +1663,6 @@ def test_requantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=pipeline_options,
     )
 
 
@@ -1954,6 +2013,38 @@ def test_hoisted_where(shapes, request, target: str):
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # [input_shape, output_shape]
+        [(128, 128), (16384,)],  # Flatten 2D to 1D
+        [(24,), (2, 3, 4)],  # Unflatten 1D to 3D
+        [(2, 3, 4), (6, 4)],  # 3D to 2D reshape
+        [(128, 128), (64, 256)],  # 2D to 2D different arrangement
+        [(1, 1, 1), (1,)],  # Edge case: all dimensions are 1
+        [(10,), (10,)],  # Identity reshape
+        [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
+        [(256, 256), (512, 128)],  # Power of 2 reshape
+        [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_reshape(shapes, dtype: torch.dtype, request):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+        return builder.reshape(in0, output_shape)
+
+    compile_ttir_to_flatbuffer(
+        reshape_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @x86_only
 @pytest.mark.parametrize(
     "shapes",
@@ -2237,7 +2328,6 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], None),
-        (reshape, [(64, 32)], None),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
@@ -2374,26 +2464,27 @@ def gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
+    indices_dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    # For now, just create zero indices - this tests the basic gather functionality
-    # In a real test, you'd want to create varied indices to test different gather patterns
-    indices = builder.zeros(indices_shape)
+    # For now, just create zero indices - this tests the basic gather functionality.
+    # In a real test, you'd want to create varied indices to test different gather patterns.
+    indices = builder.zeros(indices_shape, indices_dtype)
 
     # Set collapsed_slice_dims to be the same as start_index_map
-    # This is what the GatherToEmbeddingConversionPattern expects
+    # This is what the GatherToEmbeddingConversionPattern expects.
     collapsed_slice_dims = start_index_map
 
-    # Set remaining parameters to empty lists for simplicity
+    # Set remaining parameters to empty lists for simplicity.
     operand_batching_dims = []
     start_indices_batching_dims = []
 
-    # Set index_vector_dim correctly based on the use case
+    # Set index_vector_dim correctly based on the use case.
     if len(indices_shape) == 1 and len(start_index_map) == 1:
-        # Single indices case - index vector dim is implicit
+        # Single indices case - index vector dim is implicit.
         index_vector_dim = len(indices_shape)  # = 1
     else:
-        # Multi-dimensional indices - last dimension contains index vectors
+        # Multi-dimensional indices - last dimension contains index vectors.
         index_vector_dim = len(indices_shape) - 1
 
     return builder.gather(
@@ -2411,24 +2502,44 @@ def gather(
 
 
 @pytest.mark.parametrize(
-    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        # Simple 1D indices - f32.
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),
         pytest.param(
             (8, 16, 32),
+            torch.float32,
             (4, 2, 2),
             [0, 2],
             [1],
-            [1, 16, 1],  # Complex indices
+            # Complex indices - f32.
+            [1, 16, 1],
+            marks=pytest.mark.skip(
+                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
+            ),
+        ),
+        pytest.param(
+            (8, 16, 32),
+            torch.bfloat16,
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            # Complex indices - bf16.
+            [1, 16, 1],
             marks=pytest.mark.skip(
                 reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
             ),
         ),
     ],
-    ids=["simple_1d", "complex_indices"],
+    ids=[
+        "simple_1d-f32",
+        "complex_indices-f32",
+        "complex_indices-bf16",
+    ],
 )
 def test_gather(
     input_shape: Shape,
+    input_dtype: torch.dtype,
     indices_shape: Shape,
     start_index_map: List[int],
     offset_dims: List[int],
@@ -2437,12 +2548,19 @@ def test_gather(
 ):
     def gather_wrapper(in0: Operand, builder: TTIRBuilder):
         return gather(
-            in0, builder, indices_shape, start_index_map, offset_dims, slice_sizes
+            in0,
+            builder,
+            indices_shape,
+            start_index_map,
+            offset_dims,
+            slice_sizes,
+            input_dtype,
         )
 
     compile_ttir_to_flatbuffer(
         gather_wrapper,
         [input_shape],
+        [input_dtype],
         test_base=request.node.name,
         target="ttnn",
         output_root=request.config.getoption("--path"),
@@ -2465,7 +2583,7 @@ def test_gather(
     ],
     ids=["simple_1d", "complex_indices"],
 )
-# note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
+# Note: Doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
 @pytest.mark.skip(
     "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
 )

@@ -40,6 +40,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Require exact mesh shape match with the current device (default allows subset)",
     )
+    parser.addoption(
+        "--require-opmodel",
+        action="store_true",
+        help="Require tests to run only if build has opmodel enabled",
+    )
 
 
 def get_board_id(system_desc) -> str:
@@ -75,7 +80,14 @@ def pytest_collection_modifyitems(config, items):
         ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
     )["system_desc"]
 
+    skip_opmodel = pytest.mark.skip(reason="Test requires --require-opmodel flag")
+    require_opmodel = config.getoption("--require-opmodel")
+
     for item in items:
+        # Skip optimizer tests if opmodel flag is missing
+        if not require_opmodel and "optimizer" in str(item.fspath):
+            item.add_marker(skip_opmodel)
+
         # Only check parameterized tests
         if hasattr(item, "callspec"):
             params = item.callspec.params
@@ -122,6 +134,9 @@ def pytest_collection_modifyitems(config, items):
 
     # Update the items list (collected tests)
     items[:] = valid_items
+
+    # Sort tests alphabetically by their nodeid to ensure consistent ordering.
+    items.sort(key=lambda x: x.nodeid)
 
     # Report deselected items to pytest
     if deselected:

@@ -49,6 +49,11 @@
 #include <limits>
 #include <vector>
 
+template <typename... T>
+std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
 namespace ttnn {
 
 // DeviceGetter class

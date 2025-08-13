@@ -171,6 +171,7 @@ class Builder:
         self._seed += 1
         return seed
 
+    # Generates a random PyTorch tensor with the specified shape, dtype, and seed for testing.
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo], seed: int
     ) -> torch.Tensor:
@@ -194,9 +195,11 @@ class Builder:
                 dtype=dtype,
             )
 
-    def _get_default_dtype(self) -> Type:
+    @property
+    def _default_type(self) -> Type:
         return F32Type.get(self._ctx)
 
+    # Extracts a RankedTensorType from a Value, OpView, or Operation, ensuring the type is ranked.
     def _get_type(self, input: Operand):
         if isinstance(input, Value):
             typ = input.type
@@ -234,17 +237,19 @@ class Builder:
         else:
             return loc
 
+    # Creates an MLIR RankedTensorType from a shape, optional data type, and optional encoding.
     def _create_ranked_tensor_type(
         self,
         shape: Shape,
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = data_type if data_type is not None else self._default_type
 
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
+    # Converts a torch.dtype or TypeInfo (with optional scale and zero_point) into the corresponding MLIR type.
     def _get_type_from_torch_dtype(
         self,
         dtype: Union[torch.dtype, TypeInfo],
@@ -293,6 +298,34 @@ class Builder:
                     dtype.zero_point,
                     torch.iinfo(torch.qint32).min,
                     torch.iinfo(torch.qint32).max,
+                )
+            case torch.qint8:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for qint8")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for qint8")
+                return quant.UniformQuantizedType.get(
+                    quant.UniformQuantizedType.FLAG_SIGNED,
+                    IntegerType.get_signless(8, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.qint8).min,
+                    torch.iinfo(torch.qint8).max,
+                )
+            case torch.quint8:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for quint8")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for quint8")
+                return quant.UniformQuantizedType.get(
+                    0,
+                    IntegerType.get_unsigned(8, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.quint8).min,
+                    torch.iinfo(torch.quint8).max,
                 )
             case _:
                 raise TypeError(f"Invalid Type {dtype}")

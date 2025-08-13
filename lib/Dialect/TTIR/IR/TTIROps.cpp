@@ -396,6 +396,40 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
+  auto dtype = getDtype();
+  auto outputType = getResult().getType().getElementType();
+
+  if (dtype != outputType) {
+    return emitOpError()
+           << "dtype does not match with output tensor type [dtype = " << dtype
+           << ", output tensor type = " << outputType << "].";
+  }
+
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  llvm::SmallVector<int64_t> sizeVec;
+  for (auto size : getSize()) {
+    sizeVec.push_back(mlir::cast<mlir::IntegerAttr>(size).getInt());
+  }
+  if (!llvm::equal(getResult().getType().getShape(), sizeVec)) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = "
+           << getSize() << ", output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
@@ -1034,13 +1068,21 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
       mlir::cast<RankedTensorType>(sourceOperands[1].getType())
           .getElementType());
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+
+  // Pass back axes needed for computation of output scale and zero point.
+  mlir::tt::ttir::ConvolutionLayoutAttr layout = getConvolutionLayout();
+  const int64_t outFeatAxis = layout.getOutputFeatureDimension();
+  const int64_t weightOcAxis = layout.getKernelOutputFeatureDimension();
+  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
+
   mlir::quant::QuantizedType quantOutputType =
       mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
-          quantInputType, quantWeightType, storageType, getLoc());
+          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
+          weightOcAxis, ocSize);
   if (!quantOutputType) {
     return nullptr;
   }
-  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
   auto quantConvOutputType =
       quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
   if (!quantConvOutputType) {
@@ -1052,10 +1094,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   auto quantConv =
       mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
           rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-          getBias(), getInputDilationAttr(), getWeightDilationAttr(),
-          getWindowStridesAttr(), getPaddingAttr(), getWindowReversalAttr(),
-          getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
-          getBatchGroupCountAttr());
+          getBias(), getWindowStridesAttr(), getPaddingAttr(),
+          getInputDilationAttr(), getWeightDilationAttr(),
+          getWindowReversalAttr(), getConvolutionLayoutAttr(),
+          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
   return quantConv.getOperation();
 }
 
@@ -1103,6 +1145,49 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Pooling helper functions
+//===----------------------------------------------------------------------===//
+
+// Checks if a AvgPool2dOp or MaxPool2dOp operation is an identity operation.
+// Identity operations can be folded away when kernel=[1,1], stride=[1,1],
+// dilation=[1,1], and padding=[0,0,0,0].
+template <typename Pool2dOp>
+static bool isIdentityPool2d(Pool2dOp op) {
+  auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op.getKernel());
+  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(op.getStride());
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op.getDilation());
+  auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPadding());
+
+  auto tupleToArray = [](const auto &t) {
+    return std::apply([](auto... args) { return std::array{args...}; }, t);
+  };
+
+  return kernel && stride && dilation && padding &&
+         llvm::all_of(tupleToArray(*kernel),
+                      [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*stride),
+                      [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*dilation),
+                      [](int32_t v) { return v == 1; }) &&
+         llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
+}
+
+// Checks if a PoolingOp is an identity operation.
+// Identity operations can be folded away when all window dimensions=1,
+// strides=1, dilations=1, and padding=0.
+static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
+  return llvm::all_of(op.getWindowDimensions(),
+                      [](int64_t dim) { return dim == 1; }) &&
+         llvm::all_of(op.getWindowStrides(),
+                      [](int64_t stride) { return stride == 1; }) &&
+         llvm::all_of(op.getBaseDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getWindowDilations(),
+                      [](int64_t dilation) { return dilation == 1; }) &&
+         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1195,6 +1280,18 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
       getWindowDilations(), getPadding());
   return newOp.getOperation();
 }
+
+// Folds PoolingOp when it is an identity operation.
+::mlir::LogicalResult
+mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
+                                SmallVectorImpl<OpFoldResult> &results) {
+  if (isIdentityPooling(*this)) {
+    results.append(getInputs().begin(), getInputs().end());
+    return mlir::success();
+  }
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
@@ -1252,9 +1349,25 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return verifyPooling2dOp(this);
 }
 
+// Folds AvgPool2dOp when it is an identity operation.
+::mlir::OpFoldResult mlir::tt::ttir::AvgPool2dOp::fold(FoldAdaptor adaptor) {
+  if (isIdentityPool2d(*this)) {
+    return getInput();
+  }
+  return {};
+}
+
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
+
+// Folds MaxPool2dOp when it is an identity operation.
+::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
+  if (isIdentityPool2d(*this)) {
+    return getInput();
+  }
+  return {};
+}
 
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
@@ -2376,14 +2489,14 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 static mlir::tt::ttcore::MetalLayoutAttr
-createDefaultLayout(mlir::MLIRContext *ctx, mlir::RankedTensorType tensorType) {
-  // This can be safely hardcoded for now; we may need to revisit in the future.
-  static constexpr size_t kDefaultGridRank = 2;
+createDefaultLayout(mlir::MLIRContext *ctx,
+                    mlir::ArrayRef<int64_t> workerGridShape,
+                    mlir::RankedTensorType tensorType) {
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
-      ctx, logicalShape, kDefaultGridRank, mlir::tt::ttcore::OOBVal::Undef,
+      ctx, logicalShape, workerGridShape, mlir::tt::ttcore::OOBVal::Undef,
       mlir::tt::ttcore::MemorySpace::System);
 }
 
@@ -2396,7 +2509,10 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
     return inputLayout;
   }
 
-  return createDefaultLayout(getContext(), tensorType);
+  ArrayRef<int64_t> workerGridShape =
+      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
+
+  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::tt::ttcore::MetalLayoutAttr
@@ -2407,7 +2523,11 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
   if (outputLayout) {
     return outputLayout;
   }
-  return createDefaultLayout(getContext(), tensorType);
+
+  ArrayRef<int64_t> workerGridShape =
+      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
+
+  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
@@ -2712,9 +2832,9 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
 
     // Create new encoding with the output grid shape.
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
-        builder.getContext(), inputEncoding.getLogicalShape(),
-        outputGridShape.size(), inputEncoding.getOobVal(),
-        inputEncoding.getMemorySpace(), inputEncoding.getCollapsedIntervals(),
+        builder.getContext(), inputEncoding.getLogicalShape(), outputGridShape,
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
+        inputEncoding.getCollapsedIntervals(),
         inputEncoding.getDimAlignments());
 
     result =
@@ -4769,6 +4889,69 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
     return getInput();
   }
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+// ConcatenateHeadsOp verification
+::mlir::LogicalResult mlir::tt::ttir::ConcatenateHeadsOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Input tensor must be 4D tensor
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "expected rank of input tensor is 4, got rank "
+                         << inputType.getRank();
+  }
+
+  // Output tensor must be 3D tensor.
+  if (outputType.getRank() != 3) {
+    return emitOpError() << "expected rank of output tensor is 3, got rank "
+                         << outputType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size].
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  // Output tensor dimensions [batch_size, sequence_size, num_heads *
+  // head_size].
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+  // Verify batch_size dimension matches.
+  if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
+    return emitOpError() << "expected output batch dimension to be "
+                         << inputShape[INPUT_BATCH] << ", got "
+                         << outputShape[OUTPUT_BATCH];
+  }
+
+  // Verify sequence_size dimension matches.
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError() << "expected output sequence dimension to be "
+                         << inputShape[INPUT_SEQ] << ", got "
+                         << outputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension.
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "expected output hidden dimension to be num_heads * "
+              "head_size = "
+           << expectedHiddenSize << ", got " << outputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

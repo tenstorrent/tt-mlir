@@ -508,7 +508,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
@@ -3558,6 +3558,8 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
   let results = (outs Variadic<AnyRankedTensor>);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
@@ -3624,6 +3626,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
@@ -3691,6 +3694,8 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
@@ -4696,6 +4701,36 @@ def TTIR_FullOp : TTIR_CreationOp<"full",
   let hasVerifier = 1;
 }
 
+def TTIR_RandOp : TTIR_CreationOp<"rand"> {
+  let summary = "Random number generation operation.";
+  let description = [{
+    Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
+
+    Example:
+      %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
+
+    Attributes:
+      - `size` (Array of Integer): The shape of the tensor to create.
+      - `dtype` (mlir:Type): Data type of the returned tensor.
+      - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
+      - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
+      - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
+
+    Outputs:
+      - `result` (Tensor): The generated tensor containing the random values.
+  }];
+
+  let arguments = (ins I32ArrayAttr:$size,
+                       TypeAttr:$dtype,
+                       DefaultValuedAttr<F32Attr, "0.0">:$low,
+                       DefaultValuedAttr<F32Attr, "1.0">:$high,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTIR_CreationOp<mnemonic, traits> {
   let summary = "Base class for tensor creation operations with a specified shape.";
@@ -5252,6 +5287,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
     let hasVerifier = 1;
 }
 
+
 def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
   let summary = "Collective Broadcast op";
   let description = [{
@@ -5285,5 +5321,43 @@ def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
   let hasFolder = 1;
 }
 
+
+def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
+  let summary = "Concatenate heads operation.";
+  let description = [{
+    The `concatenate_heads` operation concatenates multiple heads of a multi-head attention tensor into a single tensor.
+
+    This operation is typically used in transformer models where the attention mechanism is split into multiple heads.
+    It combines the outputs of these heads into a single tensor, allowing further processing.
+
+    It takes an input tensor with shape `[batch_size, num_heads, sequence_size, head_size]`
+    and produces an output tensor with shape `[batch_size, sequence_size, num_heads * head_size]`.
+
+    It corresponds to a sequence of permute and reshape operations.
+
+    Example:
+    ```mlir
+    // Concatenate heads from a multi-head attention output
+    %input = ... : tensor<1x24x32x128xbf16> // batch_size: 1, num_heads: 24, sequence_size: 32, head_size: 128
+    %output = ttir.empty() : tensor<1x32x3072xbf16>  // Concatenated output of shape [batch_size, sequence_size, num_heads * head_size]
+    %result = ttir.concatenate_heads(%input, %output) : tensor<1x24x32x128xbf16>, tensor<1x32x3072xbf16> -> tensor<1x32x3072xbf16>
+    // Input tensor shape: [1, 24, 32, 128]
+    // Output tensor shape: [1, 32, 3072]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor containing multiple heads.
+
+    Outputs:
+    - `result` (Tensor): The concatenated output tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 #endif

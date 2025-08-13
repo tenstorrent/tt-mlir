@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.ttir import ttir_golden
+from builder.base import builder_golden
 
 
 class TTIRBuilder(Builder):
@@ -40,28 +40,32 @@ class TTIRBuilder(Builder):
     ):
         ctx = self._ctx
 
-        # Create layout with original logical shape.
-        layout = ttcore.ir.MetalLayoutAttr.get(ctx, shape, oobVal, memorySpace)
-
-        # Then shard the new shape by adding 1-filled grid dims.
+        # Create grid shape by 1s filling logical rank.
         original_rank = len(shape)
-        extended_shape = [1] * original_rank + list(shape)
+        grid_shape = [1] * original_rank
+
+        # Create layout with original logical shape.
+        layout = ttcore.ir.MetalLayoutAttr.get(
+            ctx, shape, grid_shape, oobVal, memorySpace
+        )
+        # Sharded shape = grid + logical shape.
+        device_shape = grid_shape + list(shape)
 
         elemType = F32Type.get(ctx)
 
         if tiled:
             elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            extended_shape[-2] //= 32
-            extended_shape[-1] //= 32
+            device_shape[-2] //= 32
+            device_shape[-1] //= 32
 
         return RankedTensorType.get(
-            extended_shape, elemType, layout, Location.unknown(ctx)
+            device_shape, elemType, layout, Location.unknown(ctx)
         )
 
     # ----- Private methods ----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = data_type if data_type is not None else self._default_type
         return self._create_empty_from_tensor_type(
             shape, self._create_ranked_tensor_type(shape, dtype)
         )
@@ -111,7 +115,7 @@ class TTIRBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = ttir_golden.get_golden_function(
+            op_golden_function = builder_golden.get_golden_function(
                 op_ttir_function, **golden_kwargs
             )
 
@@ -138,7 +142,7 @@ class TTIRBuilder(Builder):
                     self._get_golden_tensor(inputs[0]).dtype
                 )
             elif not output_type:
-                output_type = self._get_default_dtype()
+                output_type = self._default_type
 
             if output_create_fn:
                 output = output_create_fn(output_shape, output_type)
@@ -2759,6 +2763,25 @@ class TTIRBuilder(Builder):
         """
         if not bias:
             bias = None
+
+        # Determine output type for quantized conv2d.
+        # For quantized inputs, the golden function uses int_repr() so output should be the underlying int type.
+        input_dtype = self._get_golden_tensor(in0).dtype
+        dtype_mapping = {
+            torch.quint8: torch.uint8,
+            torch.qint8: torch.int8,
+            torch.qint32: torch.int32,
+        }
+
+        output_type = (
+            self._get_type_from_torch_dtype(dtype_mapping.get(input_dtype))
+            if input_dtype in dtype_mapping
+            else None
+        )
+        # If output type is not found, use default type.
+        if output_type is None:
+            output_type = self._default_type
+
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
@@ -2788,6 +2811,7 @@ class TTIRBuilder(Builder):
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
+            output_type=output_type,
         )
 
     def conv_transpose2d(
@@ -3291,6 +3315,8 @@ class TTIRBuilder(Builder):
         ----------
         shape : Shape
             Shape of the output tensor
+        data_type : *Optional[Type]*, optional
+            Optional data type of the output tensor
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3299,8 +3325,8 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor of zeros with specified shape
         """
-        output = self._create_ranked_tensor_type(shape)
-        dtype = data_type if data_type is not None else self._get_default_dtype()
+        dtype = self._get_type_from_torch_dtype(data_type)
+        output = self._create_ranked_tensor_type(shape, dtype)
         return self._op_proxy(
             ttir.ZerosOp,
             [],
