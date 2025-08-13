@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -529,6 +530,102 @@ public:
     }
 
     return failure();
+  }
+};
+
+class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
+  using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
+
+public:
+  // This pattern decomposes the BatchNorm operation into a sequence of
+  // arithmetic operations that can be fused with Conv2d operations.
+  //
+  // Decomposition:
+  //    batch_norm(x, scale, offset, mean, variance, epsilon, dimension)
+  //    = (x - mean) / sqrt(variance + epsilon) * scale + offset
+  //      let alpha = scale / sqrt(variance + epsilon)        -> constant
+  //      let beta  = offset - alpha * mean                   -> constant
+  //    batch_norm(x,...) = alpha * x + beta
+  //
+  // Decomposed like this it can later be fused with Conv2d without bias as
+  //    batch_norm(conv2d(x, weight),...) = conv2d(x, weight * alpha, beta)
+  mlir::LogicalResult
+  matchAndRewrite(BatchNormOp batchNormOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // Used only paired with convolution
+    if (auto conv2dOp = batchNormOp.getOperand().getDefiningOp<Conv2dOp>();
+        !conv2dOp || !conv2dOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // get all attributes
+    auto scale = batchNormOp.getScale();
+    auto offset = batchNormOp.getOffset();
+    auto mean = batchNormOp.getMean();
+    auto variance = batchNormOp.getVariance();
+    auto input = batchNormOp.getOperand();
+    auto epsilon = batchNormOp.getEpsilon();
+    auto dimension = batchNormOp.getDimension();
+
+    Location loc = batchNormOp.getLoc();
+    RankedTensorType resultType = batchNormOp.getResult().getType();
+
+    RankedTensorType scalarType =
+        RankedTensorType::get({1}, variance.getType().getElementType(),
+                              variance.getType().getEncoding());
+
+    // Convert epsilon to a tensor
+    auto epsilonTensor = rewriter.create<FullOp>(
+        loc, scalarType, rewriter.getF32FloatAttr(epsilon.convertToFloat()));
+
+    // variance + epsilon
+    auto variancePlusEpsilon = utils::createDPSOp<AddOp>(
+        rewriter, loc, variance.getType(), variance, epsilonTensor);
+
+    // std = sqrt(variance + epsilon)
+    auto std = utils::createDPSOp<SqrtOp>(rewriter, loc, variance.getType(),
+                                          variancePlusEpsilon);
+    // alpha = scale / std
+    auto alpha =
+        utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
+
+    // alphaMean = alpha * mean
+    auto alphaMean = utils::createDPSOp<MultiplyOp>(
+        rewriter, loc, mean.getType(), mean, alpha);
+
+    // beta = offset - alphaMean
+    auto beta = utils::createDPSOp<SubtractOp>(rewriter, loc, offset.getType(),
+                                               offset, alphaMean);
+
+    // Reshape alpha and beta along the specified dimension to match the input
+    // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
+    // to (1, 1, 1, C).
+
+    SmallVector<int64_t> reshapeShape(4, 1);
+    reshapeShape[dimension] = std.getType().getShape()[0];
+    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                         reshapeShape.end());
+    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+        alpha.getType().getEncoding(), alpha,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, beta.getType().getElementType(),
+        beta.getType().getEncoding(), beta,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    // alpha * x
+    auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
+                                                 input, alphaReshaped);
+    // alpha * x + beta
+    auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
+                                            betaReshaped);
+
+    rewriter.replaceOp(batchNormOp, result);
+
+    return mlir::success();
   }
 };
 
@@ -1328,6 +1425,8 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+
+      patterns.add<BatchNormDecomposition>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
