@@ -323,6 +323,13 @@ class Run:
             choices=None,
             help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
         )
+        Run.register_arg(
+            name="--disable-ttrt-callbacks",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable ttrt callbacks",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -651,10 +658,11 @@ class Run:
                         self["--debugger"],
                     )
 
-                    callback_env = ttrt.runtime.DebugHooks.get(
-                        pre_op_get_callback_fn(pre_op_callback_runtime_config),
-                        post_op_get_callback_fn(post_op_callback_runtime_config),
-                    )
+                    if not self["--disable-ttrt-callbacks"]:
+                        callback_env = ttrt.runtime.DebugHooks.get(
+                            pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                            post_op_get_callback_fn(post_op_callback_runtime_config),
+                        )
 
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
