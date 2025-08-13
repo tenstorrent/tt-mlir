@@ -2100,8 +2100,7 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Convert padding to PadSpecDim format
-  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
-      paddingSpec;
+  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
   for (size_t i = 0; i < padding.size(); i += 2) {
     uint32_t before = static_cast<uint32_t>(padding[i]);
     uint32_t after =
