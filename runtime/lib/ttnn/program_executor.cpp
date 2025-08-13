@@ -27,6 +27,7 @@
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
+#include "operations/data_movement/scatter.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
@@ -250,6 +251,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    return operations::data_movement::run(op->type_as_ScatterOp(),
+                                          getContext());
+  }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
@@ -311,6 +316,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
   }
+
   case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
     return operations::ccl::run(op->type_as_CollectivePermuteOp(),
                                 getContext());
