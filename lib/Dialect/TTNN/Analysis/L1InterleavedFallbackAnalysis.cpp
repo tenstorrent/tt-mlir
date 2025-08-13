@@ -106,7 +106,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   });
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
-      "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations",
+      "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations.",
       analysisResult.upgradedConfigs.size());
 }
 
@@ -211,25 +211,28 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     llvm::Error error = l1UsageExp.takeError();
     std::string errorStr = llvm::toString(std::move(error));
 
-    // early exit
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "OpModel constraints failed: {0} :: {1},"
+                 "OpModel constraints failed for op {0} :: {1},"
                  "\nconsumerLayout: {2}",
                  consumerOp->getName(), ttmlir::utils::firstNLines(errorStr, 4),
                  consumerConfig.outputLayout);
 
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "OpModel constraints failed: %s",
-                                   errorStr.data());
+                                   "OpModel constraints failed for op %s.",
+                                   consumerOp->getName().getStringRef().data());
   }
 
   auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
       l1UsageExp.get();
 
-  // Check if the output layout matches the expected interleaved L1 layout
   if (outputLayout != consumerConfig.outputLayout) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Output layout mismatch for op {0}:"
+                 "\nexpected: {1},\nactual: {2},",
+                 consumerOp->getName(), consumerConfig.outputLayout,
+                 outputLayout);
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "Output layout mismatch for op %s",
+                                   "Output layout mismatch for op %s.",
                                    consumerOp->getName().getStringRef().data());
   }
 
@@ -248,7 +251,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  producersL1OutputUsage, tensorUsage, outputTensorUsage,
                  cBUsagePeak);
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "Not enough L1 memory for op %s",
+                                   "Not enough L1 memory for op %s.",
                                    consumerOp->getName().getStringRef().data());
   }
   // Check if upgrading this operation would cause memory conflicts with its
@@ -260,7 +263,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   if (upgradedProducerOp) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
-        "OpModel constraints valid. Consumer: {0}\n"
+        "OpModel constraints valid for input of consumer {0}:\n"
         "OutputLayout: {1}\n"
         "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
         "producerL1OutputUsage: {5}, totalL1Usage: {6}",
@@ -287,14 +290,13 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     if (!nextConsumerOpL1Layout) {
       llvm::Error error = nextConsumerOpL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
-      TTMLIR_DEBUG(
-          ttmlir::LogComponent::Optimizer,
-          "L1InterleavedFallbackAnalysis: Upgrade blocked - consumer {} "
-          "would exceed L1 memory: {}",
-          nextConsumerOp->getName().getStringRef().data(), errorStr);
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "L1 upgrade blocked for {} - for consumer {}: {}",
+                   consumerOp->getName().getStringRef().data(),
+                   nextConsumerOp->getName().getStringRef().data(), errorStr);
       return llvm::createStringError(
           llvm::inconvertibleErrorCode(),
-          "L1 upgrade blocked: consumer %s would exceed memory limits",
+          "L1 upgrade blocked: can't be input of consumer %s.",
           nextConsumerOp->getName().getStringRef().data());
     }
     TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
@@ -305,7 +307,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
   TTMLIR_DEBUG(
       ttmlir::LogComponent::Optimizer,
-      "OpModel constraints valid. Consumer: {0}\n"
+      "OpModel constraints valid {0}:\n"
       "OutputLayout: {1}\n"
       "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
       "producerL1OutputUsage: {5}, totalL1Usage: {6}",
