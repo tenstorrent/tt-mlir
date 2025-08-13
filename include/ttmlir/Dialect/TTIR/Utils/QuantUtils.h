@@ -131,7 +131,6 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     // Check if the weight axis is the same as the required weight axis.
     if (requiredWeightAxis &&
         perAxisType.getQuantizedDimension() != *requiredWeightAxis) {
-      emitError(loc, "Per-axis weight axis must be kernel_output_feature.");
       return nullptr;
     }
     // Check if the number of per-axis weight scales is the same as the required
@@ -139,8 +138,6 @@ inline mlir::quant::QuantizedType computeOutputScalesAndZeroPoint(
     if (requiredAxisSize &&
         static_cast<int64_t>(perAxisType.getScales().size()) !=
             *requiredAxisSize) {
-      emitError(loc,
-                "Number of per-axis weight scales must equal output channels.");
       return nullptr;
     }
 

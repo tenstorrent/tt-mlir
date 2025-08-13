@@ -1,28 +1,28 @@
-// RUN: ttmlir-opt --ttir-quant-dequant-conversion %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module {
-  func.func @commute_dequantize_past_avgpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
+  func.func @commute_dequantize_past_avgpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x114x114xf32> {
     // It is not safe to commute past avgpool2d, so a avgpool2d -> quantize -> dequantize is performed.
     // CHECK-LABEL: @commute_dequantize_past_avgpool2d
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.pooling
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.avg_pool2d
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
     %3 = "ttir.dequantize"(%1, %2) : (tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
-    %4 = ttir.empty() : tensor<1x64x112x112xf32>
-    %5 = "ttir.pooling"(%3, %4) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Average>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
-    return %5 : tensor<1x64x112x112xf32>
+    %4 = ttir.empty() : tensor<1x64x114x114xf32>
+    %5 = "ttir.pooling"(%3, %4) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Average>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<1x64x112x112xf32>, tensor<1x64x114x114xf32>) -> tensor<1x64x114x114xf32>
+    return %5 : tensor<1x64x114x114xf32>
   }
   func.func @commute_dequantize_past_two_maxpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x28x28xf32> {
     // It is safe to commute past maxpool2d.
     // CHECK-LABEL: @commute_dequantize_past_two_maxpool2d
-    // CHECK: ttir.quantize
-    // CHECK: ttir.pooling
-    // CHECK: ttir.pooling
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.max_pool2d
+    // CHECK: ttnn.max_pool2d
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -35,11 +35,12 @@ module {
   }
   func.func @commute_dequantize_past_multi_output_maxpool2d(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) {
     // CHECK-LABEL: @commute_dequantize_past_multi_output_maxpool2d
-    // CHECK: ttir.quantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.pooling
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.max_pool2d
+    // CHECK: ttnn.max_pool2d
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -56,11 +57,11 @@ module {
   func.func @commute_dequantize_past_maximum(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // It is not safe to commute past maximum, so commute dequantize down with q -> dq sandwich.
     // CHECK-LABEL: @commute_dequantize_past_maximum
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.maximum
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.relu
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -73,10 +74,10 @@ module {
   func.func @commute_dequantize_past_add_successful(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // The quantized types of the operands both align, so simply commute dequantize down.
     // CHECK-LABEL: @commute_dequantize_past_add_successful
-    // CHECK: ttir.quantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.add
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.add
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -92,11 +93,11 @@ module {
   func.func @commute_dequantize_past_add_unsuccessful(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // The quantized types of the operands do not align, so do not commute dequantize down.
     // CHECK-LABEL: @commute_dequantize_past_add_unsuccessful
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: "ttir.add"{{.*}} -> tensor<1x64x112x112xf32>
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.add
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -112,10 +113,10 @@ module {
   func.func @commute_dequantize_past_add_one_operand_float(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32> {
     // Commute the dequantize down and quantize arg1 with the same scale/zero point as arg0 (see %1).
     // CHECK-LABEL: @commute_dequantize_past_add_one_operand_float
-    // CHECK: ttir.quantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.add
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.add
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -127,10 +128,10 @@ module {
   func.func @commute_dequantize_past_maxpool2d_and_merge_qdq(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>> {
     // It is safe to commute past maxpool2d and merge quantize and dequantize (fold the ops as the scales match).
     // CHECK-LABEL: @commute_dequantize_past_maxpool2d_and_merge_qdq
-    // CHECK: ttir.quantize
-    // CHECK: ttir.pooling
-    // CHECK-NOT: ttir.requantize
-    // CHECK-NOT: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.max_pool2d
+    // CHECK-NOT: ttnn.requantize
+    // CHECK-NOT: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -144,10 +145,10 @@ module {
   func.func @commute_dequantize_past_maxpool2d_and_merge_qdq_to_requant(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.2>> {
     // It is safe to commute past maxpool2d and merge quantize and dequantize to requantize (scales do not match).
     // CHECK-LABEL: @commute_dequantize_past_maxpool2d_and_merge_qdq_to_requant
-    // CHECK: ttir.quantize
-    // CHECK: ttir.pooling
-    // CHECK: ttir.requantize
-    // CHECK-NOT: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.max_pool2d
+    // CHECK: ttnn.requantize
+    // CHECK-NOT: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x64x112x112x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x64x112x112xf32>
@@ -160,10 +161,10 @@ module {
   }
   func.func @commute_dequantize_past_per_tensor_convolution(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
     // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution
-    // CHECK: ttir.quantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.convolution
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.conv2d
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x3x224x224xf32>
@@ -178,10 +179,10 @@ module {
   }
   func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights(%arg0: tensor<1x3x224x224xf32>,%arg1: tensor<3x3x7x7xf32>) -> tensor<1x3x112x112xf32> {
     // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights
-    // CHECK: ttir.quantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.convolution
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.conv2d
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>
     %1  = "ttir.quantize"(%arg0, %0): (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>
     %2 = ttir.empty() : tensor<1x3x224x224xf32>
@@ -197,13 +198,13 @@ module {
   func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_unsuccessful(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
     // The number of per-axis weight scales is not the same as the required axis size so a sandwich is applied after commute.
     // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_unsuccessful
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
-    // CHECK: ttir.convolution
-    // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
+    // CHECK: ttnn.conv2d
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.dequantize
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
     %2 = ttir.empty() : tensor<1x3x224x224xf32>
