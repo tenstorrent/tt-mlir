@@ -1486,95 +1486,7 @@ private:
     return std::make_tuple(nullptr, nullptr, nullptr);
   }
 
-  // This will return the input value to the gelu op when the pattern is:
-  // 0.5 * x * gaussianCDF(x)
-  //     ^ this multiply
-  std::tuple<Value, GaussianCDFType>
-  findGELUInputPatternA(MultiplyOp geluOutput) const {
-
-    // Retrieve the value being halved, which should be: x * gaussianCDF(x)
-    Value halvedArgument;
-    if (isScalarValue(geluOutput.getLhs(), 0.5)) {
-      halvedArgument = geluOutput.getRhs();
-    } else if (isScalarValue(geluOutput.getRhs(), 0.5)) {
-      halvedArgument = geluOutput.getLhs();
-    } else {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    MultiplyOp halvedArgumentOp = halvedArgument.getDefiningOp<MultiplyOp>();
-    if (!halvedArgumentOp) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    bool argIsLhs = false;
-    auto [gaussianCDFType, gaussianCDFInput] =
-        getGaussianCDFTypeAndInput(halvedArgumentOp.getLhs());
-    if (gaussianCDFType == GaussianCDFType::None) {
-      argIsLhs = true;
-      std::tie(gaussianCDFType, gaussianCDFInput) =
-          getGaussianCDFTypeAndInput(halvedArgumentOp.getRhs());
-    }
-    if (gaussianCDFType == GaussianCDFType::None) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    // Ensure that:
-    // x * gaussianCDF(x)
-    // ^ --------------^-------- these two values are the same
-    if ((argIsLhs && gaussianCDFInput != halvedArgumentOp.getLhs()) ||
-        (!argIsLhs && gaussianCDFInput != halvedArgumentOp.getRhs())) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    return std::make_tuple(gaussianCDFInput, gaussianCDFType);
-  }
-
-  // This will return the input value to the gelu op when the pattern is:
-  // 0.5 * x * gaussianCDF(x)
-  //         ^ this multiply
-  std::tuple<Value, GaussianCDFType>
-  findGELUInputPatternB(MultiplyOp geluOutput) const {
-
-    bool halfIsLhs = false;
-    auto [gaussianCDFType, gaussianCDFInput] =
-        getGaussianCDFTypeAndInput(geluOutput.getLhs());
-    if (gaussianCDFType == GaussianCDFType::None) {
-      halfIsLhs = true;
-      std::tie(gaussianCDFType, gaussianCDFInput) =
-          getGaussianCDFTypeAndInput(geluOutput.getRhs());
-    }
-    if (gaussianCDFType == GaussianCDFType::None) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    MultiplyOp halvingOp =
-        halfIsLhs ? geluOutput.getLhs().getDefiningOp<MultiplyOp>()
-                  : geluOutput.getRhs().getDefiningOp<MultiplyOp>();
-    if (!halvingOp) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    // Ensure that:
-    // x * gaussianCDF(x)
-    // ^ --------------^-------- these two values are the same
-    Value halvingArgument;
-    if (isScalarValue(halvingOp.getLhs(), 0.5)) {
-      halvingArgument = halvingOp.getRhs();
-    } else if (isScalarValue(halvingOp.getRhs(), 0.5)) {
-      halvingArgument = halvingOp.getLhs();
-    } else {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    if (halvingArgument != gaussianCDFInput) {
-      return std::make_tuple(nullptr, GaussianCDFType::None);
-    }
-
-    return std::make_tuple(gaussianCDFInput, gaussianCDFType);
-  }
-
-  // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or ( +
+  // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or 1 +
   // tanh(2/sqrt(pi) * (x + 0.044715 * x^3)) if gelu approximation is true
   std::tuple<GaussianCDFType, Value>
   getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
@@ -1615,7 +1527,7 @@ private:
       return nullptr;
     }
     APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!value.isExactlyValue(1.0)) {
+    if (!checkFloatIsNear(value.convertToFloat(), 1.0)) {
       return nullptr;
     }
 
