@@ -641,5 +641,21 @@ struct OpModel<EmbeddingBackwardOp> {
                TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<AllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t allGatherDim, uint32_t clusterAxis,
+      uint32_t numLinks, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t allGatherDim, uint32_t clusterAxis, uint32_t numLinks,
+               TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

@@ -2290,4 +2290,108 @@ TEST_F(OpModelTest, Where) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp Tests
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+class OpModelAllGatherParam : public OpModelTest,
+                              public testing::WithParamInterface<
+                                  std::tuple<detail::TestTensor, // input
+                                             detail::TestTensor, // output
+                                             int32_t,            // allGatherDim
+                                             uint32_t,           // clusterAxis
+                                             uint32_t,           // numLinks
+                                             detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto allGatherDim = std::get<2>(params);
+    const auto clusterAxis = std::get<3>(params);
+    const auto numLinks = std::get<4>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<5>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, allGatherDim, clusterAxis,
+        numLinks, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+
+      EXPECT_GE(cbSize, expectedCbSize);
+      EXPECT_GE(peakSize, expectedPeakSize);
+      EXPECT_GE(outputSize, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp =
+        OpModel<OpTy>::getOpRuntime(inputShape, inputLayout, allGatherDim,
+                                    clusterAxis, numLinks, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+using OpModelAllGatherOpParam = OpModelAllGatherParam<AllGatherOp>;
+
+TEST_P(OpModelAllGatherOpParam, AllGatherOp) { RunTest(); }
+
+const std::initializer_list<std::tuple<detail::TestTensor, // input
+                                       detail::TestTensor, // output
+                                       int32_t,            // allGatherDim
+                                       uint32_t,           // clusterAxis
+                                       uint32_t,           // numLinks
+                                       detail::ExpectedResult>>
+    allGatherParams = {
+        // AllGatherOp requires multi-device setup, so these tests expect
+        // failure in single-device scenarios. This tests that the operation
+        // correctly fails when device mesh requirements are not met. This is
+        // also how this op is used in runtime code.
+
+        // Basic test case: gather along dimension 0, cluster axis 0, 1 link
+        // Expects failure due to missing receiver/sender device IDs
+        std::make_tuple(
+            detail::TestTensor{
+                {32, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            detail::TestTensor{
+                {128, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            0, // allGatherDim
+            0, // clusterAxis
+            1, // numLinks
+            detail::ExpectedResult{false, 0, 0, 0}),
+
+        // Gather along dimension 1, cluster axis 1, 1 link
+        // Expects failure due to single device setup
+        std::make_tuple(
+            detail::TestTensor{
+                {1024, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            detail::TestTensor{
+                {1024, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            1, // allGatherDim
+            1, // clusterAxis
+            1, // numLinks
+            detail::ExpectedResult{false, 0, 0, 0})};
+
+INSTANTIATE_TEST_SUITE_P(AllGatherTests, OpModelAllGatherOpParam,
+                         ::testing::ValuesIn(allGatherParams));
+
 } // namespace mlir::tt::ttnn::op_model

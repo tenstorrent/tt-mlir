@@ -1900,7 +1900,9 @@ def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
       }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
