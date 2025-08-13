@@ -759,6 +759,8 @@ TEST_F(OpModelTest, Transpose) {
 }
 
 TEST_F(OpModelTest, SoftmaxSharded) {
+  // TODO(4440): Re-enable after fix(26667) from metal is uplifted
+  GTEST_SKIP();
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
