@@ -318,9 +318,9 @@ auto getOpSymbol() {
     return ::ttnn::bitwise_or;
   } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
     return ::ttnn::bitwise_xor;
-  } else if constexpr (std::is_same_v<OpTy, Atan2Op>) { // CHECK --PENDING
+  } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
     return ::ttnn::atan2;
-  } else if constexpr (std::is_same_v<OpTy, RemainderOp>) { // CHECK --PENDING
+  } else if constexpr (std::is_same_v<OpTy, RemainderOp>) {
     return ::ttnn::remainder;
   } else if constexpr (std::is_same_v<OpTy, PowOp>) {
     return ::ttnn::pow;
@@ -992,7 +992,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 }
 
 template <typename OpTy>
-llvm::Expected<OpConstraints> BinaryBitwiseOpModel<OpTy>::getOpConstraints(
+llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout) {
@@ -1032,7 +1032,7 @@ llvm::Expected<OpConstraints> BinaryBitwiseOpModel<OpTy>::getOpConstraints(
 }
 
 template <typename OpTy>
-llvm::Expected<size_t> BinaryBitwiseOpModel<OpTy>::getOpRuntime(
+llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     TTNNLayoutAttr outputLayout) {
@@ -1088,12 +1088,12 @@ template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
 template struct BinaryEltwiseOpModel<PowOp>;
-// Bitwise Ops
-template struct BinaryBitwiseOpModel<BitwiseAndOp>;
-template struct BinaryBitwiseOpModel<BitwiseOrOp>;
-template struct BinaryBitwiseOpModel<BitwiseXorOp>;
-template struct BinaryBitwiseOpModel<Atan2Op>;
-template struct BinaryBitwiseOpModel<RemainderOp>;
+// BinaryCompositeOpModel
+template struct BinaryCompositeOpModel<BitwiseAndOp>;
+template struct BinaryCompositeOpModel<BitwiseOrOp>;
+template struct BinaryCompositeOpModel<BitwiseXorOp>;
+template struct BinaryCompositeOpModel<Atan2Op>;
+template struct BinaryCompositeOpModel<RemainderOp>;
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops

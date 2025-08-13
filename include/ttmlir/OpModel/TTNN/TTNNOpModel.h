@@ -189,7 +189,7 @@ struct BinaryEltwiseOpModel {
 };
 
 template <typename OpT>
-struct BinaryBitwiseOpModel {
+struct BinaryCompositeOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
@@ -254,19 +254,20 @@ template <>
 struct OpModel<PowOp> : BinaryEltwiseOpModel<PowOp> {};
 
 template <>
-struct OpModel<BitwiseAndOp> : BinaryBitwiseOpModel<BitwiseAndOp> {};
+struct OpModel<BitwiseAndOp> : BinaryCompositeOpModel<BitwiseAndOp> {};
 
 template <>
-struct OpModel<BitwiseOrOp> : BinaryBitwiseOpModel<BitwiseOrOp> {};
+struct OpModel<BitwiseOrOp> : BinaryCompositeOpModel<BitwiseOrOp> {};
 
 template <>
-struct OpModel<BitwiseXorOp> : BinaryBitwiseOpModel<BitwiseXorOp> {};
+struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
 
 template <>
-struct OpModel<Atan2Op> : BinaryBitwiseOpModel<Atan2Op> {}; // TEMPORARY
+struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {}; // TEMPORARY
 
 template <>
-struct OpModel<RemainderOp> : BinaryBitwiseOpModel<RemainderOp> {}; // TEMPORARY
+struct OpModel<RemainderOp> : BinaryCompositeOpModel<RemainderOp> {
+}; // TEMPORARY
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
