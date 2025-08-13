@@ -584,48 +584,6 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.testName;
     });
 
-/*TEST_F(OpModelBase, BitwiseAndOpInterface) {
-  // create BitwiseAndOp
-  llvm::SmallVector<int64_t> tensorShapeA = {workerCoresN300, 1024};
-  llvm::SmallVector<int64_t> tensorShapeB = {workerCoresN300, 1024};
-
-  auto inputLayoutA = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
-                                       TensorMemoryLayout::Interleaved);
-  auto inputLayoutB = CreateTiledLayoutInt32(tensorShapeB, BufferType::DRAM,
-                                       TensorMemoryLayout::Interleaved);
-  auto outputLayout = CreateTiledLayoutInt32(tensorShapeA, BufferType::DRAM,
-                                       TensorMemoryLayout::Interleaved);
-
-  auto inputA = createEmptyTensor(tensorShapeA, builder.getI32Type(),
-inputLayoutA); auto inputB = createEmptyTensor(tensorShapeB,
-builder.getI32Type(), inputLayoutB); auto outputType =
-createRankedTensorType(tensorShapeA, builder.getI32Type(), outputLayout);
-
-  auto bitwiseAnd =
-      builder.create<BitwiseAndOp>(builder.getUnknownLoc(), outputType,
-                                 mlir::ValueRange{inputA, inputB});
-
-  // test BitwiseAndOp interface using the created layouts
-  OpModel backend = dyn_cast<OpModel>(bitwiseAnd.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(bitwiseAnd),
-OpConfig(outputLayout));
-
-  ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  auto constraints = constraintsExp.get();
-  EXPECT_EQ(constraints.cbL1PeakSize, 24576);
-  EXPECT_EQ(constraints.tensorL1PeakSize, 0);
-  EXPECT_EQ(constraints.outputL1BufferSize, 0);
-
-  auto runtimeExp = getOpRuntime(bitwiseAnd.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << "Runtime test failed for BitwiseAnd; Error="
-           << llvm::toString(runtimeExp.takeError());
-  }
-}*/
-
 // Separate test for BitwiseNot with integer data types
 TEST_F(OpModelBase, BitwiseNotOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
