@@ -909,7 +909,8 @@ protected:
 // Type aliases for binary operations
 using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
-using OpModelShiftRightLogicalParam = OpModelBinaryEltwiseParam<ShiftRightLogicalOp>;
+using OpModelShiftRightLogicalParam =
+    OpModelBinaryEltwiseParam<ShiftRightLogicalOp>;
 using OpModelSubtractParam = OpModelBinaryEltwiseParam<SubtractOp>;
 using OpModelMaximumParam = OpModelBinaryEltwiseParam<MaximumOp>;
 using OpModelMinimumParam = OpModelBinaryEltwiseParam<MinimumOp>;
