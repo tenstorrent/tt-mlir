@@ -7,6 +7,7 @@ add_mlir_extension_library(TTMLIRTransforms
 =======
 >>>>>>> f4793b162 (Cuda runtime.)
         ExtractGPUModules.cpp
+        WrapAffineFor.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
