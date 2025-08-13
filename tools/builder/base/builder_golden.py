@@ -15,7 +15,36 @@ from typing import Dict, Callable, Any, Optional, Union, List, Tuple
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo
-from ttmlir.ir import Attribute
+from ttmlir.ir import (
+    Attribute,
+    ArrayAttr,
+    IntegerAttr,
+    IntegerType,
+    BoolAttr,
+    DenseI32ArrayAttr,
+    DenseI64ArrayAttr,
+)
+
+
+def unpack_mlir_attr(attr):
+    """Unpack MLIR attributes into plain Python values.
+
+    Supports IntegerAttr, BoolAttr, DenseI32ArrayAttr, DenseI64ArrayAttr, ArrayAttr,
+    as well as native Python list/tuple/int/bool. Raises ValueError for unsupported types.
+    """
+    if isinstance(attr, IntegerAttr):
+        return attr.value
+    if isinstance(attr, BoolAttr):
+        return attr.value
+    if isinstance(attr, (DenseI64ArrayAttr, DenseI32ArrayAttr)):
+        return list(attr)
+    if isinstance(attr, ArrayAttr):
+        return [unpack_mlir_attr(item) for item in attr]
+    if isinstance(attr, (list, tuple)):
+        return list(attr)
+    if isinstance(attr, (int, bool)):
+        return attr
+    raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
 def cbrt_golden(x):
@@ -38,8 +67,11 @@ def cbrt_golden(x):
 
 
 def conv2d_golden(
-    input_tensor, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
-):
+    input_tensor: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> torch.Tensor:
     """
     Custom golden function for conv2d with layout transformation.
 
@@ -51,14 +83,12 @@ def conv2d_golden(
         Convolution weight tensor
     bias : torch.Tensor, optional
         Optional bias tensor (default: None)
-    stride : int, optional
-        Stride for convolution (default: 1)
-    padding : int, optional
-        Padding for convolution (default: 0)
-    dilation : int, optional
-        Dilation for convolution (default: 1)
-    groups : int, optional
-        Number of groups for grouped convolution (default: 1)
+    **kwargs : dict
+        Keyword arguments containing:
+        - stride: Union[int, List[int]] - Stride for convolution (default: 1)
+        - padding: Union[int, List[int]] - Padding for convolution (default: 0)
+        - dilation: Union[int, List[int]] - Dilation for convolution (default: 1)
+        - groups: int - Number of groups for grouped convolution (default: 1)
 
     Returns
     -------
@@ -69,7 +99,17 @@ def conv2d_golden(
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 
-    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes.
+    # Get parameters from ttir_kwargs
+    stride = kwargs.get("stride", 1)
+    padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    groups = kwargs.get("groups", 1)
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
 
     if input_tensor.is_quantized:
@@ -114,8 +154,11 @@ def conv2d_golden(
 
 
 def conv_transpose2d_golden(
-    input_tensor, weight, stride, padding, output_padding, dilation, groups
-):
+    input_tensor: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> torch.Tensor:
     """
     Custom golden function for conv_transpose2d with layout transformation.
 
@@ -125,31 +168,33 @@ def conv_transpose2d_golden(
         Input tensor for transposed convolution
     weight : torch.Tensor
         Convolution weight tensor
-    stride : Union[int, List[int]]
-        Stride for transposed convolution
-    padding : Union[int, List[int]]
-        Padding for transposed convolution
-    output_padding : Union[int, List[int]]
-        Additional size added to output shape
-    dilation : Union[int, List[int]]
-        Dilation of the kernel
-    groups : int
-        Number of blocked connections from input to output channels
+    bias : Optional[torch.Tensor]
+        Optional bias tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - stride: Union[int, List[int]] - Stride for transposed convolution
+        - padding: Union[int, List[int]] - Padding for transposed convolution
+        - output_padding: Union[int, List[int]] - Additional size added to output shape
+        - dilation: Union[int, List[int]] - Dilation of the kernel
+        - groups: int - Number of blocked connections from input to output channels
 
     Returns
     -------
     torch.Tensor
         Result of 2D transposed convolution with layout transformation
     """
-    # Reorganize ttir_kwargs into golden_kwargs
-    stride = list(stride) if not isinstance(stride, int) else int(stride)
-    padding = list(padding) if not isinstance(padding, int) else int(padding)
-    output_padding = (
-        list(output_padding)
-        if not isinstance(output_padding, int)
-        else int(output_padding)
-    )
-    dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
+    # Get parameters from ttir_kwargs
+    stride = kwargs.get("stride", 1)
+    padding = kwargs.get("padding", 0)
+    output_padding = kwargs.get("output_padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    groups = kwargs.get("groups", 1)
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    output_padding = unpack_mlir_attr(output_padding)
+    dilation = unpack_mlir_attr(dilation)
+    groups = unpack_mlir_attr(groups)
     golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
     # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -168,7 +213,7 @@ def conv_transpose2d_golden(
     return result
 
 
-def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil_mode):
+def max_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
@@ -176,22 +221,31 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
     ----------
     input_tensor : torch.Tensor
         Input tensor for max pooling
-    kernel_size : Union[int, List[int]]
-        Size of the pooling kernel
-    stride : Union[int, List[int]]
-        Stride for pooling operation
-    padding : Union[int, List[int]]
-        Padding for pooling operation
-    dilation : Union[int, List[int]]
-        Dilation for pooling operation
-    ceil_mode : bool
-        Whether to use ceiling mode for pooling
+    **kwargs : dict
+        Keyword arguments containing:
+        - kernel_size: Union[int, List[int]] - Size of the pooling kernel
+        - stride: Union[int, List[int]] - Stride for pooling operation
+        - padding: Union[int, List[int]] - Padding for pooling operation
+        - dilation: Union[int, List[int]] - Dilation for pooling operation
+        - ceil_mode: bool - Whether to use ceiling mode for pooling
 
     Returns
     -------
     torch.Tensor
         Result of 2D max pooling with layout transformation
     """
+    # Get parameters from ttir_kwargs
+    kernel_size = kwargs.get("kernel")
+    stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
+    padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    ceil_mode = kwargs.get("ceil_mode", False)
+
+    kernel_size = unpack_mlir_attr(kernel_size)
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+
     # Convert padding from [top, left, bottom, right] format to PyTorch format
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
         # PyTorch MaxPool2d expects symmetric padding: (height_padding, width_padding)
@@ -439,6 +493,245 @@ def requantize_golden(input_tensor, scale, zero_point, dtype):
     )
 
 
+def logical_not_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for logical_not operation.
+
+    Elementwise logical NOT.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to invert logically.
+    **kwargs : dict
+        Keyword arguments (unused for this operation).
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with logical NOT of input_tensor, cast back to input dtype.
+    """
+    # Compute bool result then cast to match input dtype
+    result_bool = torch.logical_not(input_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for equal (eq) operation.
+
+    Elementwise equality comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the equality results.
+    """
+    result_bool = torch.eq(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def not_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for not_equal (ne) operation.
+
+    Elementwise inequality comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the inequality results.
+    """
+    result_bool = torch.ne(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def greater_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for greater_equal (ge) operation.
+
+    Elementwise greater-than-or-equal comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
+    result_bool = torch.ge(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def greater_than_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for greater_than (gt) operation.
+
+    Elementwise greater-than comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
+    result_bool = torch.gt(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def less_equal_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for less_equal (le) operation.
+
+    Elementwise less-than-or-equal comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
+    result_bool = torch.le(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def less_than_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for less_than (lt) operation.
+
+    Elementwise less-than comparison.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the comparison results.
+    """
+    result_bool = torch.lt(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_and_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for logical_and operation.
+
+    Elementwise logical AND.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical AND results.
+    """
+    result_bool = torch.logical_and(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_or_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for logical_or operation.
+
+    Elementwise logical OR.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical OR results.
+    """
+    result_bool = torch.logical_or(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def logical_xor_golden(
+    input_tensor: torch.Tensor, other_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden function for logical_xor operation.
+
+    Elementwise logical XOR.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Left-hand side tensor.
+    other_tensor : torch.Tensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with the same dtype as input_tensor containing the logical XOR results.
+    """
+    result_bool = torch.logical_xor(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
 def max_golden(input_tensor, dim_arg=None, keep_dim=True):
     """
     Custom golden function for max operation with conditional logic.
@@ -464,6 +757,36 @@ def max_golden(input_tensor, dim_arg=None, keep_dim=True):
         result = torch.max(input_tensor)
         output_shape = [1] * input_tensor.dim()
         return result.reshape(*output_shape)
+
+
+def min_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for min operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim_arg: int, optional - Dimension to reduce over (default: None, reduces over all dimensions)
+        - keep_dim: bool, optional - If True, retains reduced dimensions with length 1 (default: True)
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with minimum values
+    """
+    dim_arg = kwargs.get("dim_arg", None)
+    keep_dim = kwargs.get("keep_dim", True)
+
+    if dim_arg is None:
+        return torch.min(input_tensor)
+    else:
+        # Extract the first dimension if dim_arg is a list
+        if isinstance(dim_arg, list) and len(dim_arg) > 0:
+            dim_arg = dim_arg[0]
+        return torch.min(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
 def prod_golden(input_tensor, dim_arg, keep_dim=False):
@@ -600,68 +923,11 @@ def index_golden(input_tensor, dim, begin, end, step):
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
-def arange_golden(single_dim_tensor, repeats):
-    """
-    Custom golden function for arange operation.
-
-    Parameters
-    ----------
-    single_dim_tensor : torch.Tensor
-        Single dimension tensor specification
-    repeats : int
-        Number of repeats for the range
-
-    Returns
-    -------
-    torch.Tensor
-        Generated range tensor
-    """
-    return single_dim_tensor.repeat(repeats)
-
-
-def slice_golden(input_tensor, begins, ends, step):
-    """
-    Custom golden function for slice operation.
-
-    Parameters
-    ----------
-    input_tensor : torch.Tensor
-        Input tensor to slice
-    begins : List[int]
-        Starting indices for each dimension
-    ends : List[int]
-        Ending indices for each dimension
-    step : List[int]
-        Step sizes for each dimension
-
-    Returns
-    -------
-    torch.Tensor
-        Sliced tensor
-    """
-    # Build slice objects for each dimension
-    slices = []
-    for i, (b, e, s) in enumerate(zip(begins, ends, step)):
-        slices.append(slice(b, e, s))
-
-    # Apply slicing to the tensor
-    return input_tensor[tuple(slices)]
-
-
 def gather_golden(
-    input_tensor,
-    start_indices_tensor,
-    offset_dims,
-    collapsed_slice_dims,
-    operand_batching_dims,
-    start_indices_batching_dims,
-    start_index_map,
-    index_vector_dim,
-    slice_sizes,
-    indices_are_sorted=False,
-):
+    input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
     """
-    Custom golden function for gather operation.
+    Golden function for gather operation with TTIR parameter names.
 
     Parameters
     ----------
@@ -669,28 +935,26 @@ def gather_golden(
         Input tensor to gather from
     start_indices_tensor : torch.Tensor
         Tensor containing starting indices
-    offset_dims : List[int]
-        Offset dimensions for gathering
-    collapsed_slice_dims : List[int]
-        Dimensions to collapse after slicing
-    operand_batching_dims : List[int]
-        Batching dimensions for operand
-    start_indices_batching_dims : List[int]
-        Batching dimensions for start indices
-    start_index_map : List[int]
-        Mapping of start indices
-    index_vector_dim : int
-        Dimension containing index vectors
-    slice_sizes : List[int]
-        Sizes of slices to gather
-    indices_are_sorted : bool, optional
-        Whether indices are sorted (default: False)
+    **kwargs : dict
+        Keyword arguments including gather attributes as MLIR attributes
 
     Returns
     -------
     torch.Tensor
         Gathered tensor
     """
+
+    # Unpack MLIR attributes from kwargs
+    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
+    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
+    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
+    start_indices_batching_dims = unpack_mlir_attr(
+        kwargs.get("start_indices_batching_dims", [])
+    )
+    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
+    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
     # Simple gather implementation for basic cases
     if (
         len(offset_dims) == 1
@@ -723,7 +987,7 @@ def gather_golden(
         raise NotImplementedError("General gather not implemented")
 
 
-def tilize_golden(input_tensor, tilize=True):
+def tilize_golden(input_tensor, tilize=True, **kwargs):
     """
     Custom golden function for tilize operation.
 
@@ -765,7 +1029,7 @@ def tilize_golden(input_tensor, tilize=True):
     return tilized
 
 
-def untilize_golden(input_tensor, tilize=False):
+def untilize_golden(input_tensor, tilize=False, **kwargs):
     """
     Custom golden function for untilize operation.
 
@@ -837,7 +1101,7 @@ def upsample2d_golden(in0, in1, scale_factor, mode="nearest"):
     return torch.transpose(output, 1, 3)
 
 
-def fill_cache_golden(cache_tensor, input_tensor):
+def fill_cache_golden(cache_tensor, input_tensor, **kwargs):
     """
     Custom golden function for fill_cache operation.
 
@@ -847,6 +1111,8 @@ def fill_cache_golden(cache_tensor, input_tensor):
         Cache tensor to fill
     input_tensor : torch.Tensor
         Input tensor data
+    **kwargs : dict
+        Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
@@ -858,7 +1124,7 @@ def fill_cache_golden(cache_tensor, input_tensor):
     return result
 
 
-def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
+def update_cache_golden(cache_tensor, update_tensor, indices_tensor, **kwargs):
     """
     Custom golden function for update_cache operation.
 
@@ -870,6 +1136,8 @@ def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
         Tensor containing update data
     indices_tensor : torch.Tensor
         Tensor containing update indices
+    **kwargs : dict
+        Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
@@ -880,6 +1148,512 @@ def update_cache_golden(cache_tensor, update_tensor, indices_tensor):
     # Simple update logic - this would need to be refined based on actual requirements
     result[:, :, : update_tensor.shape[2], :] = update_tensor
     return result
+
+
+def get_dimension_size_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for get_dimension_size operation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to get dimension size from
+    **kwargs : dict
+        Keyword arguments including 'dimension'
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor containing the size of the specified dimension as int32
+    """
+    dimension = kwargs.get("dimension", 0)
+    size = input_tensor.size(dimension)
+    return torch.tensor([size], dtype=torch.int32)
+
+
+def sum_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for sum operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to sum
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim_arg: List[int] - Dimensions to reduce over (default: [0])
+        - keep_dim: bool - If True, retains reduced dimensions with length 1 (default: True)
+
+    Returns
+    -------
+    torch.Tensor
+        Summed tensor
+    """
+    # Get parameters from ttir_kwargs
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    # Convert to torch.sum format
+    return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
+
+
+def mean_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for mean operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to compute mean of
+    **kwargs : dict
+        Keyword arguments including 'dim_arg' and 'keep_dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Mean tensor
+    """
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
+
+
+def reduce_and_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for reduce_and operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to reduce
+    **kwargs : dict
+        Keyword arguments including 'dim_arg' and 'keep_dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Reduced tensor
+    """
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+
+
+def reduce_or_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for reduce_or operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to reduce
+    **kwargs : dict
+        Keyword arguments including 'dim_arg' and 'keep_dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Reduced tensor
+    """
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+
+
+def transpose_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for transpose operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dim0' and 'dim1'
+
+    Returns
+    -------
+    torch.Tensor
+        Transposed tensor
+    """
+    dim0 = kwargs.get("dim0", 0)
+    dim1 = kwargs.get("dim1", 1)
+    return torch.transpose(input_tensor, dim0, dim1)
+
+
+def concat_golden(input_tensors: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for concat operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensors : torch.Tensor
+        Input tensors (will be unpacked from tuple)
+    **kwargs : dict
+        Keyword arguments including 'dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Concatenated tensor
+    """
+    dim = kwargs.get("dim", 0)
+    if isinstance(input_tensors, tuple):
+        return torch.concat(input_tensors, dim=dim)
+    else:
+        return torch.concat([input_tensors], dim=dim)
+
+
+# Investigate how repeat works in torch
+def repeat_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for repeat operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'repeat_dimensions'
+
+    Returns
+    -------
+    torch.Tensor
+        Repeated tensor
+    """
+    repeat_dimensions = kwargs.get("repeat_dimensions", [1])
+    return torch.Tensor.repeat(input_tensor, repeats=repeat_dimensions)
+
+
+def reshape_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for reshape operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'shape'
+
+    Returns
+    -------
+    torch.Tensor
+        Reshaped tensor
+    """
+    shape = kwargs.get("shape", input_tensor.shape)
+    return torch.reshape(input_tensor, shape)
+
+
+def squeeze_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for squeeze operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Squeezed tensor
+    """
+    dim = kwargs.get("dim", None)
+    return torch.squeeze(input_tensor, dim=dim)
+
+
+def unsqueeze_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for unsqueeze operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Unsqueezed tensor
+    """
+    dim = kwargs.get("dim", 0)
+    return torch.unsqueeze(input_tensor, dim=dim)
+
+
+def clamp_scalar_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for clamp_scalar operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'min' and 'max'
+
+    Returns
+    -------
+    torch.Tensor
+        Clamped tensor
+    """
+    min_val = kwargs.get("min", None)
+    max_val = kwargs.get("max", None)
+    return torch.clamp(input_tensor, min=min_val, max=max_val)
+
+
+def permute_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for permute operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'permutation' as MLIR attribute
+
+    Returns
+    -------
+    torch.Tensor
+        Permuted tensor
+    """
+
+    permutation = kwargs.get("permutation", None)
+    if permutation is None:
+        return input_tensor
+
+    permutation = unpack_mlir_attr(permutation)
+    return torch.permute(input_tensor, tuple(permutation))
+
+
+def leaky_relu_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for leaky_relu operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'parameter'
+
+    Returns
+    -------
+    torch.Tensor
+        Leaky ReLU output
+    """
+    parameter = kwargs.get("parameter", 0.01)
+    return torch.nn.functional.leaky_relu(input_tensor, negative_slope=parameter)
+
+
+def softmax_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for softmax operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dimension'
+
+    Returns
+    -------
+    torch.Tensor
+        Softmax output
+    """
+    dimension = kwargs.get("dimension", 1)
+    return torch.nn.functional.softmax(input_tensor, dim=dimension)
+
+
+def index_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for index operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dim', 'begin', 'end', 'step'
+
+    Returns
+    -------
+    torch.Tensor
+        Indexed tensor
+    """
+    dim = kwargs.get("dim", 0)
+    begin = kwargs.get("begin", 0)
+    end = kwargs.get("end", None)
+    step = kwargs.get("step", 1)
+
+    if end is None:
+        end = input_tensor.size(dim)
+
+    indices = torch.arange(begin, end, step, device=input_tensor.device)
+    return torch.index_select(input_tensor, dim, indices)
+
+
+def slice_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for slice operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including slice attributes as MLIR attributes
+
+    Returns
+    -------
+    torch.Tensor
+        Sliced tensor
+    """
+
+    # Unpack MLIR attributes from kwargs
+    begins = unpack_mlir_attr(kwargs.get("begins", [0]))
+    ends = unpack_mlir_attr(kwargs.get("ends", None))
+    step = unpack_mlir_attr(kwargs.get("step", [1]))
+
+    if ends is None:
+        ends = [input_tensor.size(i) for i in range(len(begins))]
+
+    # Build slice objects for each dimension
+    slices = []
+    for i in range(len(begins)):
+        start = begins[i] if i < len(begins) else 0
+        end = ends[i] if i < len(ends) else input_tensor.size(i)
+        step_val = step[i] if i < len(step) else 1
+        slices.append(slice(start, end, step_val))
+
+    return input_tensor[slices]
+
+
+def zeros_golden(**kwargs) -> torch.Tensor:
+    """
+    Golden function for zeros operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'size'
+
+    Returns
+    -------
+    torch.Tensor
+        Zero tensor
+    """
+    size = kwargs.get("shape", [1])
+    return torch.zeros(size)
+
+
+def ones_golden(**kwargs) -> torch.Tensor:
+    """
+    Golden function for ones operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'size'
+
+    Returns
+    -------
+    torch.Tensor
+        Ones tensor
+    """
+    size = kwargs.get("shape", [1])
+    return torch.ones(size)
+
+
+def reverse_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for reverse operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dims'
+
+    Returns
+    -------
+    torch.Tensor
+        Reversed tensor
+    """
+    dims = kwargs.get("dimensions", [0])
+    return torch.flip(input_tensor, dims)
+
+
+def arange_golden(single_dim_tensor, repeats):
+    """
+    Golden function for arange operation using TTIR kwargs.
+
+    Expected kwargs from builder (ttir_kwargs):
+    - start: int
+    - end: int
+    - step: int
+    - arange_dimension: int (ignored here; layout handled by builder output shape)
+    """
+    # start = kwargs.get("start", 0)
+    # end = kwargs.get("end", 0)
+    # step = kwargs.get("step", 1)
+    # return torch.arange(start=start, end=end, step=step)
+    return single_dim_tensor.repeat(repeats)
+
+
+def cumsum_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for cumsum operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim: int - Dimension along which to compute cumulative sum
+
+    Returns
+    -------
+    torch.Tensor
+        Cumulative sum of input tensor along specified dimension
+    """
+    dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
+    return torch.cumsum(input_tensor, dim=dim)
+
+
+def repeat_interleave_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Golden function for repeat_interleave operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'repeats' and 'dim'
+
+    Returns
+    -------
+    torch.Tensor
+        Repeated tensor
+    """
+    repeats = kwargs.get("repeats", 1)
+    dim = kwargs.get("dim", 0)
+    return torch.repeat_interleave(input_tensor, repeats, dim=dim)
+
+
+# CCL (Collective Communication Library) Golden Functions
+# We cannot inspect the intermediate buffer on a multi-device.
+# Therefore, we only support Graph Level golden.
+# Although generating an Op level golden is not needed,
+# we return a random torch.Tensor with the correct output shape and type for TTIR.
 
 
 def mesh_shard_golden(
@@ -1103,6 +1877,32 @@ def collective_broadcast_golden(
     return torch.randn(input.shape, dtype=input.dtype)
 
 
+def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
+    """
+    Get the golden function for a given TTIR operation class.
+
+    Parameters
+    ----------
+    ttir_op_class : type
+        The TTIR operation class (e.g., ttir.AbsOp)
+    **kwargs
+        Additional keyword arguments for specialized operation selection
+
+    Returns
+    -------
+    Optional[Callable]
+        The corresponding golden function, or None if not found
+    """
+    # Handle special cases with parameters
+    if ttir_op_class == ttir.ToLayoutOp and "tilize" in kwargs:
+        if kwargs["tilize"]:
+            return tilize_golden
+        else:
+            return untilize_golden
+
+    return GOLDEN_MAPPINGS[ttir_op_class]
+
+
 """
 Dictionary mapping TTIR operation classes to their corresponding golden functions.
 
@@ -1131,7 +1931,7 @@ Usage:
 """
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Elementwise unary operations
-    ttir.GetDimensionSizeOp: torch.tensor,
+    ttir.GetDimensionSizeOp: get_dimension_size_golden,
     ttir.AbsOp: torch.abs,
     ttir.CeilOp: torch.ceil,
     ttir.CosOp: torch.cos,
@@ -1163,17 +1963,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RemainderOp: torch.remainder,
     ttir.PowOp: torch.pow,
     # Comparison operations
-    ttir.EqualOp: torch.eq,
-    ttir.NotEqualOp: torch.ne,
-    ttir.GreaterEqualOp: torch.ge,
-    ttir.GreaterThanOp: torch.gt,
-    ttir.LessEqualOp: torch.le,
-    ttir.LessThanOp: torch.lt,
+    ttir.EqualOp: equal_golden,
+    ttir.NotEqualOp: not_equal_golden,
+    ttir.GreaterEqualOp: greater_equal_golden,
+    ttir.GreaterThanOp: greater_than_golden,
+    ttir.LessEqualOp: less_equal_golden,
+    ttir.LessThanOp: less_than_golden,
     # Logical operations
-    ttir.LogicalAndOp: torch.logical_and,
-    ttir.LogicalOrOp: torch.logical_or,
-    ttir.LogicalXorOp: torch.logical_xor,
-    ttir.LogicalNotOp: torch.logical_not,
+    ttir.LogicalAndOp: logical_and_golden,
+    ttir.LogicalOrOp: logical_or_golden,
+    ttir.LogicalXorOp: logical_xor_golden,
+    ttir.LogicalNotOp: logical_not_golden,
     # Selection operations
     ttir.WhereOp: torch.where,
     # Bitwise operations
@@ -1182,25 +1982,26 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BitwiseXorOp: torch.bitwise_xor,
     ttir.BitwiseNotOp: torch.bitwise_not,
     # Reduction operations
-    ttir.SumOp: torch.sum,
-    ttir.MeanOp: torch.mean,
+    ttir.SumOp: sum_golden,
+    ttir.MeanOp: mean_golden,
     ttir.MaxOp: max_golden,
-    ttir.MinOp: torch.min,
+    ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
-    ttir.ReduceAndOp: torch.all,
-    ttir.ReduceOrOp: torch.any,
+    ttir.ReduceAndOp: reduce_and_golden,
+    ttir.ReduceOrOp: reduce_or_golden,
     # Tensor manipulation
-    ttir.TransposeOp: torch.transpose,
-    ttir.ConcatOp: torch.concat,
-    ttir.RepeatOp: torch.Tensor.repeat,
-    ttir.RepeatInterleaveOp: torch.repeat_interleave,
-    ttir.ReshapeOp: torch.reshape,
-    ttir.SqueezeOp: torch.squeeze,
-    ttir.UnsqueezeOp: torch.unsqueeze,
-    ttir.ReverseOp: torch.flip,
-    ttir.PermuteOp: torch.permute,
-    ttir.ClampScalarOp: torch.clamp,
+    ttir.TransposeOp: transpose_golden,
+    ttir.ConcatOp: concat_golden,
+    ttir.RepeatOp: repeat_golden,
+    ttir.RepeatInterleaveOp: repeat_interleave_golden,
+    ttir.ReshapeOp: reshape_golden,
+    ttir.SqueezeOp: squeeze_golden,
+    ttir.UnsqueezeOp: unsqueeze_golden,
+    ttir.ReverseOp: reverse_golden,
+    ttir.PermuteOp: permute_golden,
+    ttir.ClampScalarOp: clamp_scalar_golden,
     ttir.ClampTensorOp: torch.clamp,
+    ttir.CumSumOp: cumsum_golden,
     ttir.BroadcastOp: torch.broadcast_to,
     ttir.PadOp: pad_golden,
     ttir.IndexSelectOp: select_golden,
@@ -1208,17 +2009,16 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SliceOp: slice_golden,
     ttir.GatherOp: gather_golden,
     # Neural network operations
-    ttir.SoftmaxOp: torch.nn.functional.softmax,
+    ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: torch.matmul,
     ttir.EmbeddingOp: embedding_golden,
-    ttir.CumSumOp: torch.cumsum,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormOp: batch_norm_golden,
     # Type operations
     ttir.TypecastOp: torch.Tensor.type,
     # Tensor creation
-    ttir.ZerosOp: torch.zeros,
-    ttir.OnesOp: torch.ones,
+    ttir.ZerosOp: zeros_golden,
+    ttir.OnesOp: ones_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
@@ -1232,9 +2032,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: dot_general_golden,
-    # Layout operations (identity functions)
-    ttir.ToLayoutOp: lambda x: x,
-    ttir.ViewLayoutOp: lambda x: x,
+    # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
+    ttir.ToLayoutOp: (lambda x, **kwargs: x),
+    ttir.ViewLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
@@ -1247,39 +2047,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllToAllOp: all_to_all_golden,
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
-    ttir.LeakyReluOp: torch.nn.functional.leaky_relu,
+    ttir.LeakyReluOp: leaky_relu_golden,
     stablehlo.AddOp: torch.add,
 }
-
-
-# CCL (Collective Communication Library) Golden Functions
-# We cannot inspect the intermediate buffer on a multi-device.
-# Therefore, we only support Graph Level golden.
-# Although generating an Op level golden is not needed,
-# we return a random torch.Tensor with the correct output shape and type for TTIR.
-
-
-def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
-    """
-    Get the golden function for a given TTIR operation class.
-
-    Parameters
-    ----------
-    ttir_op_class : type
-        The TTIR operation class (e.g., ttir.AbsOp)
-    **kwargs
-        Additional keyword arguments for specialized operation selection
-
-    Returns
-    -------
-    Optional[Callable]
-        The corresponding golden function, or None if not found
-    """
-    # Handle special cases with parameters
-    if ttir_op_class == ttir.ToLayoutOp and "tilize" in kwargs:
-        if kwargs["tilize"]:
-            return tilize_golden
-        else:
-            return untilize_golden
-
-    return GOLDEN_MAPPINGS[ttir_op_class]
