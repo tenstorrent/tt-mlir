@@ -322,6 +322,8 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
+    // TODO(tt-metal #25772): Need to reset device here otherwise hangs. Remove
+    // once fixed.
     SingletonDeviceContext::resetInstance();
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, dimArg, keepDim, outputLayout);
