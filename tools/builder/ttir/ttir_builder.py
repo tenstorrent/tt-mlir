@@ -33,7 +33,7 @@ class TTIRBuilder(Builder):
 
     def get_metal_tensor_layout(
         self,
-        shape: Shape,
+        logical_shape: Shape,
         tiled=False,
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
@@ -43,7 +43,7 @@ class TTIRBuilder(Builder):
 
         # Create grid shape by 1s filling logical rank.
         if grid is None:
-            original_rank = len(shape)
+            original_rank = len(logical_shape)
             grid_shape = [1] * original_rank
         else:
             grid_shape = list(grid)
@@ -52,10 +52,16 @@ class TTIRBuilder(Builder):
 
         # Create layout with original logical shape.
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, shape, worker_grid, oobVal, memorySpace
+            ctx, logical_shape, worker_grid, oobVal, memorySpace
         )
+
+        shard_shape = []
+        for l, g in zip(logical_shape, grid_shape):
+            assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
+            shard_shape.append(l // g)
+
         # Sharded shape = grid + logical shape.
-        device_shape = grid_shape + list(shape)
+        device_shape = grid_shape + shard_shape
 
         elemType = F32Type.get(ctx)
 
