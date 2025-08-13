@@ -1491,11 +1491,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!hasValidInsertedWindowDims(op)) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn and tt-metal have limited scatter support. Inserted window "
-              "dimenstion must be 1 in the input tensor shape.");
-    }
+    // if (!hasValidInsertedWindowDims(op)) {
+    //   return rewriter.notifyMatchFailure(
+    //       op, "ttnn and tt-metal have limited scatter support. Inserted
+    //       window "
+    //           "dimenstion must be 1 in the input tensor shape.");
+    // }
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
