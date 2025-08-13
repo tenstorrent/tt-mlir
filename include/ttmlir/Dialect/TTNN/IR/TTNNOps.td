@@ -857,7 +857,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::
-          createArgMaxOpOperandsWorkarounds();
+          createArgMaxOpOperandsWorkarounds(getInput().getType());
     }
   }];
 

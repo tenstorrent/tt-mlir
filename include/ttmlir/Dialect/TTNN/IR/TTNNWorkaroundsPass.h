@@ -265,7 +265,8 @@ public:
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
   // Create workarounds for ArgMax op operands.
-  static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
+  static TTNNOperandsWorkarounds
+  createArgMaxOpOperandsWorkarounds(mlir::RankedTensorType inputType);
 
   // Create workarounds for pad op operands.
   static TTNNOperandsWorkarounds
