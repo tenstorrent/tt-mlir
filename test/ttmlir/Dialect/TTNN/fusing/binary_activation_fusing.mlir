@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline --ttnn-fusing -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-fusing-pass=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
