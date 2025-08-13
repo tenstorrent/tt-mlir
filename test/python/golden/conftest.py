@@ -252,28 +252,6 @@ def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> No
             _safe_add_property(item, f"param_{key}", value_str)
 
 
-def _extract_failure_stage(
-    item: pytest.Item, excinfo: Optional[pytest.ExceptionInfo[BaseException]]
-) -> None:
-    """Extract and record failure stage information."""
-    TTIR_EXCEPTIONS = {
-        "TTIRCompileException": "compile",
-        "TTIRRuntimeException": "runtime",
-        "TTIRGoldenException": "golden",
-    }
-
-    failure_stage = "success"  # Default to success.
-
-    if excinfo is not None and hasattr(excinfo, "type") and excinfo.type is not None:
-        exc_type = excinfo.type
-        exc_name = exc_type.__name__
-
-        if exc_name in TTIR_EXCEPTIONS:
-            failure_stage = TTIR_EXCEPTIONS[exc_name]
-
-    _safe_add_property(item, "failure_stage", failure_stage)
-
-
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_setup(item: pytest.Item):
     """
@@ -330,7 +308,7 @@ def pytest_runtest_setup(item: pytest.Item):
 
 
 @pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
+def pytest_runtest_call(item: pytest.Item):
     """
     Extract runtime information from tests that actually execute.
 
@@ -339,17 +317,31 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
     Runtime report data includes:
     - failure_stage: Categorizes where in the compilation pipeline the test failed
       - "success": Test passed completely
-      - "compile": Failed during TTIR compilation (TTIRCompileException)
-      - "runtime": Failed during execution (TTIRRuntimeException)
-      - "golden": Failed golden result verification (TTIRGoldenException)
+      - "compile": Failed during TTIR compilation (`TTIRCompileException`)
+      - "runtime": Failed during execution (`TTIRRuntimeException`)
+      - "golden": Failed golden result verification (`TTIRGoldenException`)
     The "runtime" and "golden" are currently unused, but are needed for
     downstream schemas to support future features once pytest itself
     orchestrates the running of the generated flatbuffers
     """
-    yield
-    # Only process call phase; setup phase was managed by `pytest_runtest_setup`.
-    if call.when == "call":
-        _extract_failure_stage(item, call.excinfo)
+
+    TTIR_EXCEPTIONS = {
+        "TTIRCompileException": "compile",
+        "TTIRRuntimeException": "runtime",
+        "TTIRGoldenException": "golden",
+    }
+
+    failure_stage = "success"  # Default to success.
+
+    outcome = yield
+    try:
+        outcome.get_result()
+    except Exception as exc:
+        exc_type = type(exc)
+        exc_name = exc_type.__name__
+        failure_stage = TTIR_EXCEPTIONS.get(exc_name, "unknown")
+    finally:
+        _safe_add_property(item, "failure_stage", failure_stage)
 
 
 def pytest_collection_modifyitems(config, items):
