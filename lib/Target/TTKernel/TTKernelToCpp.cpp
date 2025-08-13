@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -180,12 +181,23 @@ void dprint(Arg &&arg, ArgV&&... argv) {
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
+
+    if (hasVerbatim("experimental::invoke_sfpi")) {
+      builder->create<emitc::VerbatimOp>(
+          loc, StringRef(experimental_invoke_sfpi_llks_generated,
+                         experimental_invoke_sfpi_llks_generated_len));
+    }
   }
 
   bool hasCall(StringRef name) {
     return hasOp<emitc::CallOpaqueOp>([=](emitc::CallOpaqueOp op) {
       return op.getCallee().starts_with(name);
     });
+  }
+
+  bool hasVerbatim(StringRef name) {
+    return hasOp<emitc::VerbatimOp>(
+        [=](emitc::VerbatimOp op) { return op.getValue().starts_with(name); });
   }
 
   template <typename OpT>
