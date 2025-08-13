@@ -557,7 +557,9 @@ class ChiselContext:
             if torch_dtype.is_floating_point:
                 tensor = torch.randn(shape, dtype=torch_dtype)
             else:
-                tensor = torch.randint(0, 10, shape)
+                tensor = torch.randint(
+                    torch.iinfo(torch_dtype).min, torch.iinfo(torch_dtype).max, shape
+                )
             self.device_tensor_pool[arg_name] = TensorValue(
                 arg_name, tensor, ExecutionType.DEVICE
             )

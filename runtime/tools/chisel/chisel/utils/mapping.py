@@ -118,7 +118,6 @@ class OpMapping:
             ]
 
         if not self.unpack_inputs:
-            print("torch op", self.torch_op, result_inputs, torch_args)
             result = self.torch_op(result_inputs, **torch_args)
             return result
 
@@ -175,8 +174,6 @@ def custom_conv2d(*args, **kwargs):
     # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
     I = args[0].permute(0, 3, 1, 2)
     weight = args[1].permute(0, 1, 2, 3)
-
-    print(f"Debug: custom_conv2d {I}\n{weight}")
 
     # Get and validate kwargs with defaults
     padding = kwargs.get("padding", 0)
@@ -371,10 +368,7 @@ def custom_fill_cache(
 
 
 def custom_full(*args, **kwargs):
-    shape = kwargs["size"]
-    fill_value = kwargs["fill_value"]
-    print(f"Debug: custom_full {shape} {fill_value}")
-    return torch.full(shape, fill_value)
+    return torch.full(kwargs["size"], kwargs["fill_value"])
 
 
 def custom_update_cache(
@@ -395,20 +389,10 @@ def custom_embeding(input, weight):
     return torch.nn.functional.embedding(input.long(), weight)
 
 
-def custom_subtract(x, y):
-    """
-    Custom subtract function that handles boolean tensors.
-    For boolean tensors, subtract is interpreted as x AND (NOT y).
-    """
-    # Check if either input is boolean
-    if x.dtype == torch.bool or y.dtype == torch.bool:
-        # Convert both to boolean if needed
-        x_bool = x.to(torch.bool) if x.dtype != torch.bool else x
-        y_bool = y.to(torch.bool) if y.dtype != torch.bool else y
-        # For boolean tensors, x - y is equivalent to x AND (NOT y)
-        return torch.logical_and(x_bool, torch.logical_not(y_bool))
-    # Normal numeric subtraction
-    return torch.subtract(x, y)
+def custom_comparison_operator(
+    input: torch.Tensor, other: torch.Tensor, torch_op: Callable
+) -> torch.Tensor:
+    return torch_op(input, other).to(dtype=input.dtype)
 
 
 ttir_to_torch_mapping = {
@@ -427,12 +411,22 @@ ttir_to_torch_mapping = {
     "ttir.div": OpMapping(torch.div),
     "ttir.exp": OpMapping(torch.exp, unpack_inputs=False),
     "ttir.pow": OpMapping(torch.pow),
-    "ttir.ge": OpMapping(torch.ge),
-    "ttir.gt": OpMapping(torch.gt),
-    "ttir.le": OpMapping(torch.le),
-    "ttir.ne": OpMapping(torch.ne),
+    "ttir.ge": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.ge)
+    ),
+    "ttir.gt": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.gt)
+    ),
+    "ttir.le": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.le)
+    ),
+    "ttir.lt": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.lt)
+    ),
+    "ttir.ne": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.ne)
+    ),
     "ttir.logical_and": OpMapping(torch.logical_and),
-    "ttir.lt": OpMapping(torch.lt),
     "ttir.matmul": OpMapping(custom_matmul),
     "ttir.max": OpMapping(
         custom_max, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
@@ -465,7 +459,7 @@ ttir_to_torch_mapping = {
         unpack_inputs=False,
     ),
     "ttir.sigmoid": OpMapping(torch.sigmoid, unpack_inputs=False),
-    "ttir.subtract": OpMapping(custom_subtract),
+    "ttir.subtract": OpMapping(torch.sub),
     "ttir.sum": OpMapping(
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
