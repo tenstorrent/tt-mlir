@@ -18,9 +18,11 @@ namespace mlir::tt {
 /// using GCC RISC-V Tenstorrent builtin functions.
 std::unique_ptr<OperationPass<ModuleOp>> createConvertSFPIToEmitCPass();
 
+namespace sfpi {
 /// Populate conversion patterns for SFPI to EmitC conversion.
 void populateSFPIToEmitCConversionPatterns(RewritePatternSet &patterns,
                                            TypeConverter &typeConverter);
+} // namespace sfpi
 
 } // namespace mlir::tt
 

@@ -15,16 +15,12 @@
 
 #include <string>
 
-using namespace mlir;
-using namespace mlir::tt;
-using namespace mlir::tt::sfpi;
-
 namespace mlir::tt {
-
 #define GEN_PASS_DEF_CONVERTSFPITOEMITC
 #include "ttmlir/Conversion/Passes.h.inc"
-
 } // namespace mlir::tt
+
+namespace mlir::tt::sfpi {
 
 namespace {
 
@@ -32,7 +28,7 @@ namespace {
 // Type Converter
 //===----------------------------------------------------------------------===//
 
-/// Converts SFPI types to EmitC types for GCC builtin translation
+/// Converts SFPI types to EmitC types for GCC builtin translation.
 class SFPIToEmitCTypeConverter : public TypeConverter {
 public:
   SFPIToEmitCTypeConverter() {
@@ -83,7 +79,7 @@ using ValueOrString = std::variant<Value, std::string>;
 // Pattern Rewriters
 //===----------------------------------------------------------------------===//
 
-/// Base class for SFPI to EmitC conversion patterns
+/// Base class for SFPI to EmitC conversion patterns.
 template <typename SFPIOpType, typename BuiltinOperands>
 class SFPIToEmitCOpConversionPattern : public OpConversionPattern<SFPIOpType> {
 public:
@@ -796,8 +792,8 @@ struct ConvertSFPIToEmitCPass
 // Public Interface
 //===----------------------------------------------------------------------===//
 
-void mlir::tt::populateSFPIToEmitCConversionPatterns(
-    RewritePatternSet &patterns, TypeConverter &typeConverter) {
+void populateSFPIToEmitCConversionPatterns(RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<
       SFPIToEmitCOpConversionPattern<LoadOp, LoadOpBuiltinOperands>,
       SFPIToEmitCOpConversionPattern<StoreOp, StoreOpBuiltinOperands>,
@@ -860,7 +856,9 @@ void mlir::tt::populateSFPIToEmitCConversionPatterns(
       typeConverter, patterns.getContext());
 }
 
-std::unique_ptr<OperationPass<ModuleOp>>
+} // namespace mlir::tt::sfpi
+
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 mlir::tt::createConvertSFPIToEmitCPass() {
-  return std::make_unique<ConvertSFPIToEmitCPass>();
+  return std::make_unique<sfpi::ConvertSFPIToEmitCPass>();
 }
