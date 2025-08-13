@@ -533,18 +533,22 @@ public:
   }
 };
 
-// This pattern decomposes BatchNorm op into basic arithmetic ops
-// so that it can be fused using existing patterns.
-// It is used only when following a conv2d that can fuse multiply and add
-// into its weights and bias.
 class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
   using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
 
 public:
-  // Pattern:
-  // batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
-  //   (x - mean) / sqrt(variance + epsilon) * scale + offset
-
+  // This pattern decomposes the BatchNorm operation into a sequence of
+  // arithmetic operations that can be fused with Conv2d operations.
+  //
+  // Decomposition:
+  //    batch_norm(x, scale, offset, mean, variance, epsilon, dimension)
+  //    = (x - mean) / sqrt(variance + epsilon) * scale + offset
+  //      let alpha = scale / sqrt(variance + epsilon)        -> constant
+  //      let beta  = offset - alpha * mean                   -> constant
+  //    batch_norm(x,...) = alpha * x + beta
+  //
+  // Decomposed like this it can later be fused with Conv2d without bias as
+  //    batch_norm(conv2d(x, weight),...) = conv2d(x, weight * alpha, beta)
   mlir::LogicalResult
   matchAndRewrite(BatchNormOp batchNormOp,
                   mlir::PatternRewriter &rewriter) const final {
@@ -586,10 +590,11 @@ public:
     auto alpha =
         utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
 
+    // alphaMean = alpha * mean
     auto alphaMean = utils::createDPSOp<MultiplyOp>(
         rewriter, loc, mean.getType(), mean, alpha);
 
-    // beta = offset - alpha * mean
+    // beta = offset - alphaMean
     auto beta = utils::createDPSOp<SubtractOp>(rewriter, loc, offset.getType(),
                                                offset, alphaMean);
 
