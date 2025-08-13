@@ -10,8 +10,8 @@ import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
-from ttmlir.dialects import func, sdy
 from ttmlir.ir import *
+from ttmlir.dialects import func
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -32,8 +32,8 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 # ----- Private APIs -----
 
 
-def _get_target_path(output_path, filename, target):
-    target_dir = os.path.join(output_path, "builder-artifacts", target)
+def _get_target_path(output_path, builder_dir, filename, target):
+    target_dir = os.path.join(output_path, "builder-artifacts", builder_dir, target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     return os.path.join(target_dir, filename)
@@ -207,7 +207,7 @@ def build_ttir_module(
 
     with ctx, loc:
         fn_input_types = [
-            ttir_builder.create_ranked_tensor_type(
+            ttir_builder._create_ranked_tensor_type(
                 shape,
                 ttir_builder._get_type_from_torch_dtype(
                     dtype if isinstance(dtype, torch.dtype) else dtype
@@ -241,8 +241,10 @@ def build_ttir_module(
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
 
         test_base = fn.__name__ if test_base is None else test_base
-        print("test_base", test_base)
-        filename = _get_target_path(output_root, test_base + "_ttir.mlir", test_base)
+
+        filename = _get_target_path(
+            output_root, "ttir-builder", test_base + "_ttir.mlir", test_base
+        )
 
         if module_dump:
             with open(filename, "w") as f:
@@ -468,7 +470,7 @@ def build_stablehlo_module(
 
     with ctx, loc:
         fn_input_types = [
-            stablehlo_builder.create_ranked_tensor_type(
+            stablehlo_builder._create_ranked_tensor_type(
                 shape,
                 stablehlo_builder._get_type_from_torch_dtype(
                     dtype if isinstance(dtype, torch.dtype) else dtype
@@ -508,13 +510,13 @@ def build_stablehlo_module(
                 stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
-        stablehlo_pipeline(module)
-
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
 
         test_base = fn.__name__ if test_base is None else test_base
 
-        filename = _get_target_path(output_root, test_base + "_shlo.mlir", test_base)
+        filename = _get_target_path(
+            output_root, "stablehlo-builder", test_base + "_shlo.mlir", test_base
+        )
 
         if module_dump:
             with open(filename, "w") as f:
@@ -617,12 +619,14 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
-
+    stablehlo_pipeline(module)
+    print(module)
     stablehlo_to_ttir_pipeline(module)
     print(module)
-    builder.populate_goldens()
 
-    filename = _get_target_path(output_root, test_base + "_ttir.mlir", test_base)
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
+    )
     if module_dump:
         with open(filename, "w") as f:
             f.write(str(module))
@@ -633,6 +637,7 @@ def compile_stablehlo_to_flatbuffer(
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
+        builder_dir="stablehlo-builder",
         target=target,
         mesh_dict=mesh_dict,
         module_dump=module_dump,
@@ -649,6 +654,7 @@ def compile_ttir_module_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
+    builder_dir: str = "ttir-builder",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -752,7 +758,9 @@ def compile_ttir_module_to_flatbuffer(
     else:
         raise ValueError("Unsupported target: " + target)
 
-    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, test_base)
+    output_file_mlir = _get_target_path(
+        output_root, builder_dir, test_base + mlir_suffix, test_base
+    )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
