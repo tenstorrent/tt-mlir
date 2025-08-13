@@ -131,8 +131,8 @@ def torch_dtype_to_abbrev(dtype):
     return dtype_mapping.get(dtype_str, dtype_str)
 
 
-# Utility functions for fault-tolerant metadata extraction
-def safe_add_property(item: pytest.Item, key: str, value: Any) -> bool:
+# Utility functions for fault-tolerant metadata extraction.
+def _safe_add_property(item: pytest.Item, key: str, value: Any) -> bool:
     """Safely add a property to the test item, returning success status"""
     try:
         if not hasattr(item, "user_properties"):
@@ -143,7 +143,7 @@ def safe_add_property(item: pytest.Item, key: str, value: Any) -> bool:
         return False
 
 
-def safe_serialize(value: Any) -> str:
+def _safe_serialize(value: Any) -> str:
     """Safely serialize a value to string with fallbacks"""
     if isinstance(value, torch.dtype):
         return torch_dtype_to_abbrev(value)
@@ -157,7 +157,7 @@ def safe_serialize(value: Any) -> str:
             return f"<serialization_error: {type(value).__name__}>"
 
 
-def get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
+def _get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
     """Get shapes parameter from various possible keys"""
     shape_keys = ["shapes", "shape", "input_shape", "inputs_shapes"]
     for key in shape_keys:
@@ -166,7 +166,7 @@ def get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
     return None
 
 
-def get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
+def _get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
     """Get dtypes parameter, broadcasting single dtype if needed"""
     dtype_keys = ["dtypes", "dtype", "inputs_dtypes"]
     dtypes_param = torch.float32  # Default.
@@ -181,9 +181,9 @@ def get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
     return dtypes_param
 
 
-def extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> None:
+def _extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract and record shape and dtype information"""
-    shapes_param = get_shapes_param(params)
+    shapes_param = _get_shapes_param(params)
     if shapes_param is None:
         return
 
@@ -191,16 +191,16 @@ def extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> None
         shapes_param = [shapes_param]
 
     # Record shapes.
-    shapes_success = safe_add_property(item, "input_shapes", json.dumps(shapes_param))
+    shapes_success = _safe_add_property(item, "input_shapes", json.dumps(shapes_param))
 
     if shapes_success:
         # Only extract dtypes if shapes extraction succeeded.
-        dtypes_param = get_dtypes_param(params, len(shapes_param))
+        dtypes_param = _get_dtypes_param(params, len(shapes_param))
         dtypes_list = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
-        safe_add_property(item, "input_dtypes", str(dtypes_list))
+        _safe_add_property(item, "input_dtypes", str(dtypes_list))
 
 
-def extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
+def _extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract and record operation name"""
     op_name = None
 
@@ -221,17 +221,17 @@ def extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
         if op_name.startswith("hoisted_"):
             op_name = op_name[8:]
 
-        safe_add_property(item, "op_name", op_name)
+        _safe_add_property(item, "op_name", op_name)
         # TODO(ctod): Extract actual framework (torch) operation name in the
         # future, once we have access to it via golden checking. (#4094)
-        safe_add_property(item, "framework_op_name", op_name)
+        _safe_add_property(item, "framework_op_name", op_name)
 
 
-def extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
+def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract backend and remaining parameters"""
     # Extract backend.
     backend = params.get("target", "ttnn")
-    safe_add_property(item, "backend", backend)
+    _safe_add_property(item, "backend", backend)
 
     # Extract remaining parameters.
     covered_params = {
@@ -248,11 +248,11 @@ def extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> Non
 
     for key, value in params.items():
         if key not in covered_params:
-            value_str = safe_serialize(value)
-            safe_add_property(item, f"param_{key}", value_str)
+            value_str = _safe_serialize(value)
+            _safe_add_property(item, f"param_{key}", value_str)
 
 
-def extract_failure_stage(
+def _extract_failure_stage(
     item: pytest.Item, excinfo: Optional[pytest.ExceptionInfo[BaseException]]
 ) -> None:
     """Extract and record failure stage information."""
@@ -271,7 +271,7 @@ def extract_failure_stage(
         if exc_name in TTIR_EXCEPTIONS:
             failure_stage = TTIR_EXCEPTIONS[exc_name]
 
-    safe_add_property(item, "failure_stage", failure_stage)
+    _safe_add_property(item, "failure_stage", failure_stage)
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -324,12 +324,13 @@ def pytest_runtest_setup(item: pytest.Item):
 
     if hasattr(item, "callspec"):
         params = item.callspec.params
-        extract_shapes_and_dtypes(item, params)
-        extract_operation_name(item, params)
-        extract_backend_and_params(item, params)
+        _extract_shapes_and_dtypes(item, params)
+        _extract_operation_name(item, params)
+        _extract_backend_and_params(item, params)
 
 
-def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> None:
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
     """
     Extract runtime information from tests that actually execute.
 
@@ -345,9 +346,10 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
     downstream schemas to support future features once pytest itself
     orchestrates the running of the generated flatbuffers
     """
+    yield
     # Only process call phase; setup phase was managed by `pytest_runtest_setup`.
     if call.when == "call":
-        extract_failure_stage(item, call.excinfo)
+        _extract_failure_stage(item, call.excinfo)
 
 
 def pytest_collection_modifyitems(config, items):
