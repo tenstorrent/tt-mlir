@@ -1493,7 +1493,7 @@ private:
   }
 
   // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or 1 +
-  // tanh(2/sqrt(pi) * (x + 0.044715 * x^3)) if gelu approximation is true
+  // tanh(sqrt(2/pi) * (x + 0.044715 * x^3)) if gelu approximation is true
   std::tuple<GaussianCDFType, Value>
   getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
     if (Value gaussianCDFInput = getErfGaussianCDFInput(gaussianCDFResult)) {
@@ -1507,7 +1507,7 @@ private:
 
   Value getTanhGaussianCDFInput(Value gaussianCDFResult) const {
     // The final op in this pattern must be:
-    // 1 + tanh(2/sqrt(pi) * (x + 0.044715 * x^3))
+    // 1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
     //   ^ this add
 
     AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();

@@ -2554,7 +2554,12 @@ public:
     }
 
     if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 1) {
-      return failure();
+      return rewriter.notifyMatchFailure(
+          srcOp, "Erf op must have exactly one operand and one result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ErfOp>(
