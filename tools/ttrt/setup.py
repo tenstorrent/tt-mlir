@@ -57,29 +57,39 @@ if enable_perf:
     perflibs += ["capture-release"]
     perflibs += ["csvexport-release"]
 
+# Add this before any shutil.copy operations:
+def clean_runtime_dir():
+    runtime_dir = f"{ttmlir_build_dir}/python_packages/ttrt/runtime"
+    if os.path.exists(runtime_dir):
+        print(f"Cleaning existing runtime directory: {runtime_dir}")
+        shutil.rmtree(runtime_dir)
+    os.makedirs(runtime_dir, exist_ok=True)
+
+
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+    clean_runtime_dir()
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
     )
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
     )
 
     for runlib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{runlib}",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
 
     for dylib in perflibs:
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
@@ -144,7 +154,7 @@ if enable_runtime:
     # copy metal dir folder
     shutil.copytree(
         f"{ttmetalhome}/tt_metal",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
     )
@@ -152,14 +162,14 @@ if enable_runtime:
     # copy runtime dir folder
     shutil.copytree(
         f"{ttmetalhome}/runtime",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime",
         dirs_exist_ok=True,
     )
 
     # copy kernels
     shutil.copytree(
         f"{ttmetalhome}/ttnn",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn",
         dirs_exist_ok=True,
     )
 
@@ -173,16 +183,16 @@ if enable_runtime:
         return paths
 
     extra_files_tt_metal = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal/"
     )
     extra_files_runtime = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime/"
     )
     extra_files_ttnn = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn/"
     )
     extra_files_tests = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tests/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tests/"
     )
 
     metallibs += extra_files_tt_metal
