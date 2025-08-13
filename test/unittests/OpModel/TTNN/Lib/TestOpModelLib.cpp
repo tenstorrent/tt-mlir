@@ -1554,14 +1554,17 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto [expectedLegal, expectedCbSize, expectedPeakSize,
               expectedOutputSize] = std::get<13>(params);
 
-  const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
-      GetPhysicalGridSize(), builder.getF32Type());
+      GetPhysicalGridSize(), builder.getBF16Type());
   const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
       weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
-      GetPhysicalGridSize(), builder.getF32Type());
+      GetPhysicalGridSize(), builder.getBF16Type());
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+  llvm::errs() << "inputLayout: " << inputLayout << "\n";
+  llvm::errs() << "weightLayout: " << weightLayout << "\n";
+  llvm::errs() << "outputLayout: " << outputLayout << "\n";
 
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
@@ -1588,6 +1591,10 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   if (constraintsExp) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
+    llvm::errs() << "cbSize: " << cbSize << "\n";
+    llvm::errs() << "peakSize: " << peakSize << "\n";
+    llvm::errs() << "outputSize: " << outputSize << "\n";
+    llvm::errs() << "outputLayoutReadBack: " << outputLayoutReadBack << "\n";
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(peakSize, 0);
   } else {
@@ -1644,6 +1651,41 @@ INSTANTIATE_TEST_SUITE_P(
                         3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true, 0, 0, 0}),
+
+        // --gtest_filter=Conv2dTests/OpModelConv2dParam.Conv2d/2
+        // taken from forge-fe vovnet with batch size 16
+        // getOpConstraints passes but fails at run time
+        // peak l1 size is greater than l1 capacity
+        std::make_tuple(detail::TestTensor{{1, 1, 802816, 3},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{64, 3, 3, 3},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 200704, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        3, 64, 16, 224, 224, llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{2, 2},
+                        llvm::SmallVector<int32_t>{1, 1, 1, 1},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true, 0, 0, 0}),
+
+        // --gtest_filter=Conv2dTests/OpModelConv2dParam.Conv2d/3
+        std::make_tuple(detail::TestTensor{{1, 1, 1568, 256},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{256, 256, 3, 3},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 1568, 256},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        256, 256, 8, 14, 14, llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1, 1, 1},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true, 0, 0, 0})));
 

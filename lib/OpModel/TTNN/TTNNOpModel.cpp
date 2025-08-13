@@ -1889,6 +1889,20 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
+  llvm::errs() << " ## calling getOpConstraints for Conv2dOp\n";
+  llvm::errs() << "    inputShape: ";
+  for (auto &d : inputShape) {
+    llvm::errs() << d << ", ";
+  }
+  llvm::errs() << "\n";
+  llvm::errs() << "    inputLayout: " << inputLayout << "\n";
+  llvm::errs() << "    weightShape: ";
+  for (auto &d : weightShape) {
+    llvm::errs() << d << ", ";
+  }
+  llvm::errs() << "\n";
+  llvm::errs() << "    weightLayout: " << weightLayout << "\n";
+  llvm::errs() << "    conv2dConfig: " << conv2dConfig << "\n";
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
