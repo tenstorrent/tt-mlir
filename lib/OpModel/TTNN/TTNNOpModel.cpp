@@ -2814,4 +2814,93 @@ llvm::Expected<size_t> OpModel<AllGatherOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+/*
+
+        const Tensor& input_tensor,
+        int32_t dim,
+        uint32_t cluster_axis,
+        const MeshDevice& mesh_device,
+        ttnn::operations::reduction::ReduceType reduce_op =
+        ttnn::operations::reduction::ReduceType::Sum,
+        uint32_t num_links = 1,
+        const std::optional<ttnn::MemoryConfig>& output_mem_config =
+           tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG,
+        ttnn::ccl::Topology topology = ttnn::ccl::Topology::Ring,
+        std::optional<size_t> user_defined_num_workers = std::nullopt,
+        std::optional<size_t> user_defined_num_buffers_per_channel =
+   std::nullopt
+*/
+
+llvm::Expected<OpConstraints> OpModel<ReduceScatterOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, ttcore::ReduceType reduceType,
+    int32_t scatterDim, uint32_t clusterAxis, uint32_t numLinks,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<size_t> userDefinedNumWorkers = std::nullopt;
+  std::optional<size_t> userDefinedNumBuffersPerChannel = std::nullopt;
+  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Linear;
+
+  auto reduceScatterOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::reduce_scatter, device, inputSpec, scatterDim, clusterAxis,
+        std::cref(*device), conversion::getReduceType(reduceType), numLinks,
+        detail::getNullableMemoryConfig(outputLayout), topology,
+        userDefinedNumWorkers, userDefinedNumBuffersPerChannel);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     reduceScatterOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ReduceScatterOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    ttcore::ReduceType reduceType, int32_t scatterDim, uint32_t clusterAxis,
+    uint32_t numLinks, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<size_t> userDefinedNumWorkers = std::nullopt;
+  std::optional<size_t> userDefinedNumBuffersPerChannel = std::nullopt;
+  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Linear;
+
+  auto reduceScatterOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::reduce_scatter, device, inputSpec, scatterDim, clusterAxis,
+        std::cref(*device), conversion::getReduceType(reduceType), numLinks,
+        detail::getNullableMemoryConfig(outputLayout), topology,
+        userDefinedNumWorkers, userDefinedNumBuffersPerChannel);
+  };
+
+  return operation::getOpRuntime(reduceScatterOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model
