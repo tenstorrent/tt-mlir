@@ -24,8 +24,8 @@
 
 namespace tt::runtime::ttmetal {
 
-using DeviceBuffer = std::shared_ptr<::tt::tt_metal::Buffer>;
-using MetalTensor = std::variant<TensorDesc, DeviceBuffer>;
+using MeshBuffer = std::shared_ptr<::tt::tt_metal::distributed::MeshBuffer>;
+using MetalTensor = std::variant<TensorDesc, MeshBuffer>;
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
@@ -72,8 +72,7 @@ void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options = MeshDeviceOptions());
+Device openMeshDevice(const MeshDeviceOptions &options = {});
 
 void closeMeshDevice(Device parentMesh);
 
@@ -101,7 +100,7 @@ void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
-void dumpDeviceProfileResults(Device device);
+void readDeviceProfilerResults(Device device);
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);

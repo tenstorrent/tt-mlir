@@ -56,7 +56,8 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
 
   // Create 4D output tensor type
   RankedTensorType paddedOutputType =
-      RankedTensorType::Builder(outputType).setShape(paddedOutputShape);
+      ttnn::utils::RankedTensorTypeFactory::create(outputType,
+                                                   paddedOutputShape);
 
   // Create the reduce scatter operation on 4D tensors with adjusted
   // scatter_dim

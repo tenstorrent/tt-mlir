@@ -44,9 +44,10 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  if (options.enableQuantDequantConversion) {
+    pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
+  }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
-  // Fuse after TTIR -> TTIR decomposition to enable fusing of ops that are
-  // decomposed.
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -67,7 +68,6 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
-  // Fuse TTIR ops after rest of TTIR pipeline.
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -145,7 +145,11 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
-  pm.addPass(ttir::createElementTypeNormalization());
+  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+  elementTypeNormalizationOptions.enableBfp8Conversion =
+      options.enableBfp8Conversion;
+  pm.addPass(
+      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).

@@ -25,6 +25,7 @@ targets tt-metal.
 - `source env/activate`: Activates the project's virtual environment.  Run this
   command before running any other commands.
 - `cmake --build ${BUILD_DIR} --target check-ttmlir`: Runs compiler tests.
+- `cmake --build ${BUILD_DIR} --target check-perf`: Runs optimizer models perf tests (resnet, yolo_v8, segformer). Requires `-DTTMLIR_ENABLE_OPMODEL=ON`.
 - `llvm-lit test/ttmlir/.../*.mlir`: Runs LLVM lit driven compiler tests.
 - `pytest test/python`: Runs Python driven compiler tests and generates flatbuffers.
   Usually required to have run `ttrt query --save-artifacts` first and then to

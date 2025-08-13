@@ -435,7 +435,7 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
 }
 
 // Generate default GSPMDMeshSharding.
-llvm::Expected<GSPMDMeshSharding> generateDefault() {
+llvm::Expected<GSPMDMeshSharding> GSPMDMeshSharding::generateDefault() {
   return GSPMDMeshSharding{mlir::tt::ttcore::MeshShardDirection::FullToShard,
                            mlir::tt::ttcore::MeshShardType::Identity,
                            /*shardShape=*/llvm::SmallVector<int64_t>{},

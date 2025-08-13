@@ -152,7 +152,6 @@ ttrt read --help
 ttrt read --section version out.ttnn
 ttrt read --section system_desc out.ttnn
 ttrt read --section mlir out.ttnn
-ttrt read --section cpp out.ttnn
 ttrt read --section inputs out.ttnn
 ttrt read --section outputs out.ttnn
 ttrt read --section op_stats out.ttnn

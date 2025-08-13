@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -69,15 +68,11 @@ void createTTIRToTTMetalFrontendPipeline(
     toTTIRGenericOptions.useTileMatmul = options.useTileMatmul;
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
+    toTTIRGenericOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(mlir::createCanonicalizerPass());
-  ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
-  {
-    optimizeTensorLayoutOptions.overrideDeviceShape =
-        llvm::to_vector(options.overrideDeviceShape);
-  }
-  pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttir::createTTIRLowerToLayout());
 }
@@ -123,7 +118,6 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
-  pm.addPass(ttmetal::createApplyHostMemrefCallingConventionPass());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::emitc::createFormExpressionsPass());

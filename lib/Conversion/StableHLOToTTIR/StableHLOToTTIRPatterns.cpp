@@ -114,6 +114,20 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   return false;
 }
 
+// Helper function to find the TTIR constant defining op by traversing through
+// operations that preserve constant semantics (ReshapeOp, BroadcastOp, and
+// TypecastOp).
+static ttir::ConstantOp getConstantValueDefiningOp(Value value) {
+  Operation *valueDef = value.getDefiningOp();
+
+  // equivalent to valueDef != nullptr && isa<...>(valueDef)
+  while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::TypecastOp>(
+      valueDef)) {
+    valueDef = valueDef->getOperand(0).getDefiningOp();
+  }
+  return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -2358,18 +2372,6 @@ public:
   }
 
 private:
-  ttir::ConstantOp getConstantValueDefiningOp(Value value) const {
-    Operation *valueDef = value.getDefiningOp();
-
-    // equivalent to valueDef != nullptr && isa<...>(valueDef)
-    while (
-        isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::TypecastOp>(
-            valueDef)) {
-      valueDef = valueDef->getOperand(0).getDefiningOp();
-    }
-    return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
-  }
-
   LogicalResult
   checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
                           mlir::stablehlo::PadOp::Adaptor adaptor,
@@ -2420,6 +2422,118 @@ public:
         adaptor.getSplitCount(), adaptor.getReplicaGroups());
 
     return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRCollectiveBroadcastOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CollectiveBroadcastOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::CollectiveBroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CollectiveBroadcastOp srcOp,
+                  mlir::stablehlo::CollectiveBroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectiveBroadcastOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getReplicaGroups());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRRngOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngOp> {
+  using OpConversionPattern<mlir::stablehlo::RngOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngOp srcOp,
+                  mlir::stablehlo::RngOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
+
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto low = extractConstantScalarAsFloat(adaptor.getA());
+    auto high = extractConstantScalarAsFloat(adaptor.getB());
+
+    if (!low || !high) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unable to extract low and high scalars for random number "
+                 "generator interval.");
+    }
+
+    if (*low >= *high) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expects 'low' value to be < 'high' value.");
+    }
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::RandOp>(
+        srcOp, outputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(outputType.getElementType()),
+        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high));
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::RngOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    // [TODO] Remove this legality check when tt-metal supports other kind of
+    // distribution for random number generation.
+    if (srcOp.getRngDistribution() !=
+        mlir::stablehlo::RngDistribution::UNIFORM) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Unsupported RNG distribution type.");
+    }
+
+    return success();
+  }
+
+  std::optional<float> extractConstantScalarAsFloat(mlir::Value val) const {
+    auto constantOp = getConstantValueDefiningOp(val);
+    if (!constantOp) {
+      return std::nullopt;
+    }
+
+    if (!constantOp.getValueAttr().isSplat()) {
+      return std::nullopt;
+    }
+
+    auto elementType = constantOp.getValueAttr().getElementType();
+    if (!elementType.isIntOrFloat()) {
+      return std::nullopt;
+    }
+
+    float scalarValue = 0.0;
+    if (isa<IntegerType>(elementType)) {
+      scalarValue = static_cast<float>(constantOp.getValueAttr()
+                                           .getSplatValue<llvm::APInt>()
+                                           .getSExtValue());
+    } else {
+      scalarValue = static_cast<float>(constantOp.getValueAttr()
+                                           .getSplatValue<llvm::APFloat>()
+                                           .convertToDouble());
+    }
+
+    return scalarValue;
   }
 };
 } // namespace
@@ -2596,6 +2710,8 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<StableHLOToTTIRAllToAllOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRCollectiveBroadcastOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 static void
@@ -2668,6 +2784,13 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                             TypeConverter &typeConverter) {
   patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
 }
+
+static void addRngOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2697,6 +2820,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
+  addRngOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

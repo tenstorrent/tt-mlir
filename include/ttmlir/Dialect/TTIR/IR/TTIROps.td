@@ -508,7 +508,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
@@ -1288,7 +1288,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary] #  traits> {
+    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";
     let description = [{
       A base class for elementwise operations that apply a binary function to corresponding
@@ -1884,7 +1884,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
     }];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
       The `add` operation performs an elementwise addition between two tensors.
@@ -2920,6 +2920,8 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
@@ -3357,7 +3359,7 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
+def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
   let summary = "Generalized convolution operation.";
   let description = [{
     This operation is a more flexible form of convolution that can handle arbitrary dimensionality
@@ -3491,7 +3493,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
+def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "General pooling operation.";
   let description = [{
     The `pooling` operation is a generalized pooling operation that can implement various pooling methods
@@ -3556,6 +3558,8 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
   let results = (outs Variadic<AnyRankedTensor>);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
@@ -3622,6 +3626,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
@@ -3689,6 +3694,8 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
@@ -4694,6 +4701,36 @@ def TTIR_FullOp : TTIR_CreationOp<"full",
   let hasVerifier = 1;
 }
 
+def TTIR_RandOp : TTIR_CreationOp<"rand"> {
+  let summary = "Random number generation operation.";
+  let description = [{
+    Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
+
+    Example:
+      %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
+
+    Attributes:
+      - `size` (Array of Integer): The shape of the tensor to create.
+      - `dtype` (mlir:Type): Data type of the returned tensor.
+      - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
+      - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
+      - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
+
+    Outputs:
+      - `result` (Tensor): The generated tensor containing the random values.
+  }];
+
+  let arguments = (ins I32ArrayAttr:$size,
+                       TypeAttr:$dtype,
+                       DefaultValuedAttr<F32Attr, "0.0">:$low,
+                       DefaultValuedAttr<F32Attr, "1.0">:$high,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTIR_CreationOp<mnemonic, traits> {
   let summary = "Base class for tensor creation operations with a specified shape.";
@@ -4917,24 +4954,6 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
     let hasCanonicalizer = 1;
 
     let hasVerifier = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// TTIR region ops (ops that may appear inside of ttir.generic region)
-//    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
-//===----------------------------------------------------------------------===//
-
-def TTIR_KernelOp : TTIR_NamedOp<"kernel", [AttrSizedOperandSegments]> {
-    let summary = "Kernel call.";
-    let description = [{
-      A generic kernel call operation. This operation is used to pattern match by some consuming backend.
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
-    let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
 //===----------------------------------------------------------------------===//
@@ -5209,6 +5228,8 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
@@ -5264,6 +5285,79 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
 
     let results = (outs AnyRankedTensor:$result);
     let hasVerifier = 1;
+}
+
+
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+  let summary = "Collective Broadcast op";
+  let description = [{
+    The collective_broadcast operation distributes a tensor from a single source device to all
+    other devices within each replica group. Each replica group defines a subset of devices that
+    participate in the broadcast, and the operation is applied independently within each group.
+
+    By convention, the first device listed in each replica group is treated as the broadcast source.
+    The value of the `input` tensor on that source device is sent to all other devices in the same
+    group. The `input` tensor values on non-source devices are ignored and will be overwritten
+    during the operation.
+
+    Inputs:
+      - input: The tensor to broadcast. Only the value on the first device of each replica group
+              (the source) is used; values on other devices are ignored.
+      - output: An allocated tensor that will be populated with the broadcasted value on all devices.
+      - replica_groups: A list of replica groups. Each group is a list of device IDs, and the first
+                        ID in each group is treated as the broadcast source for that group.
+
+    Result:
+      - result: The output tensor containing the broadcasted value, identical across all devices
+                in the same replica group.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                        AnyRankedTensor:$output,
+                        I64ElementsAttr:$replica_groups);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+  let hasFolder = 1;
+}
+
+
+def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
+  let summary = "Concatenate heads operation.";
+  let description = [{
+    The `concatenate_heads` operation concatenates multiple heads of a multi-head attention tensor into a single tensor.
+
+    This operation is typically used in transformer models where the attention mechanism is split into multiple heads.
+    It combines the outputs of these heads into a single tensor, allowing further processing.
+
+    It takes an input tensor with shape `[batch_size, num_heads, sequence_size, head_size]`
+    and produces an output tensor with shape `[batch_size, sequence_size, num_heads * head_size]`.
+
+    It corresponds to a sequence of permute and reshape operations.
+
+    Example:
+    ```mlir
+    // Concatenate heads from a multi-head attention output
+    %input = ... : tensor<1x24x32x128xbf16> // batch_size: 1, num_heads: 24, sequence_size: 32, head_size: 128
+    %output = ttir.empty() : tensor<1x32x3072xbf16>  // Concatenated output of shape [batch_size, sequence_size, num_heads * head_size]
+    %result = ttir.concatenate_heads(%input, %output) : tensor<1x24x32x128xbf16>, tensor<1x32x3072xbf16> -> tensor<1x32x3072xbf16>
+    // Input tensor shape: [1, 24, 32, 128]
+    // Output tensor shape: [1, 32, 3072]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor containing multiple heads.
+
+    Outputs:
+    - `result` (Tensor): The concatenated output tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 #endif

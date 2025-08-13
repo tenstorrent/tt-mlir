@@ -220,6 +220,68 @@ public:
   }
 };
 
+// This pattern detects and fuses a sequence of operations that implement
+// relu. If a zeros op is consumed by a maximum op, we can fuse the zeros and
+// maximum op into a relu op.
+
+// Input pattern:
+// %0 = "ttir.zeros"() or %0 = "ttir.full"(fill_value = 0)
+// %1 = ttir.empty()
+// %2 = "ttir.maximum"(%arg0, %0, %1)
+//
+// Output pattern:
+// %0 = ttir.empty()
+// %1 = "ttir.relu"(%arg0, %0)
+class ReluFusionPattern : public mlir::OpRewritePattern<MaximumOp> {
+  using mlir::OpRewritePattern<MaximumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MaximumOp maximumOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    Value input;
+
+    if (isCreatingZeros(maximumOp.getLhs())) {
+      input = maximumOp.getRhs();
+    } else if (isCreatingZeros(maximumOp.getRhs())) {
+      input = maximumOp.getLhs();
+    } else {
+      return mlir::failure();
+    }
+
+    rewriter.setInsertionPoint(maximumOp);
+    utils::replaceOpWithNewDPSOp<ReluOp>(
+        rewriter, maximumOp, maximumOp.getResult().getType(), input);
+
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is zero.
+  bool isFillValueZero(FullOp op) const {
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().isZero();
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().isZero();
+    }
+    llvm_unreachable("Fill value should be integer or float");
+  }
+
+  bool isCreatingZeros(mlir::Value value) const {
+    if (auto creationOp = value.getDefiningOp<ZerosOp>()) {
+      return true;
+    }
+    if (auto creationOp = value.getDefiningOp<FullOp>()) {
+      return isFillValueZero(creationOp);
+    }
+
+    return false;
+  }
+};
+
 class Conv2dWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -1093,6 +1155,140 @@ private:
   }
 };
 
+class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    PermuteOp permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!permuteOp || !isFusable(permuteOp, reshapeOp)) {
+      return mlir::failure();
+    }
+
+    ::mlir::TypedValue<::mlir::RankedTensorType> inputTensor =
+        permuteOp.getInput();
+    RankedTensorType inputTensorType = inputTensor.getType();
+    ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+
+    RankedTensorType reshapeResultType =
+        mlir::cast<RankedTensorType>(reshapeOp.getResult().getType());
+    ArrayRef<int64_t> reshapeOutputShape = reshapeResultType.getShape();
+
+    if (reshapeOutputShape.size() == 3) {
+      // default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), reshapeResultType, inputTensor);
+      rewriter.replaceOp(reshapeOp, concatHeadsOp);
+      return mlir::success();
+    }
+
+    if (reshapeOutputShape.size() == 2) {
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+
+      int64_t originalBatchSize = inputShape[INPUT_BATCH];
+      int64_t originalSequenceSize = inputShape[INPUT_SEQ];
+
+      // The new 3D shape for ConcatenateHeadsOp
+      // [batch_size, sequence_size, num_heads * head_size]
+      SmallVector<int64_t> newReshapeShape = {
+          originalBatchSize, originalSequenceSize,
+          reshapeOutputShape[1] // num_heads * head_size (hidden)
+      };
+
+      // Get element type from the original reshape result type
+      RankedTensorType newReshapeType = mlir::RankedTensorType::get(
+          newReshapeShape, reshapeResultType.getElementType());
+
+      // Create ConcatenateHeadsOp with the new shape.
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), newReshapeType, inputTensor);
+
+      rewriter.modifyOpInPlace(reshapeOp, [&]() {
+        reshapeOp.getInputMutable().assign(concatHeadsOp);
+      });
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  }
+
+private:
+  // The sequence of operations without a 'concatenate_heads' op is:
+  // 1. Input Tensor: `tensor<#batch_size, #num_heads, #sequence_size,
+  // #head_size>`
+  // 2. `tensor.permute` op: Applied  with a permutation attribute of
+  // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
+  // #sequence_size, #num_heads, #head_size>`.
+  // 3. `reshape` op: `tensor.reshape(<permuted_tensor>, [#batch_size,
+  // #sequence_size, #num_heads * #head_size])`
+  bool isFusable(PermuteOp permuteOp, ReshapeOp reshapeOp) const {
+
+    // Check that input shape is 4 dimensional.
+    ArrayRef<int64_t> inputShape = permuteOp.getInput().getType().getShape();
+    ArrayRef<int64_t> reshapeOutputShape =
+        reshapeOp.getResult().getType().getShape();
+
+    if (inputShape.size() != 4) {
+      return false;
+    }
+
+    // Check if the permutation is {0, 2, 1, 3}.
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    llvm::SmallVector<int64_t> expectedPermutation = {
+        INPUT_BATCH, INPUT_SEQ, INPUT_NUM_HEADS, INPUT_HEAD_SIZE};
+
+    if (!llvm::equal(permutation, expectedPermutation)) {
+      return false;
+    }
+
+    if (reshapeOutputShape.size() == 3) {
+      // Default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      if (inputShape[INPUT_BATCH] != reshapeOutputShape[OUTPUT_BATCH] ||
+          inputShape[INPUT_SEQ] != reshapeOutputShape[OUTPUT_SEQ]) {
+        return false;
+      }
+
+      if (inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE] !=
+          reshapeOutputShape[OUTPUT_HIDDEN]) {
+        return false;
+      }
+    } else if (reshapeOutputShape.size() == 2) {
+      // If reshape output is 2D,
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+      SmallVector<int64_t> expectedReshapeOutputShape = {
+          inputShape[INPUT_BATCH] * inputShape[INPUT_SEQ],
+          inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
+
+      if (expectedReshapeOutputShape != reshapeOutputShape) {
+        return false;
+      }
+    } else {
+      // If the reshape output shape is not 2D or 3D, we cannot fuse.
+      return false;
+    }
+    return true;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1120,10 +1316,14 @@ public:
       patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
+
+      patterns.add<ReluFusionPattern>(&getContext());
+
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(

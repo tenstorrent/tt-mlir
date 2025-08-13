@@ -63,6 +63,46 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RandOp::verify() {
+  ttcore::DataType dtype = getDtype();
+  ttcore::DataType outputType = mlir::tt::ttcore::elementTypeToDataType(
+      getResult().getType().getElementType());
+
+  if (dtype != outputType) {
+    return emitOpError() << "dtype does not match with output tensor type.";
+  }
+
+  float low = getLow().convertToFloat();
+  float high = getHigh().convertToFloat();
+  if (low >= high) {
+    return emitOpError() << "'low' value must be < 'high' value.";
+  }
+
+  auto layout =
+      mlir::cast<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())
+          .getLayout();
+  if (getLayout() != layout) {
+    return emitOpError() << "Layout argument does not match with output tensor "
+                            "encoding. [Layout = ("
+                         << stringifyEnum(getLayout())
+                         << "), output tensor encoding = ("
+                         << stringifyEnum(layout) << ")].";
+  }
+
+  if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
+    return emitOpError()
+           << "Size argument does not match with output tensor shape. [Size = ("
+           << getSize().getShape() << "), output tensor shape = ("
+           << getResult().getType().getShape() << ")].";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
@@ -1151,6 +1191,35 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   return success();
 }
 
+// Fold the operation if the type of the input and output types are the same.
+static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// Back to back reshapes can be replaced with the final reshape.
+static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
+  if (auto reshapeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+    op.getOperation()->setOperand(0, reshapeOperand.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
+// ReshapeOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::ReshapeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityReshape(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
@@ -1249,15 +1318,16 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
     }
     inputShapeStream << ")";
     std::string inputShapeStr = inputShapeStream.str();
+    bool isEmptySliceOp = adjustedEnd == adjustedBegin;
 
-    if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+    if (!isEmptySliceOp && (adjustedBegin < 0 || adjustedBegin >= dimSize)) {
       return emitOpError() << "Invalid begin index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
                            << "), got " << begin
                            << ". Input shape: " << inputShapeStr;
     }
-    if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+    if (!isEmptySliceOp && (adjustedEnd < 0 || adjustedEnd > dimSize)) {
       return emitOpError() << "Invalid end index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
@@ -1987,8 +2057,8 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   auto indicesType =
       mlir::cast<RankedTensorType>(getResults().back().getType());
   auto elementType = indicesType.getElementType();
-  if (!elementType.isInteger(16)) {
-    return emitOpError("Expected data type for indices is i16 but got ")
+  if (!isa<IntegerType>(elementType)) {
+    return emitOpError("Expected integer data type for indices but got ")
            << elementType;
   }
 
@@ -2884,6 +2954,80 @@ void CaptureOrExecuteTraceOp::getEffects(
           "Accum tensor must match input tensor in shape and element type.");
     }
   }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ConcatenateHeadsOp::verify() {
+  const ::mlir::RankedTensorType inputType = this->getInput().getType();
+  const ::mlir::RankedTensorType outputType = this->getResult().getType();
+
+  const ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  const ::mlir::tt::ttcore::DataType outputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
+
+  if (inputDataType != outputDataType) {
+    return emitOpError()
+           << "input and output tensors must have the same dtype, "
+           << "got input dtype = " << DataTypeEnumToString(inputDataType)
+           << ", output dtype = " << DataTypeEnumToString(outputDataType);
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  if (outputType.getRank() != 3) {
+    return emitOpError() << "output tensor must be a 3D tensor";
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
+  // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+  // Verify batch_size dimension matches
+  if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
+    return emitOpError() << "input and output batch dimensions must match,"
+                            "got input batch size = "
+                         << inputShape[INPUT_BATCH] << ", output batch size = "
+                         << outputShape[OUTPUT_BATCH];
+  }
+
+  // Verify sequence_size dimension matches
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[INPUT_SEQ]
+           << ", output sequence size = " << outputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize =
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[INPUT_NUM_HEADS]
+           << ", head_size = " << inputShape[INPUT_HEAD_SIZE]
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = " << outputShape[OUTPUT_HIDDEN];
+  }
+
   return success();
 }
 

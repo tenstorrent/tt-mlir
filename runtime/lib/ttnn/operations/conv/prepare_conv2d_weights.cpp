@@ -62,8 +62,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights<
-      ::ttnn::MeshDevice>(
+  ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights(
       weightTensor, *inputMemoryConfig,
       ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
       op->weights_format()->str(), op->in_channels(), op->out_channels(),

@@ -16,7 +16,7 @@
 #include <optional>
 #include <stdexcept>
 
-namespace mlir::tt::op_model::ttnn {
+namespace mlir::tt::ttnn::op_model {
 
 namespace conversion {
 
@@ -79,8 +79,7 @@ llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape) {
   return llvm::SmallVector<int64_t>(shape.cbegin(), shape.cend());
 }
 
-const std::array<uint32_t, 2>
-getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+const std::array<uint32_t, 2> getShardShape(const TTNNLayoutAttr &layout) {
   const auto layoutShardTile = layout.getScalarShardShape();
 
   if (layoutShardTile.size() != 2) {
@@ -103,28 +102,26 @@ getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
   return shape;
 }
 
-::tt::tt_metal::Layout
-getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+::tt::tt_metal::Layout getPageLayout(const TTNNLayoutAttr &layout) {
   return layout.isTiled() ? ::tt::tt_metal::Layout::TILE
                           : ::tt::tt_metal::Layout::ROW_MAJOR;
 }
 
-::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout) {
+::tt::tt_metal::Layout getPageLayout(Layout layout) {
   switch (layout) {
-  case ::mlir::tt::ttnn::Layout::RowMajor:
+  case Layout::RowMajor:
     return ::tt::tt_metal::Layout::ROW_MAJOR;
-  case ::mlir::tt::ttnn::Layout::Tile:
+  case Layout::Tile:
     return ::tt::tt_metal::Layout::TILE;
-  case ::mlir::tt::ttnn::Layout::Invalid:
+  case Layout::Invalid:
     return ::tt::tt_metal::Layout::INVALID;
   }
 }
 
 ::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::CoreRangeSetAttr &coreRangeSetAttr) {
+getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  for (const mlir::tt::ttnn::CoreRangeAttr &coreRange :
-       coreRangeSetAttr.getCoreRanges()) {
+  for (const CoreRangeAttr &coreRange : coreRangeSetAttr.getCoreRanges()) {
     coreRangeSet.insert(
         ::tt::tt_metal::CoreRange(CoreCoord(coreRange.getStartCoord().getX(),
                                             coreRange.getStartCoord().getY()),
@@ -134,8 +131,7 @@ getCoreRangeSet(const mlir::tt::ttnn::CoreRangeSetAttr &coreRangeSetAttr) {
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
 
-::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
   assert(layout.getGrid().getMapping().isEmpty() == false);
   for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
@@ -148,7 +144,7 @@ getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+getShardSpec(const TTNNLayoutAttr &layout) {
   if (layout.getIgnorePhysicalLayout()) {
     return std::nullopt;
   }
@@ -164,28 +160,26 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
 
-::tt::tt_metal::ShardOrientation getShardOrientation(
-    const mlir::tt::ttnn::ShardOrientationAttr &shardOrientationAttr) {
+::tt::tt_metal::ShardOrientation
+getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
   switch (shardOrientationAttr.getValue()) {
-  case mlir::tt::ttnn::ShardOrientation::RowMajor:
+  case ShardOrientation::RowMajor:
     return ::tt::tt_metal::ShardOrientation::ROW_MAJOR;
-  case mlir::tt::ttnn::ShardOrientation::ColMajor:
+  case ShardOrientation::ColMajor:
     return ::tt::tt_metal::ShardOrientation::COL_MAJOR;
   }
 }
 
-::tt::tt_metal::ShardMode
-getShardMode(const mlir::tt::ttnn::ShardModeAttr &shardModeAttr) {
+::tt::tt_metal::ShardMode getShardMode(const ShardModeAttr &shardModeAttr) {
   switch (shardModeAttr.getValue()) {
-  case mlir::tt::ttnn::ShardMode::Physical:
+  case ShardMode::Physical:
     return ::tt::tt_metal::ShardMode::PHYSICAL;
-  case mlir::tt::ttnn::ShardMode::Logical:
+  case ShardMode::Logical:
     return ::tt::tt_metal::ShardMode::LOGICAL;
   }
 }
 
-::tt::tt_metal::ShardSpec
-getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr) {
+::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr) {
   ::tt::tt_metal::CoreRangeSet coreRangeSet =
       getCoreRangeSet(shardSpecAttr.getCoreRangeSet());
   std::array<uint32_t, 2> shape =
@@ -196,79 +190,75 @@ getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr) {
   return ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation, mode);
 }
 
-::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::BufferType &bufferType) {
+::tt::tt_metal::BufferType getBufferType(const BufferType &bufferType) {
   switch (bufferType) {
-  case mlir::tt::ttnn::BufferType::DRAM:
+  case BufferType::DRAM:
     return ::tt::tt_metal::BufferType::DRAM;
-  case mlir::tt::ttnn::BufferType::L1:
+  case BufferType::L1:
     return ::tt::tt_metal::BufferType::L1;
-  case mlir::tt::ttnn::BufferType::SystemMemory:
+  case BufferType::SystemMemory:
     return ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
-  case mlir::tt::ttnn::BufferType::L1Small:
+  case BufferType::L1Small:
     return ::tt::tt_metal::BufferType::L1_SMALL;
-  case mlir::tt::ttnn::BufferType::Trace:
+  case BufferType::Trace:
     return ::tt::tt_metal::BufferType::TRACE;
   }
 }
 
-::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+::tt::tt_metal::BufferType getBufferType(const TTNNLayoutAttr &layout) {
   auto bufferType = layout.getBufferType();
   return getBufferType(bufferType);
 }
 
-mlir::tt::ttnn::BufferType
-getBufferType(const ::tt::tt_metal::BufferType bufferType) {
+BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   switch (bufferType) {
   case ::tt::tt_metal::BufferType::DRAM:
-    return mlir::tt::ttnn::BufferType::DRAM;
+    return BufferType::DRAM;
   case ::tt::tt_metal::BufferType::L1:
-    return mlir::tt::ttnn::BufferType::L1;
+    return BufferType::L1;
   case ::tt::tt_metal::BufferType::SYSTEM_MEMORY:
-    return mlir::tt::ttnn::BufferType::SystemMemory;
+    return BufferType::SystemMemory;
   case ::tt::tt_metal::BufferType::L1_SMALL:
-    return mlir::tt::ttnn::BufferType::L1Small;
+    return BufferType::L1Small;
   case ::tt::tt_metal::BufferType::TRACE:
-    return mlir::tt::ttnn::BufferType::Trace;
+    return BufferType::Trace;
   }
 }
 
-::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
-    const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
+::tt::tt_metal::TensorMemoryLayout
+getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
   switch (tensorMemoryLayout) {
-  case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+  case TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
-  case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
+  case TensorMemoryLayout::HeightSharded:
     return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
-  case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
+  case TensorMemoryLayout::WidthSharded:
     return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
-  case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
+  case TensorMemoryLayout::BlockSharded:
     return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
   }
 }
-mlir::tt::ttnn::TensorMemoryLayout
+TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
   case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
-    return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
+    return TensorMemoryLayout::Interleaved;
   case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
-    return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
+    return TensorMemoryLayout::HeightSharded;
   case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
-    return mlir::tt::ttnn::TensorMemoryLayout::WidthSharded;
+    return TensorMemoryLayout::WidthSharded;
   case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
-    return mlir::tt::ttnn::TensorMemoryLayout::BlockSharded;
+    return TensorMemoryLayout::BlockSharded;
   }
 }
 
-::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
-    const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+::tt::tt_metal::TensorMemoryLayout
+getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   auto tensorMemoryLayout = memLayoutAttr.getValue();
   return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
-::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
   auto tensorMemoryLayout = getTensorMemoryLayout(layout.getMemLayout());
   auto bufferType = getBufferType(layout);
 
@@ -278,7 +268,7 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 ::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr) {
+getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
   // Get tensor memory layout if available, otherwise use INTERLEAVED as default
   ::tt::tt_metal::TensorMemoryLayout tensorMemoryLayout =
       ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
@@ -304,15 +294,14 @@ getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr) {
                                       shardSpec);
 }
 
-::tt::tt_metal::TensorLayout
-getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout) {
   return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
                                       getPageLayout(layout),
                                       getMemoryConfig(layout));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+                                 const TTNNLayoutAttr &layout) {
   assert(!layout.getIgnorePhysicalLayout() &&
          "TensorSpecs cannot be created without physical layouts");
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
@@ -351,8 +340,8 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
-    const std::optional<mlir::tt::ttnn::Conv2dConfigAttr> &conv2dConfig) {
+std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig) {
     return std::nullopt;
   }
@@ -431,39 +420,33 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
         conv2dConfig->getEnableSplitReader().getValue();
   }
 
-  if (conv2dConfig->getEnableSubblockPadding()) {
-    config.enable_subblock_padding =
-        conv2dConfig->getEnableSubblockPadding().getValue();
-  }
-
   return config;
 }
 
 // sgholamiTT: I was on the fence for publicly exposing this API. Right now
 // there's no clear usecase for it other than conversion from
-// mlir::tt::ttnn::MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
+// MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
 // not expose it for now. Subject to change in the future.
-MathFidelity getMathFidelity(mlir::tt::ttnn::MathFidelity mathFidelity) {
+::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
   switch (mathFidelity) {
-  case mlir::tt::ttnn::MathFidelity::LoFi:
-    return MathFidelity::LoFi;
-  case mlir::tt::ttnn::MathFidelity::HiFi2:
-    return MathFidelity::HiFi2;
-  case mlir::tt::ttnn::MathFidelity::HiFi3:
-    return MathFidelity::HiFi3;
-  case mlir::tt::ttnn::MathFidelity::HiFi4:
-    return MathFidelity::HiFi4;
+  case MathFidelity::LoFi:
+    return ::MathFidelity::LoFi;
+  case MathFidelity::HiFi2:
+    return ::MathFidelity::HiFi2;
+  case MathFidelity::HiFi3:
+    return ::MathFidelity::HiFi3;
+  case MathFidelity::HiFi4:
+    return ::MathFidelity::HiFi4;
   }
 }
 
-std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
-    const std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
-        &deviceComputeKernelConfig) {
+std::optional<::ttnn::DeviceComputeKernelConfig>
+getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
+                                 &deviceComputeKernelConfig) {
   if (!deviceComputeKernelConfig || !deviceComputeKernelConfig.has_value()) {
     return std::nullopt;
   }
-  mlir::tt::ttnn::DeviceComputeKernelConfigAttr devConfig =
-      deviceComputeKernelConfig.value();
+  DeviceComputeKernelConfigAttr devConfig = deviceComputeKernelConfig.value();
 
   // Note: Currently, we only support creating WormholeComputeKernelConfig.
   // If we need to support GrayskullComputeKernelConfig in the future, we
@@ -517,10 +500,9 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
   return {gridPhyCores[0], gridPhyCores[1]};
 }
 
-mlir::tt::ttnn::TTNNLayoutAttr
-getLayoutAttrFromTensorSpec(MLIRContext *context,
-                            const ::ttnn::TensorSpec &tensorSpec,
-                            llvm::ArrayRef<int64_t> deviceGrid) {
+TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
+                                           const ::ttnn::TensorSpec &tensorSpec,
+                                           llvm::ArrayRef<int64_t> deviceGrid) {
   llvm::SmallVector<int64_t> shape;
   if (tensorSpec.logical_shape().size() > 0) {
     shape = getShape(tensorSpec.logical_shape());
@@ -532,35 +514,34 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   Type elementType;
   if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
-    elementType = mlir::tt::ttcore::TileType::get(
-        context,
-        {tensorSpec.page_config().get_tile().get_height(),
-         tensorSpec.page_config().get_tile().get_width()},
-        getDataType(tensorSpec.data_type()));
+    elementType =
+        ttcore::TileType::get(context,
+                              {tensorSpec.page_config().get_tile().get_height(),
+                               tensorSpec.page_config().get_tile().get_width()},
+                              getDataType(tensorSpec.data_type()));
   } else {
     elementType =
         dataTypeToElementType(context, getDataType(tensorSpec.data_type()));
   }
 
-  mlir::tt::ttnn::BufferType bufferType =
+  BufferType bufferType =
       getBufferType(tensorSpec.memory_config().buffer_type());
-  auto memoryLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+  auto memoryLayoutAttr = TensorMemoryLayoutAttr::get(
       context,
       getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
-    gridAttr = mlir::tt::ttcore::GridAttr::get(
+    gridAttr = ttcore::GridAttr::get(
         context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        ::mlir::tt::ttnn::optimizer_utils::
-            createSingleDeviceVirtualToPhysicalAffineMap(
-                context, memoryLayoutAttr.getValue(), deviceGrid));
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+            context, memoryLayoutAttr.getValue(), deviceGrid));
   }
 
-  return mlir::tt::ttnn::TTNNLayoutAttr::get(
-      context, shape, elementType, bufferType, gridAttr, memoryLayoutAttr);
+  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
+                             memoryLayoutAttr);
 }
 
 } // namespace conversion
-} // namespace mlir::tt::op_model::ttnn
+} // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL

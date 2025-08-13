@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -55,6 +56,7 @@ ShardSolver::ShardSolver(
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
+    const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                  Operation *, OpConfig)>
         customCheckShardCompatible)
@@ -62,6 +64,7 @@ ShardSolver::ShardSolver(
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
       memReconfigEdges(overrideReshardEdges),
+      overrideOutputLayout(overrideOutputLayout),
       customCheckShardCompatible(customCheckShardCompatible) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
@@ -284,17 +287,21 @@ bool ShardSolver::resolveStep() {
   return true;
 }
 
-bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
-                                                        OpConfig outputConfig) {
-  TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
-      mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
-
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-               "Checking if interleaved to sharded is possible for op : {}",
-               op->getName());
+bool ShardSolver::supportsInterleavedInputShardedOutput(
+    Operation *op, OpConfig outputConfig, bool rowMajorInputOverride) {
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  TTNNLayoutAttr inputLayout =
+      mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
+
+  if (rowMajorInputOverride) {
+    inputLayout = utils::convertTTNNLayoutToRowMajor(op->getContext(),
+                                                     inputLayout, tensorShape);
+  }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
       checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);
@@ -321,6 +328,21 @@ bool ShardSolver::preprocessFirstOp() {
     return true;
   }
 
+  Operation *preFirstOp = firstOp->getOperand(0).getDefiningOp();
+  bool rowMajorInputOverride = false;
+  if (preFirstOp && isa<NameLoc>(preFirstOp->getLoc())) {
+    StringRef opLocName = mlir::cast<NameLoc>(preFirstOp->getLoc()).getName();
+    auto opOutputOverride = overrideOutputLayout.find(opLocName);
+    if (opOutputOverride != overrideOutputLayout.end() &&
+        opOutputOverride->getValue().memoryLayout.has_value() &&
+        opOutputOverride->getValue().memoryLayout.value() == Layout::RowMajor) {
+      rowMajorInputOverride = true;
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Row-major input override found for first op in chain {}",
+                   firstOp->getName());
+    }
+  }
+
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
   const std::vector<OpConfig> &firstOpConfigs = getLegalConfigs(firstOp);
 
@@ -333,10 +355,8 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
-    // could be overriden.
-    // https://github.com/tenstorrent/tt-mlir/issues/3749
-    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
+    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
+                                               rowMajorInputOverride)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Interleaved to sharded not possible for config idx {} "
                    "\n\tlayout: {}",
@@ -361,10 +381,10 @@ bool ShardSolver::preprocessFirstOp() {
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "Interleaved to sharded is not possible, trying reshard for first op {}",
-      firstOp->getName());
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Interleaved to sharded is not possible, trying reshard for "
+               "first op {}",
+               firstOp->getName());
 
   return insertReshard(shardChainInputEdge);
 }
@@ -806,7 +826,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   // Figure out this const based on exec data, but will be replaced
   // with API.
   //
-  constexpr float tensorL1UsageCap = 0.8;
+  constexpr float tensorL1UsageCap = 0.9;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {
@@ -861,7 +881,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   assert(inputUnderCheckFound && "Input under check not found");
 
-  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
+  llvm::Expected<op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, consumerConfig);
 
   if (!l1UsageExp) {

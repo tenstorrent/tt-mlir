@@ -122,17 +122,6 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
   }];
 }
 
-def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Analyze the graph and select optimal layouts, insert to_layout where needed.
-  }];
-
-  list<Option> options = [
-        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
-    ];
-}
-
 def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
@@ -517,6 +506,10 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
         to a target that only supports a subset of the element types.
   }];
+
+  list<Option> options = [
+    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
+  ];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
@@ -605,6 +598,19 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
   list<Option> options = [
     Option<"targetBitWidth", "target-bit-width", "uint32_t", "32", "Target integer bit width for quantized types (8, 16, 32, 64)">
   ];
+}
+
+def TTIRQuantDequantConversion : Pass<"ttir-quant-dequant-conversion", "::mlir::ModuleOp">
+{
+  let summary = "Convert floating-point ops surrounded by quantize/dequantize into TTIR quantized operations.";
+  let description = [{
+    This pass detects and fuses the (x -> dequantize → floating-point operation)
+    pattern into a single TTIR operation that consumes quantized inputs and produces
+    quantized outputs. If the target operation implements the QuantizableOpInterface,
+    it is rewritten directly into its quantized form. Otherwise, a fallback transformation
+    inserts dequantize and quantize nodes around the original op to maintain correctness.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
 }
 
 def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">

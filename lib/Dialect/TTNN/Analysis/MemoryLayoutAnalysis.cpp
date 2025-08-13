@@ -64,8 +64,8 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         op, l1ChainConfigs, analysisInput.tensorTypePossibleLayouts,
         filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule,
         analysisInput.usableL1CacheSize);
-    dfShardingPolicy.setOverrideReshardEdges(
-        analysisInput.overrideReshardEdges);
+    dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
+                                  analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
     break;
   }

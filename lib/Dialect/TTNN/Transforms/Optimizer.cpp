@@ -278,7 +278,8 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          overrideReshardEdges, memoryLayoutAnalysisPolicy));
+          overrideReshardEdges, overrideOutputLayout,
+          memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =
@@ -370,8 +371,7 @@ public:
           if (op->hasTrait<HasOutputDTypeTrait>()) {
             ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
                 op->getContext(), layoutAttr.getDataType());
-            op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
-                        newDataTypeAttr);
+            op->setAttr(ttmlir::utils::g_outputDtypeAttrName, newDataTypeAttr);
           }
 
           // Update DPS operand layout as well.
