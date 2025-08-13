@@ -32,10 +32,18 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
 
-    // Skip operations whose consumers are MaxPool2dOp or UpsampleOp, also
-    // because they have the row-major workaround later on in Optimizer.
+    // Skip operations that have DRAM output in runtime even when configured as
+    // L1 via this analysis.
+    // TODO(bmalesevic): remove this after they are supported in runtime
+    if (isa<ttnn::SliceOp, ttnn::TypecastOp>(op)) {
+      return;
+    }
+
     for (auto *user : op->getUsers()) {
-      if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(user)) {
+      // Skip operations that have DRAM input in runtime even when configured as
+      // L1 via this analysis.
+      // TODO(bmalesevic): remove this after they are supported in runtime
+      if (isa<ttnn::SliceOp, ttnn::TypecastOp>(user)) {
         return;
       }
     }
