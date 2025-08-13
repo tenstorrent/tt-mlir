@@ -87,7 +87,7 @@ def test_roundtrip_dma_tiled(
         tensor_layoutA = builder.to_layout(
             to_device,
             output_type=builder.get_metal_tensor_layout(
-                start_shard_shape,
+                shape,
                 tiled=True,
                 memorySpace=memory_space,
                 grid=start_grid,
@@ -99,7 +99,7 @@ def test_roundtrip_dma_tiled(
         tensor_layoutB = builder.to_layout(
             tensor_layoutA,
             output_type=builder.get_metal_tensor_layout(
-                end_shard_shape,
+                shape,
                 tiled=True,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
                 grid=end_grid,
@@ -160,7 +160,8 @@ def test_roundtrip_dma_rowmajor(
         start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
 
         assert (
-            (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
+            (start_shard_shape[0] % end_grid[0] == 0)
+            and (start_shard_shape[1] % end_grid[1] == 0),
             "start_shard_shape must be divisible by end_grid",
         )
         end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
@@ -169,7 +170,7 @@ def test_roundtrip_dma_rowmajor(
         tensor_layoutA = builder.to_layout(
             to_device,
             output_type=builder.get_metal_tensor_layout(
-                start_shard_shape,
+                shape,
                 tiled=False,
                 memorySpace=memory_space,
                 grid=start_grid,
@@ -181,7 +182,7 @@ def test_roundtrip_dma_rowmajor(
         tensor_layoutB = builder.to_layout(
             tensor_layoutA,
             output_type=builder.get_metal_tensor_layout(
-                end_shard_shape,
+                shape,
                 tiled=False,
                 memorySpace=ttcore.MemorySpace.DeviceL1,
                 grid=end_grid,
