@@ -1409,11 +1409,11 @@ public:
     Value halfConstantArg;
     Value gaussianResultArg;
 
-    if (isScalarValue(arg1, 0.5)) {
+    if (isScalarValue(arg1, HALF)) {
       halfConstantArg = arg1;
-    } else if (isScalarValue(arg2, 0.5)) {
+    } else if (isScalarValue(arg2, HALF)) {
       halfConstantArg = arg2;
-    } else if (isScalarValue(arg3, 0.5)) {
+    } else if (isScalarValue(arg3, HALF)) {
       halfConstantArg = arg3;
     } else {
       return failure();
@@ -1462,6 +1462,12 @@ public:
 
 private:
   enum class GaussianCDFType { Erf, Tanh, None };
+  static constexpr double HALF = 0.5;
+  static constexpr double RECIPROCAL_SQRT_2 = 0.7071067811865476;
+  static constexpr double SQRT_2_OVER_PI = 0.7978845608028654;
+  static constexpr double CUBED_COEFFICIENT = 0.044715;
+  static constexpr double ONE = 1.0;
+  static constexpr double THREE = 3.0;
 
   // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
   // multiply(multiply(a, b), c) or multiply(a, multiply(b, c))
@@ -1527,7 +1533,7 @@ private:
       return nullptr;
     }
     APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), 1.0)) {
+    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
       return nullptr;
     }
 
@@ -1539,7 +1545,7 @@ private:
     }
 
     // The argument to tanh must be:
-    // tanh(2/sqrt(pi) * (x + 0.044715 * x^3))
+    // tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
     //                 ^ this multiply
 
     MultiplyOp multiplyArg = tanh.getInput().getDefiningOp<MultiplyOp>();
@@ -1549,10 +1555,10 @@ private:
 
     bool argIsLhs;
     Value scalingArgument;
-    if (isScalarValue(multiplyArg.getLhs(), 0.7968750)) {
+    if (isScalarValue(multiplyArg.getLhs(), SQRT_2_OVER_PI)) {
       argIsLhs = false;
       scalingArgument = multiplyArg.getRhs();
-    } else if (isScalarValue(multiplyArg.getRhs(), 0.7968750)) {
+    } else if (isScalarValue(multiplyArg.getRhs(), SQRT_2_OVER_PI)) {
       argIsLhs = true;
       scalingArgument = multiplyArg.getLhs();
     } else {
@@ -1582,13 +1588,13 @@ private:
 
       // If the lhs of lhsMultiply is the scaling constant, then the rhs of
       // lhsMultiply must be the result of x^3.
-      xCubedResult = isScalarValue(lhsMultiply.getLhs(), 0.044715)
+      xCubedResult = isScalarValue(lhsMultiply.getLhs(), CUBED_COEFFICIENT)
                          ? lhsMultiply.getRhs()
                          : nullptr;
 
       // Otherwise, the rhs of lhsMultiply must be the result of x^3.
       if (!xCubedResult) {
-        xCubedResult = isScalarValue(lhsMultiply.getRhs(), 0.044715)
+        xCubedResult = isScalarValue(lhsMultiply.getRhs(), CUBED_COEFFICIENT)
                            ? lhsMultiply.getLhs()
                            : nullptr;
       }
@@ -1609,13 +1615,13 @@ private:
 
       // If the lhs of rhsMultiply is the scaling constant, then the rhs of
       // rhsMultiply must be the result of x^3.
-      xCubedResult = isScalarValue(rhsMultiply.getLhs(), 0.044715)
+      xCubedResult = isScalarValue(rhsMultiply.getLhs(), CUBED_COEFFICIENT)
                          ? rhsMultiply.getRhs()
                          : nullptr;
 
       // Otherwise, the rhs of rhsMultiply must be the result of x^3.
       if (!xCubedResult) {
-        xCubedResult = isScalarValue(rhsMultiply.getRhs(), 0.044715)
+        xCubedResult = isScalarValue(rhsMultiply.getRhs(), CUBED_COEFFICIENT)
                            ? rhsMultiply.getLhs()
                            : nullptr;
       }
@@ -1647,7 +1653,7 @@ private:
       }
 
       APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
-      if (!checkFloatIsNear(powerValue.convertToFloat(), 3.0)) {
+      if (!checkFloatIsNear(powerValue.convertToFloat(), THREE)) {
         return nullptr;
       }
 
@@ -1701,7 +1707,7 @@ private:
       return nullptr;
     }
     APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), 1.0)) {
+    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
       return nullptr;
     }
 
@@ -1725,9 +1731,9 @@ private:
     }
 
     Value scalingArgument;
-    if (isScalarValue(multiplyArg.getLhs(), 0.70703125)) {
+    if (isScalarValue(multiplyArg.getLhs(), RECIPROCAL_SQRT_2)) {
       scalingArgument = multiplyArg.getRhs();
-    } else if (isScalarValue(multiplyArg.getRhs(), 0.70703125)) {
+    } else if (isScalarValue(multiplyArg.getRhs(), RECIPROCAL_SQRT_2)) {
       scalingArgument = multiplyArg.getLhs();
     } else {
       return nullptr;
@@ -1742,8 +1748,9 @@ private:
   }
 
   // This function will return true if the Value 'val' is a FullOp (or the
-  // result of tms beginning with a FullOp), with the fill_value near 'scalar'.
-  // It allows for an error of 1.5%
+  // result of tensor-manipulation ops (Reshape, Permute, Broadcast) beginning
+  // with a FullOp), with the fill_value near 'scalar'. It allows for an error
+  // of 1.5%
   bool isScalarValue(Value val, double scalar) const {
     if (FullOp fullOp = getFullOpThroughTMChain(val)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {

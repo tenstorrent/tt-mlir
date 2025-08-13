@@ -2553,9 +2553,15 @@ public:
       return failure();
     }
 
+    if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 1) {
+      return failure();
+    }
+
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ErfOp>(
-        rewriter, srcOp, cast<RankedTensorType>(srcOp.getResult(0).getType()),
-        srcOp.getOperand(0));
+        rewriter, srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        adaptor.getOperands()[0]);
 
     return success();
   }
