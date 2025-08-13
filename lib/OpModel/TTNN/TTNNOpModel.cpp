@@ -955,6 +955,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for BinaryEltwiseOpModel.
 template struct BinaryEltwiseOpModel<AddOp>;
 template struct BinaryEltwiseOpModel<MultiplyOp>;
+template struct BinaryEltwiseOpModel<ShiftRightLogicalOp>;
 template struct BinaryEltwiseOpModel<SubtractOp>;
 template struct BinaryEltwiseOpModel<MaximumOp>;
 template struct BinaryEltwiseOpModel<MinimumOp>;

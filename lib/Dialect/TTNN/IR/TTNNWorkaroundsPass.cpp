@@ -377,6 +377,9 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   mlir::tt::ttcore::DataType dType =
       mlir::tt::ttcore::elementTypeToDataType(elementType);
 
+  if(isa<ttnn::ShiftRightLogicalOp>(op)) {
+    return {};
+  }
   if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
     if (dType == mlir::tt::ttcore::DataType::Float32 ||
         dType == mlir::tt::ttcore::DataType::BFloat16 ||
