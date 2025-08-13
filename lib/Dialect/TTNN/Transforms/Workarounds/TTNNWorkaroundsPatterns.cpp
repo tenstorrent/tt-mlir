@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
@@ -208,8 +209,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttcore::DataTypeAttr updatedDataTypeAttr =
           rewriter.getAttr<ttcore::DataTypeAttr>(
               outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
-                  updatedDataTypeAttr);
+      op->setAttr(ttmlir::utils::g_outputDtypeAttrName, updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
@@ -671,6 +671,7 @@ public:
       patterns.add<
           TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
           workarounds::decomposition::ConcatOpDecompositionRewritePattern,
+          workarounds::decomposition::ConcatOpReshapeRewritePattern,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,

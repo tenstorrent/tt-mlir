@@ -29,12 +29,14 @@ tt_alchemist_TTAlchemist_modelToPython(void *instance, const char *input_file);
 // Generate a standalone solution
 TT_ALCHEMIST_EXPORT bool
 tt_alchemist_TTAlchemist_generateCpp(void *instance, const char *input_file,
-                                     const char *output_dir, bool is_local);
+                                     const char *output_dir, bool is_local,
+                                     const char *pipeline_options);
 
 // Generate a standalone solution
 TT_ALCHEMIST_EXPORT bool
 tt_alchemist_TTAlchemist_generatePython(void *instance, const char *input_file,
-                                        const char *output_dir, bool is_local);
+                                        const char *output_dir, bool is_local,
+                                        const char *pipeline_options);
 
 #ifdef __cplusplus
 }

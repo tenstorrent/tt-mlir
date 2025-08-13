@@ -154,6 +154,13 @@ class Perf:
             choices=None,
             help="flatbuffer binary file",
         )
+        Perf.register_arg(
+            name="--disable-ttrt-callbacks",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable ttrt callbacks",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Perf.registered_args.items():
@@ -417,6 +424,9 @@ class Perf:
 
                     if self["--ignore-version"]:
                         command_options += " --ignore-version "
+
+                    if self["--disable-ttrt-callbacks"]:
+                        command_options += " --disable-ttrt-callbacks "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (

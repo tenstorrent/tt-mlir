@@ -2764,6 +2764,24 @@ class TTIRBuilder(Builder):
         if not bias:
             bias = None
 
+        # Determine output type for quantized conv2d.
+        # For quantized inputs, the golden function uses int_repr() so output should be the underlying int type.
+        input_dtype = self._get_golden_tensor(in0).dtype
+        dtype_mapping = {
+            torch.quint8: torch.uint8,
+            torch.qint8: torch.int8,
+            torch.qint32: torch.int32,
+        }
+
+        output_type = (
+            self._get_type_from_torch_dtype(dtype_mapping.get(input_dtype))
+            if input_dtype in dtype_mapping
+            else None
+        )
+        # If output type is not found, use default type.
+        if output_type is None:
+            output_type = self._default_type
+
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
@@ -2793,6 +2811,7 @@ class TTIRBuilder(Builder):
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
+            output_type=output_type,
         )
 
     def conv_transpose2d(
@@ -2974,6 +2993,71 @@ class TTIRBuilder(Builder):
                 ),
                 "ceil_mode": ceil_mode,
             },
+            unit_attrs=unit_attrs,
+        )
+
+    def batch_norm(
+        self,
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        epsilon: float = 1e-5,
+        dimension: int = 1,
+        training: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.batch_norm``.
+
+        *Batch normalization operation.*
+
+        Applies batch normalization to the input tensor using the provided scale, offset,
+        mean, and variance. This operation normalizes the input tensor across the specified dimension:
+        batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
+         (x - mean) / sqrt(variance + epsilon) * scale + offset
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to normalize
+        scale : Operand
+            Scale tensor for normalization
+        offset : Operand
+            Offset tensor for normalization
+        mean : Operand
+            Mean tensor for normalization
+        variance : Operand
+            Variance tensor for normalization
+        epsilon : float, optional
+            Small value added to variance for numerical stability (default: 1e-5)
+        dimension : int, optional
+            Dimension along which to normalize (default: 1)
+        training : bool, optional
+            Whether the operation is in training mode (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after batch normalization
+        """
+        return self._op_proxy(
+            ttir.BatchNormOp,
+            [in0, scale, offset, mean, variance],
+            golden_kwargs={
+                "epsilon": epsilon,
+                "training": training,
+                "dim": dimension,
+            },
+            ttir_kwargs={
+                "epsilon": FloatAttr.get_f32(epsilon),
+                "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
+                "training": BoolAttr.get(training),
+            },
+            # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
             unit_attrs=unit_attrs,
         )
 

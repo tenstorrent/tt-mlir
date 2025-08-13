@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -82,13 +83,19 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
   TTNNLayoutAttr layoutAttr =
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
+  std::vector<Type> typesToConsider;
+  typesToConsider.push_back(scalarElementType);
   auto tensorShape = tensorType.getShape();
-  Type tileElementType = ttcore::TileType::get(scalarElementType);
+  if (!mlir::isa<ttcore::TileType>(scalarElementType)) {
+    Type tileElementType = ttcore::TileType::get(scalarElementType);
+    typesToConsider.push_back(tileElementType);
+  }
 
   std::vector<TTNNLayoutAttr> shardedResults;
 
-  for (auto elementType : {scalarElementType, tileElementType}) {
-    if (!rowMajorAllowed && elementType == scalarElementType) {
+  for (auto elementType : typesToConsider) {
+    if (!rowMajorAllowed && elementType == scalarElementType &&
+        !isa<ttcore::TileType>(scalarElementType)) {
       continue;
     }
 

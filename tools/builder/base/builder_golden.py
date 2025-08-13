@@ -65,21 +65,50 @@ def conv2d_golden(
     torch.Tensor
         Result of 2D convolution with layout transformation
     """
-    # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
+    # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias to be rank 1: [C_out].
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 
-    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes.
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
-    result = torch.nn.functional.conv2d(
-        input_tensor,
-        weight,
-        bias=bias,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-        groups=groups,
-    )
+
+    if input_tensor.is_quantized:
+        if not weight.is_quantized:
+            raise ValueError("Quantized input requires quantized weight.")
+        # if input tensor and weight tensor zero points are different, error out
+        if (input_tensor.q_zero_point() - 128) != weight.q_zero_point():
+            raise ValueError("Input and weight zero points must be the same.")
+        # Pack weights and bias for quantized conv.
+        packed_weight = torch.ops.quantized.conv2d_prepack(
+            weight,
+            bias,
+            stride=[stride] * 2 if isinstance(stride, int) else stride,
+            padding=[padding] * 2 if isinstance(padding, int) else padding,
+            dilation=[dilation] * 2 if isinstance(dilation, int) else dilation,
+            groups=groups,
+        )
+
+        # Convert to int_repr to match the builder golden function.
+        result = torch.ops.quantized.conv2d(
+            input_tensor,
+            packed_weight,
+            input_tensor.q_scale() * weight.q_scale(),
+            input_tensor.q_zero_point(),
+        ).int_repr()
+
+    else:
+        if bias is not None:
+            bias = bias.squeeze()
+
+        result = torch.nn.functional.conv2d(
+            input_tensor,
+            weight,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
     result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
@@ -191,6 +220,60 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
     result = result.transpose(-3, -2).transpose(-2, -1)
+    return result
+
+
+def batch_norm_golden(
+    input_tensor,
+    scale,
+    offset,
+    mean,
+    variance,
+    epsilon: float = 1e-5,
+    training: bool = False,
+    dim: int = 1,
+):
+    """
+    Custom golden function for batch normalization with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for batch normalization
+    scale : torch.Tensor
+        Scale tensor for batch normalization
+    offset : torch.Tensor
+        Offset tensor for batch normalization
+    mean : torch.Tensor
+        Mean tensor for batch normalization
+    variance : torch.Tensor
+        Variance tensor for batch normalization
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+    training : bool, optional
+        Whether the model is in training mode (default: False)
+    dim : int, optional
+        Dimension to apply batch normalization over (default: 1)
+
+    Returns
+    -------
+    torch.Tensor
+        Result of batch normalization with layout transformation
+    """
+    perm = list(range(input_tensor.ndim))
+    perm[1], perm[dim] = perm[dim], perm[1]
+    input_tensor = input_tensor.permute(perm)
+    result = torch.nn.functional.batch_norm(
+        input_tensor,
+        running_mean=mean,
+        running_var=variance,
+        weight=scale,
+        bias=offset,
+        training=training,
+        eps=epsilon,
+    )
+    inv_perm = [perm.index(i) for i in range(len(perm))]
+    result = result.permute(inv_perm)
     return result
 
 
@@ -1130,6 +1213,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: embedding_golden,
     ttir.CumSumOp: torch.cumsum,
     ttir.Upsample2dOp: upsample2d_golden,
+    ttir.BatchNormOp: batch_norm_golden,
     # Type operations
     ttir.TypecastOp: torch.Tensor.type,
     # Tensor creation
