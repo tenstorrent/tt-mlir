@@ -1627,12 +1627,9 @@ TEST_F(OpModelTest, Conv2dL1InputDRAMOutput) {
                                               3}; // [top, bottom, left, right]
   const llvm::SmallVector<int32_t> dilation = {1, 1};
   const uint32_t groups = 1;
-  auto conv2dConfig = std::nullopt;
-  // Would be accurate according to debug logs in Resnet,
-  // but gives even more inaccurate results than the default here.
-  //   auto conv2dConfig = Conv2dConfigAttr::get(&context)
-  //                           .withWeightsDtype(ttcore::DataType::BFloat16)
-  //                           .withActivation(builder.getStringAttr("relu"));
+  auto conv2dConfig = Conv2dConfigAttr::get(&context)
+                          .withWeightsDtype(ttcore::DataType::BFloat16)
+                          .withActivation(builder.getStringAttr("relu"));
 
   // Device config
   DeviceComputeKernelConfigAttr deviceConfig =
@@ -1666,10 +1663,10 @@ TEST_F(OpModelTest, Conv2dL1InputDRAMOutput) {
 
     // Current values from ResNet for this conv2d operation:
     // - producerL1OutputUsage: 401408
-    // - cbSize: 233536 (in this test, it's 634944)
+    // - cbSize: 1839168
     // - peakSize: 889048
     // - outputSize: 0 (DRAM output, so no L1 usage)
-    // - l1UsageSize: 1523992 (in this test, it's 1925400)
+    // - l1UsageSize: 3129624
 
     // Memory validation logic from L1InterleavedFallbackAnalysis:
     // bool l1UsageValid = l1UsageSize < tensorL1UsageCap * usableL1CacheSize;
