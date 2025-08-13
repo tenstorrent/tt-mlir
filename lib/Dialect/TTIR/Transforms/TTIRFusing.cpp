@@ -1392,15 +1392,21 @@ namespace {
 // This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussianCDF is a
 // linearly transformed cumulative distribution function of the gaussian
 // distribution (or an approximation of one)
-class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+class GeluFusionPattern : public mlir::OpRewritePattern<ttir::MultiplyOp> {
 public:
-  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<ttir::MultiplyOp>::OpRewritePattern;
 
   mlir::LogicalResult
-  matchAndRewrite(MultiplyOp op, mlir::PatternRewriter &rewriter) const final {
+  matchAndRewrite(ttir::MultiplyOp op,
+                  mlir::PatternRewriter &rewriter) const final {
 
     // arg1, arg2, and arg3 shall be some permutation of 0.5, x, and
     // gaussianCDF(x)
+
+    // In the event that `op` contains `x` as one of its arguments, and `x`
+    // itself is a multiply op, There will be two triplets of arguments to check
+    // as we do not know which argument from `multiply(multiply, multiply)` is
+    // `x`.
     auto [arg1, arg2, arg3] = getTripleMultiplyArgs(op);
     if (!arg1 || !arg2 || !arg3) {
       return failure();
@@ -1451,10 +1457,10 @@ public:
     // TODO(@LPanosTT): When the 'approximate' flag is modelled in
     // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
     // gaussianCDFType is Tanh
-    //  For now, we will always use the default erf version. This should be OK
-    //  as the tanh approximation is incredibly accurate.
+    //     - For now, we will always use the default erf version. This should be
+    //       OK as the tanh approximation is incredibly accurate.
     (void)gaussianCDFType;
-    ttir::utils::replaceOpWithNewDPSOp<GeluOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
         rewriter, op, op.getResult().getType(), geluInput);
 
     return success();
@@ -1472,16 +1478,17 @@ private:
   // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
   // multiply(multiply(a, b), c) or multiply(a, multiply(b, c))
   std::tuple<Value, Value, Value>
-  getTripleMultiplyArgs(MultiplyOp multiplyOp) const {
+  getTripleMultiplyArgs(ttir::MultiplyOp multiplyOp) const {
     Value arg1 = multiplyOp.getLhs();
     Value arg2 = multiplyOp.getRhs();
-    if (MultiplyOp multiplyOp2 = arg1.getDefiningOp<MultiplyOp>()) {
-      if (!multiplyOp2.getRhs().getDefiningOp<MultiplyOp>() &&
+    if (ttir::MultiplyOp multiplyOp2 = arg1.getDefiningOp<ttir::MultiplyOp>()) {
+      if (!multiplyOp2.getRhs().getDefiningOp<ttir::MultiplyOp>() &&
           !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
         return std::make_tuple(arg2, multiplyOp2.getLhs(),
                                multiplyOp2.getRhs());
       }
-    } else if (MultiplyOp multiplyOp2 = arg2.getDefiningOp<MultiplyOp>()) {
+    } else if (ttir::MultiplyOp multiplyOp2 =
+                   arg2.getDefiningOp<ttir::MultiplyOp>()) {
       if (!multiplyOp2.getRhs().getDefiningOp<MultiplyOp>() &&
           !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
         return std::make_tuple(multiplyOp2.getLhs(), multiplyOp2.getRhs(),
@@ -1510,7 +1517,7 @@ private:
     // 1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
     //   ^ this add
 
-    AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();
+    ttir::AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<ttir::AddOp>();
     if (!gaussianCDFAdd) {
       return nullptr;
     }
@@ -1520,7 +1527,7 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
+    ttir::FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
     if (!one) {
       one = getFullOpThroughTMChain(gaussianCDFAdd.getRhs());
       isArgLhs = true;
@@ -1538,8 +1545,9 @@ private:
     }
 
     // The other operand must be tanh
-    TanhOp tanh = isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<TanhOp>()
-                           : gaussianCDFAdd.getRhs().getDefiningOp<TanhOp>();
+    ttir::TanhOp tanh = isArgLhs
+                            ? gaussianCDFAdd.getLhs().getDefiningOp<TanhOp>()
+                            : gaussianCDFAdd.getRhs().getDefiningOp<TanhOp>();
     if (!tanh) {
       return nullptr;
     }
@@ -1548,7 +1556,7 @@ private:
     // tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
     //                 ^ this multiply
 
-    MultiplyOp multiplyArg = tanh.getInput().getDefiningOp<MultiplyOp>();
+    ttir::MultiplyOp multiplyArg = tanh.getInput().getDefiningOp<MultiplyOp>();
     if (!multiplyArg) {
       return nullptr;
     }
@@ -1568,9 +1576,9 @@ private:
     // Scaling argument must be the result of:
     // x + 0.044715 * x^3
     //   ^ this add
-    AddOp xPlusScaledXCubed = argIsLhs
-                                  ? multiplyArg.getLhs().getDefiningOp<AddOp>()
-                                  : multiplyArg.getRhs().getDefiningOp<AddOp>();
+    ttir::AddOp xPlusScaledXCubed =
+        argIsLhs ? multiplyArg.getLhs().getDefiningOp<ttir::AddOp>()
+                 : multiplyArg.getRhs().getDefiningOp<ttir::AddOp>();
     if (!xPlusScaledXCubed) {
       return nullptr;
     }
@@ -1580,8 +1588,8 @@ private:
 
     // Find the value of x in the pattern: x + 0.044715 * x^3.
     bool foundX = false;
-    if (MultiplyOp lhsMultiply =
-            xPlusScaledXCubed.getLhs().getDefiningOp<MultiplyOp>()) {
+    if (ttir::MultiplyOp lhsMultiply =
+            xPlusScaledXCubed.getLhs().getDefiningOp<ttir::MultiplyOp>()) {
       x = xPlusScaledXCubed.getRhs();
 
       // find x^3 in the pattern: 0.044715 * x^3.
@@ -1606,8 +1614,8 @@ private:
       }
     }
 
-    if (MultiplyOp rhsMultiply =
-            xPlusScaledXCubed.getRhs().getDefiningOp<MultiplyOp>();
+    if (ttir::MultiplyOp rhsMultiply =
+            xPlusScaledXCubed.getRhs().getDefiningOp<ttir::MultiplyOp>();
         !foundX && rhsMultiply) {
       x = xPlusScaledXCubed.getLhs();
 
@@ -1643,8 +1651,8 @@ private:
   // This will return the input Value of a sequence of ops which computes x^3 if
   // it exists, given the result of the sequence
   Value getXCubedInput(Value xCubedResult) const {
-    if (PowOp xCubed = xCubedResult.getDefiningOp<PowOp>()) {
-      FullOp power = xCubed.getRhs().getDefiningOp<FullOp>();
+    if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
+      ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
       if (!power) {
         return nullptr;
       }
@@ -1659,18 +1667,21 @@ private:
 
       return xCubed.getLhs();
     }
-    if (MultiplyOp xCubed = xCubedResult.getDefiningOp<MultiplyOp>()) {
+    if (ttir::MultiplyOp xCubed =
+            xCubedResult.getDefiningOp<ttir::MultiplyOp>()) {
 
       Value lhs = xCubed.getLhs();
       Value rhs = xCubed.getRhs();
 
-      if (MultiplyOp lhsMultiply = lhs.getDefiningOp<MultiplyOp>()) {
+      if (ttir::MultiplyOp lhsMultiply =
+              lhs.getDefiningOp<ttir::MultiplyOp>()) {
         if (rhs == lhsMultiply.getRhs() && rhs == lhsMultiply.getLhs()) {
           return lhsMultiply.getLhs();
         }
       }
 
-      if (MultiplyOp rhsMultiply = rhs.getDefiningOp<MultiplyOp>()) {
+      if (ttir::MultiplyOp rhsMultiply =
+              rhs.getDefiningOp<ttir::MultiplyOp>()) {
         if (lhs == rhsMultiply.getRhs() && lhs == rhsMultiply.getLhs()) {
           return rhsMultiply.getLhs();
         }
@@ -1684,7 +1695,7 @@ private:
     // 1 + erf(x/sqrt(2))
     //   ^ this add
 
-    AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<AddOp>();
+    ttir::AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<ttir::AddOp>();
     if (!gaussianCDFAdd) {
       return nullptr;
     }
@@ -1694,9 +1705,9 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<FullOp>();
+    ttir::FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<ttir::FullOp>();
     if (!one) {
-      one = gaussianCDFAdd.getRhs().getDefiningOp<FullOp>();
+      one = gaussianCDFAdd.getRhs().getDefiningOp<ttir::FullOp>();
       isArgLhs = true;
     }
     if (!one) {
@@ -1712,8 +1723,9 @@ private:
     }
 
     // erf must be the other operand
-    ErfOp erf = isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<ErfOp>()
-                         : gaussianCDFAdd.getRhs().getDefiningOp<ErfOp>();
+    ttir::ErfOp erf =
+        isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<ttir::ErfOp>()
+                 : gaussianCDFAdd.getRhs().getDefiningOp<ttir::ErfOp>();
     if (!erf) {
       return nullptr;
     }
@@ -1725,7 +1737,8 @@ private:
 
     // So far the decomposition we have received from our frontends are in the
     // form: x * 0.70703125 So we will only check for this pattern for now.
-    MultiplyOp multiplyArg = erf.getOperand(0).getDefiningOp<MultiplyOp>();
+    ttir::MultiplyOp multiplyArg =
+        erf.getOperand(0).getDefiningOp<ttir::MultiplyOp>();
     if (!multiplyArg) {
       return nullptr;
     }
@@ -1752,7 +1765,7 @@ private:
   // with a FullOp), with the fill_value near 'scalar'. It allows for an error
   // of 1.5%
   bool isScalarValue(Value val, double scalar) const {
-    if (FullOp fullOp = getFullOpThroughTMChain(val)) {
+    if (ttir::FullOp fullOp = getFullOpThroughTMChain(val)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {
         APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
         if (checkFloatIsNear(value.convertToFloat(), scalar)) {
@@ -1767,21 +1780,11 @@ private:
   FullOp getFullOpThroughTMChain(Value value) const {
     Operation *currentOp = value.getDefiningOp();
 
-    do {
-      if (!currentOp) {
-        return nullptr;
-      }
-
-      if (auto fullOp = dyn_cast<FullOp>(currentOp)) {
-        return fullOp;
-      }
-
-      if (isa<ReshapeOp, BroadcastOp, PermuteOp>(currentOp)) {
-        currentOp = currentOp->getOperand(0).getDefiningOp();
-      } else {
-        return nullptr;
-      }
-    } while (true);
+    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
+        currentOp)) {
+      currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+    return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
   }
 };
 } // namespace
