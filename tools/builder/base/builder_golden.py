@@ -15,7 +15,16 @@ from typing import Dict, Callable, Any, Optional, Union, List, Tuple
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo
-from ttmlir.ir import Attribute, ArrayAttr, IntegerAttr, IntegerType, BoolAttr, DenseI32ArrayAttr
+from ttmlir.ir import (
+    Attribute,
+    ArrayAttr,
+    IntegerAttr,
+    IntegerType,
+    BoolAttr,
+    DenseI32ArrayAttr,
+    DenseI64ArrayAttr,
+)
+
 
 def unpack_mlir_attr(attr):
     """Unpack MLIR attributes into plain Python values.
