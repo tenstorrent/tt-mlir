@@ -223,6 +223,60 @@ def max_pool2d_golden(input_tensor, kernel_size, stride, padding, dilation, ceil
     return result
 
 
+def batch_norm_golden(
+    input_tensor,
+    scale,
+    offset,
+    mean,
+    variance,
+    epsilon: float = 1e-5,
+    training: bool = False,
+    dim: int = 1,
+):
+    """
+    Custom golden function for batch normalization with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for batch normalization
+    scale : torch.Tensor
+        Scale tensor for batch normalization
+    offset : torch.Tensor
+        Offset tensor for batch normalization
+    mean : torch.Tensor
+        Mean tensor for batch normalization
+    variance : torch.Tensor
+        Variance tensor for batch normalization
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+    training : bool, optional
+        Whether the model is in training mode (default: False)
+    dim : int, optional
+        Dimension to apply batch normalization over (default: 1)
+
+    Returns
+    -------
+    torch.Tensor
+        Result of batch normalization with layout transformation
+    """
+    perm = list(range(input_tensor.ndim))
+    perm[1], perm[dim] = perm[dim], perm[1]
+    input_tensor = input_tensor.permute(perm)
+    result = torch.nn.functional.batch_norm(
+        input_tensor,
+        running_mean=mean,
+        running_var=variance,
+        weight=scale,
+        bias=offset,
+        training=training,
+        eps=epsilon,
+    )
+    inv_perm = [perm.index(i) for i in range(len(perm))]
+    result = result.permute(inv_perm)
+    return result
+
+
 def argmax_golden(input_tensor, dim_arg, keep_dim=False):
     """
     Custom golden function for argmax.
@@ -1159,6 +1213,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: embedding_golden,
     ttir.CumSumOp: torch.cumsum,
     ttir.Upsample2dOp: upsample2d_golden,
+    ttir.BatchNormOp: batch_norm_golden,
     # Type operations
     ttir.TypecastOp: torch.Tensor.type,
     # Tensor creation

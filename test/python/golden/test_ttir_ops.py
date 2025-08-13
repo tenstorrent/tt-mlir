@@ -1140,6 +1140,62 @@ def test_max_pool2d(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 64, 32, 32),  # input tensor: (N, C, H, W)
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("training", [False])
+def test_batch_norm(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    training: bool,
+    request,
+):
+    def batch_norm(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        return builder.batch_norm(
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            training=training,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        batch_norm,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
