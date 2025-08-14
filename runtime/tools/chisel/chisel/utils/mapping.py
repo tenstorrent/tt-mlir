@@ -389,9 +389,7 @@ def custom_embeding(input, weight):
     return torch.nn.functional.embedding(input.long(), weight)
 
 
-def custom_comparison_operator(
-    input: torch.Tensor, other: torch.Tensor, torch_op: Callable
-) -> torch.Tensor:
+def custom_comparison_operator(input: torch.Tensor, other: torch.Tensor, torch_op):
     return torch_op(input, other).to(dtype=input.dtype)
 
 
