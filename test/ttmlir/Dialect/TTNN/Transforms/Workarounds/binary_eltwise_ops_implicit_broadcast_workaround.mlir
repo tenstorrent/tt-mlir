@@ -9,7 +9,7 @@
 // Check whether both operands are explicitly broadcasted after the workaround has been applied
 func.func @test_binary_implicit_broadcast_both_operands(%arg0: tensor<1x16x1xf32, #ttnn_layout_lhs>, %arg1: tensor<1x1x32xf32, #ttnn_layout_rhs>) -> tensor<1x16x32xf32, #ttnn_layout_result> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.remainder"(%arg0, %arg1) : (tensor<1x16x1xf32, #ttnn_layout_lhs>, tensor<1x1x32xf32, #ttnn_layout_rhs>) -> tensor<1x16x32xf32, #ttnn_layout_result>
+  %1 = "ttnn.remainder"(%arg0, %arg1) <{lhs_activations = [], post_activations = [], rhs_activations = []}> : (tensor<1x16x1xf32, #ttnn_layout_lhs>, tensor<1x1x32xf32, #ttnn_layout_rhs>) -> tensor<1x16x32xf32, #ttnn_layout_result>
   // CHECK: "ttnn.remainder"
   // CHECK-SAME: (tensor<1x16x32xf32, {{.*}}>, tensor<1x16x32xf32, {{.*}}>)
   // CHECK-SAME: -> tensor<1x16x32xf32, {{.*}}>
@@ -23,7 +23,7 @@ func.func @test_binary_implicit_broadcast_both_operands(%arg0: tensor<1x16x1xf32
 // Check whether the lhs operand is explicitly broadcasted after the workaround has been applied
 func.func @test_binary_implicit_broadcast_first_operands(%arg0: tensor<1x16x32xf32, #ttnn_layout_lhs_1>, %arg1: tensor<8x16x32xf32, #ttnn_layout_rhs_1>) -> tensor<8x16x32xf32, #ttnn_layout_result_1> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.remainder"(%arg0, %arg1) : (tensor<1x16x32xf32, #ttnn_layout_lhs_1>, tensor<8x16x32xf32, #ttnn_layout_rhs_1>) -> tensor<8x16x32xf32, #ttnn_layout_result_1>
+  %1 = "ttnn.remainder"(%arg0, %arg1) <{lhs_activations = [], post_activations = [], rhs_activations = []}> : (tensor<1x16x32xf32, #ttnn_layout_lhs_1>, tensor<8x16x32xf32, #ttnn_layout_rhs_1>) -> tensor<8x16x32xf32, #ttnn_layout_result_1>
   // CHECK: "ttnn.remainder"
   // CHECK-SAME: (tensor<8x16x32xf32, {{.*}}>, tensor<8x16x32xf32, {{.*}}>)
   // CHECK-SAME: -> tensor<8x16x32xf32, {{.*}}>
@@ -37,7 +37,7 @@ func.func @test_binary_implicit_broadcast_first_operands(%arg0: tensor<1x16x32xf
 // Check whether the rhs operand is explicitly broadcasted after the workaround has been applied
 func.func @test_binary_implicit_broadcast_second_operands(%arg0: tensor<8x16x32xf32, #ttnn_layout_lhs_2>, %arg1: tensor<1x16x32xf32, #ttnn_layout_rhs_2>) -> tensor<8x16x32xf32, #ttnn_layout_result_2> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.remainder"(%arg0, %arg1) : (tensor<8x16x32xf32, #ttnn_layout_lhs_2>, tensor<1x16x32xf32, #ttnn_layout_rhs_2>) -> tensor<8x16x32xf32, #ttnn_layout_result_2>
+  %1 = "ttnn.remainder"(%arg0, %arg1) <{lhs_activations = [], post_activations = [], rhs_activations = []}> : (tensor<8x16x32xf32, #ttnn_layout_lhs_2>, tensor<1x16x32xf32, #ttnn_layout_rhs_2>) -> tensor<8x16x32xf32, #ttnn_layout_result_2>
   // CHECK: "ttnn.remainder"
   // CHECK-SAME: (tensor<8x16x32xf32, {{.*}}>, tensor<8x16x32xf32, {{.*}}>)
   // CHECK-SAME: -> tensor<8x16x32xf32, {{.*}}>

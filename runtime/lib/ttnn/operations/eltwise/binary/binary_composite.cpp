@@ -55,8 +55,30 @@ static void runEltwiseBinaryCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig,
-                              std::nullopt, {}, {}, {}, std::nullopt);
+  auto toTTNNUnaryWithParam =
+      [](const ::tt::target::ttnn::UnaryWithParam *activation) {
+        return utils::toTTNNUnaryWithParam(*activation);
+      };
+  std::vector<::ttnn::operations::unary::UnaryWithParam> postActivations;
+  if (op->post_activations()) {
+    std::transform(op->post_activations()->begin(),
+                   op->post_activations()->end(),
+                   std::back_inserter(postActivations), toTTNNUnaryWithParam);
+  }
+  std::vector<::ttnn::operations::unary::UnaryWithParam> lhsActivations;
+  if (op->lhs_activations()) {
+    std::transform(op->lhs_activations()->begin(), op->lhs_activations()->end(),
+                   std::back_inserter(lhsActivations), toTTNNUnaryWithParam);
+  }
+  std::vector<::ttnn::operations::unary::UnaryWithParam> rhsActivations;
+  if (op->rhs_activations()) {
+    std::transform(op->rhs_activations()->begin(), op->rhs_activations()->end(),
+                   std::back_inserter(rhsActivations), toTTNNUnaryWithParam);
+  }
+
+  ::ttnn::Tensor out =
+      ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig, std::nullopt,
+             postActivations, lhsActivations, rhsActivations, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -12,7 +14,6 @@ namespace mlir::tt::ttnn {
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
-
 class TTNNConv2dWithActivation : public mlir::OpRewritePattern<Conv2dOp> {
   using TTNNConv2dWithActivation::OpRewritePattern<Conv2dOp>::OpRewritePattern;
 
@@ -94,14 +95,115 @@ private:
            ttmlir::utils::allUsersOfType<ReluOp>(reshapeOp);
   }
 };
+} // namespace
 
+namespace {
+class TTNNBinaryOpInputsActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseBinary> {
+  using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
+      ElementwiseBinary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseBinary binaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    bool isFused = false;
+
+    if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
+      fuseInputActivation(lhsUnaryOp, binaryOp, rewriter, /*isLhs=*/true);
+      isFused = true;
+    }
+
+    if (auto rhsUnaryOp = getFusableUnaryOp(binaryOp.getRhs())) {
+      fuseInputActivation(rhsUnaryOp, binaryOp, rewriter, /*isLhs=*/false);
+      isFused = true;
+    }
+
+    return mlir::success(isFused);
+  }
+
+private:
+  ElementwiseUnary getFusableUnaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
+    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown) {
+      return unaryOp;
+    }
+
+    return {};
+  }
+
+  void fuseInputActivation(ElementwiseUnary unaryOp, ElementwiseBinary binaryOp,
+                           mlir::PatternRewriter &rewriter, bool isLhs) const {
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      if (isLhs) {
+        binaryOp.addLhsActivation(unaryOp.getUnaryOpType(),
+                                  unaryOp.getParams());
+      } else {
+        binaryOp.addRhsActivation(unaryOp.getUnaryOpType(),
+                                  unaryOp.getParams());
+      }
+      rewriter.replaceOp(unaryOp, unaryOp.getInput());
+    });
+  }
+};
+} // namespace
+
+namespace {
+class TTNNBinaryOpOutputActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseUnary> {
+  using TTNNBinaryOpOutputActivation::OpInterfaceRewritePattern<
+      ElementwiseUnary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseUnary unaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(unaryOp)) {
+      return failure();
+    }
+
+    auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
+    if (!binaryOp) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      binaryOp.addPostActivation(unaryOp.getUnaryOpType(), unaryOp.getParams());
+      binaryOp->getResult(0).setType(unaryOp->getResult(0).getType());
+    });
+    rewriter.replaceOp(unaryOp, unaryOp.getInput());
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ElementwiseUnary unaryOp) const {
+    return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
+  }
+
+  ElementwiseBinary getFusableBinaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    return operand.getDefiningOp<ElementwiseBinary>();
+  }
+};
+} // namespace
+
+namespace {
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTNNConv2dWithActivation>(&getContext());
+    patterns.add<TTNNConv2dWithActivation, TTNNBinaryOpInputsActivation,
+                 TTNNBinaryOpOutputActivation>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

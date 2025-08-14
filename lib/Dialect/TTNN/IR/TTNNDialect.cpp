@@ -70,6 +70,7 @@ struct TTNNOpAsmDialectInterface : public OpAsmDialectInterface {
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsDialect.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.cpp.inc"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.cpp.inc"

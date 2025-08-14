@@ -383,6 +383,16 @@ public:
         emitter.emit(srcOp.getRhs()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*output=*/std::nullopt),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getPostActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getLhsActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getRhsActivations()),
     };
 
     emitter.replaceOp(*this, args);
@@ -417,6 +427,16 @@ public:
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*optional_output_tensor=*/std::nullopt),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getPostActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getLhsActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getRhsActivations()),
     };
 
     emitter.replaceOp(*this, args);

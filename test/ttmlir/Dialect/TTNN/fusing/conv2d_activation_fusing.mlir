@@ -44,10 +44,10 @@ module {
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
     %3 = "ttir.relu"(%1, %2) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK: %[[ADD:.*]] = "ttnn.add"
+    // CHECK: %[[WHERE:.*]] = "ttnn.where"
     %4 = ttir.empty() : tensor<1x30x30x64xbf16>
     // Second use of conv2d, we cannot fuse.
-    %5 = "ttir.add"(%1, %3, %4) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %5 = "ttir.where"(%1, %1, %3, %4) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     return %5 :tensor<1x30x30x64xbf16>
   }
