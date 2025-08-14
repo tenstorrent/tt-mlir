@@ -1455,6 +1455,7 @@ public:
       // gaussianCDFType is Tanh.
       //     - For now, we will always use the default erf version. This should
       //       be OK as the tanh approximation is incredibly accurate.
+      // https://github.com/tenstorrent/tt-mlir/issues/4486
       (void)gaussianCDFType;
       ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
           rewriter, op, op.getResult().getType(), geluInput);

@@ -2548,7 +2548,7 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto funcName = adaptor.getCallTargetName();
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
     if (funcName != "mhlo.erf") {
       return failure();
     }
