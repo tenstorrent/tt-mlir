@@ -66,27 +66,10 @@ def _create_custom_ttir_pipeline_fn(
     return wrapper
 
 
-def _is_opmodel_enabled() -> bool:
-    """
-    Check that cmake flag TTMLIR_ENABLE_OPMODEL is set
-    """
-    with open("./build/CMakeCache.txt", "r") as f:
-        for line in f:
-            if "TTMLIR_ENABLE_OPMODEL:BOOL=OFF" in line:
-                print(
-                    "CMake flag `TTMLIR_ENABLE_OPMODEL` is not on. Please enable it in CMake."
-                )
-                return False
-    return True
-
-
 def _optimizations_to_str(optimization_policy, builder):
     """
     Converts optimization settings to a string representation for the pipeline.
     """
-    if not _is_opmodel_enabled():
-        return ""
-
     override_handler = optimizer_overrides.OptimizerOverridesHandler()
     # Parse optimization policy from optimization_options.
     if optimization_policy:
