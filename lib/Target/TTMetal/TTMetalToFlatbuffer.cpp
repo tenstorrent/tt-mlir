@@ -256,15 +256,18 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                           ttcore::DeviceAttr device,
                                           target::Dim2d elementShape) {
 
+  flatbuffers::Offset<target::metal::ShardedBufferConfig> sharded_buffer_config;
   if (isMemrefDeviceDRAMMemspace(memref)) {
-    return createShardedBufferConfigForDRAMMemref(cache, memref, device);
+    sharded_buffer_config =
+        createShardedBufferConfigForDRAMMemref(cache, memref, device);
   } else if (isMemrefDeviceL1Memspace(memref)) {
-    return createShardedBufferConfigForL1Memref(cache, memref, device,
-                                                elementShape);
+    sharded_buffer_config = createShardedBufferConfigForL1Memref(
+        cache, memref, device, elementShape);
   } else {
     assert(false &&
            "ShardedBufferConfig not supported for System memory space");
   }
+  return sharded_buffer_config;
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
