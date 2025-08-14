@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -110,6 +111,7 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
+    devicePtr = std::move(options.devicePtr);
   }
 
 protected:
@@ -157,6 +159,9 @@ protected:
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
 
+  // Device pointer provided by frontend (not a command line option)
+  void *devicePtr = nullptr;
+
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
     return std::make_unique<DerivedT>();
@@ -182,6 +187,14 @@ class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
   void runOnOperation() final {
+    // Set external device if provided
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (devicePtr != nullptr) {
+      op_model::SingletonDeviceContext::setExternalDevice(
+          static_cast<::tt::tt_metal::distributed::MeshDevice *>(devicePtr));
+    }
+#endif
+
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
     // Perform final configuration analysis.
