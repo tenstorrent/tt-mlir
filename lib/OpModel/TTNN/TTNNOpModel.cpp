@@ -265,6 +265,8 @@ auto getOpSymbol() {
     return ::ttnn::multiply;
   } else if constexpr (std::is_same_v<OpTy, SubtractOp>) {
     return ::ttnn::subtract;
+  } else if constexpr (std::is_same_v<OpTy, LogicalRightShiftOp>) {
+    return ::ttnn::logical_right_shift;
   } else if constexpr (std::is_same_v<OpTy, DivideOp>) {
     return ::ttnn::divide;
   } else if constexpr (std::is_same_v<OpTy, EqualOp>) {
@@ -955,7 +957,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for BinaryEltwiseOpModel.
 template struct BinaryEltwiseOpModel<AddOp>;
 template struct BinaryEltwiseOpModel<MultiplyOp>;
-template struct BinaryEltwiseOpModel<ShiftRightLogicalOp>;
+template struct BinaryEltwiseOpModel<LogicalRightShiftOp>;
 template struct BinaryEltwiseOpModel<SubtractOp>;
 template struct BinaryEltwiseOpModel<MaximumOp>;
 template struct BinaryEltwiseOpModel<MinimumOp>;

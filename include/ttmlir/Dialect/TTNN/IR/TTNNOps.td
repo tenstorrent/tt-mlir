@@ -557,10 +557,10 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
       Eltwise multiply operation.
     }];
 }
-def TTNN_ShiftRightLogicalOp: TTNN_ElementwiseBinaryOp<"shift_right_logical">{
-  let summary = "Eltwise Shift Right Logical operation";
+def TTNN_LogicalRightShiftOp: TTNN_ElementwiseBinaryOp<"logical_right_shift">{
+  let summary = "Eltwise Logical Right Shift operation";
   let description = [{
-    The `shift_right_logical` operation performs an elementwise logical right shift
+    The `logical_right_shift` operation performs an elementwise logical right shift
     on the elements of the first tensor by the corresponding shift amounts in the
     second tensor.
   }];

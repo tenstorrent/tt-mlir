@@ -56,7 +56,7 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::multiply);
     break;
   }
-  case ::tt::target::ttnn::EltwiseBinaryOpType::ShiftRightLogical: {
+  case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalRightShift: {
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_right_shift);
     break;
   }

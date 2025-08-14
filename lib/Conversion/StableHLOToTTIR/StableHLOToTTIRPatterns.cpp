@@ -2649,7 +2649,7 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ShiftRightLogicalOp,
-      mlir::tt::ttir::ShiftRightLogicalOp>>(typeConverter, ctx);
+      mlir::tt::ttir::LogicalRightShiftOp>>(typeConverter, ctx);
 }
 
 static void addReduceOpsConversionPatterns(MLIRContext *ctx,
