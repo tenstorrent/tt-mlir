@@ -1756,6 +1756,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
       Mathematical definition: minimum(x, y) = min(x, y)
     }];
 }
+
 def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift">{
     let summary = "Eltwise Shift Right Logical operation";
     let description = [{
@@ -1763,7 +1764,9 @@ def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift">{
       on the elements of the first tensor by the corresponding shift amounts in the
       second tensor.
     }];
+    let hasVerifier = 1;
 }
+
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Elementwise subtract operation.";
     let description = [{
