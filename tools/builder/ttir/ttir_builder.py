@@ -2764,6 +2764,24 @@ class TTIRBuilder(Builder):
         if not bias:
             bias = None
 
+        # Determine output type for quantized conv2d.
+        # For quantized inputs, the golden function uses int_repr() so output should be the underlying int type.
+        input_dtype = self._get_golden_tensor(in0).dtype
+        dtype_mapping = {
+            torch.quint8: torch.uint8,
+            torch.qint8: torch.int8,
+            torch.qint32: torch.int32,
+        }
+
+        output_type = (
+            self._get_type_from_torch_dtype(dtype_mapping.get(input_dtype))
+            if input_dtype in dtype_mapping
+            else None
+        )
+        # If output type is not found, use default type.
+        if output_type is None:
+            output_type = self._default_type
+
         return self._op_proxy(
             ttir.Conv2dOp,
             [in0, weight, bias],
@@ -2793,6 +2811,7 @@ class TTIRBuilder(Builder):
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
+            output_type=output_type,
         )
 
     def conv_transpose2d(
