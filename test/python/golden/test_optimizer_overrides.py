@@ -11,7 +11,6 @@ from ttmlir import optimizer_overrides
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-import os
 
 
 def check_sharded_input_output(mlir_file: str, op_name: str):

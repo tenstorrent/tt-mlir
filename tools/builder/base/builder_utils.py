@@ -66,19 +66,19 @@ def _create_custom_ttir_pipeline_fn(
     return wrapper
 
 
-def _optimizations_to_str(optimization_policy, builder):
+def _optimizations_to_str(
+    builder,
+    optimization_policy: Optional[
+        optimizer_overrides.MemoryLayoutAnalysisPolicyType
+    ] = None,
+) -> str:
     """
     Converts optimization settings to a string representation for the pipeline.
     """
     override_handler = optimizer_overrides.OptimizerOverridesHandler()
     # Parse optimization policy from optimization_options.
     if optimization_policy:
-        override_handler.set_enable_optimizer(True)
-        override_handler.set_enable_memory_layout_analysis(True)
         override_handler.set_memory_layout_analysis_policy(optimization_policy)
-    else:
-        override_handler.set_enable_optimizer(True)
-        override_handler.set_enable_memory_layout_analysis(True)
 
     # Add any op-level overrides to override_handler
     for op_loc, param in builder._output_layout_params.items():
@@ -87,8 +87,9 @@ def _optimizations_to_str(optimization_policy, builder):
     for op_loc, param in builder._conv2d_config_params.items():
         if not param.empty():
             override_handler.add_conv2d_config_override(op_loc, param)
-    override_handler.set_memory_reconfig(False)
 
+    override_handler.set_enable_optimizer(True)
+    override_handler.set_enable_memory_layout_analysis(True)
     return override_handler.to_string()
 
 
@@ -111,7 +112,7 @@ def _run_ttir_pipeline(
         or builder._output_layout_params
         or builder._conv2d_config_params
     ):
-        overrides = _optimizations_to_str(optimization_policy, builder)
+        overrides = _optimizations_to_str(builder, optimization_policy)
         pipeline_options.append(overrides)
 
     # Default to the `SYSTEM_DESC_PATH` envvar
