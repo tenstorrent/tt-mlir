@@ -25,8 +25,13 @@
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
@@ -74,37 +79,49 @@ std::string translateToPTX(Operation *op, const std::string &mcpu) {
     return "";
   }
 
-  // Convert LLVM Module to string.
-  std::string llvmIR;
-  llvm::raw_string_ostream llvmStream(llvmIR);
-  llvmModule->print(llvmStream, nullptr);
-  llvmStream.flush();
+  LLVMInitializeNVPTXTarget();
+  LLVMInitializeNVPTXTargetMC();
+  LLVMInitializeNVPTXTargetInfo();
+  LLVMInitializeNVPTXAsmPrinter();
 
-  // Use llc to convert LLVM IR to PTX.
-  // Create temporary command to pipe LLVM IR through llc.
-  std::string command =
-      "echo '" + llvmIR + "' | llc -march=nvptx64 -mcpu=" + mcpu + " -";
+  llvm::Triple targetTriple("nvptx64-nvidia-cuda");
+  llvmModule->setTargetTriple(targetTriple);
 
-  FILE *pipe = popen(command.c_str(), "r");
-  if (!pipe) {
-    llvm::errs() << "Failed to execute llc command\n";
+  std::string error;
+  const llvm::Target *target =
+      llvm::TargetRegistry::lookupTarget(targetTriple, error);
+  if (!target) {
+    llvm::errs() << "Failed to lookup target: " << error << "\n";
     return "";
   }
 
-  std::string ptxCode;
-  char buffer[128];
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    ptxCode += buffer;
-  }
-
-  int returnCode = pclose(pipe);
-  if (returnCode != 0) {
-    llvm::errs() << "llc command failed with return code: " << returnCode
-                 << "\n";
+  llvm::TargetOptions options;
+  std::unique_ptr<llvm::TargetMachine> targetMachine(
+      target->createTargetMachine(targetTriple, mcpu, "", options,
+                                  llvm::Reloc::Static, llvm::CodeModel::Small,
+                                  llvm::CodeGenOptLevel::Default));
+  if (!targetMachine) {
+    llvm::errs() << "Failed to create TargetMachine for triple: "
+                 << targetTriple.str() << "\n";
     return "";
   }
 
-  return ptxCode;
+  llvmModule->setDataLayout(targetMachine->createDataLayout());
+
+  llvm::SmallVector<char, 2048> ptxBuffer;
+  llvm::raw_svector_ostream ptxStream(ptxBuffer);
+
+  llvm::legacy::PassManager passManager;
+
+  if (targetMachine->addPassesToEmitFile(passManager, ptxStream, nullptr,
+                                         llvm::CodeGenFileType::AssemblyFile)) {
+    llvm::errs() << "Target machine cannot emit PTX assembly\n";
+    return "";
+  }
+
+  passManager.run(*llvmModule);
+
+  return std::string(ptxBuffer.begin(), ptxBuffer.end());
 }
 
 std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
