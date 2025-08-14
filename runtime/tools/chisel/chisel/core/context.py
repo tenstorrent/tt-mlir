@@ -184,6 +184,7 @@ class ChiselContext:
             "save-artifacts": True,
             "--program-index": self.program_index,
             "--init": "ones",
+            "--disable-ttrt-callbacks": True,
         }
 
         # Initialize the runtime API with the specified configuration
