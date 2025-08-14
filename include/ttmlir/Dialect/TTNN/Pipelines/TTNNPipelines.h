@@ -11,6 +11,10 @@
 
 #include "mlir/Pass/PassOptions.h"
 
+namespace tt::tt_metal::distributed {
+class MeshDevice;
+} // namespace tt::tt_metal::distributed
+
 namespace mlir::tt::ttnn {
 // Options for the TTIR to TTNN backend pipeline.
 //
@@ -293,6 +297,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-bfp8-conversion",
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
+
+  // Option to provide a pointer to an already opened device. When provided,
+  // the optimizer will use this device instead of opening a new one.
+  // This allows frontends to pass in an active device without closing it.
+  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
 };
 
 // TTIR to EmitC pipeline options.
