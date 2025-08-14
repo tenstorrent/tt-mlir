@@ -221,12 +221,9 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 
 // LogicalRightShiftOp verifier
 ::mlir::LogicalResult mlir::tt::ttir::LogicalRightShiftOp::verify() {
-  RankedTensorType lhsTensorType =
-      getLhs().getType();
-  RankedTensorType rhsTensorType =
-      getRhs().getType();
-  RankedTensorType outputTensorType =
-      getResult().getType();
+  RankedTensorType lhsTensorType = getLhs().getType();
+  RankedTensorType rhsTensorType = getRhs().getType();
+  RankedTensorType outputTensorType = getResult().getType();
 
   // Check that left operand (value to be shifted) has integer element type.
   auto lhsElemType = lhsTensorType.getElementType();
