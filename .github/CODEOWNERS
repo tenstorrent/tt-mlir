@@ -121,16 +121,16 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # TTNN Optimizer
 /include/ttmlir/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
-/include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /include/ttmlir/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Transforms/Optimizer.cpp @tenstorrent/forge-developers-mlir-optimizer
-/lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /lib/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Dialect/TTNN/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Silicon/TTNN/**/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
 /test/unittests/Optimizer @tenstorrent/forge-developers-mlir-optimizer
-/test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
 
 # LLVM Target
