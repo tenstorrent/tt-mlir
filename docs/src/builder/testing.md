@@ -86,6 +86,8 @@ ops. There are some special rules to follow when defining parametrizations for t
     @pytest.mark.parametrize(
         "stride_padding_dilation_groups", [([2, 1], [2, 1], [2, 1], 2)]
     )
+    ...
+    stride, padding, dilation, groups = stride_padding_dilation_groups
 
 ### Marks
 There are a number of custom marks provided for this test suite, most of them
