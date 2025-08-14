@@ -2157,18 +2157,16 @@ def test_reshape(shapes, dtype: torch.dtype, request):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes",
+    "input_shape,output_shape",
     [
-        # [input_shape, output_shape]
-        [(2, 3, 4), (24,)],
-        [(128, 128), (16384,)],
-        [(128, 64, 32), (128, 2048)],
+        # (input_shape, output_shape)
+        ((2, 3, 4), (24,)),
+        ((128, 128), (16384,)),
+        ((128, 64, 32), (128, 2048)),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_reshape(shapes, request, target: str):
-    input_shape, output_shape = shapes
-
+def test_hoisted_reshape(input_shape, output_shape, request, target: str):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
 
@@ -2186,16 +2184,16 @@ def test_hoisted_reshape(shapes, request, target: str):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes,dims",
+    "input_shape,dims",
     [
-        # [(input_shape, output_shape), permutation]
-        ([(2, 3, 4), (2, 4, 3)], [2, 1]),
-        ([(128, 128), (128, 128)], [1, 0]),
-        ([(128, 64, 32), (32, 64, 128)], [0, 2]),
+        # (input_shape, permutation)
+        ((2, 3, 4), [2, 1]),
+        ((128, 128), [1, 0]),
+        ((128, 64, 32), [0, 2]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_transpose(shapes, dims, request, target: str):
+def test_hoisted_transpose(input_shape, dims, request, target: str):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
         # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
@@ -2209,7 +2207,7 @@ def test_hoisted_transpose(shapes, dims, request, target: str):
 
     compile_ttir_to_flatbuffer(
         transpose_wrapper,
-        [shapes[0]],
+        [input_shape],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
