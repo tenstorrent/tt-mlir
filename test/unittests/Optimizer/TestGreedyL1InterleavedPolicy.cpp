@@ -135,6 +135,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
       schedule;
   llvm::DenseMap<mlir::Operation *, L1Usage> opsL1Usage;
   constexpr uint64_t usableL1CacheSize = 15;
+  constexpr float tensorL1UsageCap = 1.0f;
 
   // Create operand A
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
@@ -178,7 +179,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
 
   // Run greedy config picker policy
   GreedyL1InterleavedPolicy l1InterleavedPolicy(
-      nullptr, l1ChainConfigs, legalConfigs, schedule, usableL1CacheSize);
+      nullptr, l1ChainConfigs, legalConfigs, schedule, usableL1CacheSize,
+      tensorL1UsageCap);
   GreedyPolicyChoice greedyConfig =
       l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
 
