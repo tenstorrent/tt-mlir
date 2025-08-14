@@ -51,7 +51,7 @@ source ttrt_env/bin/activate
 ```
 3. Install whls (replace with your version of the whls)
 ```bash
-pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
+pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp311-cp311-linux_x86_64.whl
 ```
 
 ## Generating a flatbuffer
