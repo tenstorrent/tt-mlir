@@ -1757,10 +1757,10 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
     }];
 }
 
-def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift">{
-    let summary = "Eltwise Shift Right Logical operation";
+def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
+    let summary = "Eltwise Logical Right Shift operation";
     let description = [{
-      The `shift_right_logical` operation performs an elementwise logical right shift
+      The `logical_right_shift` operation performs an elementwise logical right shift
       on the elements of the first tensor by the corresponding shift amounts in the
       second tensor.
     }];

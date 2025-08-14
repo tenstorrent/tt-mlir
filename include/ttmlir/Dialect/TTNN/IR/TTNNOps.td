@@ -565,6 +565,7 @@ def TTNN_LogicalRightShiftOp: TTNN_ElementwiseBinaryOp<"logical_right_shift">{
     on the elements of the first tensor by the corresponding shift amounts in the
     second tensor.
   }];
+  let hasVerifier = 1;
 }
 
 def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
