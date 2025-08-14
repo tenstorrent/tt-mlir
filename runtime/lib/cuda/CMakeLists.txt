@@ -29,7 +29,8 @@ target_include_directories(TTRuntimeCUDA PUBLIC
    ${CUDA_INCLUDE_DIRS}
 )
 
-target_link_libraries(TTRuntimeCUDA PUBLIC flatbuffers)
+find_library(FLATBUFFERS_LIB flatbuffers PATHS ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_libraries(TTRuntimeCUDA PUBLIC ${FLATBUFFERS_LIB})
 target_link_libraries(TTRuntimeCUDA PUBLIC coverage_config)
 target_link_libraries(TTRuntimeCUDA PUBLIC LLVMSupport)
 target_link_libraries(TTRuntimeCUDA PUBLIC CUDA::cudart)
