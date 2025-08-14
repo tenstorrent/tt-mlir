@@ -2236,7 +2236,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         ge,
         gt,
         div | Marks(pytest.mark.run_error),
-        remainder | Marks(pytest.mark.run_error),
+        remainder,
         maximum,
         minimum,
         pow | Marks(pytest.mark.run_error),
