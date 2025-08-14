@@ -909,8 +909,8 @@ protected:
 // Type aliases for binary operations
 using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
-using OpModelShiftRightLogicalParam =
-    OpModelBinaryEltwiseParam<ShiftRightLogicalOp>;
+using OpModelLogicalRightShiftParam =
+    OpModelBinaryEltwiseParam<LogicalRightShiftOp>;
 using OpModelSubtractParam = OpModelBinaryEltwiseParam<SubtractOp>;
 using OpModelMaximumParam = OpModelBinaryEltwiseParam<MaximumOp>;
 using OpModelMinimumParam = OpModelBinaryEltwiseParam<MinimumOp>;
@@ -927,7 +927,7 @@ using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
-TEST_P(OpModelShiftRightLogicalParam, ShiftRightLogicalOp) { RunTest(); }
+TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTest(); }
 TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
 TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
 TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }

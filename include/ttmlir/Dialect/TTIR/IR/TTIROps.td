@@ -1756,7 +1756,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
       Mathematical definition: minimum(x, y) = min(x, y)
     }];
 }
-def TTIR_ShiftRightLogicalOp : TTIR_ElementwiseBinaryOp<"shift_right_logical">{
+def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift">{
     let summary = "Eltwise Shift Right Logical operation";
     let description = [{
       The `shift_right_logical` operation performs an elementwise logical right shift
