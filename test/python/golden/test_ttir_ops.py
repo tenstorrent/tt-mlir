@@ -2563,9 +2563,7 @@ def test_slice(
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(
-    reason="Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883"
-)
+@pytest.mark.run_error  # Issue #3883.
 def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
