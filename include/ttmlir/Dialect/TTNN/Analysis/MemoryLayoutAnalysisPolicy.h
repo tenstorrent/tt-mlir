@@ -20,6 +20,7 @@ protected:
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
   unsigned usableL1CacheSize = 0;
+  float tensorL1UsageCap = 0.0f;
   ttcore::DeviceAttr deviceAttr;
 
 public:
@@ -29,10 +30,11 @@ public:
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      unsigned usableL1CacheSize, float tensorL1UsageCap)
       : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
         legalConfigs(legalConfigs), schedule(&schedule),
-        usableL1CacheSize(usableL1CacheSize) {}
+        usableL1CacheSize(usableL1CacheSize),
+        tensorL1UsageCap(tensorL1UsageCap) {}
 
   virtual void run() = 0;
 };
