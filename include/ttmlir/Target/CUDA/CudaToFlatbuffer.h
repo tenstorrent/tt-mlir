@@ -11,7 +11,7 @@
 
 namespace mlir::tt::cuda {
 
-std::string translateToPTX(Operation *op);
+std::string translateToPTX(Operation *op, const std::string &mcpu = "sm_80");
 
 // Convert a GPU LLVMIR operation to a flatbuffer
 std::shared_ptr<void> cudaToFlatbuffer(Operation *op);

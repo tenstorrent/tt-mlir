@@ -1,3 +1,4 @@
+# Options
 option(TT_RUNTIME_ENABLE_CUDA "Enable CUDA Runtime" ON)
 
 if (TTMLIR_ENABLE_RUNTIME)
@@ -54,6 +55,10 @@ else()
 endif()
 
 add_subdirectory(bin)
+
+if(TT_RUNTIME_ENABLE_CUDA)
+  add_subdirectory(test)
+endif()
 
 # Add coverage_config to all targets in runtime
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
