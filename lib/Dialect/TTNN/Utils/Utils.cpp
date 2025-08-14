@@ -144,7 +144,8 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 }
 
 // Return the L1 memory usage of the output tensor of the given op.
-// Used within L1 interleaved policies.
+// Used within L1 interleaved policies and temporarily within L1 Interleaved
+// Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   // In case the opLayout is not in L1 memory space, L1 memory usage is 0.

@@ -29,7 +29,7 @@ struct L1InterleavedFallbackAnalysisInput {
 
   L1InterleavedFallbackAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>>
-          &legalL1InterleavedConfigs, // only tiled rn, but could have row-major
+          &legalL1InterleavedConfigs,
       const llvm::DenseMap<Operation *, OpConfig> &currentConfigs,
       const func::FuncOp &funcOp, unsigned usableL1CacheSize,
       float tensorL1UsageCap)
@@ -78,7 +78,7 @@ private:
   bool hasL1InterleavedLegalLayout(Operation *op) const;
 
   // Get L1 interleaved layouts for operation (both tiled and row-major if
-  // available after LegalLayoutsAnalysis)
+  // available after LegalOpLayoutsAnalysis)
   std::vector<OpConfig> getL1InterleavedLayoutConfigs(Operation *op) const;
 
   // Check if operation has exactly one user that is immediate next in schedule
