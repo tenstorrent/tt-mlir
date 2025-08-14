@@ -25,6 +25,7 @@
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
 #include <cstdlib>
@@ -33,9 +34,15 @@
 #include <sstream>
 #include <vector>
 
+static llvm::cl::opt<std::string>
+    cudaMcpu("cuda-mcpu",
+             llvm::cl::desc("CUDA compute capability (default: sm_80)"),
+             llvm::cl::init("sm_80"));
+
 namespace mlir::tt::cuda {
 
-std::string translateToPTX(Operation *op) {
+std::string translateToPTX(Operation *op, const std::string &mcpu) {
+
   ModuleOp module = cast<ModuleOp>(op);
 
   PassManager pm(module.getContext());
@@ -76,7 +83,7 @@ std::string translateToPTX(Operation *op) {
   // Use llc to convert LLVM IR to PTX.
   // Create temporary command to pipe LLVM IR through llc.
   std::string command =
-      "echo '" + llvmIR + "' | llc -march=nvptx64 -mcpu=sm_80 -";
+      "echo '" + llvmIR + "' | llc -march=nvptx64 -mcpu=" + mcpu + " -";
 
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
@@ -141,7 +148,7 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
       auto tempModule = builder.create<ModuleOp>(gpuModule.getLoc());
       builder.setInsertionPointToStart(tempModule.getBody());
       builder.clone(*gpuModule.getOperation());
-      std::string ptxCode = translateToPTX(tempModule);
+      std::string ptxCode = translateToPTX(tempModule, cudaMcpu);
       tempModule.erase();
       cuda::Kernel kernel;
       kernel.name = kernelName;

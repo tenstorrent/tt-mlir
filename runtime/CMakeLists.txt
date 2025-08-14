@@ -1,3 +1,4 @@
+# Options
 option(TT_RUNTIME_ENABLE_CUDA "Enable CUDA Runtime" ON)
 
 if (TTMLIR_ENABLE_RUNTIME)
@@ -44,6 +45,10 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
+endif()
+
+if(TT_RUNTIME_ENABLE_CUDA)
+  add_subdirectory(test)
 endif()
 
 # Add coverage_config to all targets in runtime
