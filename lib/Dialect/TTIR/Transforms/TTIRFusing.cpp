@@ -1404,66 +1404,71 @@ public:
     // gaussianCDF(x)
 
     // In the event that `op` contains `x` as one of its arguments, and `x`
-    // itself is a multiply op, There will be two triplets of arguments to check
-    // as we do not know which argument from `multiply(multiply, multiply)` is
-    // `x`.
-    auto [arg1, arg2, arg3] = getTripleMultiplyArgs(op);
-    if (!arg1 || !arg2 || !arg3) {
-      return failure();
+    // itself is the result of a a multiply op, There will be two triplets of
+    // arguments to check as we do not know which argument from
+    // `multiply(multiply, multiply)` is `x`.
+    SmallVector<std::tuple<Value, Value, Value>> args =
+        getTripleMultiplyArgs(op);
+    for (auto [arg1, arg2, arg3] : args) {
+      if (args.empty()) {
+        return failure();
+      }
+
+      Value halfConstantArg;
+      Value gaussianResultArg;
+
+      if (isScalarValue(arg1, HALF)) {
+        halfConstantArg = arg1;
+      } else if (isScalarValue(arg2, HALF)) {
+        halfConstantArg = arg2;
+      } else if (isScalarValue(arg3, HALF)) {
+        halfConstantArg = arg3;
+      } else {
+        return failure();
+      }
+
+      GaussianCDFType gaussianCDFType;
+      Value geluInput;
+      if (auto [gaussianCDFType_, gaussianCDFInput_] =
+              getGaussianCDFTypeAndInput(arg1);
+          gaussianCDFType_ != GaussianCDFType::None) {
+        gaussianResultArg = arg1;
+        gaussianCDFType = gaussianCDFType_;
+        geluInput = gaussianCDFInput_;
+      } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+                     getGaussianCDFTypeAndInput(arg2);
+                 gaussianCDFType_ != GaussianCDFType::None) {
+        gaussianResultArg = arg2;
+        gaussianCDFType = gaussianCDFType_;
+        geluInput = gaussianCDFInput_;
+      } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+                     getGaussianCDFTypeAndInput(arg3);
+                 gaussianCDFType_ != GaussianCDFType::None) {
+        gaussianResultArg = arg3;
+        gaussianCDFType = gaussianCDFType_;
+        geluInput = gaussianCDFInput_;
+      } else {
+        return failure();
+      }
+
+      // Now one of the three arguments must be the gelu input
+      if (geluInput != arg1 && geluInput != arg2 && geluInput != arg3) {
+        return failure();
+      }
+
+      // TODO(@LPanosTT): When the 'approximate' flag is modelled in
+      // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
+      // gaussianCDFType is Tanh
+      //     - For now, we will always use the default erf version. This should
+      //     be
+      //       OK as the tanh approximation is incredibly accurate.
+      (void)gaussianCDFType;
+      ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
+          rewriter, op, op.getResult().getType(), geluInput);
+
+      return success();
     }
-
-    Value halfConstantArg;
-    Value gaussianResultArg;
-
-    if (isScalarValue(arg1, HALF)) {
-      halfConstantArg = arg1;
-    } else if (isScalarValue(arg2, HALF)) {
-      halfConstantArg = arg2;
-    } else if (isScalarValue(arg3, HALF)) {
-      halfConstantArg = arg3;
-    } else {
-      return failure();
-    }
-
-    GaussianCDFType gaussianCDFType;
-    Value geluInput;
-    if (auto [gaussianCDFType_, gaussianCDFInput_] =
-            getGaussianCDFTypeAndInput(arg1);
-        gaussianCDFType_ != GaussianCDFType::None) {
-      gaussianResultArg = arg1;
-      gaussianCDFType = gaussianCDFType_;
-      geluInput = gaussianCDFInput_;
-    } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
-                   getGaussianCDFTypeAndInput(arg2);
-               gaussianCDFType_ != GaussianCDFType::None) {
-      gaussianResultArg = arg2;
-      gaussianCDFType = gaussianCDFType_;
-      geluInput = gaussianCDFInput_;
-    } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
-                   getGaussianCDFTypeAndInput(arg3);
-               gaussianCDFType_ != GaussianCDFType::None) {
-      gaussianResultArg = arg3;
-      gaussianCDFType = gaussianCDFType_;
-      geluInput = gaussianCDFInput_;
-    } else {
-      return failure();
-    }
-
-    // Now one of the three arguments must be the gelu input
-    if (geluInput != arg1 && geluInput != arg2 && geluInput != arg3) {
-      return failure();
-    }
-
-    // TODO(@LPanosTT): When the 'approximate' flag is modelled in
-    // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
-    // gaussianCDFType is Tanh
-    //     - For now, we will always use the default erf version. This should be
-    //       OK as the tanh approximation is incredibly accurate.
-    (void)gaussianCDFType;
-    ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
-        rewriter, op, op.getResult().getType(), geluInput);
-
-    return success();
+    return failure();
   }
 
 private:
@@ -1477,26 +1482,21 @@ private:
 
   // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
   // multiply(multiply(a, b), c) or multiply(a, multiply(b, c))
-  std::tuple<Value, Value, Value>
+  SmallVector<std::tuple<Value, Value, Value>>
   getTripleMultiplyArgs(ttir::MultiplyOp multiplyOp) const {
     Value arg1 = multiplyOp.getLhs();
     Value arg2 = multiplyOp.getRhs();
+    SmallVector<std::tuple<Value, Value, Value>> args;
     if (ttir::MultiplyOp multiplyOp2 = arg1.getDefiningOp<ttir::MultiplyOp>()) {
-      if (!multiplyOp2.getRhs().getDefiningOp<ttir::MultiplyOp>() &&
-          !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
-        return std::make_tuple(arg2, multiplyOp2.getLhs(),
-                               multiplyOp2.getRhs());
-      }
-    } else if (ttir::MultiplyOp multiplyOp2 =
-                   arg2.getDefiningOp<ttir::MultiplyOp>()) {
-      if (!multiplyOp2.getRhs().getDefiningOp<MultiplyOp>() &&
-          !multiplyOp2.getLhs().getDefiningOp<MultiplyOp>()) {
-        return std::make_tuple(multiplyOp2.getLhs(), multiplyOp2.getRhs(),
-                               arg1);
-      }
+      args.push_back(
+          std::make_tuple(arg2, multiplyOp2.getLhs(), multiplyOp2.getRhs()));
+    }
+    if (ttir::MultiplyOp multiplyOp2 = arg2.getDefiningOp<ttir::MultiplyOp>()) {
+      args.push_back(
+          std::make_tuple(multiplyOp2.getLhs(), multiplyOp2.getRhs(), arg1));
     }
 
-    return std::make_tuple(nullptr, nullptr, nullptr);
+    return args;
   }
 
   // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or 1 +
