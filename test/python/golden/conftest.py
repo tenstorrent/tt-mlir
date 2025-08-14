@@ -163,7 +163,7 @@ def _get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
     for key in shape_keys:
         if key in params:
             return params[key]
-    return None
+    raise KeyError("No shapes parameter found, each test must be parametrized with one")
 
 
 def _get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
