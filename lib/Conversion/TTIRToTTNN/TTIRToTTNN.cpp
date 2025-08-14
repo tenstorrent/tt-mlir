@@ -32,6 +32,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
+#include <iostream>
 #include <optional>
 
 using namespace mlir;
@@ -597,9 +598,14 @@ public:
     std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
                                          op.getCache().getUsers().end());
     if (users.size() != 1) {
+      std::cout << "[HET DEBUG FillCacheOpConversionPattern] num users: "
+                << users.size() << ", expected=1" << std::endl;
       return rewriter.notifyMatchFailure(
           op, "FillCacheOp must have exactly one user");
     }
+    std::cout
+        << "[HET DEBUG FillCacheOpConversionPattern] num users is 1 as expected"
+        << std::endl;
 
     rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
                                        adaptor.getInput(),

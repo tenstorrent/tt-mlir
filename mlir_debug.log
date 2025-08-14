@@ -7713,6 +7713,7 @@ module @SyncTensorsGraph.337 attributes {mhlo.cross_program_prefetches = [], mhl
   }
 }
 
+[HET DEBUG FillCacheOpConversionPattern] num users: 2, expected=1
 llama_ttir.mlir:144:12: error: failed to legalize operation 'ttir.fill_cache'
     %141 = "ttir.scatter"(%53, %5, %139, %140) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 2>, scatter_dims_to_operand_dims = array<i32: 2>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 0, 1, 3>}> : (tensor<1x1x19x128xbf16>, tensor<14xi64>, tensor<1x1x14x128xbf16>, tensor<1x1x19x128xbf16>) -> tensor<1x1x19x128xbf16>
            ^
