@@ -22,6 +22,31 @@ module {
       return %12 : tensor<32x32xbf16>
     }
   }
+
+  module @gelu_erf_arg_multiply attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+    func.func @main(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      // CHECK: %[[MULTIPLIED_ARGS:.*]] = "ttir.multiply"(%arg0, %arg1
+      // CHECK: %[[GELU:.*]] = "ttir.gelu"(%[[MULTIPLIED_ARGS]]
+      // CHECK: return %[[GELU]]
+      %multiplied_args_dps = ttir.empty() : tensor<32x32xbf16>
+      %multiplied_args = "ttir.multiply"(%arg0, %arg1, %multiplied_args_dps) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %0 = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
+      %1 = "ttir.constant"() <{value = dense<7.070310e-01> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
+      %2 = "ttir.constant"() <{value = dense<5.000000e-01> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
+      %3 = ttir.empty() : tensor<32x32xbf16>
+      %4 = "ttir.multiply"(%multiplied_args, %2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = ttir.empty() : tensor<32x32xbf16>
+      %6 = "ttir.multiply"(%multiplied_args, %1, %5) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %7 = ttir.empty() : tensor<32x32xbf16>
+      %8 = "ttir.erf"(%6, %7) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %9 = ttir.empty() : tensor<32x32xbf16>
+      %10 = "ttir.add"(%8, %0, %9) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %11 = ttir.empty() : tensor<32x32xbf16>
+      %12 = "ttir.multiply"(%4, %10, %11) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %12 : tensor<32x32xbf16>
+    }
+  }
+
   module @gelu_tanh attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
     func.func @main(%arg0: tensor<32x32xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<32x32xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
       // CHECK: %[[GELU:.*]] = "ttir.gelu"(%arg0
