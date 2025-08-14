@@ -34,9 +34,10 @@ public:
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      unsigned usableL1CacheSize, float tensorL1UsageCap)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize),
+                                   schedule, usableL1CacheSize,
+                                   tensorL1UsageCap),
         tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         overrideReshardEdges() {}
 

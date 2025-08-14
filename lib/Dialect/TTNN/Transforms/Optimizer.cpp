@@ -167,8 +167,8 @@ protected:
   ::mlir::Pass::Option<float> tensorL1UsageCap{
       *this, OptionNames::tensorL1UsageCap,
       ::llvm::cl::desc(
-          "Override tensor L1 usage cap in L1 interleaved fallback."
-          "analysis. [0.0-1.0]"),
+          "Override tensor L1 usage cap in L1 Interleaved Fallback Analysis "
+          "and Memory Layout Analysis. [0.0-1.0]"),
       ::llvm::cl::init(0.8f)};
 
 private:
@@ -312,7 +312,7 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          overrideReshardEdges, overrideOutputLayout,
+          tensorL1UsageCap, overrideReshardEdges, overrideOutputLayout,
           memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
