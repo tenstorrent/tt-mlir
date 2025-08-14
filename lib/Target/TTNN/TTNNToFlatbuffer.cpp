@@ -1721,11 +1721,21 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreatePool2dOp(
-      *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
-      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getInPlaceHalo());
+  if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
+    return ::tt::target::ttnn::CreatePool2dOp(
+        *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
+        op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+        dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
+        op.getCeilMode(), op.getInPlaceHalo(), op.getCountIncludePad());
+  } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
+    return ::tt::target::ttnn::CreatePool2dOp(
+        *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
+        op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+        dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
+        op.getCeilMode(), op.getInPlaceHalo());
+  } else {
+    llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+  }
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
