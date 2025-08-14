@@ -36,6 +36,11 @@
 #include <memory>
 #include <vector>
 
+static llvm::cl::opt<std::string>
+    cudaMcpu("cuda-mcpu",
+             llvm::cl::desc("CUDA compute capability (default: sm_80)"),
+             llvm::cl::init("sm_80"));
+
 namespace mlir::tt::cuda {
 
 // Helper function to extract CUDA chip information from module attributes.
