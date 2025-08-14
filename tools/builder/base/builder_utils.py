@@ -496,8 +496,6 @@ def build_stablehlo_module(
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
                 input_goldens = []
-                print(stablehlo_builder.golden_map)
-                print(stablehlo_builder)
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens.append(
                         stablehlo_builder._generate_input_golden(
@@ -523,7 +521,6 @@ def build_stablehlo_module(
         if module_dump:
             with open(filename, "w") as f:
                 f.write(str(module))
-                # print("StableHLO module, after running stablehlo_pipeline")
                 print(module)
 
         return module, stablehlo_builder
@@ -541,8 +538,9 @@ def compile_stablehlo_to_flatbuffer(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
-    custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,  # *****
+    ttir_pipeline_options: Optional[List[str]] = None,
+    shlo_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -622,30 +620,25 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
-    print("StableHLO module, just built ^^^")
-    # print(module)
-    stablehlo_pipeline(module)
 
-    print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+    if shlo_pipeline_options is None:
+        shlo_pipeline_options = []
 
-    test_base = fn.__name__ if test_base is None else test_base
-
-    filename = _get_target_path(output_root, test_base + "_shlo2.mlir", test_base)
-
-    if module_dump:
-        with open(filename, "w") as f:
-            f.write(str(module))
-            print("StableHLO module, after running stablehlo_pipeline")
-            print(module)
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
+    print(module)
 
     stablehlo_to_ttir_pipeline(module)
-    print("After stablehlo_to_ttir_pipeline")
+
+    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
-    builder.populate_goldens()
+
+    test_base = fn.__name__ if test_base is None else test_base
 
     filename = _get_target_path(
         output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
     )
+
     if module_dump:
         with open(filename, "w") as f:
             f.write(str(module))
@@ -662,7 +655,7 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
-        pipeline_options=pipeline_options,
+        pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
     )
 
