@@ -30,7 +30,7 @@ public:
   /**
    * Executes all kernels in the program
    */
-  void execute();
+  ::tt::runtime::Tensor execute();
 
 private:
   const ::cuda::Program *program;
@@ -42,6 +42,7 @@ private:
   CUcontext context;
 
   void runKernel(const ::cuda::Kernel *kernel);
+  void finishing();
 };
 
 } // namespace tt::runtime::cuda

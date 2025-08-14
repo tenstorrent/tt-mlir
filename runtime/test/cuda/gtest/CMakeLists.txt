@@ -1,0 +1,1 @@
+add_cuda_runtime_gtest(test_cuda_program_executor)

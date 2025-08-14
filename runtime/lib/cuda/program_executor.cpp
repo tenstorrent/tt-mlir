@@ -36,23 +36,44 @@ static int64_t getDim(std::string typeStr) {
   return -1;
 }
 
-void ProgramExecutor::execute() {
+void ProgramExecutor::finishing() {
+  for (const auto &pair : tensorMap) {
+    cuMemFree(pair.second);
+  }
+  tensorMap.clear();
+  memrefDescMap.clear();
+
+  cuCtxDestroy(context);
+}
+
+::tt::runtime::Tensor ProgramExecutor::execute() {
 
   if (!program) {
     llvm::errs() << "No program found\n";
-    return;
+    return ::tt::runtime::Tensor(nullptr, nullptr,
+                                 ::tt::runtime::DeviceRuntime::CUDA);
   }
 
   if (!program->memrefs()) {
     llvm::errs() << "No memrefs found in program\n";
-    return;
+    return ::tt::runtime::Tensor(nullptr, nullptr,
+                                 ::tt::runtime::DeviceRuntime::CUDA);
+    ;
   }
 
   if (!program->kernels()) {
     llvm::errs() << "No kernels found in program\n";
-    return;
+    return ::tt::runtime::Tensor(nullptr, nullptr,
+                                 ::tt::runtime::DeviceRuntime::CUDA);
+    ;
   }
 
+  if (program->return_variable()->str().size() == 0) {
+    llvm::errs() << "No return variable found in program\n";
+    return ::tt::runtime::Tensor(nullptr, nullptr,
+                                 ::tt::runtime::DeviceRuntime::CUDA);
+    ;
+  }
   // Allocate memory for tensors.
   for (auto *memref : *program->memrefs()) {
     int64_t dim = 1;
@@ -66,7 +87,10 @@ void ProgramExecutor::execute() {
     if (size < 0) {
       llvm::errs() << "Failed to get size of tensor: " << memref->name()->str()
                    << "\n";
-      return;
+      finishing();
+      return ::tt::runtime::Tensor(nullptr, nullptr,
+                                   ::tt::runtime::DeviceRuntime::CUDA);
+      ;
     }
     CUdeviceptr devicePtr;
     auto cudaStatus = cuMemAlloc(&devicePtr, size);
@@ -80,6 +104,13 @@ void ProgramExecutor::execute() {
     if (memref->name()->str().find("%arg") != std::string::npos) {
       // Copy input tensors to device.
       size_t i = std::stoi(memref->name()->str().substr(4));
+      if (programInputs.size() <= i) {
+        llvm::errs() << "Not enough arguments provided\n";
+        finishing();
+        return ::tt::runtime::Tensor(nullptr, nullptr,
+                                     ::tt::runtime::DeviceRuntime::CUDA);
+        ;
+      }
       cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
     }
   }
@@ -90,7 +121,7 @@ void ProgramExecutor::execute() {
   }
 
   // Copy return value to host.
-  CUdeviceptr returnTensor = tensorMap[program->return_variable()->str()];
+  CUdeviceptr returnVariable = tensorMap[program->return_variable()->str()];
   std::string returnTypeStr =
       memrefDescMap[program->return_variable()->str()]->type()->str();
   int64_t returnDim = 1;
@@ -99,23 +130,14 @@ void ProgramExecutor::execute() {
     returnTypeStr = returnTypeStr.substr(returnTypeStr.find("x") + 1);
   }
   size_t returnSize = getDim(returnTypeStr) * returnDim;
-  auto returnPtr = std::make_unique<char[]>(returnSize);
-  cuMemcpyDtoH(returnPtr.get(), returnTensor, returnSize);
-  float *returnFloatPtr = reinterpret_cast<float *>(returnPtr.get());
-  for (int64_t i = 0; i < returnDim; i++) {
-    llvm::outs() << returnFloatPtr[i] << "\n";
-  }
-  llvm::outs() << "\n";
+  auto returnPtr = std::shared_ptr<void>(std::malloc(returnSize), std::free);
+  cuMemcpyDtoH(returnPtr.get(), returnVariable, returnSize);
 
-  // Free memory.
-  for (const auto &pair : tensorMap) {
-    cuMemFree(pair.second);
-  }
-  tensorMap.clear();
-  memrefDescMap.clear();
+  finishing();
+  ::tt::runtime::Tensor returnTensor(nullptr, returnPtr,
+                                     ::tt::runtime::DeviceRuntime::CUDA);
 
-  // Destroy context.
-  cuCtxDestroy(context);
+  return returnTensor;
 }
 
 void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
@@ -158,7 +180,9 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
                 kernel->grid_size_z());
   dim3 blockSize(kernel->block_size_x(), kernel->block_size_y(),
                  kernel->block_size_z());
-
+  // llvm::outs() << gridSize.x << " " <<gridSize.y << " " <<gridSize.z << "\n";
+  // llvm::outs() << blockSize.x << " " <<blockSize.y << " " <<blockSize.z <<
+  // "\n\n";
   cuLaunchKernel(function, gridSize.x, gridSize.y, gridSize.z, blockSize.x,
                  blockSize.y, blockSize.z, 0, 0, kernelArgs.get(), nullptr);
   cudaDeviceSynchronize();
