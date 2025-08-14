@@ -56,7 +56,8 @@ struct RankedTensorTypeFactory {
 };
 
 // Return the L1 memory usage of the output tensor of the given op.
-// Used within L1 interleaved policies.
+// Used within L1 interleaved policies and temporarily within L1 Interleaved
+// Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
