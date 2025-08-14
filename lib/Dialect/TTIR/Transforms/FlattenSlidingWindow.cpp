@@ -101,10 +101,22 @@ public:
         inputType.getContext(), inputType.getDimSize(0),
         inputType.getDimSize(1), inputType.getDimSize(2));
 
-    auto newPool = ttir::utils::createDPSOp<Pooling2dOp>(
-        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-        adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-        adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
+    Pooling2dOp newPool;
+    if constexpr (std::is_same_v<Pooling2dOp, ttir::MaxPool2dOp>) {
+      newPool = ttir::utils::createDPSOp<Pooling2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          flattenedCompatInfoAttr);
+    } else if constexpr (std::is_same_v<Pooling2dOp, ttir::AvgPool2dOp>) {
+      newPool = ttir::utils::createDPSOp<Pooling2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
+    } else {
+      llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+    }
 
     Value output = generateReshape(newPool, outputType, rewriter);
 

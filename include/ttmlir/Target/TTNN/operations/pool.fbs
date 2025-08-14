@@ -24,6 +24,7 @@ table Pool2dOp {
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
   in_place_halo: bool = false;
+  count_include_pad: bool = true;
 }
 
 table UniformScale2D {
