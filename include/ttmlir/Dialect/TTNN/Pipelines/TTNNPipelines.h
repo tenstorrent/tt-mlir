@@ -274,6 +274,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-bfp8-conversion",
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
+
+  // Option to provide an already opened device pointer. When provided,
+  // the optimizer will use this device instead of opening a new one.
+  // This allows frontends to pass in an active device without closing it.
+  void *devicePtr = nullptr;
 };
 
 // TTIR to EmitC pipeline options.

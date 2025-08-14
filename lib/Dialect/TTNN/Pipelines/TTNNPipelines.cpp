@@ -91,6 +91,7 @@ void createTTNNPipelineAnalysisPasses(
         options.memoryLayoutAnalysisPolicy;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+    optimizerOptions.devicePtr = options.devicePtr;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());

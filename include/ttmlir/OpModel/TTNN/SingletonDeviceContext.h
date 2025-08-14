@@ -32,6 +32,8 @@ public:
   static SingletonDeviceContext &getInstance();
   static void resetInstance();
   static void closeInstance();
+  static void
+  setExternalDevice(::tt::tt_metal::distributed::MeshDevice *device);
 
   ::tt::tt_metal::distributed::MeshDevice *getDevice() {
     return m_device.get();
@@ -46,6 +48,7 @@ private:
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
+  bool m_isExternalDevice = false;
 
   void openDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
   void closeDevice();

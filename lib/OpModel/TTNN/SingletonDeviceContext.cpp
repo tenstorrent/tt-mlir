@@ -26,7 +26,11 @@ SingletonDeviceContext::~SingletonDeviceContext() { closeDevice(); }
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
   static SingletonDeviceContext instance =
       SingletonDeviceContext(opModelDefaultTraceRegionSize);
-  assert(instance.m_device != nullptr);
+  // Don't assert if m_device is null when using external device -
+  // it might not be set yet
+  if (!instance.m_isExternalDevice) {
+    assert(instance.m_device != nullptr);
+  }
   return instance;
 }
 
@@ -41,8 +45,23 @@ void SingletonDeviceContext::closeInstance() {
   instance.closeDevice();
 }
 
+void SingletonDeviceContext::setExternalDevice(
+    ::tt::tt_metal::distributed::MeshDevice *device) {
+  SingletonDeviceContext &instance = getInstance();
+  // Close any existing device first
+  instance.closeDevice();
+  // Set external device (without taking ownership)
+  instance.m_device = std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>(
+      device, [](::tt::tt_metal::distributed::MeshDevice *) {
+        // Empty deleter - we don't own this device
+      });
+  instance.m_isExternalDevice = true;
+}
+
 void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
   assert(m_device == nullptr);
+  // Reset external device flag when opening our own device
+  m_isExternalDevice = false;
   // todo: this replicates logic in
   // runtime/include/tt/runtime/detail/common/common.h, move to shared location
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
@@ -63,8 +82,12 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
 
 void SingletonDeviceContext::closeDevice() {
   if (m_device) {
-    m_device->close();
+    // Only close the device if we own it (not external)
+    if (!m_isExternalDevice) {
+      m_device->close();
+    }
     m_device.reset();
+    m_isExternalDevice = false;
   }
 }
 
