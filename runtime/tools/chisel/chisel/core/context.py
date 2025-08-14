@@ -303,9 +303,11 @@ class ChiselContext:
                 device_tensor.tensor_ref = tensor_ref
                 self.function_argument_bridge(programContext, input_name)
             else:
+                tensor_data = retrieve_tensor_from_pool(programContext, tensor_ref)
+                data = get_torch_tensor(tensor_data)
                 # Create new tensor value if it doesn't exist
                 self.device_tensor_pool[input_name] = TensorValue(
-                    input_name, None, ExecutionType.DEVICE, tensor_ref=tensor_ref
+                    input_name, data, ExecutionType.DEVICE, tensor_ref=tensor_ref
                 )
 
     @debug_wrap(debug=DEBUG)
@@ -551,8 +553,18 @@ class ChiselContext:
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
-            tensor = torch.randn(shape, dtype=torch_dtype)
+            if torch_dtype.is_floating_point:
+                tensor = torch.randn(shape, dtype=torch_dtype)
+            else:
+                tensor = torch.randint(
+                    torch.iinfo(torch_dtype).min, torch.iinfo(torch_dtype).max, shape
+                )
             self.device_tensor_pool[arg_name] = TensorValue(
                 arg_name, tensor, ExecutionType.DEVICE
             )
             self.device_tensor_pool[arg_name].set_execution_data()
+
+            self.golden_tensor_pool[arg_name] = TensorValue(
+                arg_name, tensor, ExecutionType.GOLDEN
+            )
+            self.golden_tensor_pool[arg_name].set_execution_data()
