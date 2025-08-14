@@ -1389,9 +1389,9 @@ private:
 } // namespace
 
 namespace {
-// This pattern fuses: 0.5 * x * gaussianCDF(x), where gaussianCDF is a
-// linearly transformed cumulative distribution function of the gaussian
-// distribution (or an approximation of one)
+// This pattern fuses: 0.5 * x * gaussianCDF(x) in to ttir.gelu(x), where
+// gaussianCDF is a linearly transformed cumulative distribution function of the
+// gaussian distribution (or an approximation of one).
 class GeluFusionPattern : public mlir::OpRewritePattern<ttir::MultiplyOp> {
 public:
   using mlir::OpRewritePattern<ttir::MultiplyOp>::OpRewritePattern;
@@ -1401,7 +1401,7 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
 
     // arg1, arg2, and arg3 shall be some permutation of 0.5, x, and
-    // gaussianCDF(x)
+    // gaussianCDF(x).
 
     // In the event that `op` contains `x` as one of its arguments, and `x`
     // itself is the result of a a multiply op, There will be two triplets of
@@ -1429,24 +1429,18 @@ public:
 
       GaussianCDFType gaussianCDFType;
       Value geluInput;
-      if (auto [gaussianCDFType_, gaussianCDFInput_] =
+      if (std::tie(gaussianCDFType, geluInput) =
               getGaussianCDFTypeAndInput(arg1);
-          gaussianCDFType_ != GaussianCDFType::None) {
+          gaussianCDFType != GaussianCDFType::None) {
         gaussianResultArg = arg1;
-        gaussianCDFType = gaussianCDFType_;
-        geluInput = gaussianCDFInput_;
-      } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+      } else if (std::tie(gaussianCDFType, geluInput) =
                      getGaussianCDFTypeAndInput(arg2);
-                 gaussianCDFType_ != GaussianCDFType::None) {
+                 gaussianCDFType != GaussianCDFType::None) {
         gaussianResultArg = arg2;
-        gaussianCDFType = gaussianCDFType_;
-        geluInput = gaussianCDFInput_;
-      } else if (auto [gaussianCDFType_, gaussianCDFInput_] =
+      } else if (std::tie(gaussianCDFType, geluInput) =
                      getGaussianCDFTypeAndInput(arg3);
-                 gaussianCDFType_ != GaussianCDFType::None) {
+                 gaussianCDFType != GaussianCDFType::None) {
         gaussianResultArg = arg3;
-        gaussianCDFType = gaussianCDFType_;
-        geluInput = gaussianCDFInput_;
       } else {
         return failure();
       }
@@ -1458,10 +1452,9 @@ public:
 
       // TODO(@LPanosTT): When the 'approximate' flag is modelled in
       // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
-      // gaussianCDFType is Tanh
+      // gaussianCDFType is Tanh.
       //     - For now, we will always use the default erf version. This should
-      //     be
-      //       OK as the tanh approximation is incredibly accurate.
+      //       be OK as the tanh approximation is incredibly accurate.
       (void)gaussianCDFType;
       ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
           rewriter, op, op.getResult().getType(), geluInput);
@@ -1481,7 +1474,7 @@ private:
   static constexpr double THREE = 3.0;
 
   // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
-  // multiply(multiply(a, b), c) or multiply(a, multiply(b, c))
+  // multiply(multiply(a, b), c) or multiply(a, multiply(b, c)).
   SmallVector<std::tuple<Value, Value, Value>>
   getTripleMultiplyArgs(ttir::MultiplyOp multiplyOp) const {
     Value arg1 = multiplyOp.getLhs();
@@ -1500,7 +1493,7 @@ private:
   }
 
   // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or 1 +
-  // tanh(sqrt(2/pi) * (x + 0.044715 * x^3)) if gelu approximation is true
+  // tanh(sqrt(2/pi) * (x + 0.044715 * x^3)) if gelu approximation is true.
   std::tuple<GaussianCDFType, Value>
   getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
     if (Value gaussianCDFInput = getErfGaussianCDFInput(gaussianCDFResult)) {
@@ -1544,7 +1537,7 @@ private:
       return nullptr;
     }
 
-    // The other operand must be tanh
+    // The other operand must be tanh.
     ttir::TanhOp tanh = isArgLhs
                             ? gaussianCDFAdd.getLhs().getDefiningOp<TanhOp>()
                             : gaussianCDFAdd.getRhs().getDefiningOp<TanhOp>();
@@ -1649,7 +1642,7 @@ private:
   }
 
   // This will return the input Value of a sequence of ops which computes x^3 if
-  // it exists, given the result of the sequence
+  // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
       ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
@@ -1700,10 +1693,10 @@ private:
       return nullptr;
     }
 
-    // The add must have a constant operand of 1
+    // The add must have a constant operand of 1.
 
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
-    // add op
+    // add op.
     bool isArgLhs = false;
     ttir::FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<ttir::FullOp>();
     if (!one) {
@@ -1722,7 +1715,7 @@ private:
       return nullptr;
     }
 
-    // erf must be the other operand
+    // erf must be the other operand.
     ttir::ErfOp erf =
         isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<ttir::ErfOp>()
                  : gaussianCDFAdd.getRhs().getDefiningOp<ttir::ErfOp>();
