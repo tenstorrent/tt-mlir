@@ -2012,19 +2012,17 @@ def test_cpu_hoistable_binary_ops(
 # Test hoisted permute separately because it requires unique input shapes.
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_perms",
+    "shapes,permutation",
     [
         # [(input_shape, output_shape), permutation]
-        [[(2, 3, 4), (4, 2, 3)], [2, 0, 1]],
-        [[(128, 128), (128, 128)], [0, 1]],
-        [[(128, 64, 32), (32, 128, 64)], [2, 0, 1]],
+        ([(2, 3, 4), (4, 2, 3)], [2, 0, 1]),
+        ([(128, 128), (128, 128)], [0, 1]),
+        ([(128, 64, 32), (32, 128, 64)], [2, 0, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.fails_golden
-def test_hoisted_permute(shapes_and_perms, request, target: str):
-    shapes, permutation = shapes_and_perms
-
+def test_hoisted_permute(shapes, permutation, request, target: str):
     def permute_wrapper(
         in0: Operand,
         in1: Operand,
