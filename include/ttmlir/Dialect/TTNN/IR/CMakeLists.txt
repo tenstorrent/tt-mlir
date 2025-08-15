@@ -17,6 +17,12 @@ mlir_tablegen(TTNNOpsAttrDefs.cpp.inc -gen-attrdef-defs)
 add_public_tablegen_target(MLIRTTNNOpsAttrsIncGen)
 add_dependencies(mlir-headers MLIRTTNNOpsAttrsIncGen)
 
+set(LLVM_TARGET_DEFINITIONS TTNNKernelInterface.td)
+mlir_tablegen(TTNNKernelInterface.h.inc -gen-attr-interface-decls)
+mlir_tablegen(TTNNKernelInterface.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(TTNNKernelInterfaceIncGen)
+add_dependencies(mlir-headers TTNNKernelInterfaceIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTNNOpsTypes.td)
 mlir_tablegen(TTNNOpsTypeDefs.h.inc -gen-typedef-decls)
 mlir_tablegen(TTNNOpsTypeDefs.cpp.inc -gen-typedef-defs)

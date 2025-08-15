@@ -2994,4 +2994,46 @@ MeshShardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
+
+//===----------------------------------------------------------------------===//
+// GenericOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GenericOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GenericOp>::getOpConstraints, *this, deviceGrid,
+      inputShapes, inputs, getProgram(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GenericOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GenericOp>::getOpRuntime, *this, inputShapes, inputs,
+      getProgram(), opConfig.outputLayout);
+}
+
 } // namespace mlir::tt::ttnn

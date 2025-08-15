@@ -4476,4 +4476,72 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<GenericOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid,
+    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<TTNNLayoutAttr> inputLayouts, ProgramAttr program,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto genericOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::generic, device, inputSpecs,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayouts[0].getContext(), deviceGrid,
+                                     genericOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GenericOp>::getOpRuntime(
+    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<TTNNLayoutAttr> inputLayouts, ProgramAttr program,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto genericOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::generic, device, inputSpecs,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(genericOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif
+}
+
 } // namespace mlir::tt::ttnn::op_model

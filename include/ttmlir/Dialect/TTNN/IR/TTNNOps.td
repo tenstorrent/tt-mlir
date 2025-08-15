@@ -2454,4 +2454,21 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
+def TTNN_GenericOp : TTNN_Op<"generic", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+    let summary = "Generic op.";
+    let description = [{
+      Generic operation.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         TTNN_ProgramAttr:$program,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif
