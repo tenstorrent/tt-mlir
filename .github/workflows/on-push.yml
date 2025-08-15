@@ -8,6 +8,8 @@ on:
 permissions:
   checks: write
   packages: write
+  id-token: write
+  pages: write
 
 jobs:
   pre-commit:
