@@ -1721,21 +1721,29 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  ::flatbuffers::Offset<void> extraParams = 0;
+  ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
   if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
-    return ::tt::target::ttnn::CreatePool2dOp(
-        *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
-        op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-        dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-        op.getCeilMode(), op.getInPlaceHalo(), op.getCountIncludePad());
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::AvgPool2dExtraParams;
+    extraParams = ::tt::target::ttnn::CreateAvgPool2dExtraParams(
+                      *cache.fbb, op.getCountIncludePad())
+                      .Union();
   } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
-    return ::tt::target::ttnn::CreatePool2dOp(
-        *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
-        op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-        dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-        op.getCeilMode(), op.getInPlaceHalo());
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dExtraParams;
+    extraParams =
+        ::tt::target::ttnn::CreateMaxPool2dExtraParams(*cache.fbb).Union();
   } else {
-    llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+    llvm_unreachable("unhandled Pool2dOp");
   }
+
+  return ::tt::target::ttnn::CreatePool2dOp(
+      *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+      dilation, extraParamsType, extraParams, memoryConfig,
+      toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
+      op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
