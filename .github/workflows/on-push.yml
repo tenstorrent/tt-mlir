@@ -22,3 +22,8 @@ jobs:
       - spdx
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+  docs:
+    needs:
+      - build-and-test
+    uses: ./.github/workflows/pages.yml
+    secrets: inherit
