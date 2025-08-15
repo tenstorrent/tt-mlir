@@ -856,22 +856,6 @@ Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// RemainderOp - TTNN Op Model Interface - TEMPORARY
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-RemainderOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                              const OpConfig &opConfig) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
-}
-
-llvm::Expected<size_t>
-RemainderOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
-  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
-}
-
-//===----------------------------------------------------------------------===//
 // PowOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
