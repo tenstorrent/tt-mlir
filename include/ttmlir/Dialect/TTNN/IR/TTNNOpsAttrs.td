@@ -697,4 +697,77 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   let genVerifyDecl = 1;
 }
 
+def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins "uint32_t":$page_size,
+                        "uint32_t":$buffer_index,
+                        "ttcore::DataType":$dtype);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins "uint32_t":$total_size,
+                        TTNN_CoreRangeAttr:$core_range,
+                        ArrayRefParameter<"KernelCBFormatAttr">:$formats);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ReaderKernelAttr: TTNN_Attr<"ReaderKernel", "reader_kernel"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_WriterKernelAttr: TTNN_Attr<"WriterKernel", "writer_kernel"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelAttr : AnyAttrOf<[TTNN_ComputeKernelAttr, TTNN_ReaderKernelAttr, TTNN_WriterKernelAttr]>;
+
+def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let parameters = (ins ArrayRefParameter<"KernelCBAttr">:$cbs,
+                        ArrayRefParameter<"mlir::Attribute">:$kernels);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
