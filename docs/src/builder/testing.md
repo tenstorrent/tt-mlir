@@ -30,6 +30,7 @@ All op tests utilizing builder follow a similar structure. Here we use
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_reshape(input_shape, output_shape, dtype: torch.dtype, request):
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -39,6 +40,7 @@ def test_reshape(input_shape, output_shape, dtype: torch.dtype, request):
         reshape_wrapper,
         [input_shape],
         [dtype],
+        target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -54,14 +56,18 @@ As seen above, each test is broadly split into 3 parts:
    `compile_ttir_to_flatbuffer` explains each parameter in detail
 
 ### Parametrization Rules
+
+> NOTE: these rules are temporary, and may be relaxed completely upon
+> completion of #4518
+
 The builder tests make heavy utilization of `pytests` parametrization features
 to reuse as much code as possible when just changing the inputs to different
 ops. There are some special rules to follow when defining parametrizations for tests here:
-- All tests _must_ be parametrized with the input shape of an op, and it must
-  be named one of  `shapes`, `shape`, `input_shape`, or `inputs_shapes`. This
-  requirement is to allow these shapes to easily be dumped to a test report and
-  ingested by some report analysis tool, so the dumper must know which
-  parameters to look for.
+- All tests _must_ be parametrized with the input shape of an op for reporting
+  to pick up the shape, and it must be named one of  `shapes`, `shape`,
+  `input_shape`, or `inputs_shapes`. This requirement is to allow these shapes
+  to easily be dumped to a test report and ingested by some report analysis
+  tool, so the dumper must know which parameters to look for.
 - If input types are being parametrized, then they must be named one of
   `dtypes`, `dtype`, `inputs_dtypes` for the same reason as above. The arity of
   this must either match the arity of the shapes, or be exactly one element,
@@ -88,6 +94,12 @@ ops. There are some special rules to follow when defining parametrizations for t
     )
     ...
     stride, padding, dilation, groups = stride_padding_dilation_groups
+- If a different backend to `"ttnn"` is desired, then it must be parametrized
+  under the name `"target"`
+- All tests must contain the `pytest.mark.frontend` mark, denoting either
+  `"ttir"` or `"shlo"`. The easiest way to do this is by utilizing file wide
+  marks (set the `pytestmark` variable to the mark or a list of marks you want
+  to apply to every test in the file)
 
 ### Marks
 There are a number of custom marks provided for this test suite, most of them
@@ -102,3 +114,5 @@ parameter configurations. They are as follows:
   This functions over set intersection, so something like
   `skip_config(["ttmetal"])` will skip all `ttmetal` tests that this test
   function generates
+- `frontend(fe)`: `fe` is one of `"ttir"` or `"shlo"` and denotes for the test
+  reporter which frontend builder this test is using
