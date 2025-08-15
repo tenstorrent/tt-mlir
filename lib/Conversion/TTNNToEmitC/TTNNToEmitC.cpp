@@ -2112,6 +2112,57 @@ public:
 };
 } // namespace
 
+// PadOp conversion pattern
+//
+namespace {
+class PadOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::PadOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PadOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PadOp srcOp,
+                  mlir::tt::ttnn::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PadOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Convert DenseI32ArrayAttr [0, 0, 0, 0, 0, 288, 0, 288] to pairs [(0,0),
+    // (0,0), (0,288), (0,288)]
+    auto paddingAttr = srcOp.getPaddingAttr();
+    auto paddingValues = paddingAttr.asArrayRef();
+
+    // Create pairs from the flat array
+    std::stringstream paddingStr;
+    paddingStr << "::ttsl::SmallVector<std::pair<uint32_t, uint32_t>>{";
+    for (size_t i = 0; i < paddingValues.size(); i += 2) {
+      if (i > 0) {
+        paddingStr << ", ";
+      }
+      uint32_t low = paddingValues[i];
+      uint32_t high = paddingValues[i + 1];
+      paddingStr << "std::make_pair(" << low << ", " << high << ")";
+    }
+    paddingStr << "}";
+
+    auto paddingValueAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), paddingStr.str());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        paddingValueAttr,
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getUseMulticore()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // SliceOp conversion pattern
 //
 namespace {
@@ -2494,8 +2545,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
                RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
                SortOpConversionPattern, PermuteOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
-                                                                  ctx);
+               PadOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //
