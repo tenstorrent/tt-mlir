@@ -39,12 +39,14 @@
 #include <sstream>
 #include <vector>
 
-static llvm::cl::opt<std::string>
-    cudaMcpu("cuda-mcpu",
-             llvm::cl::desc("CUDA compute capability (default: sm_80)"),
-             llvm::cl::init("sm_80"));
-
 namespace mlir::tt::cuda {
+
+static std::string getCudaMcpu() {
+  static llvm::cl::opt<std::string> cudaMcpu(
+      "cuda-mcpu", llvm::cl::desc("CUDA compute capability (default: sm_80)"),
+      llvm::cl::init("sm_80"));
+  return cudaMcpu;
+}
 
 std::string translateToPTX(Operation *op, const std::string &mcpu) {
 
@@ -165,7 +167,7 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
       auto tempModule = builder.create<ModuleOp>(gpuModule.getLoc());
       builder.setInsertionPointToStart(tempModule.getBody());
       builder.clone(*gpuModule.getOperation());
-      std::string ptxCode = translateToPTX(tempModule, cudaMcpu);
+      std::string ptxCode = translateToPTX(tempModule, getCudaMcpu());
       tempModule.erase();
       cuda::Kernel kernel;
       kernel.name = kernelName;
