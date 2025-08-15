@@ -5,6 +5,7 @@
 #include "OpModelFixture.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
@@ -908,6 +909,8 @@ protected:
 // Type aliases for binary operations
 using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
+using OpModelLogicalRightShiftParam =
+    OpModelBinaryEltwiseParam<LogicalRightShiftOp>;
 using OpModelSubtractParam = OpModelBinaryEltwiseParam<SubtractOp>;
 using OpModelMaximumParam = OpModelBinaryEltwiseParam<MaximumOp>;
 using OpModelMinimumParam = OpModelBinaryEltwiseParam<MinimumOp>;
@@ -924,6 +927,7 @@ using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
+TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTest(); }
 TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
 TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
 TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }
@@ -1023,6 +1027,9 @@ INSTANTIATE_TEST_SUITE_P(MulTests, OpModelMultiplyParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
