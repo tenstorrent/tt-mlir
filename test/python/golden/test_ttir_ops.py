@@ -2644,6 +2644,7 @@ def gather(
         "complex_indices-bf16",
     ],
 )
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_gather(
     input_shape: Shape,
     input_dtype: torch.dtype,
@@ -2651,6 +2652,7 @@ def test_gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
+    target: str,
     request,
 ):
     def gather_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2669,7 +2671,7 @@ def test_gather(
         [input_shape],
         [input_dtype],
         test_base=request.node.name,
-        target="ttnn",
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
