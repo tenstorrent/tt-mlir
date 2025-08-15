@@ -12,6 +12,8 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import build_stablehlo_module
 from test_utils import Marks, shape_str
 
+pytestmark = pytest.mark.frontend("shlo")
+
 from ttmlir.passes import (
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
