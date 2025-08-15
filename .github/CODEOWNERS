@@ -169,3 +169,6 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # Scripts
 /tools/scripts/ @nsmithtt @ddilbazTT
+
+# python golden tests
+test/python/golden/test_metal_dma.py @bgrady-tt

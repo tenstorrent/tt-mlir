@@ -563,8 +563,143 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
-      bool isLowered() {
-        return bool(getOptNumElems());
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
+      }
+      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
+      }
+
+    }];
+}
+
+
+def TTIR_DMAWriteOp : TTIR_GenericRegionDatamovementOp<"dma_write",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_DMAOpInterface
+  ]> {
+
+    let summary = "Fully indexed and lowered TTIR DMA Op for writes";
+    let description = [{
+      This op is the fully lowered explicit write form of the higher level `ttir.dma` operation. It corresponds 1:1
+      to a single concrete DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied).
+
+      This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
+
+      ```mlir
+      %tx = ttir.dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
+      ```
+
+      Constraints:
+      - src MUST be a LOCAL memref!
+      - src and dst must have the same element type.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
+                         I64Attr:$numElems,
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+    let results = (outs TTIR_MemTx:$result);
+
+    let builders =
+    [
+      // Unicast - multicast args are defaulted
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+      }]>,
+
+      // Multicast - multicast args must be provided
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+      }]>,
+    ];
+
+    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      size_t getSizeBytes() {
+        auto elementSizeBytes =
+          ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
+        return getNumElems() * elementSizeBytes;
+      }
+      bool isDstLocal() {
+        Block *block = getDst().getParentBlock();
+        Block::BlockArgListType blockArgs = block->getArguments();
+        return std::find(blockArgs.begin(), blockArgs.end(), getDst()) !=
+               blockArgs.end();
+      }
+      bool isDstRemote() { return !isDstLocal(); }
+      bool isMcast() { return !getMcastShape().empty(); }
+      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
+      }
+    }];
+}
+
+def TTIR_DMAReadOp : TTIR_GenericRegionDatamovementOp<"dma_read",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_DMAOpInterface
+  ]> {
+
+    let summary = "Fully indexed and lowered TTIR DMA Op for read";
+    let description = [{
+      This op is the fully lowered explicit read form of the higher level `ttir.dma` operation. It corresponds 1:1
+      to a single concrete DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). The dst memref _must_ be local!
+
+      This operation only supports unicast (mulicast are write-only).
+
+      ```mlir
+      %tx = ttir.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+      ```
+
+      Constraints:
+      - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
+      - dst MUST be a LOCAL memref!
+      - src and dst must have the same element type.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
+                         I64Attr:$numElems);
+    let results = (outs TTIR_MemTx:$result);
+
+    let builders =
+    [
+      // Unicast Read
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems));
+      }]>,
+    ];
+
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      size_t getSizeBytes() {
+        auto elementSizeBytes =
+          ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
+        return getNumElems() * elementSizeBytes;
+      }
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
     }];
 }
@@ -612,10 +747,9 @@ class TTIR_SemaphoreUpdateOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
     let description = [{
       Set or increment the semaphore value atomically. This op comes in a few flavors:
 
-      - Set or increment this local core's semaphore value
+      - Set this local core's semaphore value
       ```mlir
       ttir.semaphore_set %sem0, %c1
-      ttir.semaphore_inc %sem0, %c1
       ```
 
       - Update a remote core's semaphore value
