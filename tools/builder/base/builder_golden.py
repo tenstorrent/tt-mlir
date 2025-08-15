@@ -307,7 +307,7 @@ def avg_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     dilation = kwargs.get("dilation", 1)
     ceil_mode = kwargs.get("ceil_mode", False)
     count_include_pad = kwargs.get("count_include_pad", True)
-    breakpoint()
+
     kernel_size = unpack_mlir_attr(kernel_size)
     stride = unpack_mlir_attr(stride)
     padding = unpack_mlir_attr(padding)
