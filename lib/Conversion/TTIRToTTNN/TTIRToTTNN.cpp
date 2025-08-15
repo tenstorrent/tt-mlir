@@ -1537,7 +1537,8 @@ public:
     sliceShape[indexVectorDim] = 1;
 
     RankedTensorType sliceType =
-        RankedTensorType::get(sliceShape, scatterIndicesType.getElementType());
+        RankedTensorType::get(sliceShape, scatterIndicesType.getElementType(),
+                              scatterIndicesType.getEncoding());
 
     ttnn::SliceOp sliceOp = rewriter.create<ttnn::SliceOp>(
         op.getLoc(), sliceType, scatterIndices,
@@ -1563,7 +1564,8 @@ public:
 
     // Create result type for reshape
     RankedTensorType indexTensorType = RankedTensorType::get(
-        indexTensorShape, scatterIndicesType.getElementType());
+        indexTensorShape, scatterIndicesType.getElementType(),
+        scatterIndicesType.getEncoding());
 
     ttnn::ReshapeOp reshapeOp = rewriter.create<ttnn::ReshapeOp>(
         op.getLoc(), indexTensorType, slicedTensor, shapeAttr,
