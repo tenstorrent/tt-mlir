@@ -8,6 +8,17 @@ enum Pool2dOpType: uint32 {
   MaxPool2d,
 }
 
+table AvgPool2dExtraParams {
+  count_include_pad: bool;
+}
+
+table MaxPool2dExtraParams {}
+
+union Pool2dExtraParams {
+  AvgPool2dExtraParams,
+  MaxPool2dExtraParams,
+}
+
 table Pool2dOp {
   type: Pool2dOpType;
   in: tt.target.ttnn.TensorRef;
@@ -20,11 +31,11 @@ table Pool2dOp {
   stride: [int32];
   padding: [int32];
   dilation: [int32];
+  extra_params: Pool2dExtraParams;
   memory_config: tt.target.ttnn.MemoryConfig;
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
   in_place_halo: bool = false;
-  count_include_pad: bool = true;
 }
 
 table UniformScale2D {
