@@ -16,6 +16,54 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+static mlir::sdy::TensorShardingAttr getShardingAttrIfAny(mlir::Value v) {
+  // 1) OpResult: try to get sharding from result attributes
+  if (auto opRes = mlir::dyn_cast<mlir::OpResult>(v)) {
+    auto *owner = opRes.getOwner();
+
+    // Try to get from result attributes (if operation supports it)
+    auto resultAttrs = owner->getAttrDictionary();
+    for (auto namedAttr : resultAttrs) {
+      if (namedAttr.getName().str().find("sdy.sharding") != std::string::npos) {
+        if (auto attr = mlir::dyn_cast<mlir::sdy::TensorShardingAttr>(
+                namedAttr.getValue())) {
+          return attr;
+        }
+      }
+    }
+  }
+
+  // 2) BlockArgument: get sharding from function argument attributes
+  if (auto barg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
+    auto *parentOp = barg.getOwner()->getParentOp();
+    if (auto func = mlir::dyn_cast_or_null<mlir::func::FuncOp>(parentOp)) {
+      if (auto attr = func.getArgAttrOfType<mlir::sdy::TensorShardingAttr>(
+              barg.getArgNumber(), "sdy.sharding")) {
+        return attr;
+      }
+    }
+    // 2-b) sdy.manual_computation의 in_shardings에서 꺼내기
+    if (auto mc =
+            llvm::dyn_cast_or_null<mlir::sdy::ManualComputationOp>(parentOp)) {
+      auto spv = mlir::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
+          mc.getInShardings());
+      if (!spv) {
+        return nullptr;
+      }
+      auto arr = spv.getShardings();
+      unsigned idx = barg.getArgNumber();
+      if (idx >= arr.size()) {
+        return nullptr;
+      }
+
+      // 각 원소가 TensorShardingAttr
+      if (auto ts = mlir::dyn_cast<mlir::sdy::TensorShardingAttr>(arr[idx])) {
+        return ts;
+      }
+    }
+  }
+  return nullptr;
+}
 // This function creates a new operation state with updated shapes and
 // attributes based on the provided operation, global mesh, new types, and
 // tensor shardings. It handles special cases for certain operations like
@@ -124,28 +172,28 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::success();
           })
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
+            auto operandTensorShardings =
+                getShardingAttrIfAny(gatherOp.getOperand());
             llvm::SmallVector<int64_t> newSliceSizes(gatherOp.getSliceSizes());
 
-            for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
-                  tensorShardings[i].getDimShardings();
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+                operandTensorShardings.getDimShardings();
 
-              for (const auto [index, dimShardingAttr] :
-                   llvm::enumerate(dimShardings)) {
-                FailureOr<int64_t> updatedSliceDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      newSliceSizes[index]);
+            for (const auto [index, dimShardingAttr] :
+                 llvm::enumerate(dimShardings)) {
+              FailureOr<int64_t> updatedSliceDim =
+                  shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
+                                                    dimShardingAttr,
+                                                    newSliceSizes[index]);
 
-                if (failed(updatedSliceDim)) {
-                  gatherOp->emitError(
-                      "Could not apply propagated tensor shardings to "
-                      "attribute dictionary for gather op");
-                  return mlir::failure();
-                }
-
-                newSliceSizes[index] = *updatedSliceDim;
+              if (failed(updatedSliceDim)) {
+                gatherOp->emitError(
+                    "Could not apply propagated tensor shardings to "
+                    "attribute dictionary for gather op");
+                return mlir::failure();
               }
+
+              newSliceSizes[index] = *updatedSliceDim;
             }
 
             llvm::StringRef sliceSizesAttrName = "slice_sizes";
