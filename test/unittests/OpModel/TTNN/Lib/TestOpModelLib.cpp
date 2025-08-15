@@ -20,6 +20,16 @@
 
 namespace mlir::tt::ttnn::op_model {
 
+template <typename T1, typename T2>
+void EXPECT_EQ_OR_GE(const T1 &actual, const T2 &expected,
+                     bool useGreaterThan = false) {
+  if (useGreaterThan) {
+    EXPECT_GE(actual, expected);
+  } else {
+    EXPECT_EQ(actual, expected);
+  }
+}
+
 class OpModelTest : public OpModelFixture {};
 
 namespace detail {
@@ -90,9 +100,54 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
-      EXPECT_EQ(outputSize, expectedOutputSize);
+
+      bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp =
+        OpModel<OpTy>::getOpRuntime(inputShape, inputLayout, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+
+  void RunTestInt32() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<2>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+
+      bool useGreaterThan = std::is_same_v<OpTy, BitwiseNotOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       // Must clean up the error
@@ -135,6 +190,8 @@ using OpModelRsqrtParam = OpModelUnaryEltwiseParam<RsqrtOp>;
 using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
 using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
 using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
+using OpModelCbrtParam = OpModelUnaryEltwiseParam<CbrtOp>;
+using OpModelBitwiseNotParam = OpModelUnaryEltwiseParam<BitwiseNotOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -160,6 +217,8 @@ TEST_P(OpModelAtanParam, AtanOp) { RunTest(); }
 TEST_P(OpModelRsqrtParam, RsqrtOp) { RunTest(); }
 TEST_P(OpModelLog1pParam, Log1pOp) { RunTest(); }
 TEST_P(OpModelExpm1Param, Expm1Op) { RunTest(); }
+TEST_P(OpModelCbrtParam, CbrtOp) { RunTest(); }
+TEST_P(OpModelBitwiseNotParam, BitwiseNotOp) { RunTestInt32(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -272,6 +331,12 @@ INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelBitwiseNotParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====

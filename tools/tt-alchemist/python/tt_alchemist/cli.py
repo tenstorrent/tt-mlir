@@ -78,8 +78,13 @@ def model_to_python_cmd(input_file, verbose):
     flag_value="standalone",
     help="Generate for standalone execution",
 )
+@click.option(
+    "--pipeline-options",
+    default="",
+    help="Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc')",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def generate_cpp_cmd(input_file, output_dir, mode, verbose):
+def generate_cpp_cmd(input_file, output_dir, mode, pipeline_options, verbose):
     """Generate standalone solution with the generated C++ code.
 
     This generates a directory with all necessary files to build and run the
@@ -93,7 +98,7 @@ def generate_cpp_cmd(input_file, output_dir, mode, verbose):
             )
 
         is_local = mode == "local"
-        success = generate_cpp(input_file, output_dir, is_local)
+        success = generate_cpp(input_file, output_dir, is_local, pipeline_options)
         if success:
             click.echo(f"Successfully generated {mode} solution in: {output_dir}")
             return 0
@@ -128,8 +133,13 @@ def generate_cpp_cmd(input_file, output_dir, mode, verbose):
     flag_value="standalone",
     help="Generate for standalone execution",
 )
+@click.option(
+    "--pipeline-options",
+    default="",
+    help="Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc')",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def generate_python_cmd(input_file, output_dir, mode, verbose):
+def generate_python_cmd(input_file, output_dir, mode, pipeline_options, verbose):
     """Generate standalone solution with the generated Python code.
 
     This generates a directory with all necessary files to build and run the
@@ -143,7 +153,7 @@ def generate_python_cmd(input_file, output_dir, mode, verbose):
             )
 
         is_local = mode == "local"
-        success = generate_python(input_file, output_dir, is_local)
+        success = generate_python(input_file, output_dir, is_local, pipeline_options)
         if success:
             click.echo(f"Successfully generated {mode} solution in: {output_dir}")
             return 0

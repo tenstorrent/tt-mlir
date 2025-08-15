@@ -118,19 +118,21 @@ class ProgramTestRunner:
 class DeviceContext:
     def __init__(
         self,
-        mesh_shape,
+        mesh_shape=None,
         mesh_offset=None,
         enable_program_cache=False,
         trace_region_size=0,
         num_hw_cqs=1,
     ):
         options = ttrt.runtime.MeshDeviceOptions()
+        if mesh_shape is not None:
+            options.mesh_shape = mesh_shape
         if mesh_offset is not None:
             options.mesh_offset = mesh_offset
         options.enable_program_cache = enable_program_cache
         options.trace_region_size = trace_region_size
         options.num_hw_cqs = num_hw_cqs
-        self.device = ttrt.runtime.open_mesh_device(mesh_shape, options)
+        self.device = ttrt.runtime.open_mesh_device(options)
 
     def __enter__(self):
         return self.device

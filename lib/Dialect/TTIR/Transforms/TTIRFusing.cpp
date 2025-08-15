@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -529,6 +530,102 @@ public:
     }
 
     return failure();
+  }
+};
+
+class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
+  using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
+
+public:
+  // This pattern decomposes the BatchNorm operation into a sequence of
+  // arithmetic operations that can be fused with Conv2d operations.
+  //
+  // Decomposition:
+  //    batch_norm(x, scale, offset, mean, variance, epsilon, dimension)
+  //    = (x - mean) / sqrt(variance + epsilon) * scale + offset
+  //      let alpha = scale / sqrt(variance + epsilon)        -> constant
+  //      let beta  = offset - alpha * mean                   -> constant
+  //    batch_norm(x,...) = alpha * x + beta
+  //
+  // Decomposed like this it can later be fused with Conv2d without bias as
+  //    batch_norm(conv2d(x, weight),...) = conv2d(x, weight * alpha, beta)
+  mlir::LogicalResult
+  matchAndRewrite(BatchNormOp batchNormOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // Used only paired with convolution
+    if (auto conv2dOp = batchNormOp.getOperand().getDefiningOp<Conv2dOp>();
+        !conv2dOp || !conv2dOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // get all attributes
+    auto scale = batchNormOp.getScale();
+    auto offset = batchNormOp.getOffset();
+    auto mean = batchNormOp.getMean();
+    auto variance = batchNormOp.getVariance();
+    auto input = batchNormOp.getOperand();
+    auto epsilon = batchNormOp.getEpsilon();
+    auto dimension = batchNormOp.getDimension();
+
+    Location loc = batchNormOp.getLoc();
+    RankedTensorType resultType = batchNormOp.getResult().getType();
+
+    RankedTensorType scalarType =
+        RankedTensorType::get({1}, variance.getType().getElementType(),
+                              variance.getType().getEncoding());
+
+    // Convert epsilon to a tensor
+    auto epsilonTensor = rewriter.create<FullOp>(
+        loc, scalarType, rewriter.getF32FloatAttr(epsilon.convertToFloat()));
+
+    // variance + epsilon
+    auto variancePlusEpsilon = utils::createDPSOp<AddOp>(
+        rewriter, loc, variance.getType(), variance, epsilonTensor);
+
+    // std = sqrt(variance + epsilon)
+    auto std = utils::createDPSOp<SqrtOp>(rewriter, loc, variance.getType(),
+                                          variancePlusEpsilon);
+    // alpha = scale / std
+    auto alpha =
+        utils::createDPSOp<DivOp>(rewriter, loc, scale.getType(), scale, std);
+
+    // alphaMean = alpha * mean
+    auto alphaMean = utils::createDPSOp<MultiplyOp>(
+        rewriter, loc, mean.getType(), mean, alpha);
+
+    // beta = offset - alphaMean
+    auto beta = utils::createDPSOp<SubtractOp>(rewriter, loc, offset.getType(),
+                                               offset, alphaMean);
+
+    // Reshape alpha and beta along the specified dimension to match the input
+    // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
+    // to (1, 1, 1, C).
+
+    SmallVector<int64_t> reshapeShape(4, 1);
+    reshapeShape[dimension] = std.getType().getShape()[0];
+    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                         reshapeShape.end());
+    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+        alpha.getType().getEncoding(), alpha,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
+        rewriter, loc, reshapeShape, beta.getType().getElementType(),
+        beta.getType().getEncoding(), beta,
+        rewriter.getI32ArrayAttr(reshapeShapeI32));
+
+    // alpha * x
+    auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
+                                                 input, alphaReshaped);
+    // alpha * x + beta
+    auto result = utils::createDPSOp<AddOp>(rewriter, loc, resultType, scaled,
+                                            betaReshaped);
+
+    rewriter.replaceOp(batchNormOp, result);
+
+    return mlir::success();
   }
 };
 
@@ -1155,6 +1252,537 @@ private:
   }
 };
 
+namespace {
+class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+  enum InputDimensions {
+    INPUT_BATCH = 0,
+    INPUT_NUM_HEADS = 1,
+    INPUT_SEQ = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    PermuteOp permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!permuteOp || !isFusable(permuteOp, reshapeOp)) {
+      return mlir::failure();
+    }
+
+    ::mlir::TypedValue<::mlir::RankedTensorType> inputTensor =
+        permuteOp.getInput();
+    RankedTensorType inputTensorType = inputTensor.getType();
+    ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+
+    RankedTensorType reshapeResultType =
+        mlir::cast<RankedTensorType>(reshapeOp.getResult().getType());
+    ArrayRef<int64_t> reshapeOutputShape = reshapeResultType.getShape();
+
+    if (reshapeOutputShape.size() == 3) {
+      // default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), reshapeResultType, inputTensor);
+      rewriter.replaceOp(reshapeOp, concatHeadsOp);
+      return mlir::success();
+    }
+
+    if (reshapeOutputShape.size() == 2) {
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+
+      int64_t originalBatchSize = inputShape[INPUT_BATCH];
+      int64_t originalSequenceSize = inputShape[INPUT_SEQ];
+
+      // The new 3D shape for ConcatenateHeadsOp
+      // [batch_size, sequence_size, num_heads * head_size]
+      SmallVector<int64_t> newReshapeShape = {
+          originalBatchSize, originalSequenceSize,
+          reshapeOutputShape[1] // num_heads * head_size (hidden)
+      };
+
+      // Get element type from the original reshape result type
+      RankedTensorType newReshapeType = mlir::RankedTensorType::get(
+          newReshapeShape, reshapeResultType.getElementType());
+
+      // Create ConcatenateHeadsOp with the new shape.
+      Value concatHeadsOp = utils::createDPSOp<ConcatenateHeadsOp>(
+          rewriter, reshapeOp.getLoc(), newReshapeType, inputTensor);
+
+      rewriter.modifyOpInPlace(reshapeOp, [&]() {
+        reshapeOp.getInputMutable().assign(concatHeadsOp);
+      });
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  }
+
+private:
+  // The sequence of operations without a 'concatenate_heads' op is:
+  // 1. Input Tensor: `tensor<#batch_size, #num_heads, #sequence_size,
+  // #head_size>`
+  // 2. `tensor.permute` op: Applied  with a permutation attribute of
+  // `[0, 2, 1, 3]`, transforming the input to `tensor<#batch_size,
+  // #sequence_size, #num_heads, #head_size>`.
+  // 3. `reshape` op: `tensor.reshape(<permuted_tensor>, [#batch_size,
+  // #sequence_size, #num_heads * #head_size])`
+  bool isFusable(PermuteOp permuteOp, ReshapeOp reshapeOp) const {
+
+    // Check that input shape is 4 dimensional.
+    ArrayRef<int64_t> inputShape = permuteOp.getInput().getType().getShape();
+    ArrayRef<int64_t> reshapeOutputShape =
+        reshapeOp.getResult().getType().getShape();
+
+    if (inputShape.size() != 4) {
+      return false;
+    }
+
+    // Check if the permutation is {0, 2, 1, 3}.
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    llvm::SmallVector<int64_t> expectedPermutation = {
+        INPUT_BATCH, INPUT_SEQ, INPUT_NUM_HEADS, INPUT_HEAD_SIZE};
+
+    if (!llvm::equal(permutation, expectedPermutation)) {
+      return false;
+    }
+
+    if (reshapeOutputShape.size() == 3) {
+      // Default case, the reshape output is 3D.
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size, sequence_size, num_heads * head_size
+      // (hidden)].
+      if (inputShape[INPUT_BATCH] != reshapeOutputShape[OUTPUT_BATCH] ||
+          inputShape[INPUT_SEQ] != reshapeOutputShape[OUTPUT_SEQ]) {
+        return false;
+      }
+
+      if (inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE] !=
+          reshapeOutputShape[OUTPUT_HIDDEN]) {
+        return false;
+      }
+    } else if (reshapeOutputShape.size() == 2) {
+      // If reshape output is 2D,
+      // input shape: [batch_size, num_heads, sequence_size, head_size]
+      // output shape: [batch_size * sequence_size, num_heads * head_size]
+      SmallVector<int64_t> expectedReshapeOutputShape = {
+          inputShape[INPUT_BATCH] * inputShape[INPUT_SEQ],
+          inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
+
+      if (expectedReshapeOutputShape != reshapeOutputShape) {
+        return false;
+      }
+    } else {
+      // If the reshape output shape is not 2D or 3D, we cannot fuse.
+      return false;
+    }
+    return true;
+  }
+};
+} // namespace
+
+namespace {
+// This pattern fuses: 0.5 * x * gaussianCDF(x) in to ttir.gelu(x), where
+// gaussianCDF is a linearly transformed cumulative distribution function of the
+// gaussian distribution (or an approximation of one).
+class GeluFusionPattern : public mlir::OpRewritePattern<ttir::MultiplyOp> {
+public:
+  using mlir::OpRewritePattern<ttir::MultiplyOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(ttir::MultiplyOp op,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // arg1, arg2, and arg3 shall be some permutation of 0.5, x, and
+    // gaussianCDF(x).
+
+    // In the event that `op` contains `x` as one of its arguments, and `x`
+    // itself is the result of a a multiply op, There will be two triplets of
+    // arguments to check as we do not know which argument from
+    // `multiply(multiply, multiply)` is `x`.
+    SmallVector<std::tuple<Value, Value, Value>> args =
+        getTripleMultiplyArgs(op);
+    for (auto [arg1, arg2, arg3] : args) {
+      if (args.empty()) {
+        return failure();
+      }
+
+      Value halfConstantArg;
+      Value gaussianResultArg;
+
+      if (isScalarValue(arg1, HALF)) {
+        halfConstantArg = arg1;
+      } else if (isScalarValue(arg2, HALF)) {
+        halfConstantArg = arg2;
+      } else if (isScalarValue(arg3, HALF)) {
+        halfConstantArg = arg3;
+      } else {
+        return failure();
+      }
+
+      GaussianCDFType gaussianCDFType;
+      Value geluInput;
+      if (std::tie(gaussianCDFType, geluInput) =
+              getGaussianCDFTypeAndInput(arg1);
+          gaussianCDFType != GaussianCDFType::None) {
+        gaussianResultArg = arg1;
+      } else if (std::tie(gaussianCDFType, geluInput) =
+                     getGaussianCDFTypeAndInput(arg2);
+                 gaussianCDFType != GaussianCDFType::None) {
+        gaussianResultArg = arg2;
+      } else if (std::tie(gaussianCDFType, geluInput) =
+                     getGaussianCDFTypeAndInput(arg3);
+                 gaussianCDFType != GaussianCDFType::None) {
+        gaussianResultArg = arg3;
+      } else {
+        return failure();
+      }
+
+      // Now one of the three arguments must be the gelu input
+      if (geluInput != arg1 && geluInput != arg2 && geluInput != arg3) {
+        return failure();
+      }
+
+      // TODO(@LPanosTT): When the 'approximate' flag is modelled in
+      // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
+      // gaussianCDFType is Tanh.
+      //     - For now, we will always use the default erf version. This should
+      //       be OK as the tanh approximation is incredibly accurate.
+      // https://github.com/tenstorrent/tt-mlir/issues/4486
+      (void)gaussianCDFType;
+      ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
+          rewriter, op, op.getResult().getType(), geluInput);
+
+      return success();
+    }
+    return failure();
+  }
+
+private:
+  enum class GaussianCDFType { Erf, Tanh, None };
+  static constexpr double HALF = 0.5;
+  static constexpr double RECIPROCAL_SQRT_2 = 0.7071067811865476;
+  static constexpr double SQRT_2_OVER_PI = 0.7978845608028654;
+  static constexpr double CUBED_COEFFICIENT = 0.044715;
+  static constexpr double ONE = 1.0;
+  static constexpr double THREE = 3.0;
+
+  // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
+  // multiply(multiply(a, b), c) or multiply(a, multiply(b, c)).
+  SmallVector<std::tuple<Value, Value, Value>>
+  getTripleMultiplyArgs(ttir::MultiplyOp multiplyOp) const {
+    Value arg1 = multiplyOp.getLhs();
+    Value arg2 = multiplyOp.getRhs();
+    SmallVector<std::tuple<Value, Value, Value>> args;
+    if (ttir::MultiplyOp multiplyOp2 = arg1.getDefiningOp<ttir::MultiplyOp>()) {
+      args.push_back(
+          std::make_tuple(arg2, multiplyOp2.getLhs(), multiplyOp2.getRhs()));
+    }
+    if (ttir::MultiplyOp multiplyOp2 = arg2.getDefiningOp<ttir::MultiplyOp>()) {
+      args.push_back(
+          std::make_tuple(multiplyOp2.getLhs(), multiplyOp2.getRhs(), arg1));
+    }
+
+    return args;
+  }
+
+  // The gaussianCDF will be either 1 + erf(x/sqrt(2)) or 1 +
+  // tanh(sqrt(2/pi) * (x + 0.044715 * x^3)) if gelu approximation is true.
+  std::tuple<GaussianCDFType, Value>
+  getGaussianCDFTypeAndInput(Value gaussianCDFResult) const {
+    if (Value gaussianCDFInput = getErfGaussianCDFInput(gaussianCDFResult)) {
+      return std::make_tuple(GaussianCDFType::Erf, gaussianCDFInput);
+    }
+    if (Value gaussianCDFInput = getTanhGaussianCDFInput(gaussianCDFResult)) {
+      return std::make_tuple(GaussianCDFType::Tanh, gaussianCDFInput);
+    }
+    return std::make_tuple(GaussianCDFType::None, nullptr);
+  }
+
+  Value getTanhGaussianCDFInput(Value gaussianCDFResult) const {
+    // The final op in this pattern must be:
+    // 1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
+    //   ^ this add
+
+    ttir::AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<ttir::AddOp>();
+    if (!gaussianCDFAdd) {
+      return nullptr;
+    }
+
+    // The add must have a constant operand of 1
+
+    // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
+    // add op
+    bool isArgLhs = false;
+    ttir::FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
+    if (!one) {
+      one = getFullOpThroughTMChain(gaussianCDFAdd.getRhs());
+      isArgLhs = true;
+    }
+    if (!one) {
+      return nullptr;
+    }
+
+    if (!isa<FloatAttr>(one.getFillValue())) {
+      return nullptr;
+    }
+    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
+    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+      return nullptr;
+    }
+
+    // The other operand must be tanh.
+    ttir::TanhOp tanh = isArgLhs
+                            ? gaussianCDFAdd.getLhs().getDefiningOp<TanhOp>()
+                            : gaussianCDFAdd.getRhs().getDefiningOp<TanhOp>();
+    if (!tanh) {
+      return nullptr;
+    }
+
+    // The argument to tanh must be:
+    // tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
+    //                 ^ this multiply
+
+    ttir::MultiplyOp multiplyArg = tanh.getInput().getDefiningOp<MultiplyOp>();
+    if (!multiplyArg) {
+      return nullptr;
+    }
+
+    bool argIsLhs;
+    Value scalingArgument;
+    if (isScalarValue(multiplyArg.getLhs(), SQRT_2_OVER_PI)) {
+      argIsLhs = false;
+      scalingArgument = multiplyArg.getRhs();
+    } else if (isScalarValue(multiplyArg.getRhs(), SQRT_2_OVER_PI)) {
+      argIsLhs = true;
+      scalingArgument = multiplyArg.getLhs();
+    } else {
+      return nullptr;
+    }
+
+    // Scaling argument must be the result of:
+    // x + 0.044715 * x^3
+    //   ^ this add
+    ttir::AddOp xPlusScaledXCubed =
+        argIsLhs ? multiplyArg.getLhs().getDefiningOp<ttir::AddOp>()
+                 : multiplyArg.getRhs().getDefiningOp<ttir::AddOp>();
+    if (!xPlusScaledXCubed) {
+      return nullptr;
+    }
+
+    Value xCubedResult;
+    Value x;
+
+    // Find the value of x in the pattern: x + 0.044715 * x^3.
+    bool foundX = false;
+    if (ttir::MultiplyOp lhsMultiply =
+            xPlusScaledXCubed.getLhs().getDefiningOp<ttir::MultiplyOp>()) {
+      x = xPlusScaledXCubed.getRhs();
+
+      // find x^3 in the pattern: 0.044715 * x^3.
+
+      // If the lhs of lhsMultiply is the scaling constant, then the rhs of
+      // lhsMultiply must be the result of x^3.
+      xCubedResult = isScalarValue(lhsMultiply.getLhs(), CUBED_COEFFICIENT)
+                         ? lhsMultiply.getRhs()
+                         : nullptr;
+
+      // Otherwise, the rhs of lhsMultiply must be the result of x^3.
+      if (!xCubedResult) {
+        xCubedResult = isScalarValue(lhsMultiply.getRhs(), CUBED_COEFFICIENT)
+                           ? lhsMultiply.getLhs()
+                           : nullptr;
+      }
+      // Ensure that x is the same value which is cubed in the pattern.
+      // If xCubedResult is not found (i.e neither argument to the multiply is
+      // the result of a cubing), then foundX will remain false.
+      if (xCubedResult) {
+        foundX = x == getXCubedInput(xCubedResult);
+      }
+    }
+
+    if (ttir::MultiplyOp rhsMultiply =
+            xPlusScaledXCubed.getRhs().getDefiningOp<ttir::MultiplyOp>();
+        !foundX && rhsMultiply) {
+      x = xPlusScaledXCubed.getLhs();
+
+      // find x^3 in the pattern: 0.044715 * x^3.
+
+      // If the lhs of rhsMultiply is the scaling constant, then the rhs of
+      // rhsMultiply must be the result of x^3.
+      xCubedResult = isScalarValue(rhsMultiply.getLhs(), CUBED_COEFFICIENT)
+                         ? rhsMultiply.getRhs()
+                         : nullptr;
+
+      // Otherwise, the rhs of rhsMultiply must be the result of x^3.
+      if (!xCubedResult) {
+        xCubedResult = isScalarValue(rhsMultiply.getRhs(), CUBED_COEFFICIENT)
+                           ? rhsMultiply.getLhs()
+                           : nullptr;
+      }
+      // Ensure that x is the same value which is cubed in the pattern.
+      // If xCubedResult is not found (i.e neither argument to the multiply is
+      // the result of a cubing), then foundX will remain false.
+      if (xCubedResult) {
+        foundX = x == getXCubedInput(xCubedResult);
+      }
+    }
+
+    if (!foundX) {
+      return nullptr;
+    }
+
+    return x;
+  }
+
+  // This will return the input Value of a sequence of ops which computes x^3 if
+  // it exists, given the result of the sequence.
+  Value getXCubedInput(Value xCubedResult) const {
+    if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
+      ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
+      if (!power) {
+        return nullptr;
+      }
+      if (!isa<FloatAttr>(power.getFillValue())) {
+        return nullptr;
+      }
+
+      APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
+      if (!checkFloatIsNear(powerValue.convertToFloat(), THREE)) {
+        return nullptr;
+      }
+
+      return xCubed.getLhs();
+    }
+    if (ttir::MultiplyOp xCubed =
+            xCubedResult.getDefiningOp<ttir::MultiplyOp>()) {
+
+      Value lhs = xCubed.getLhs();
+      Value rhs = xCubed.getRhs();
+
+      if (ttir::MultiplyOp lhsMultiply =
+              lhs.getDefiningOp<ttir::MultiplyOp>()) {
+        if (rhs == lhsMultiply.getRhs() && rhs == lhsMultiply.getLhs()) {
+          return lhsMultiply.getLhs();
+        }
+      }
+
+      if (ttir::MultiplyOp rhsMultiply =
+              rhs.getDefiningOp<ttir::MultiplyOp>()) {
+        if (lhs == rhsMultiply.getRhs() && lhs == rhsMultiply.getLhs()) {
+          return rhsMultiply.getLhs();
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  Value getErfGaussianCDFInput(Value gaussianCDFResult) const {
+    // The final op in this pattern must be:
+    // 1 + erf(x/sqrt(2))
+    //   ^ this add
+
+    ttir::AddOp gaussianCDFAdd = gaussianCDFResult.getDefiningOp<ttir::AddOp>();
+    if (!gaussianCDFAdd) {
+      return nullptr;
+    }
+
+    // The add must have a constant operand of 1.
+
+    // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
+    // add op.
+    bool isArgLhs = false;
+    ttir::FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<ttir::FullOp>();
+    if (!one) {
+      one = gaussianCDFAdd.getRhs().getDefiningOp<ttir::FullOp>();
+      isArgLhs = true;
+    }
+    if (!one) {
+      return nullptr;
+    }
+
+    if (!isa<FloatAttr>(one.getFillValue())) {
+      return nullptr;
+    }
+    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
+    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+      return nullptr;
+    }
+
+    // erf must be the other operand.
+    ttir::ErfOp erf =
+        isArgLhs ? gaussianCDFAdd.getLhs().getDefiningOp<ttir::ErfOp>()
+                 : gaussianCDFAdd.getRhs().getDefiningOp<ttir::ErfOp>();
+    if (!erf) {
+      return nullptr;
+    }
+
+    // If this pattern matches the erf version of the gaussianCDF, then
+    // the erf argument must evaluate to x/sqrt(2). However, that means that
+    // this pattern could be x / sqrt(2) or x / 1.4142.. or
+    // x * reciprocal(sqrt(2)) or x * 0.7070...
+
+    // So far the decomposition we have received from our frontends are in the
+    // form: x * 0.70703125 So we will only check for this pattern for now.
+    ttir::MultiplyOp multiplyArg =
+        erf.getOperand(0).getDefiningOp<ttir::MultiplyOp>();
+    if (!multiplyArg) {
+      return nullptr;
+    }
+
+    Value scalingArgument;
+    if (isScalarValue(multiplyArg.getLhs(), RECIPROCAL_SQRT_2)) {
+      scalingArgument = multiplyArg.getRhs();
+    } else if (isScalarValue(multiplyArg.getRhs(), RECIPROCAL_SQRT_2)) {
+      scalingArgument = multiplyArg.getLhs();
+    } else {
+      return nullptr;
+    }
+
+    return scalingArgument;
+  }
+
+  bool checkFloatIsNear(double value, double trueValue) const {
+    return value / trueValue - 1.0 <= 1.5e-3 &&
+           value / trueValue - 1.0 >= -1.5e-3;
+  }
+
+  // This function will return true if the Value 'val' is a FullOp (or the
+  // result of tensor-manipulation ops (Reshape, Permute, Broadcast) beginning
+  // with a FullOp), with the fill_value near 'scalar'. It allows for an error
+  // of 1.5%
+  bool isScalarValue(Value val, double scalar) const {
+    if (ttir::FullOp fullOp = getFullOpThroughTMChain(val)) {
+      if (isa<FloatAttr>(fullOp.getFillValue())) {
+        APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
+        if (checkFloatIsNear(value.convertToFloat(), scalar)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  FullOp getFullOpThroughTMChain(Value value) const {
+    Operation *currentOp = value.getDefiningOp();
+
+    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
+        currentOp)) {
+      currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+    return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
+  }
+};
+} // namespace
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -1189,10 +1817,15 @@ public:
         patterns.add<Conv2dWithMultiply>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+
+      patterns.add<BatchNormDecomposition>(&getContext());
+
+      patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

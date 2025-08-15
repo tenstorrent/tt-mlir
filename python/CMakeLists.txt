@@ -108,7 +108,6 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     TTMLIRCompilerStatic
-    MLIRAMXToLLVMIRTranslation
     MLIRArmNeonToLLVMIRTranslation
     MLIRArmSMEToLLVMIRTranslation
     MLIRArmSVEToLLVMIRTranslation

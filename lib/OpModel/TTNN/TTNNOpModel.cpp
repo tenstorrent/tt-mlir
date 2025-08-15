@@ -256,6 +256,10 @@ auto getOpSymbol() {
     return ::ttnn::log;
   } else if constexpr (std::is_same_v<OpTy, ReciprocalOp>) {
     return ::ttnn::reciprocal;
+  } else if constexpr (std::is_same_v<OpTy, CbrtOp>) {
+    return ::ttnn::cbrt;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseNotOp>) {
+    return ::ttnn::bitwise_not;
   } else if constexpr (std::is_same_v<OpTy, AddOp>) {
     return ::ttnn::add;
   } else if constexpr (std::is_same_v<OpTy, MultiplyOp>) {
@@ -728,6 +732,8 @@ template struct UnaryEltwiseOpModel<NegOp>;
 template struct UnaryEltwiseOpModel<TanOp>;
 template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
+template struct UnaryEltwiseOpModel<CbrtOp>;
+template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;

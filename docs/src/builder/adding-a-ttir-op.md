@@ -31,23 +31,23 @@ All input operands should be passed into a proxy function using the argument `in
 
 ## Golden functions
 
-Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/ttir-builder/ttir_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
+Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/builder/base/builder_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
 
 ### Writing a golden function
 
 Before writing a golden function, you need to know exactly what the TTIR op does to its input data because you will have to replicate that exactly using PyTorch operations. This information is usually covered in TTIR documentation, but if not, you may have to do some detective work and trial and error. Get creative with keyword argument handling, using similar Pytorch operations, and maybe multiple operations. Google is your friend. If you have to figure out how to do something Pytorch doesn't, odds are someone online has encountered the same situation.
 
-Golden functions should be implemented in `ttir_golden.py` and follow this pattern:
+Golden functions should be implemented in `builder_golden.py` and follow this pattern:
 
 1. **Simple operations**: If PyTorch has an identical function, you can directly use it in the mappings
 2. **Complex operations**: Define a custom golden function that implements the behavior using PyTorch operations
 
 ### Adding golden function mappings
 
-All golden functions must be registered in the `GOLDEN_MAPPINGS` dictionary in `ttir_golden.py`:
+All golden functions must be registered in the `GOLDEN_MAPPINGS` dictionary in `builder_golden.py`:
 
 ```python
-# In ttir_golden.py
+# In builder_golden.py
 def cbrt_golden(input: torch.Tensor) -> torch.Tensor:
     """Golden function for cube root operation."""
     golden_sign = torch.sign(input)
