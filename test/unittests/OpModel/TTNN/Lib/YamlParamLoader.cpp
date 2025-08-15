@@ -4,8 +4,10 @@
 
 #include "YamlParamLoader.h"
 
+#include "llvm/Support/raw_ostream.h"
 #include <stdexcept>
 
+#include <vector>
 #include <yaml-cpp/node/node.h>
 #include <yaml-cpp/yaml.h>
 
@@ -130,6 +132,16 @@ Conv2dParams parseConv2dParams(const YAML::Node &node) {
                       expectedResult);
 }
 
+std::vector<Conv2dParams>
+parseAllConv2dParams(const std::string &yamlFilePath) {
+  YAML::Node config = parseYamlFile(yamlFilePath);
+  std::vector<Conv2dParams> params;
+  for (const auto &kv : config) {
+    params.push_back(parseConv2dParams(kv.second));
+  }
+  return params;
+}
+
 ConvTranspose2dParams parseConvTranspose2dParams(const YAML::Node &node) {
   // Parse tensor parameters
   auto inputTensor = parseTestTensor(node["input"]);
@@ -160,6 +172,16 @@ ConvTranspose2dParams parseConvTranspose2dParams(const YAML::Node &node) {
                                outputPadding, dilation, groups, expectedResult);
 }
 
+std::vector<ConvTranspose2dParams>
+parseAllConvTranspose2dParams(const std::string &yamlFilePath) {
+  YAML::Node config = parseYamlFile(yamlFilePath);
+  std::vector<ConvTranspose2dParams> params;
+  for (const auto &kv : config) {
+    params.push_back(parseConvTranspose2dParams(kv.second));
+  }
+  return params;
+}
+
 MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node) {
   // Parse tensor parameters
   auto inputTensor = parseTestTensor(node["input"]);
@@ -183,8 +205,19 @@ MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node) {
 
   return MaxPool2dParams(inputTensor, outputTensor, batchSize, inputHeight,
                          inputWidth, inputChannels, kernelSize, stride, padding,
-                         dilation, ceilMode, expectedResult.expectedLegal);
+                         dilation, ceilMode, expectedResult);
 }
+
+std::vector<MaxPool2dParams>
+parseAllMaxPool2dParams(const std::string &yamlFilePath) {
+  YAML::Node config = parseYamlFile(yamlFilePath);
+  std::vector<MaxPool2dParams> params;
+  for (const auto &kv : config) {
+    params.push_back(parseMaxPool2dParams(kv.second));
+  }
+  return params;
+}
+
 } // namespace yaml_utils
 
 } // namespace mlir::tt::ttnn::op_model
