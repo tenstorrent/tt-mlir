@@ -12,6 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
@@ -26,7 +27,8 @@ namespace fs = std::filesystem;
 namespace tt::alchemist {
 
 bool TTAlchemist::generatePython(const std::string &input_file,
-                                 const std::string &output_dir, bool is_local) {
+                                 const std::string &output_dir, bool is_local,
+                                 const std::string &pipeline_options) {
   // Check if input file exists
   //
   if (!fs::exists(input_file)) {
@@ -45,8 +47,34 @@ bool TTAlchemist::generatePython(const std::string &input_file,
   }
 
   mlir::PassManager pm(&context);
-  mlir::tt::ttnn::createTTIRToEmitPyPipeline(
-      pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
+
+  // Parse pipeline options if provided
+  if (!pipeline_options.empty()) {
+    // Use the registered pipeline with options
+    const auto *pipeline =
+        mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
+    if (!pipeline) {
+      std::cout << "Failed to find ttir-to-emitpy-pipeline" << std::endl;
+      return false;
+    }
+
+    std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+        [](const llvm::Twine &msg) {
+          std::cout << "Pipeline error: " << msg.str() << std::endl;
+          return mlir::failure();
+        };
+
+    if (mlir::failed(
+            pipeline->addToPipeline(pm, pipeline_options, err_handler))) {
+      std::cout << "Failed to add pipeline with options: " << pipeline_options
+                << std::endl;
+      return false;
+    }
+  } else {
+    // Use default options
+    mlir::tt::ttnn::createTTIRToEmitPyPipeline(
+        pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
+  }
 
   if (mlir::failed(pm.run(module.get()))) {
     std::cout << "Failed to run TTIR to EmitPy pipeline" << std::endl;
@@ -129,9 +157,11 @@ extern "C" {
 bool tt_alchemist_TTAlchemist_generatePython(void *instance,
                                              const char *input_file,
                                              const char *output_dir,
-                                             bool is_local) {
+                                             bool is_local,
+                                             const char *pipeline_options) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->generatePython(input_file, output_dir, is_local);
+  return alchemist->generatePython(input_file, output_dir, is_local,
+                                   pipeline_options ? pipeline_options : "");
 }
 
 } // extern "C"

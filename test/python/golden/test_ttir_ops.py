@@ -930,13 +930,30 @@ def test_concat(shapes: List[Shape], dim: int, request):
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize(
+    "input_dtypes",
+    [
+        [torch.float32, torch.float32, torch.float32, torch.float32],
+        # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
+        pytest.param(
+            [
+                TypeInfo(torch.quint8, scale=0.1, zero_point=128),
+                TypeInfo(torch.qint8, scale=0.1, zero_point=0),
+                torch.float32,
+                torch.int8,
+            ],
+            marks=pytest.mark.skip(
+                reason="Issue: https://github.com/tenstorrent/tt-metal/issues/26568"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
 def test_conv2d(
     shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    input_dtypes: List[Union[torch.dtype, TypeInfo]],
     stride: List[int],
     padding: List[int],
     dilation: List[int],
@@ -966,7 +983,7 @@ def test_conv2d(
     compile_ttir_to_flatbuffer(
         conv2d,
         shapes,
-        dtypes,
+        input_dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1115,6 +1132,62 @@ def test_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         max_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 64, 32, 32),  # input tensor: (N, C, H, W)
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("training", [False])
+def test_batch_norm(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    training: bool,
+    request,
+):
+    def batch_norm(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        return builder.batch_norm(
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            training=training,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        batch_norm,
         shapes,
         dtypes,
         test_base=request.node.name,
@@ -2128,6 +2201,62 @@ unary_ops = [
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+unary_ops_int32 = [
+    abs,
+    neg,
+    pytest.param(
+        relu,
+        marks=pytest.mark.skip(
+            reason="Relu does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26719"
+        ),
+    ),
+    pytest.param(
+        sum,
+        marks=pytest.mark.skip(
+            reason="Sum does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26724"
+        ),
+    ),
+    pytest.param(
+        max,
+        marks=pytest.mark.skip(
+            reason="Max does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    pytest.param(
+        min,
+        marks=pytest.mark.skip(
+            reason="Min does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    get_dimension_size
+    | Marks(
+        pytest.mark.skip_config(["ttmetal"]),
+        pytest.mark.skip_config(["ttnn-standalone"]),
+    ),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+# TODO (anuragsingh): Add tt-metal and ttnn-standalone tests. Link to issue: https://github.com/tenstorrent/tt-mlir/issues/4444
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", unary_ops_int32)
+def test_unary_ops_int32(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
     pipeline_options = []

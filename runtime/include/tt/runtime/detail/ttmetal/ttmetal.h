@@ -72,8 +72,7 @@ void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options = MeshDeviceOptions());
+Device openMeshDevice(const MeshDeviceOptions &options = {});
 
 void closeMeshDevice(Device parentMesh);
 

@@ -8,6 +8,7 @@ declare_mlir_python_sources(BuilderSources
     base/builder.py
     base/builder_golden.py
     base/builder_utils.py
+    base/sharded_tensor.py
 
     # ttir subpackage files
     ttir/__init__.py
