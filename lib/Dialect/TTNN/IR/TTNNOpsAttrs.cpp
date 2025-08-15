@@ -5,11 +5,14 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include <cstdint>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Attributes.h>
 #include <numeric>
 #include <optional>
 
@@ -967,4 +970,112 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   DeviceComputeKernelConfigAttrParams params(*this);
   params.dstFullSyncEn = BoolAttr::get(getContext(), value);
   return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+::llvm::LogicalResult ProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBAttr> cbs,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelSemaphoreAttr> semaphores,
+    llvm::ArrayRef<mlir::Attribute> kernels) {
+
+  for (auto kernel : kernels) {
+    if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
+                   mlir::tt::ttnn::ReadKernelAttr,
+                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+      return emitError() << "Unexpected kernel";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t total_size, CoreRangeAttr core_range,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBFormatAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t page_size, uint32_t buffer_index, ttcore::DataType dtype) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelSemaphoreAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ComputeKernelCoreType core_type, ::mlir::tt::ttnn::CoreRangeAttr core_range,
+    uint32_t initial_value) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCommonRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> common_rt_args) {
+
+  for (auto arg : common_rt_args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected common runtime argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCompileTimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
+  for (auto arg : ct_args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected compile time argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ComputeKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbol_ref, ::mlir::tt::ttnn::CoreRangeAttr core_range,
+    ComputeKernelMathFidelity math_fidelity, bool fp32_dest_acc_en,
+    bool dst_full_sync_en,
+    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpack_to_dest_modes,
+    bool bfp8_pack_precise, bool math_approx_mode,
+    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
+    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
+  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
+      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ReadKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbol_ref, CoreRangeAttr core_range,
+    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
+    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
+  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
+      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult WriteKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbol_ref, CoreRangeAttr core_range,
+    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
+    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
+  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
+      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
 }

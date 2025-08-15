@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
+#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -24,6 +25,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include <cstdint>
+#include <llvm/Support/Casting.h>
 #include <numeric>
 #include <optional>
 
@@ -3357,4 +3359,44 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+// GenericOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  ProgramAttr program = getProgram();
+  size_t number_of_inputs_and_outputs = getInputs().size() + 1;
+  size_t number_of_semaphores = program.getSemaphores().size();
+
+  for (auto kernel : program.getKernels()) {
+    auto kernel_interface = llvm::cast<KernelInterface>(kernel);
+
+    for (auto arg : kernel_interface.getCommonRtArgs()) {
+      if (auto addressOfTensor =
+              llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
+        if (addressOfTensor.getTensorIndex() >= number_of_inputs_and_outputs) {
+          return emitError() << "Address of tensor at index is out of bounds";
+        }
+      }
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= number_of_semaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
+
+    for (auto arg : kernel_interface.getCtArgs()) {
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= number_of_semaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
+  }
+
+  return mlir::success();
+}
 } // namespace mlir::tt::ttnn

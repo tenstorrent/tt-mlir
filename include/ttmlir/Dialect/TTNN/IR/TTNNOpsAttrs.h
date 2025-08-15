@@ -39,6 +39,8 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
 
 } // namespace mlir::tt::ttnn
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.h.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.h.inc"
 

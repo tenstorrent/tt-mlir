@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
@@ -692,6 +693,144 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
     std::pair<std::int64_t, std::int64_t> getDefaultCollapseIntervals() const;
   }];
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
+  let summary = "Kernel semaphore descriptor";
+  let description = [{
+    Kernel semaphore descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "ComputeKernelCoreType":$core_type,
+                        TTNN_CoreRangeAttr:$core_range,
+                        "uint32_t":$initial_value);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
+  let summary = "Kernel CB format descriptor";
+  let description = [{
+    Kernel CB format descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "uint32_t":$page_size,
+                        "uint32_t":$buffer_index,
+                        "ttcore::DataType":$dtype);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
+  let summary = "Kernel CB descriptor";
+  let description = [{
+    Kernel CB descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "uint32_t":$total_size,
+                        TTNN_CoreRangeAttr:$core_range,
+                        ArrayRefParameter<"KernelCBFormatAttr">:$formats);
+  let assemblyFormat = "`<` struct($total_size, $core_range) `,` `formats` `=` `[` $formats `]` `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTMetal_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kernel_arg_cb_buffer_index"> {
+  let summary = "CB argument";
+  let description = [{
+    TTNN generic kernel argument for CB buffer index.
+  }];
+
+  let parameters = (ins "size_t":$buffer_index);
+  let assemblyFormat = "`<` $buffer_index `>`";
+}
+
+def TTMetal_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
+  let summary = "Address of tensor argument";
+  let description = [{
+    TTNN generic kernel argument for address of tensor at postion in operation tensors array.
+  }];
+
+  let parameters = (ins "size_t":$tensor_index);
+  let assemblyFormat = "`<` $tensor_index `>`";
+}
+
+def TTMetal_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_arg_semaphore_at"> {
+  let summary = "Semaphore argument";
+  let description = [{
+    TTNN generic kernel argument for semaphore at position in semaphores array in program.
+  }];
+
+  let parameters = (ins "size_t":$semaphore_index);
+  let assemblyFormat = "`<` $semaphore_index `>`";
+}
+
+def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_KernelInterface]> {
+  let summary = "Compute kernel";
+  let description = [{
+    Compute kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeAttr:$core_range,
+                        "ComputeKernelMathFidelity":$math_fidelity,
+                        "bool":$fp32_dest_acc_en,
+                        "bool":$dst_full_sync_en,
+                        ArrayRefParameter<"ComputeKernelUnpackToDestMode">:$unpack_to_dest_modes,
+                        "bool":$bfp8_pack_precise,
+                        "bool":$math_approx_mode,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
+                        );
+  let assemblyFormat = "`<` struct($symbol_ref, $core_range, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInterface]> {
+  let summary = "Read kernel";
+  let description = [{
+    Read kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeAttr:$core_range,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelInterface]> {
+  let summary = "Write kernel";
+  let description = [{
+    Write kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeAttr:$core_range,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
+  let summary = "Program";
+  let description = [{
+    Program descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins OptionalArrayRefParameter<"KernelCBAttr">:$cbs,
+                        OptionalArrayRefParameter<"KernelSemaphoreAttr">:$semaphores,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$kernels);
+  let assemblyFormat = "`<` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `,` `kernels` `=` `[` (`]`) : ($kernels^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
