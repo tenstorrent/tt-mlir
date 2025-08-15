@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 if (TT_RUNTIME_ENABLE_CUDA)
-=======
-if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_CUDA)
->>>>>>> f4793b162 (Cuda runtime.)
   set(CUDA_RUNTIME_ENABLED ON)
 else()
   set(CUDA_RUNTIME_ENABLED OFF)
@@ -29,20 +25,12 @@ target_compile_definitions(TTRuntimeCUDA PUBLIC TT_RUNTIME_ENABLE_CUDA)
 target_include_directories(TTRuntimeCUDA PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-<<<<<<< HEAD
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/CUDA
    ${CUDA_INCLUDE_DIRS}
 )
 
 find_library(FLATBUFFERS_LIB flatbuffers PATHS ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_libraries(TTRuntimeCUDA PUBLIC ${FLATBUFFERS_LIB})
-=======
-  ${PROJECT_BINARY_DIR}/include/ttmlir/Target/GPU
-   ${CUDA_INCLUDE_DIRS}
-)
-
-target_link_libraries(TTRuntimeCUDA PUBLIC flatbuffers)
->>>>>>> f4793b162 (Cuda runtime.)
 target_link_libraries(TTRuntimeCUDA PUBLIC coverage_config)
 target_link_libraries(TTRuntimeCUDA PUBLIC LLVMSupport)
 target_link_libraries(TTRuntimeCUDA PUBLIC CUDA::cudart)
