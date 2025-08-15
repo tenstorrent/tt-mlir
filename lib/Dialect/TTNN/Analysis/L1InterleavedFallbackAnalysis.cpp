@@ -26,15 +26,14 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // interleaved
   analysisInput.funcOp->walk([&](Operation *op) {
     // Skip operations that have the row-major workaround later on in Optimizer
-    // TODO(bmalesevic): remove this after manual row-major workaround is
-    // removed
+    // TODO(bmalesevic,#3985): remove after this is fixed
     if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
       return;
     }
 
     // Skip operations that have DRAM output in runtime even when configured as
     // L1 via this analysis.
-    // TODO(bmalesevic): remove this after they are supported in runtime
+    // TODO(bmalesevic,#4505): remove this after they are supported in runtime
     if (isa<ttnn::SliceOp, ttnn::TypecastOp>(op)) {
       return;
     }
@@ -42,7 +41,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     for (auto *user : op->getUsers()) {
       // Skip operations that have DRAM input in runtime even when configured as
       // L1 via this analysis.
-      // TODO(bmalesevic): remove this after they are supported in runtime
+      // TODO(bmalesevic,#4505): remove this after they are supported in runtime
       if (isa<ttnn::SliceOp, ttnn::TypecastOp>(user)) {
         return;
       }
@@ -54,6 +53,10 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     }
     // Skip if operation doesn't use DRAM layout
     if (!utils::producesDRAMLayout(op)) {
+      return;
+    }
+    // Skip if operation doesn't have exactly one user
+    if (!op->hasOneUse()) {
       return;
     }
     // Skip if producer is not immediately consumed by consumer
@@ -125,11 +128,6 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
 }
 
 bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
-  // Check if operation has exactly one user
-  if (!op->hasOneUse()) {
-    return false;
-  }
-
   // Get the single user
   Operation *userOp = *op->getUsers().begin();
   Operation *consumerOp = op->getNextNode();

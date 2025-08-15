@@ -280,19 +280,18 @@ public:
 
         // Save only L1 Interleaved legal configs in a separate map for
         // L1InterleavedFallbackAnalysis later
-        if (!l1InterleavedFallbackAnalysisEnabled) {
-          return;
-        }
-        std::vector<OpConfig> l1InterleavedConfigs;
-        for (const auto &config : legalConfigs[op]) {
-          auto layoutAttr = config.outputLayout;
-          if (layoutAttr.getBufferType() == BufferType::L1 &&
-              layoutAttr.getMemLayout().getValue() ==
-                  TensorMemoryLayout::Interleaved) {
-            l1InterleavedConfigs.push_back(config);
+        if (l1InterleavedFallbackAnalysisEnabled) {
+          std::vector<OpConfig> l1InterleavedConfigs;
+          for (const auto &config : legalConfigs[op]) {
+            auto layoutAttr = config.outputLayout;
+            if (layoutAttr.getBufferType() == BufferType::L1 &&
+                layoutAttr.getMemLayout().getValue() ==
+                    TensorMemoryLayout::Interleaved) {
+              l1InterleavedConfigs.push_back(config);
+            }
           }
+          l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
         }
-        l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
       });
     });
 
