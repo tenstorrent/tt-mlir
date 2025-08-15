@@ -1754,7 +1754,6 @@ llvm::Expected<op_model::OpConstraints>
 EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   assert(inputs.size() == 0);
-  assert(getDevice() && "Device is not set");
 
   const llvm::ArrayRef<int64_t> shape = getShape().getShape();
   const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();

@@ -1779,7 +1779,8 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait,
+  DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
