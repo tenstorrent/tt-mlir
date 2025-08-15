@@ -595,7 +595,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.emit(srcOp.getCeilMode()),
-        emitter.emit(/*count_include_pad=*/true),
+        emitter.emit(/*count_include_pad=*/srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),

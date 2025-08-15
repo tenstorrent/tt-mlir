@@ -278,6 +278,74 @@ def max_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
     return result
 
 
+def avg_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    """
+    Custom golden function for max_pool2d with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor for max pooling
+    **kwargs : dict
+        Keyword arguments containing:
+        - kernel_size: Union[int, List[int]] - Size of the pooling kernel
+        - stride: Union[int, List[int]] - Stride for pooling operation
+        - padding: Union[int, List[int]] - Padding for pooling operation
+        - dilation: Union[int, List[int]] - Dilation for pooling operation
+        - ceil_mode: bool - Whether to use ceiling mode for pooling
+        - count_include_pad: bool - Whether to include padding in the count
+
+    Returns
+    -------
+    torch.Tensor
+        Result of 2D max pooling with layout transformation
+    """
+    # Get parameters from ttir_kwargs
+    kernel_size = kwargs.get("kernel")
+    stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
+    padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)
+    ceil_mode = kwargs.get("ceil_mode", False)
+    count_include_pad = kwargs.get("count_include_pad", True)
+    breakpoint()
+    kernel_size = unpack_mlir_attr(kernel_size)
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+
+    # Convert padding from [top, left, bottom, right] format to PyTorch format
+    if isinstance(padding, (list, tuple)) and len(padding) == 4:
+        # PyTorch MaxPool2d expects symmetric padding: (height_padding, width_padding)
+        top, left, bottom, right = padding
+        # For symmetric padding, top should equal bottom and left should equal right
+        if top == bottom and left == right:
+            torch_padding = (top, left)
+        else:
+            # For asymmetric padding, we need to manually pad the input tensor first
+            # and then use zero padding for the MaxPool2d operation
+            import torch.nn.functional as F
+
+            # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
+            manual_padding = [left, right, top, bottom]
+            input_tensor = F.pad(
+                input_tensor, manual_padding, mode="constant", value=float("-inf")
+            )
+            torch_padding = 0
+    else:
+        torch_padding = padding
+
+    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
+    if dilation != [1, 1]:
+        raise ValueError("Dilation is not supported for torch.nn.AvgPool2d")
+    maxpool_object = torch.nn.AvgPool2d(
+        kernel_size, stride, torch_padding, ceil_mode, count_include_pad
+    )
+    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+    result = maxpool_object(input_tensor)
+    result = result.transpose(-3, -2).transpose(-2, -1)
+    return result
+
+
 def batch_norm_golden(
     input_tensor,
     scale,
@@ -2148,6 +2216,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
     ttir.MaxPool2dOp: max_pool2d_golden,
+    ttir.AvgPool2dOp: avg_pool2d_golden,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: dot_general_golden,

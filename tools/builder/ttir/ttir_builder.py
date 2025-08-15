@@ -2897,6 +2897,80 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def avg_pool2d(
+        self,
+        in0: Operand,
+        in1: Operand,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        ceil_mode: bool,
+        count_include_pad: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.max_pool2d``.
+
+        *Max pooling operation.*
+
+        Applies a 2D max pooling over an input signal composed of several input planes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        kernel_size : *Union[int, List[int]]*
+            Size of the pooling window
+        stride : *Optional[Union[int, List[int]]]*
+            Stride of the pooling window (default: None, same as kernel_size)
+        padding : *Union[int, List[int]]*, optional
+            Padding added to all sides of input (default: 0)
+        dilation : *Union[int, List[int]]*, optional
+            Controls spacing between kernel elements (default: 1)
+        ceil_mode : bool, optional
+            When True, use ceil instead of floor for output shape (default: False)
+        count_include_pad : bool, optional
+            When True , include padding in the count (default: True)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after max pooling
+        """
+
+        return self._op_proxy(
+            ttir.AvgPool2dOp,
+            [in0],
+            ttir_kwargs={
+                "kernel": (
+                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    if isinstance(kernel, int)
+                    else DenseI32ArrayAttr.get(kernel)
+                ),
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
+                "ceil_mode": ceil_mode,
+                "count_include_pad": count_include_pad,
+            },
+            unit_attrs=unit_attrs,
+        )
+
     def batch_norm(
         self,
         in0: Operand,
