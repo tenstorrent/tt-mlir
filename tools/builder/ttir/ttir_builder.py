@@ -16,6 +16,7 @@ from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
 from builder.base import builder_golden
+from builder.base.sharded_tensor import ShardedTensor
 
 
 class TTIRBuilder(Builder):
@@ -139,6 +140,7 @@ class TTIRBuilder(Builder):
                 golden = (
                     Golden(golden_output[0])
                     if not isinstance(golden_output, torch.Tensor)
+                    and not isinstance(golden_output, ShardedTensor)
                     else Golden(golden_output)
                 )
 

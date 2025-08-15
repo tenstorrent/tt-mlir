@@ -69,7 +69,7 @@ def _create_custom_ttir_pipeline_fn(
 def _run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
-    pipeline_options: Optional[List[str]] = [],
+    pipeline_options: List[str] = [],
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
@@ -270,7 +270,7 @@ def compile_ttir_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = [],
+    pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
 ) -> str:
     """
@@ -327,7 +327,7 @@ def compile_ttir_to_flatbuffer(
     system_desc_path : str, optional
         Path to the system descriptor file
 
-    pipeline_options : *Optional[List[str]]*, optional
+    pipeline_options : *List[str]*, optional
         Pipeline options to be added to the pass.
 
     print_ir : *Union[bool, str]*, optional
@@ -537,10 +537,11 @@ def compile_stablehlo_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    ttir_pipeline_options: Optional[List[str]] = [],
-    shlo_pipeline_options: Optional[List[str]] = [],
+    ttir_pipeline_options: List[str] = [],
+    shlo_pipeline_options: List[str] = [],
+    shlo_to_ttir_pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
-):
+) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
 
@@ -582,16 +583,16 @@ def compile_stablehlo_to_flatbuffer(
         Set to True to print out generated MLIR modules
         Default is True.
 
-    argument_types_string : *Optional[str]*, optional
+    argument_types_string : *Optional[str]*
         String defining argument types for constant evaluation
 
-    custom_pipeline : *Optional[Union[Callable, str]]*, optional
+    custom_pipeline : *Optional[Union[Callable, str]]*
         Custom pipeline function or string to run instead of default pipeline
 
-    ttir_pipeline_options : *Optional[List[str]]*, optional
+    ttir_pipeline_options : *List[str]*
         Additional pipeline options to pass to the TTIR pipeline
 
-    shlo_pipeline_options : *Optional[List[str]]*, optional
+    shlo_pipeline_options : *List[str]*
         Additional pipeline options to pass to the StableHLO pipeline
 
     print_ir :*Union[bool, str]*, optional
@@ -623,13 +624,10 @@ def compile_stablehlo_to_flatbuffer(
         output_root=output_root,
     )
 
-    if shlo_pipeline_options is None:
-        shlo_pipeline_options = []
-
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
-    stablehlo_to_ttir_pipeline(module)
+    stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
 
@@ -669,7 +667,7 @@ def compile_ttir_module_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = [],
+    pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -712,10 +710,10 @@ def compile_ttir_module_to_flatbuffer(
     argument_types_string : *Optional[str]*, optional
         String defining argument types for constant evaluation
 
-    custom_pipeline : *Optional[Union[Callable, str]]*, optional
+    custom_pipeline : *Optional[Union[Callable, str]]*
         Custom pipeline function or string to run instead of default pipeline
 
-    pipeline_options : *Optional[List[str]]*, optional
+    pipeline_options : *List[str]*, optional
         Additional pipeline options to pass to the pipeline
 
     print_ir : *Union[bool, str], optional*
