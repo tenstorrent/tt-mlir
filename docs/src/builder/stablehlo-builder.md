@@ -4,11 +4,11 @@
 
 ## Getting started
 
-`StableHLOBuilder` is a builder class providing the API for creating stableHLO ops. The python package `builder` contains everything needed to create ops through a `StableHLOBuilder` object. `builder.stablehlo.stablehlo_utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+`StableHLOBuilder` is a builder class providing the API for creating stableHLO ops. The python package `builder` contains everything needed to create ops through a `StableHLOBuilder` object. `builder.base.builder_utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
 
 ```python
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.stablehlo.stablehlo_utils import build_stablehlo_module
+from builder.base.builder_utils import build_stablehlo_module, compile_stablehlo_to_flatbuffer
 ```
 
 ## Creating a StableHLO module
@@ -20,7 +20,8 @@ def build_stablehlo_module(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    mesh_shape: Optional[Tuple[int, int]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
@@ -32,7 +33,7 @@ def build_stablehlo_module(
 ```python
 from builder.base.builder import Operand
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.stablehlo.stablehlo_utils import build_stablehlo_module
+from builder.base.builder_utils import build_stablehlo_module
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -64,7 +65,7 @@ module {
 ```python
 from builder.base.builder import Operand
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.stablehlo.stablehlo_utils import build_stablehlo_module
+from builder.base.builder_utils import build_stablehlo_module
 
 shapes = [(32, 32), (32, 32)]
 

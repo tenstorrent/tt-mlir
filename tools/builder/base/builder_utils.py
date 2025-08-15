@@ -380,7 +380,7 @@ def build_stablehlo_module(
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
-):
+) -> Tuple[Module, StableHLOBuilder]:
     """
     Define a MLIR module specified as a python function.
 
