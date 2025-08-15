@@ -15,55 +15,11 @@ from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 from .types import *
 from .kernel_types import *
+from .utils import _discover_dialect_ops
 
 
 class TTKernelCompiler(ast.NodeVisitor):
-    ttkernel_fn_map = {
-        "unary_op_init_common": ttkernel.unary_op_init_common,
-        "binary_op_init_common": ttkernel.binary_op_init_common,
-        "add_tiles_init": ttkernel.add_tiles_init,
-        "get_arg_val": ttkernel.get_arg_val,
-        "cb_wait_front": ttkernel.cb_wait_front,
-        "cb_reserve_back": ttkernel.cb_reserve_back,
-        "cb_push_back": ttkernel.cb_push_back,
-        "cb_pop_front": ttkernel.cb_pop_front,
-        "tile_regs_acquire": ttkernel.tile_regs_acquire,
-        "tile_regs_release": ttkernel.tile_regs_release,
-        "tile_regs_commit": ttkernel.tile_regs_commit,
-        "tile_regs_wait": ttkernel.tile_regs_wait,
-        "pack_tile": ttkernel.pack_tile,
-        "copy_tile": ttkernel.copy_tile,
-        "add_tiles": ttkernel.add_tiles,
-        "get_compile_time_arg_val": (
-            ttkernel.get_compile_time_arg_val,
-            [True, True],
-        ),  # True for arg as attribute
-        "get_write_ptr": ttkernel.get_write_ptr,
-        "get_read_ptr": ttkernel.get_read_ptr,
-        "get_tile_size": ttkernel.get_tile_size,
-        "get_dataformat": ttkernel.get_dataformat,
-        "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
-        "noc_async_read": ttkernel.noc_async_read,
-        "noc_async_read_tile": ttkernel.noc_async_read_tile,
-        "noc_async_write": ttkernel.noc_async_write,
-        "noc_async_write_tile": ttkernel.noc_async_write_tile,
-        "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
-        "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
-        "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
-        "exp_tile_init": ttkernel.exp_tile_init,
-        "exp_tile": ttkernel.exp_tile,
-        "mm_init": ttkernel.mm_init,
-        "matmul_tiles": ttkernel.matmul_tiles,
-        "TensorAccessorArgs": ttkernel.TensorAccessorArgs,
-        "TensorAccessor": ttkernel.TensorAccessor,
-        "tensor_accessor_get_noc_addr": ttkernel.tensor_accessor_get_noc_addr,
-        "tensor_accessor_get_shard_noc_addr": ttkernel.tensor_accessor_get_shard_noc_addr,
-        "tensor_accessor_get_bank_and_offset": ttkernel.tensor_accessor_get_bank_and_offset,
-        "tensor_accessor_is_local_bank": ttkernel.tensor_accessor_is_local_bank,
-        "tensor_accessor_is_local_addr": ttkernel.tensor_accessor_is_local_addr,
-        "tensor_accessor_is_local_page": ttkernel.tensor_accessor_is_local_page,
-        "tensor_accessor_is_local_shard": ttkernel.tensor_accessor_is_local_shard,
-    }
+    ttkernel_fn_map = _discover_dialect_ops(ttkernel)
 
     supported_nodes = [
         ### Variables
@@ -611,7 +567,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     # Function calls
-    def visit_Call(self, node, func_args=[], output=[]):
+    def visit_Call(self, node, func_args=None, output=None):
         def _load_func_arg(func_arg):
             if not func_arg:
                 raise ValueError(f"Function argument not found for {node.func.id}")
@@ -622,6 +578,9 @@ class TTKernelCompiler(ast.NodeVisitor):
                     func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
                 )
             return func_arg
+
+        func_args = [] if func_args is None else func_args
+        output = [] if output is None else output
 
         if not isinstance(node.func, ast.Attribute):
             # print is special case to handle string formatting
@@ -643,6 +602,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                 func_args.append(func_arg)
 
             func_args.extend(output)
+            print(func_args)
             return func(*func_args)  # how do i make sure the types are correct?
         else:
             func_args = []

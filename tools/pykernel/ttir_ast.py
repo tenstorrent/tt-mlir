@@ -16,7 +16,8 @@ from ttmlir.dialects import (
 )
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline, ttmetal_to_flatbuffer_file
 
-from .ast import TTKernelCompiler
+from .kernel_ast import TTKernelCompiler
+from .utils import _discover_dialect_ops
 
 try:
     import ttnn
@@ -29,39 +30,7 @@ Tensor = ttnn.Tensor
 
 
 class TTIRCompiler(TTKernelCompiler):
-    ttkernel_fn_map = {
-        ### Unary ops ###
-        "abs": ttir.abs,
-        "cbrt": ttir.cbrt,
-        "cos": ttir.cos,
-        "floor": ttir.floor,
-        # gelu:
-        "isfinite": ttir.isfinite,
-        "tan": ttir.tan,
-        "atan": ttir.atan,
-        "tanh": ttir.tanh,
-        "reciprocal": ttir.reciprocal,
-        # ttir.relu
-        "rsqrt": ttir.rsqrt,
-        # ttir.sigmoid
-        # ttir.sign
-        "sin": ttir.sin,
-        "sqrt": ttir.sqrt,
-        # ttir.typecast
-        "log": ttir.log,
-        "log1p": ttir.log1p,
-        "expm1": ttir.expm1,
-        "exp": ttir.exp,
-        "erf": ttir.erf,
-        "erfc": ttir.erfc,
-        ### Binary ops ###
-        # ttir.logical_and
-        # ttir.logical_or
-        # ttir.logical_xor
-        # "min" : ttir.min,  # -> doesn't work
-        # "max" : ttir.max,  # edge case of passing min/max(input, output, ... other args)
-        "atan2": ttir.atan2,
-    }
+    ttkernel_fn_map = _discover_dialect_ops(ttir)
     supported_nodes = [
         ### Variables
         ast.Name,

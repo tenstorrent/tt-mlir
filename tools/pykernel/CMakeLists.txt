@@ -5,11 +5,12 @@ set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 declare_mlir_python_sources(TTPykernelSources
     ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
-        ast.py
+        kernel_ast.py
         ttir_ast.py
         op.py
         types.py
         kernel_types.py
+        utils.py
 )
 
 add_mlir_python_modules(TTPykernelModules
