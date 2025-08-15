@@ -279,6 +279,27 @@ template <>
 struct OpModel<SumOp> : ReductionOpModel<SumOp> {};
 
 //===----------------------------------------------------------------------===//
+// Named Full Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpT>
+struct NamedFullOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr shape,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::Layout> layout,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+template <>
+struct OpModel<ZerosOp> : NamedFullOpModel<ZerosOp> {};
+
+template <>
+struct OpModel<OnesOp> : NamedFullOpModel<OnesOp> {};
+
+//===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
 
@@ -639,6 +660,47 @@ struct OpModel<EmbeddingBackwardOp> {
                llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
                llvm::ArrayRef<int64_t> inGradientShape,
                TTNNLayoutAttr inGradientLayout, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<mlir::tt::ttnn::EmptyOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
+      mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<mlir::tt::ttnn::ArangeOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
+                   ::mlir::IntegerAttr step,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::FullOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr shape, mlir::Attribute fillValue,
+                   std::optional<mlir::tt::ttcore::DataType> dtype,
+                   std::optional<mlir::tt::ttnn::Layout> layout,
+                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

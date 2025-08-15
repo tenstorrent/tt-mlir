@@ -1688,7 +1688,9 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1705,7 +1707,9 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1775,7 +1779,8 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait,
+  DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1813,7 +1818,9 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
-def TTNN_FullOp : TTNN_CreationOp<"full"> {
+def TTNN_FullOp : TTNN_CreationOp<"full",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -1823,7 +1830,7 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
     Example:
       %0 = "ttnn.full"() <{
         dtype = #ttcore.supportedDataTypes<u32>,
-        fill_value = 3 : i32,
+        fill_value = 7 : i32,
         layout = #ttnn.layout<tile>,
         shape = #ttnn.shape<64x128>
       }> : () -> tensor<64x128xui32>
