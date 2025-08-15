@@ -950,6 +950,19 @@ class Run:
                                             )
 
                                 golden_fail = pcc_fail or allclose_fail
+
+                                # Save golden reference tensor if save flag is enabled.
+                                if (
+                                    self["--save-artifacts"]
+                                    and golden_tensor_torch is not None
+                                ):
+                                    program_folder = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                                    self.artifacts.save_torch_tensor(
+                                        program_folder,
+                                        golden_tensor_torch,
+                                        f"golden_output_{i}.pt",
+                                    )
+
                                 if self["--print-input-output-tensors"] or golden_fail:
                                     torch.set_printoptions(
                                         threshold=100, edgeitems=3, linewidth=120
@@ -985,10 +998,16 @@ class Run:
                                         v_output,
                                         v_diff,
                                         idx,
+                                        is_int,
                                     ) in enumerate(top_k_list):
-                                        self.logging.info(
-                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
-                                        )
+                                        if is_int:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, abs diff {v_diff:.0f}, idx {idx}"
+                                            )
+                                        else:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                            )
                                     top_k_list = get_topk_diff(
                                         golden_tensor_torch,
                                         output_tensor_torch,
@@ -1003,11 +1022,17 @@ class Run:
                                         v_output,
                                         v_diff,
                                         idx,
+                                        is_int,
                                     ) in enumerate(top_k_list):
                                         diff_percent = v_diff * 100
-                                        self.logging.info(
-                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
-                                        )
+                                        if is_int:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                            )
+                                        else:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                            )
 
                                 if pcc_fail:
                                     raise PCCErrorException(

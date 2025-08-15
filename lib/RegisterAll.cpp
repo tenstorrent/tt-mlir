@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/SFPI/IR/SFPI.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
@@ -16,6 +17,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+// #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
+// have passes
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -38,25 +41,38 @@
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
-#include "shardy/round_trip_import/pipelines.h"
 #include "stablehlo/dialect/Register.h"
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
 
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
+#include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
       mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
       mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-      mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
-      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::affine::AffineDialect, mlir::scf::SCFDialect,
-      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
-      mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect,
-      mlir::tt::emitpy::EmitPyDialect>();
+      mlir::tt::ttkernel::TTKernelDialect, mlir::tt::sfpi::SFPIDialect,
+      mlir::func::FuncDialect, mlir::arith::ArithDialect,
+      mlir::ml_program::MLProgramDialect, mlir::tensor::TensorDialect,
+      mlir::linalg::LinalgDialect, mlir::affine::AffineDialect,
+      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::memref::MemRefDialect, mlir::emitc::EmitCDialect,
+      mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect,
+      mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
@@ -80,6 +96,18 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerConvertVectorToLLVMInterface(registry);
+  registerConvertComplexToLLVMInterface(registry);
+  registerConvertNVVMToLLVMInterface(registry);
+  registerConvertMathToLLVMInterface(registry);
+  registerConvertOpenMPToLLVMInterface(registry);
+  registerConvertMemRefToLLVMInterface(registry);
+  arith::registerConvertArithToLLVMInterface(registry);
+  index::registerConvertIndexToLLVMInterface(registry);
+  ub::registerConvertUBToLLVMInterface(registry);
+  cf::registerConvertControlFlowToLLVMInterface(registry);
+  registerConvertFuncToLLVMInterface(registry);
+  registerAllToLLVMIRTranslations(registry);
 }
 
 void mlir::tt::registerAllPasses() {
@@ -113,9 +141,6 @@ void mlir::tt::registerAllPasses() {
 #if TTMLIR_ENABLE_STABLEHLO
   // Register all SDY passes and pipelines.
   mlir::sdy::registerAllSdyPassesAndPipelines();
-
-  // Register all SDY round-trip-import passes and the pipeline.
-  mlir::sdy::registerAllSdyRoundTripImportPassesAndPipeline();
 
   // Register automatic sharding pipeline.
   mlir::tt::stablehlo::registerStableHLOPipeline();
