@@ -1585,8 +1585,8 @@ public:
                                                  inputTensor,  // input_tensor
                                                  indexTensor,  // index_tensor
                                                  sourceTensor, // source_tensor
-                                                 dimAttr       // dim
-    );
+                                                 dimAttr,      // dim
+                                                 /*memory_config=*/nullptr);
 
     return success();
   }

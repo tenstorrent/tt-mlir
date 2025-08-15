@@ -1908,7 +1908,8 @@ def TTNN_ScatterOp : TTNN_Op<"scatter"> {
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          AnyRankedTensor:$index_tensor,
                          AnyRankedTensor:$source_tensor,
-                         I32Attr:$dim);
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
