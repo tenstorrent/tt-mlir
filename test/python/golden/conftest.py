@@ -163,7 +163,7 @@ def _get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
     for key in shape_keys:
         if key in params:
             return params[key]
-    raise KeyError("No shapes parameter found, each test must be parametrized with one")
+    return None
 
 
 def _get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
@@ -252,6 +252,19 @@ def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> No
             _safe_add_property(item, f"param_{key}", value_str)
 
 
+def _extract_frontend(item: pytest.Item) -> None:
+    """Extracts the type of frontend that this test is starting from (i.e.
+    what IR the builder graph represents). Currently possible values are
+    `"ttir"` and `"shlo"` This information is encoded as marks applied by file
+    to each test, via `pytestmark`"""
+
+    for m in item.iter_markers(name="frontend"):
+        _safe_add_property(item, "frontend", m.args[0])
+        return
+
+    raise KeyError("No frontend marker found!")
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_setup(item: pytest.Item):
     """
@@ -305,6 +318,7 @@ def pytest_runtest_setup(item: pytest.Item):
         _extract_shapes_and_dtypes(item, params)
         _extract_operation_name(item, params)
         _extract_backend_and_params(item, params)
+        _extract_frontend(item)
 
 
 @pytest.hookimpl(hookwrapper=True)

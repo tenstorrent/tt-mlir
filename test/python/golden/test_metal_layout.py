@@ -13,6 +13,8 @@ from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
 @pytest.mark.parametrize("input_grid_x", [1, 2, 3])

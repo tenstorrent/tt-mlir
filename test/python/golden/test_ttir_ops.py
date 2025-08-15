@@ -12,6 +12,8 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import Marks, shape_str
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 def exp(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.exp(in0, unit_attrs=unit_attrs)
