@@ -450,15 +450,35 @@ public:
       mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
       OpTraitConversionPattern;
 
-  static Value findUncollapsedMemref(Value memref) {
+  static Value findPreLinearizedMemref(Value memref) {
     if (auto funcArg = mlir::dyn_cast<BlockArgument>(memref)) {
       return funcArg;
     }
     if (auto collapseOp =
             mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp())) {
-      return findUncollapsedMemref(collapseOp.getSrc());
+      return findPreLinearizedMemref(collapseOp.getSrc());
     }
     llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
+  }
+
+  // Helper to get 2D collapsed shape for tilize/untilize operations.
+  static std::array<int64_t, 2> getCollapsed2DShape(MemRefType memrefType) {
+    auto shape = memrefType.getShape();
+    auto rank = shape.size();
+
+    if (rank == 2) {
+      return {shape[0], shape[1]};
+    }
+
+    // For N-D tensors, collapse all but the last dimension
+    // e.g., [3, 2, 2] -> [6, 2].
+    int64_t collapsedRows = 1;
+    for (size_t i = 0; i < rank - 1; ++i) {
+      collapsedRows *= shape[i];
+    }
+    int64_t collapsedCols = shape[rank - 1];
+
+    return {collapsedRows, collapsedCols};
   }
 
   LogicalResult
@@ -468,12 +488,12 @@ public:
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
-          findUncollapsedMemref(tilizeOp.getOutput()).getType());
-      auto blockR =
-          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
-      auto blockC =
-          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      auto preLinearizedMemrefType = mlir::cast<MemRefType>(
+          findPreLinearizedMemref(tilizeOp.getOutput()).getType());
+      auto collapsed2DShape = getCollapsed2DShape(preLinearizedMemrefType);
+
+      auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
+      auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
@@ -484,12 +504,12 @@ public:
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
-          findUncollapsedMemref(untilizeOp.getInput()).getType());
-      auto blockR =
-          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
-      auto blockC =
-          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      auto preLinearizedMemrefType = mlir::cast<MemRefType>(
+          findPreLinearizedMemref(untilizeOp.getInput()).getType());
+      auto collapsed2DShape = getCollapsed2DShape(preLinearizedMemrefType);
+
+      auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
+      auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);
