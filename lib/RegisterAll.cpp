@@ -41,11 +41,24 @@
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
-#include "shardy/round_trip_import/pipelines.h"
 #include "stablehlo/dialect/Register.h"
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
+
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
+#include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
@@ -83,6 +96,18 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerConvertVectorToLLVMInterface(registry);
+  registerConvertComplexToLLVMInterface(registry);
+  registerConvertNVVMToLLVMInterface(registry);
+  registerConvertMathToLLVMInterface(registry);
+  registerConvertOpenMPToLLVMInterface(registry);
+  registerConvertMemRefToLLVMInterface(registry);
+  arith::registerConvertArithToLLVMInterface(registry);
+  index::registerConvertIndexToLLVMInterface(registry);
+  ub::registerConvertUBToLLVMInterface(registry);
+  cf::registerConvertControlFlowToLLVMInterface(registry);
+  registerConvertFuncToLLVMInterface(registry);
+  registerAllToLLVMIRTranslations(registry);
 }
 
 void mlir::tt::registerAllPasses() {
@@ -116,9 +141,6 @@ void mlir::tt::registerAllPasses() {
 #if TTMLIR_ENABLE_STABLEHLO
   // Register all SDY passes and pipelines.
   mlir::sdy::registerAllSdyPassesAndPipelines();
-
-  // Register all SDY round-trip-import passes and the pipeline.
-  mlir::sdy::registerAllSdyRoundTripImportPassesAndPipeline();
 
   // Register automatic sharding pipeline.
   mlir::tt::stablehlo::registerStableHLOPipeline();
