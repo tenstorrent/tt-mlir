@@ -45,12 +45,13 @@ def test_open_mesh_device(
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices == 2, f"Expected 2 devices, got {num_devices}"
     options = ttrt.runtime.MeshDeviceOptions()
+    options.mesh_shape = mesh_shape
     options.mesh_offset = mesh_offset
     options.num_hw_cqs = num_hw_cqs
     options.enable_program_cache = enable_program_cache
     options.l1_small_size = l1_small_size
     options.trace_region_size = trace_region_size
-    device = ttrt.runtime.open_mesh_device(mesh_shape, options)
+    device = ttrt.runtime.open_mesh_device(options)
     device_ids = device.get_device_ids()
     assert device_ids == list(range(math.prod(mesh_shape)))
     assert device.get_mesh_shape() == mesh_shape

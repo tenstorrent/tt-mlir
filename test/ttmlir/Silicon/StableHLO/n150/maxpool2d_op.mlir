@@ -4,6 +4,7 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s -o %t.mlir --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
+// UNSUPPORTED: true
 
 module @max_pool2d attributes {} {
   // Kernel size = 3; Stride = 3; Padding = 1

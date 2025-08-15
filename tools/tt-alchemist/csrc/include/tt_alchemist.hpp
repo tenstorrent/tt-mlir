@@ -36,11 +36,13 @@ public:
 
   // Generate a standalone solution with the generated C++ code
   bool generateCpp(const std::string &input_file, const std::string &output_dir,
-                   bool is_local = true);
+                   bool is_local = true,
+                   const std::string &pipeline_options = "");
 
   // Generate a standalone solution with the generated Python code
   bool generatePython(const std::string &input_file,
-                      const std::string &output_dir, bool is_local = true);
+                      const std::string &output_dir, bool is_local = true,
+                      const std::string &pipeline_options = "");
 
 private:
   TTAlchemist();

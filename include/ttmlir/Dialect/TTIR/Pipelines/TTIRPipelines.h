@@ -36,6 +36,23 @@ struct StableHLOToTTIRPipelineOptions
 };
 #endif
 
+// Options for the TTIR to NVVM backend pipeline.
+struct TTIRToNVVMPipelineOptions
+    : public PassPipelineOptions<TTIRToNVVMPipelineOptions> {
+  // Chip version of GPU to target.
+  Option<std::string> chip{*this, "chip", llvm::cl::desc("GPU chip to target."),
+                           llvm::cl::init("sm_50")};
+
+  // PTX version to target.
+  Option<std::string> features{*this, "features",
+                               llvm::cl::desc("GPU features to target."),
+                               llvm::cl::init("+ptx60")};
+
+  Option<int64_t> optLevel{*this, "opt-level",
+                           llvm::cl::desc("Optimization level."),
+                           llvm::cl::init(2)};
+};
+
 struct LinalgToLLVMPipelineOptions
     : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
   // TODO (#1634): We might want some more options to say lower through affine
@@ -51,6 +68,9 @@ struct LinalgToLLVMPipelineOptions
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
 #endif
+
+void createTTIRToNVVMPipeline(OpPassManager &manager,
+                              const TTIRToNVVMPipelineOptions &options);
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);

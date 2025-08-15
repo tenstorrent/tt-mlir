@@ -10,6 +10,7 @@ from chisel.core.compile_pipeline import chisel_pipeline
 from chisel.core.context import ChiselContext
 from chisel.core.enums import ExecutionType
 from ttmlir.ir import Operation
+from ttmlir.passes import ttnn_to_flatbuffer_file
 
 
 def parse_arguments():
@@ -61,7 +62,7 @@ def parse_arguments():
         "--main-function",
         "-f",
         type=str,
-        default="transpose_matmul",
+        default="main",
         help="Name of the main function to execute",
     )
 
@@ -145,6 +146,8 @@ def main():
     except Exception as e:
         raise RuntimeError(f"Failed to compile TTIR pipeline: {e}")
 
+    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path))
+
     print("TTIR compilation completed successfully")
 
     should_skip_op = create_skip_op_function(args.skip_op_pattern)
@@ -207,7 +210,7 @@ def discover_input_tensor_paths(tensor_folder):
     except OSError as e:
         raise OSError(f"Failed to read tensor folder {tensor_folder}: {e}")
 
-    return input_paths
+    return sorted(input_paths, key=lambda p: int(p.stem))
 
 
 if __name__ == "__main__":

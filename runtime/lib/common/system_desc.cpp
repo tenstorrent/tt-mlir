@@ -251,16 +251,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 }
 
 static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
-createNewMeshDevice(size_t numDevices,
-                    std::optional<DispatchCoreType> dispatchCoreType) {
-  ::tt::tt_metal::distributed::MeshShape meshShape{
-      1, static_cast<uint32_t>(numDevices)};
+createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
   return ::tt::tt_metal::distributed::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig(meshShape),
+      ::tt::tt_metal::distributed::MeshDeviceConfig(
+          /*mesh_shape=*/std::nullopt),
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
 }
 
@@ -274,8 +272,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
             getCurrentRuntime());
   } else {
-    const size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-    meshDevicePtr = createNewMeshDevice(numDevices, dispatchCoreType);
+    meshDevicePtr = createNewMeshDevice(dispatchCoreType);
   }
 
   LOG_DEBUG("Device grid size = { ",

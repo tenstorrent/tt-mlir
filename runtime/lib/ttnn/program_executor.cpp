@@ -63,6 +63,7 @@
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
+#include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -247,6 +248,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
+                                        getContext());
   }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),

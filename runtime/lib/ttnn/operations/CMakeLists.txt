@@ -66,6 +66,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/capture_or_execute_trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/end_trace_capture.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/execute_trace.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/concatenate_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

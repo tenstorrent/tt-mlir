@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
 namespace tt::alchemist {
 
@@ -41,6 +42,9 @@ TTAlchemist::TTAlchemist() {
   context.loadDialect<mlir::func::FuncDialect>();
   context.loadDialect<mlir::emitc::EmitCDialect>();
   context.loadDialect<mlir::LLVM::LLVMDialect>();
+
+  // Register TTNN pipelines to make them available for lookup
+  mlir::tt::ttnn::registerTTNNPipelines();
 }
 
 } // namespace tt::alchemist

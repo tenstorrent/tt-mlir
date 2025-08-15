@@ -51,10 +51,6 @@ if (TTMLIR_ENABLE_STABLEHLO)
     SdyTransformsExportPasses
     SdyTransformsImportPasses
     SdyTransformsPasses
-    SdyRoundtripImportShardyAttrs
-    SdyRoundtripImportUninlineableFuncCalls
-    SdyRoundtripShardMapImport
-    SdyRoundtripPipelines
   )
 endif()
 

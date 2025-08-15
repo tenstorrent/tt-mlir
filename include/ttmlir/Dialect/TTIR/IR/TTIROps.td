@@ -508,7 +508,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
@@ -5287,6 +5287,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
     let hasVerifier = 1;
 }
 
+
 def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
   let summary = "Collective Broadcast op";
   let description = [{
@@ -5320,5 +5321,43 @@ def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
   let hasFolder = 1;
 }
 
+
+def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
+  let summary = "Concatenate heads operation.";
+  let description = [{
+    The `concatenate_heads` operation concatenates multiple heads of a multi-head attention tensor into a single tensor.
+
+    This operation is typically used in transformer models where the attention mechanism is split into multiple heads.
+    It combines the outputs of these heads into a single tensor, allowing further processing.
+
+    It takes an input tensor with shape `[batch_size, num_heads, sequence_size, head_size]`
+    and produces an output tensor with shape `[batch_size, sequence_size, num_heads * head_size]`.
+
+    It corresponds to a sequence of permute and reshape operations.
+
+    Example:
+    ```mlir
+    // Concatenate heads from a multi-head attention output
+    %input = ... : tensor<1x24x32x128xbf16> // batch_size: 1, num_heads: 24, sequence_size: 32, head_size: 128
+    %output = ttir.empty() : tensor<1x32x3072xbf16>  // Concatenated output of shape [batch_size, sequence_size, num_heads * head_size]
+    %result = ttir.concatenate_heads(%input, %output) : tensor<1x24x32x128xbf16>, tensor<1x32x3072xbf16> -> tensor<1x32x3072xbf16>
+    // Input tensor shape: [1, 24, 32, 128]
+    // Output tensor shape: [1, 32, 3072]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor containing multiple heads.
+
+    Outputs:
+    - `result` (Tensor): The concatenated output tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 #endif

@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -34,7 +35,8 @@ LogicalResult EmbeddingOpSqueezeWeightRewritePattern::matchAndRewrite(
 
   // Create reshape op to squeeze weight tensor to 4D.
   ReshapeOp reshapeWeightOp = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getWeight(), adaptedWeightShape, rewriter);
+      srcOp.getWeight(), adaptedWeightShape, rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_reshape"));
 
   rewriter.modifyOpInPlace(
       srcOp, [&]() { srcOp.getWeightMutable().assign(reshapeWeightOp); });

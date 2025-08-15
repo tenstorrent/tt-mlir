@@ -17,6 +17,7 @@ ttir_dtype_maps = {
     "i1": torch.bool,
     "bf16": torch.bfloat16,
     "f16": torch.float16,
+    "ui32": torch.uint32,
 }
 
 ttrt_dtype_maps = {
@@ -65,7 +66,9 @@ handle_attr_type = {
     ir.DenseIntElementsAttr: handle_dense_elements_attr,
     ir.IntegerAttr: lambda x: x.value,
     ir.BoolAttr: lambda x: x.value,
+    ir.FloatAttr: lambda x: x.value,
     ir.DenseI64ArrayAttr: lambda x: [x[i] for i in range(len(x))],
+    ir.DenseI32ArrayAttr: lambda x: [x[i] for i in range(len(x))],
     ir.DenseFPElementsAttr: handle_dense_elements_attr,
     ir.ArrayAttr: lambda x: [x[i].value for i in range(len(x))],
     ir.StringAttr: lambda x: x.value,
@@ -115,7 +118,6 @@ class OpMapping:
             ]
 
         if not self.unpack_inputs:
-            print("torch op", self.torch_op, result_inputs, torch_args)
             result = self.torch_op(result_inputs, **torch_args)
             return result
 
@@ -172,8 +174,6 @@ def custom_conv2d(*args, **kwargs):
     # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
     I = args[0].permute(0, 3, 1, 2)
     weight = args[1].permute(0, 1, 2, 3)
-
-    print(f"Debug: custom_conv2d {I}\n{weight}")
 
     # Get and validate kwargs with defaults
     padding = kwargs.get("padding", 0)
@@ -367,6 +367,10 @@ def custom_fill_cache(
     return result
 
 
+def custom_full(*args, **kwargs):
+    return torch.full(kwargs["size"], kwargs["fill_value"])
+
+
 def custom_update_cache(
     cache: torch.Tensor,
     input: torch.Tensor,
@@ -379,6 +383,14 @@ def custom_update_cache(
     idx = update_index.to(dtype=torch.long)
     result[..., idx, :] = input
     return result
+
+
+def custom_embeding(input, weight):
+    return torch.nn.functional.embedding(input.long(), weight)
+
+
+def custom_comparison_operator(input: torch.Tensor, other: torch.Tensor, torch_op):
+    return torch_op(input, other).to(dtype=input.dtype)
 
 
 ttir_to_torch_mapping = {
@@ -397,12 +409,22 @@ ttir_to_torch_mapping = {
     "ttir.div": OpMapping(torch.div),
     "ttir.exp": OpMapping(torch.exp, unpack_inputs=False),
     "ttir.pow": OpMapping(torch.pow),
-    "ttir.ge": OpMapping(torch.ge),
-    "ttir.gt": OpMapping(torch.gt),
-    "ttir.le": OpMapping(torch.le),
-    "ttir.ne": OpMapping(torch.ne),
+    "ttir.ge": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.ge)
+    ),
+    "ttir.gt": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.gt)
+    ),
+    "ttir.le": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.le)
+    ),
+    "ttir.lt": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.lt)
+    ),
+    "ttir.ne": OpMapping(
+        lambda input, other: custom_comparison_operator(input, other, torch.ne)
+    ),
     "ttir.logical_and": OpMapping(torch.logical_and),
-    "ttir.lt": OpMapping(torch.lt),
     "ttir.matmul": OpMapping(custom_matmul),
     "ttir.max": OpMapping(
         custom_max, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
@@ -427,11 +449,15 @@ ttir_to_torch_mapping = {
     "ttir.squeeze": OpMapping(torch.squeeze, unpack_inputs=False),
     "ttir.repeat_interleave": OpMapping(torch.repeat_interleave, unpack_inputs=False),
     "ttir.sin": OpMapping(torch.sin, unpack_inputs=False),
+    "ttir.clamp_scalar": OpMapping(torch.clamp, unpack_inputs=False),
+    "ttir.clamp_tensor": OpMapping(torch.clamp, unpack_inputs=False),
     "ttir.softmax": OpMapping(
-        torch.nn.functional.softmax, {"dimension": "dim"}, unpack_inputs=False
+        torch.nn.functional.softmax,
+        {"dimension": "dim", "stable": ""},
+        unpack_inputs=False,
     ),
     "ttir.sigmoid": OpMapping(torch.sigmoid, unpack_inputs=False),
-    "ttir.subtract": OpMapping(torch.subtract),
+    "ttir.subtract": OpMapping(torch.sub),
     "ttir.sum": OpMapping(
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
@@ -445,7 +471,10 @@ ttir_to_torch_mapping = {
     ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
-    "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.full": OpMapping(
+        custom_full, {"shape": "size", "fill_value": "fill_value"}, unpack_inputs=False
+    ),
+    "ttir.embedding": OpMapping(custom_embeding),
     "ttir.fill_cache": OpMapping(
         custom_fill_cache,
         {"batch_offset": "batch_offset"},
@@ -467,6 +496,7 @@ ttir_to_torch_mapping = {
     "ttir.relu": OpMapping(torch.nn.functional.relu, unpack_inputs=False),
     "ttir.neg": OpMapping(torch.neg, unpack_inputs=False),
     "ttir.abs": OpMapping(torch.abs, unpack_inputs=False),
+    "ttir.sign": OpMapping(torch.sign, unpack_inputs=False),
     "ttir.eq": OpMapping(torch.eq),
     "ttir.conv2d": OpMapping(
         custom_conv2d,

@@ -10,6 +10,7 @@ from eltwise_sfpu_demo import main as eltwise_sfpu_demo
 from vecadd_multicore_demo import main as vecadd_multicore_demo
 from matmul_singlecore_demo import main as matmul_singlecore_demo
 from matmul_multicore_demo import main as matmul_multicore_demo
+from dprint_demo import main as dprint_demo
 
 
 @pytest.mark.usefixtures("device")
@@ -30,3 +31,8 @@ def test_matmul_singlecore(device):
 @pytest.mark.usefixtures("device")
 def test_matmul_multicore(device):
     matmul_multicore_demo(device)
+
+
+@pytest.mark.usefixtures("device")
+def test_dprint(device):
+    dprint_demo(device)

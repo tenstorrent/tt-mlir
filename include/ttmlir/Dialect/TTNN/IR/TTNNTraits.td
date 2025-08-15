@@ -29,4 +29,11 @@ def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsT
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+// bfp8_b is tile type so we need some way to check if op which returns
+// it has correct layout information in encoding.
+def CheckBFloat8BTrait : NativeOpTrait<"CheckBFloat8BTrait">
+{
+  let cppNamespace = "mlir::tt::ttnn";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNTRAITS_TD

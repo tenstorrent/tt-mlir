@@ -104,6 +104,12 @@ struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
 template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
+template <>
+struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
+
+template <>
+struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
+
 template <typename OpT>
 struct UnaryEltwiseWithFastApproxModeOpModel {
   static llvm::Expected<OpConstraints>

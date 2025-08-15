@@ -37,6 +37,7 @@
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
+#include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"

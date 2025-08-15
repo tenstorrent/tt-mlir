@@ -17,16 +17,12 @@ namespace ttir_to_ttnn::utils {
 ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
                                 ArrayRef<int64_t> newShape,
                                 PatternRewriter &rewriter,
-                                llvm::StringRef locSuffix) {
+                                mlir::Location newLoc) {
   // With reshape op, the output layout changes due to new output shape, hence
   // we need to create a new output layout attribute with the new shape.
   RankedTensorType inputType = input.getType();
   RankedTensorType outputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, newShape);
-
-  // Add suffix to keep the location name unique.
-  Location newLoc =
-      ttmlir::utils::appendLocationSuffix(input.getLoc(), locSuffix);
 
   llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
   return rewriter.create<ttnn::ReshapeOp>(newLoc, outputType, input,
@@ -36,14 +32,14 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
 
 ttnn::ReshapeOp
 generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
-                   PatternRewriter &rewriter, llvm::StringRef locSuffix) {
+                   PatternRewriter &rewriter, mlir::Location newLoc) {
   llvm::ArrayRef<int64_t> shape = input.getType().getShape();
 
   assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
 
   llvm::SmallVector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
                                          shape[3]};
-  return generateReshape(input, newShape, rewriter, locSuffix);
+  return generateReshape(input, newShape, rewriter, newLoc);
 }
 
 } // namespace ttir_to_ttnn::utils

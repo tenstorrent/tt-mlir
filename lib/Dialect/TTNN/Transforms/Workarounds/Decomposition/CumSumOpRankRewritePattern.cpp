@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -32,7 +33,8 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   adaptedShape.append(additionalAxes, 1);
 
   ReshapeOp adaptedInput = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getInput(), adaptedShape, rewriter, "_reshapeInput");
+      srcOp.getInput(), adaptedShape, rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_reshapeInput"));
 
   RankedTensorType outputType = srcOp.getResult().getType();
   RankedTensorType adaptedOutputType =
@@ -44,7 +46,7 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
 
   ReshapeOp cumsumOutput = ttir_to_ttnn::utils::generateReshape(
       adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter,
-      "_reshapeOutput");
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_reshapeOutput"));
   rewriter.replaceOp(srcOp, cumsumOutput);
 
   return success();

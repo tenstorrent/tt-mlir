@@ -274,6 +274,11 @@ struct TTIRToTTNNBackendPipelineOptions
           "Set to enable quantized data type conversion pass. "
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
+
+  Option<bool> enableBfp8Conversion{
+      *this, "enable-bfp8-conversion",
+      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
