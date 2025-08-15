@@ -454,6 +454,19 @@ public:
         rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), weight, kernelPermutation);
+    // If bias is provided, we need to permute it the same way as weights
+    // Could use reshape instead of permute, but permute is more general
+    Value biasValue = adaptor.getBias();
+    if (biasValue) {
+      auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
+      auto biasPermutation = generateConvPermutation(op, conv2dLayout);
+      auto biasOutputShape = ::ttmlir::utils::applyPermutation(
+          biasType.getShape(), biasPermutation);
+      biasValue = ttir::utils::createDPSOp<ttir::PermuteOp>(
+          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
+          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
+          biasValue, biasPermutation);
+    }
 
     mlir::Value newConv;
     if (isTransposed) {
@@ -502,27 +515,6 @@ public:
     } else {
       // If bias is provided, we need to reshape it to match the expected TTNN
       // format
-      Value biasValue = adaptor.getBias();
-      if (biasValue) {
-        auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
-        auto biasShape = biasType.getShape();
-
-        // Get the output feature dimension from conv2dLayout (which is NHWC)
-        // In NHWC format, the feature dimension is at index 3
-        int64_t outChannels = biasShape[op.getConvolutionLayout()
-                                            .getKernelOutputFeatureDimension()];
-
-        // Reshape bias to [1, 1, 1, outChannels] to match NHWC format
-        llvm::SmallVector<int64_t> targetBiasShape = {1, 1, 1, outChannels};
-        llvm::SmallVector<int32_t> targetBiasShapeI32(targetBiasShape.begin(),
-                                                      targetBiasShape.end());
-
-        biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-            rewriter,
-            ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeBias"),
-            targetBiasShape, biasType.getElementType(), biasType.getEncoding(),
-            biasValue, rewriter.getI32ArrayAttr(targetBiasShapeI32));
-      }
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), outputType, Value(input), Value(weight),
           biasValue, strideAttr, paddingAttr, dilationAttr, groupsAttr,
