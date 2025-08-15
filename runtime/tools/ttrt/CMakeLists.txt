@@ -7,7 +7,7 @@ foreach (filename ${TTRT_FILES})
 endforeach (filename)
 
 add_custom_command(
-  COMMAND rm -rf build
+  COMMAND rm -rf ttrt-*.whl
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
   COMMAND TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
