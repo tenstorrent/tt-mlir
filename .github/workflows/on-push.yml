@@ -8,8 +8,9 @@ on:
 permissions:
   checks: write
   packages: write
-  id-token: write
+  contents: read
   pages: write
+  id-token: write
 
 jobs:
   pre-commit:
