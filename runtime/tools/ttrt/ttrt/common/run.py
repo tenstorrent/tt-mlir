@@ -1025,15 +1025,10 @@ class Run:
                                         is_int,
                                     ) in enumerate(top_k_list):
                                         diff_percent = v_diff * 100
-                                        if is_int:
-                                            self.logging.info(
-                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, rel diff {diff_percent:4.1f}%, idx {idx}"
-                                            )
-                                        else:
-                                            self.logging.info(
-                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
-                                            )
-
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                        )
+                                self.logging.debug(f"pcc_fail={pcc_fail}, allclose_fail={allclose_fail}")
                                 if pcc_fail:
                                     raise PCCErrorException(
                                         f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
@@ -1138,6 +1133,13 @@ class Run:
                         )
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
+                            import torch
+                            self.logging.debug(f"{program.input_tensors[0] @  program.input_tensors[1]}")
+                            self.logging.debug(get_atol_rtol_pcc(
+                                        program.output_tensors[0],
+                                        program.input_tensors[0] @  program.input_tensors[1],
+                                        self.logging,
+                                    ))
 
                         # Read the perf data before deallocating buffers
                         device.read_device_profiler_results()

@@ -38,13 +38,13 @@ def test_matmul_single_core_8otpc(
         n * tile_size,
     )
 
-    def matmul(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+#     def matmul(
+#         in0: Operand,
+#         in1: Operand,
+#         builder: TTIRBuilder,
+#         unit_attrs: List[str] = None,
+#     ):
+#         return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     options = [f"override-device-shape=1,1"]
     compile_ttir_to_flatbuffer(
@@ -82,13 +82,13 @@ def test_matmul_multi_core_8otpc(
         n * tile_size,
     )
 
-    def matmul(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+#     def matmul(
+#         in0: Operand,
+#         in1: Operand,
+#         builder: TTIRBuilder,
+#         unit_attrs: List[str] = None,
+#     ):
+#         return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         matmul,
@@ -102,7 +102,7 @@ def test_matmul_multi_core_8otpc(
     )
 
 
-@pytest.mark.fails_golden
+# @pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shape",
     [
