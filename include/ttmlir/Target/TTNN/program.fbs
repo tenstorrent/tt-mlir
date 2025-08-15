@@ -79,6 +79,7 @@ union OpType {
   RepeatInterleaveOp,
   RepeatOp,
   ReshapeOp,
+  ScatterOp,
   SliceOp,
   SoftmaxOp,
   SortOp,

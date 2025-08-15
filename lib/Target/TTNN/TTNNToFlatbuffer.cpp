@@ -774,6 +774,22 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       op.getClusterAxis(), op.getNumLinks());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
+createOp(FlatbufferObjectCache &cache, ScatterOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto indexTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndexTensor()));
+  auto sourceTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSourceTensor()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output,
+                                             indexTensor, sourceTensor,
+                                             op.getDim(), memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
 createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2243,6 +2259,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
+                           locInfo);
+  }
+  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
+    return createOperation(cache, createOp(cache, scatterOp), debugString,
                            locInfo);
   }
   if (auto collectivePermuteOp = dyn_cast<CollectivePermuteOp>(op);
