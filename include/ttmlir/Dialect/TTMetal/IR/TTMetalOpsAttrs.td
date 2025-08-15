@@ -93,7 +93,7 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                     kernelSymbol,
                                     coreRange,
                                     kernelArgs,
-                                    MathFidelity::HiFi4,
+                                    MathFidelity::HiFi2,
                                     fp32DestAccEn,
                                     false,
                                     false,
