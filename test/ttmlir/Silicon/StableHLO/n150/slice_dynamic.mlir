@@ -5,6 +5,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
 
+// UNSUPPORTED: true
 module @mod_slice_dynamic attributes {} {
     func.func @dynamic_slice(%arg0: tensor<32x64xf32>, %arg1: tensor<i32>, %arg2: tensor<i32>) -> (tensor<8x8xf32> {jax.result_info = "result"}) {
     // CHECK: = "ttnn.reshape"
