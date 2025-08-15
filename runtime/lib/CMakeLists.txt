@@ -3,7 +3,11 @@ message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_R
 add_subdirectory(common)
 add_subdirectory(ttnn)
 add_subdirectory(ttmetal)
-add_subdirectory(cuda)
+find_package(CUDAToolkit)
+  if (CUDAToolkit_FOUND)
+    add_subdirectory(cuda)
+  endif()
+
 
 add_library(TTBinary STATIC binary.cpp)
 set_property(TARGET TTBinary PROPERTY CXX_STANDARD 20)
