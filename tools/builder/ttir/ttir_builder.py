@@ -96,6 +96,7 @@ class TTIRBuilder(Builder):
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
         stack = inspect.stack()
         cur_filename = stack[0].filename
@@ -118,31 +119,40 @@ class TTIRBuilder(Builder):
             op_golden_function = builder_golden.get_golden_function(
                 op_ttir_function, **golden_kwargs
             )
+            skip_golden = True if not op_golden_function else skip_golden
 
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
+            if not skip_golden:
+                if (
+                    not isinstance(organize_golden_args(inputs), torch.Tensor)
+                    and organize_golden_args(inputs) == 0
+                ):
+                    golden_output = op_golden_function(**golden_kwargs)
+                else:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)),
+                        **golden_kwargs,
+                    )
+
+                golden = (
+                    Golden(golden_output[0])
+                    if not isinstance(golden_output, torch.Tensor)
+                    else Golden(golden_output)
+                )
+
+                output_shape = golden.tensor.shape if not output_shape else output_shape
+                if not output_type and inputs:
+                    output_type = self._get_type_from_torch_dtype(
+                        self._get_golden_tensor(inputs[0]).dtype
+                    )
+                elif not output_type:
+                    output_type = self._default_type
             else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
+                assert (
+                    output_shape is not None
+                ), "Output shape must be provided if skipping golden"
+                assert (
+                    output_type is not None
+                ), "Output type must be provided if skipping golden"
 
             if output_create_fn:
                 output = output_create_fn(output_shape, output_type)
@@ -174,9 +184,10 @@ class TTIRBuilder(Builder):
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+            if not skip_golden:
+                self._id_golden_map[str(loc)] = golden
+                self._store_golden(op, golden)
+                self._override_golden(output, golden)
             return op
 
     def _eltwise_proxy(

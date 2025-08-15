@@ -69,7 +69,7 @@ def _create_custom_ttir_pipeline_fn(
 def _run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
-    pipeline_options: Optional[List[str]] = None,
+    pipeline_options: Optional[List[str]] = [],
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
@@ -134,13 +134,13 @@ def build_ttir_module(
         Data types of the input tensors
 
     mesh_name: *str*
-        Name of the mesh to be used in the module. Default is "mesh".
+        Name of the mesh to be used in the module.
 
     mesh_dict: *OrderedDict[str, int]*
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
 
     module_dump : bool
-        Set to True to print out generated MLIR module.
+        Set to True to print out generated MLIR module. Default is True.
 
     base : *Optional[str]*
         Output file name
@@ -267,7 +267,7 @@ def compile_ttir_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = None,
+    pipeline_options: Optional[List[str]] = [],
     print_ir: Union[bool, str] = False,
 ) -> str:
     """
@@ -293,7 +293,6 @@ def compile_ttir_to_flatbuffer(
     inputs_types : *Optional[List[torch.dtype]]*, optional
         The dtypes to use for the inputs to `fn`. Note that if supplied,
         `len(inputs_shapes) == len(inputs_types)` must be true.
-        Default is None.
 
     test_base : str
         The string to be used as the test_base name for dumped files throughout the
@@ -311,10 +310,9 @@ def compile_ttir_to_flatbuffer(
 
     mesh_dict : *OrderedDict[str, int]*, optional
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
-        Default is OrderedDict([("x", 1), ("y", 1)]).
 
     argument_types_string : *Optional[str]*, optional
-        String defining argument types for constant evaluation. Default is None.
+        String defining argument types for constant evaluation.
 
     custom_pipeline : *Union[Callable, str]*, optional
         Pipeline function to run.
@@ -327,11 +325,12 @@ def compile_ttir_to_flatbuffer(
         Path to the system descriptor file
 
     pipeline_options : *Optional[List[str]]*, optional
-        Pipeline options to be added to the pass. Default is None.
+        Pipeline options to be added to the pass.
 
     print_ir : *Union[bool, str]*, optional
         Set to True to print IR to stdout. Set to dir path to print IR after
-        each pass to its own file under that directory. Default is False.
+        each pass to its own file under that directory.
+        Default is True.
 
     Returns
     -------
@@ -404,7 +403,7 @@ def build_stablehlo_module(
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
 
     module_dump : bool
-        Set to True to print out generated MLIR module.
+        Set to True to print out generated MLIR module. Default is True.
 
     base : *Optional[str]*
         Output file name
@@ -535,7 +534,8 @@ def compile_stablehlo_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = None,
+    ttir_pipeline_options: Optional[List[str]] = [],
+    shlo_pipeline_options: Optional[List[str]] = [],
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -577,6 +577,7 @@ def compile_stablehlo_to_flatbuffer(
 
     module_dump : bool, optional
         Set to True to print out generated MLIR modules
+        Default is True.
 
     argument_types_string : Optional[str], optional
         String defining argument types for constant evaluation
@@ -584,11 +585,15 @@ def compile_stablehlo_to_flatbuffer(
     custom_pipeline : Optional[Union[Callable, str]], optional
         Custom pipeline function or string to run instead of default pipeline
 
-    pipeline_options : Optional[List[str]], optional
-        Additional pipeline options to pass to the pipeline
+    ttir_pipeline_options : Optional[List[str]], optional
+        Additional pipeline options to pass to the TTIR pipeline
+
+    shlo_pipeline_options : Optional[List[str]], optional
+        Additional pipeline options to pass to the StableHLO pipeline
 
     print_ir : Union[bool, str], optional
         Set to True to print IR to stdout or to a directory path
+        Default is False.
 
     Returns
     -------
@@ -614,9 +619,15 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
-    stablehlo_pipeline(module)
+
+    if shlo_pipeline_options is None:
+        shlo_pipeline_options = []
+
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
     stablehlo_to_ttir_pipeline(module)
+    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
 
     filename = _get_target_path(
@@ -638,7 +649,7 @@ def compile_stablehlo_to_flatbuffer(
         module_dump=module_dump,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
-        pipeline_options=pipeline_options,
+        pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
     )
 
@@ -655,7 +666,7 @@ def compile_ttir_module_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = None,
+    pipeline_options: Optional[List[str]] = [],
     print_ir: Union[bool, str] = False,
 ):
     """
@@ -677,7 +688,7 @@ def compile_ttir_module_to_flatbuffer(
         Path to the system descriptor file
 
     test_base : str, optional
-        The string to be used as the test_base name for dumped files. Default is "test"
+        The string to be used as the test_base name for dumped files.
 
     output_root : str, optional
         The path to dump all generated files under
@@ -686,10 +697,10 @@ def compile_ttir_module_to_flatbuffer(
         The target backend to use. Default is "ttnn"
 
     mesh_dict : OrderedDict[str, int], optional
-        Dictionary that defines the mesh shape. Default is OrderedDict([("x", 1), ("y", 1)])
+        Dictionary that defines the mesh shape.
 
     module_dump : bool, optional
-        Set to True to print out generated MLIR modules
+        Set to True to print out generated MLIR modules. Default is True.
 
     argument_types_string : Optional[str], optional
         String defining argument types for constant evaluation
@@ -701,7 +712,7 @@ def compile_ttir_module_to_flatbuffer(
         Additional pipeline options to pass to the pipeline
 
     print_ir : Union[bool, str], optional
-        Set to True to print IR to stdout or to a directory path. Default is False
+        Set to True to print IR to stdout or to a directory path.
 
     Returns
     -------
@@ -717,9 +728,6 @@ def compile_ttir_module_to_flatbuffer(
         custom_pipeline = _create_custom_ttir_pipeline_fn(
             custom_pipeline, print_ir=print_ir
         )
-
-    if pipeline_options is None:
-        pipeline_options = []
 
     pipeline_fn: Callable
     to_target: Callable

@@ -42,12 +42,10 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         organize_stablehlo_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
-        output_shape: Optional[Shape] = None,
-        output_type: Optional[Type] = None,
-        output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
         stack = inspect.stack()
         cur_filename = stack[0].filename
@@ -67,31 +65,25 @@ class StableHLOBuilder(Builder):
             op_golden_function = builder_golden.get_golden_function(
                 op_stablehlo_function, **golden_kwargs
             )
+            skip_golden = True if not op_golden_function else skip_golden
 
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
+            if not skip_golden:
+                if (
+                    not isinstance(organize_golden_args(inputs), torch.Tensor)
+                    and organize_golden_args(inputs) == 0
+                ):
+                    golden_output = op_golden_function(**golden_kwargs)
+                else:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)),
+                        **golden_kwargs,
+                    )
+
+                golden = (
+                    Golden(golden_output[0])
+                    if not isinstance(golden_output, torch.Tensor)
+                    else Golden(golden_output)
                 )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
 
             id = self._get_next_global_id()
             loc = (
@@ -111,8 +103,9 @@ class StableHLOBuilder(Builder):
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
+            if not skip_golden:
+                self._id_golden_map[str(loc)] = golden
+                self._store_golden(op, golden)
             return op
 
     def _eltwise_proxy(

@@ -60,5 +60,5 @@ def test_sharding_constraint(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
+        mesh_dict=OrderedDict([("x", 1), ("y", 2)]),
     )

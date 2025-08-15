@@ -33,7 +33,8 @@ class Golden:
     seed: Optional[int] = None
 
     def contiguous(self) -> Golden:
-        return Golden(self.tensor.contiguous())
+        if self.tensor is not None:
+            return Golden(self.tensor.contiguous())
 
 
 class GoldenCheckLevel(Enum):
@@ -81,15 +82,18 @@ class Builder:
                     # It means this is not graph level golden.
                     continue
             golden_tensor = golden_tensor.contiguous()
-            data_type = self._get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
-            golden_info[name] = GoldenTensor(
-                name,
-                list(golden_tensor.tensor.shape),
-                list(golden_tensor.tensor.stride()),
-                data_type if data_type is not None else DataType.Float32,
-                golden_tensor.tensor.data_ptr(),
-                golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
-            )
+            if golden_tensor:
+                data_type = self._get_datatype_from_torch_dtype(
+                    golden_tensor.tensor.dtype
+                )
+                golden_info[name] = GoldenTensor(
+                    name,
+                    list(golden_tensor.tensor.shape),
+                    list(golden_tensor.tensor.stride()),
+                    data_type if data_type is not None else DataType.Float32,
+                    golden_tensor.tensor.data_ptr(),
+                    golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
+                )
         return golden_info
 
     def set_graph_input_output(
@@ -355,12 +359,7 @@ class Builder:
         return golden
 
     def _get_golden(self, operand: Operand) -> Golden:
-        golden = self._goldens.get(operand)
-
-        if golden is None:
-            raise ValueError(f"Expected to have a golden stored for {operand}")
-
-        return golden
+        return self._goldens.get(operand)
 
     def _store_golden(self, operand: Operand, golden: Golden) -> None:
         if self._goldens.get(operand) is not None:
@@ -369,15 +368,11 @@ class Builder:
         self._goldens[operand] = golden
 
     def _override_golden(self, operand: Operand, golden: Golden) -> None:
-        if self._goldens.get(operand) is None:
-            raise ValueError(
-                f"Expected golden for {operand} to already exist before overriding it."
-            )
-
         self._goldens[operand] = golden
 
     def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
-        return self._get_golden(operand).tensor
+        if self._get_golden(operand):
+            return self._get_golden(operand).tensor
 
     def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]
