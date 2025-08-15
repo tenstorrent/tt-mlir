@@ -19,7 +19,7 @@ func.func @remainder_broadcast(%arg0: tensor<64x128xf32>, %arg1: tensor<1x1xf32>
   %2 = ttir.empty() : tensor<64x128xf32>
   // CHECK: %{{[0-9]+}} = "ttnn.remainder"
   // CHECK-SAME: tensor<64x128xf32,
-  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<1x1xf32,
   // CHECK-SAME: -> tensor<64x128xf32,
   %3 = "ttir.remainder"(%arg0, %1, %2) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %3 : tensor<64x128xf32>
