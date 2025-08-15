@@ -1,0 +1,36 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/protocol/core.fbs";
+include "ttmlir/Target/TTNN/protocol/system_desc.fbs";
+include "ttmlir/Target/TTNN/protocol/runtime.fbs";
+
+namespace tt.target.ttnn.protocol;
+
+union CommandType {
+  GetSystemDescCommand,
+  OpenMeshDeviceCommand,
+  CloseMeshDeviceCommand,
+  CreateHostTensorCommand,
+  ToLayoutCommand,
+  SubmitCommand,
+}
+
+union ResponseType {
+  ErrorResponse,
+  GetSystemDescResponse,
+  OpenMeshDeviceResponse,
+  CloseMeshDeviceResponse,
+  CreateHostTensorResponse,
+  ToLayoutResponse,
+  SubmitResponse,
+}
+
+table Command {
+  command_id: uint64;
+  type: CommandType;
+}
+
+table Response {
+  command_id: uint64;
+  type: ResponseType;
+}

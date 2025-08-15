@@ -1,0 +1,17 @@
+include "ttmlir/Target/Common/types.fbs";
+
+namespace tt.target.ttnn.protocol;
+
+table DeviceOptions {
+  mesh_shape: [uint32];
+  mesh_offset: [uint32];
+  num_hw_cqs: uint8;
+  enable_program_cache: bool;
+  l1_small_size: uint64;
+  trace_region_size: uint64;
+  dispatch_core_type: tt.target.DispatchCoreType;
+}
+
+table ErrorResponse {
+  message: string;
+}
