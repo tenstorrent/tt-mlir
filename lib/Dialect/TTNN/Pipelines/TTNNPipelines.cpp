@@ -18,6 +18,7 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <cstdio>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -92,6 +93,7 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
     optimizerOptions.devicePtr = options.devicePtr;
+    printf("Using device pointer: %p\n", options.devicePtr);
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());

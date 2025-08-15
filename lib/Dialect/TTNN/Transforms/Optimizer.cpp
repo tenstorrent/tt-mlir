@@ -41,6 +41,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <cstdio>
 
 namespace mlir::tt::ttnn {
 
@@ -111,6 +112,8 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
+    printf("TTMLIR: TTNNOptimizer constructor: Using device pointer %p\n", options.devicePtr);
+    printf("TTMLIR: TTNNOptimizer::constructor: this pointer %p\n", static_cast<void*>(this));
     devicePtr = std::move(options.devicePtr);
   }
 
@@ -164,12 +167,15 @@ protected:
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
+    std::cerr << "TTMLIR: TTNNOptimizer: Creating pass without options"
+              << std::endl;
     return std::make_unique<DerivedT>();
   }
 
   friend std::unique_ptr<::mlir::Pass>
   createTTNNOptimizer(TTNNOptimizerOptions options) {
-    return std::make_unique<DerivedT>(std::move(options));
+    auto opt = std::make_unique<DerivedT>(std::move(options));
+    return opt;
   }
 };
 } // namespace impl
@@ -189,7 +195,11 @@ public:
   void runOnOperation() final {
     // Set external device if provided
 #ifdef TTMLIR_ENABLE_OPMODEL
+    printf("TTMLIR: TTNNOptimizer::runOnOperation: Using device pointer %p\n", devicePtr);
+    printf("TTMLIR: TTNNOptimizer::runOnOperation: this pointer %p\n", static_cast<void*>(this));
+
     if (devicePtr != nullptr) {
+        std::cerr << "TTMLIR: TTNNOptimizer: Setting external device" << std::endl;
       op_model::SingletonDeviceContext::setExternalDevice(
           static_cast<::tt::tt_metal::distributed::MeshDevice *>(devicePtr));
     }

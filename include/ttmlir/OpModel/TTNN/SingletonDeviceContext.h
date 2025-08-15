@@ -29,7 +29,7 @@ namespace mlir::tt::ttnn::op_model {
 
 class SingletonDeviceContext {
 public:
-  static SingletonDeviceContext &getInstance();
+  static SingletonDeviceContext &getInstance(bool externalDevice = false);
   static void resetInstance();
   static void closeInstance();
   static void
@@ -41,7 +41,7 @@ public:
 
 private:
   SingletonDeviceContext(
-      const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
+      const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE, bool externalDevice = false);
   ~SingletonDeviceContext();
 
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;

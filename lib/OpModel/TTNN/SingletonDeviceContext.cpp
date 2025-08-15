@@ -17,19 +17,32 @@ namespace mlir::tt::ttnn::op_model {
 // accommodate the highest required trace buffer size (2004992B)
 static constexpr size_t opModelDefaultTraceRegionSize = 5000000;
 
-SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
+SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize, bool externalDevice)
+    : m_isExternalDevice(externalDevice) {
+  if (externalDevice) {
+    // If this is an external device, we don't own it, so we don't open it here.
+    // The external device should be set using setExternalDevice() method.
+    return;
+  }
   openDevice(traceRegionSize);
 }
 
 SingletonDeviceContext::~SingletonDeviceContext() { closeDevice(); }
 
-SingletonDeviceContext &SingletonDeviceContext::getInstance() {
+SingletonDeviceContext &SingletonDeviceContext::getInstance(bool externalDevice) {
   static SingletonDeviceContext instance =
-      SingletonDeviceContext(opModelDefaultTraceRegionSize);
+      SingletonDeviceContext(opModelDefaultTraceRegionSize, externalDevice);
+
+  std::cerr << "SingletonDeviceContext::getInstance: "
+            << "Using default trace region size: " << opModelDefaultTraceRegionSize
+            << " bytes, external device: " << (externalDevice ? "true" : "false")
+            << std::endl;
   // Don't assert if m_device is null when using external device -
   // it might not be set yet
   if (!instance.m_isExternalDevice) {
-    assert(instance.m_device != nullptr);
+    if (instance.m_device == nullptr) {
+      instance.openDevice(opModelDefaultTraceRegionSize);
+    }
   }
   return instance;
 }
@@ -47,9 +60,7 @@ void SingletonDeviceContext::closeInstance() {
 
 void SingletonDeviceContext::setExternalDevice(
     ::tt::tt_metal::distributed::MeshDevice *device) {
-  SingletonDeviceContext &instance = getInstance();
-  // Close any existing device first
-  instance.closeDevice();
+  SingletonDeviceContext &instance = getInstance(true);
   // Set external device (without taking ownership)
   instance.m_device = std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>(
       device, [](::tt::tt_metal::distributed::MeshDevice *) {
