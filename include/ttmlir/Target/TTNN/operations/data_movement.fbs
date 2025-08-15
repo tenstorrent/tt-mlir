@@ -16,7 +16,7 @@ table ScatterOp {
   index: tt.target.ttnn.TensorRef;
   source: tt.target.ttnn.TensorRef;
   dim: int32;
-  memcfg: tt.target.ttnn.MemoryConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
 table PadOp {
