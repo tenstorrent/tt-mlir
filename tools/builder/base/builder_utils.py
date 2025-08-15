@@ -454,7 +454,7 @@ def build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc)
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
@@ -479,14 +479,7 @@ def build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
-        module.body.append(
-            stablehlo_builder.mesh(
-                mesh_name=mesh_name,
-                mesh_attr=stablehlo_builder._create_mesh_attr_from_ordered_dict(
-                    mesh_dict
-                ),
-            )
-        )
+        module.body.append(stablehlo_builder._get_mesh())
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.

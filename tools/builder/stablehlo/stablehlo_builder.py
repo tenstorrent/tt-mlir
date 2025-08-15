@@ -10,6 +10,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy
@@ -22,19 +23,27 @@ from builder.base.sharded_tensor import ShardedTensor
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: str = "mesh",
+        mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    ):
         super().__init__(ctx, location)
+        self._mesh_name = mesh_name
+        self._mesh_dict = mesh_dict
 
     # ----- Private Methods ----
-    def _create_mesh_attr_from_ordered_dict(
-        self,
-        mesh_dict: OrderedDict[str, int],
-    ) -> sdy.MeshAttr:
+    def _get_mesh_attr(self) -> sdy.MeshAttr:
         axes = [
             self.mesh_axis_attr(name=axis_name, size=size)
-            for axis_name, size in mesh_dict.items()
+            for axis_name, size in self._mesh_dict.items()
         ]
         return self.mesh_attr(axes)
+
+    def _get_mesh(self) -> sdy.Mesh:
+        return self.mesh(self._mesh_name, self._get_mesh_attr())
 
     def _op_proxy(
         self,
@@ -188,6 +197,14 @@ class StableHLOBuilder(Builder):
         (*sdy.MeshAxisAttr*)
             A mesh axis attribute representing the specified axis with its name and size
         """
+        if name not in self._mesh_dict:
+            raise ValueError(
+                f"Invalid axis name '{name}', valid names include {self._mesh_dict.keys()}"
+            )
+        if self._mesh_dict[name] != size:
+            raise ValueError(
+                f"Incorrect size {size} for mesh axis '{name}', expected {self._mesh_dict[name]}"
+            )
         return sdy.MeshAxisAttr.get(name, size)
 
     def mesh_attr(
@@ -233,6 +250,10 @@ class StableHLOBuilder(Builder):
         (*sdy.AxisRefAttr*)
             An axis reference attribute that can be used to refer to a specific axis in a mesh
         """
+        if name not in self._mesh_dict:
+            raise ValueError(
+                f"Invalid axis name '{name}', expected one of: {self._mesh_dict.keys()}"
+            )
         return sdy.AxisRefAttr.get(name, sub_axis_info_attr)
 
     def dimension_sharding_attr(
@@ -290,6 +311,10 @@ class StableHLOBuilder(Builder):
         (*sdy.TensorShardingAttr*)
             A tensor sharding attribute that describes how a tensor is distributed across the mesh
         """
+        if mesh_name != self._mesh_name:
+            raise ValueError(
+                f"Invalid mesh name '{mesh_name}', expected '{self._mesh_name}'"
+            )
         return sdy.TensorShardingAttr.get(
             mesh_name,
             dimension_shardings,
