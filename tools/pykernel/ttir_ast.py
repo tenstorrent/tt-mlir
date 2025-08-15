@@ -292,8 +292,6 @@ def ttir_compile(verbose: bool = False, to_flatbuffer_file=""):
             param_names = list(sig.parameters.keys())
             if len(param_names) != len(args):
                 raise ValueError(f"How is this even possible???")
-            # if len(args) < 2:
-            #     raise ValueError(f"Must pass at least 2 tensors: one input and one output")
 
             for i, arg in enumerate(args):
                 tensor_args[param_names[i]] = arg
@@ -313,6 +311,7 @@ def ttir_compile(verbose: bool = False, to_flatbuffer_file=""):
             ir.operation.verify()
 
             system_desc_path = os.getenv("SYSTEM_DESC_PATH")
+            assert system_desc_path, "SYSTEM_DESC_PATH must be set."
             ttir_to_ttmetal_backend_pipeline(
                 ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
             )
