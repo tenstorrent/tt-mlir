@@ -1177,7 +1177,8 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         .compose(affineMap);
   }
   case MemorySpace::DeviceDRAM: {
-    // page size == shard size
+    // The DRAM page size is 1<->1 mapped to underlying memref shard size;
+    // pageSize argument is ignored.
     pageSize = getMemrefSizeBytes(memrefType);
     assert(pageSize > 0 && "expected positive page size");
     SmallVector<int64_t> symbols(memrefType.getShape());

@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
@@ -14,7 +15,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Support/Logger.h"
 
 #include <numeric>
 
@@ -142,7 +142,8 @@ public:
         } else {
           coalescingFactor =
               std::gcd(coalescingFactor, currentCoalescingFactor);
-          // early exit if coalescing is not possible
+          // If coalescing factor reaches unit size, it cannot change further.
+          // Early exit to save on runtime.
           if (coalescingFactor == 1) {
             return;
           }

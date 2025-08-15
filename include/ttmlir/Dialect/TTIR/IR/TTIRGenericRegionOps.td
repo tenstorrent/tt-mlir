@@ -704,7 +704,6 @@ def TTIR_DMAReadOp : TTIR_GenericRegionDatamovementOp<"dma_read",
     }];
 }
 
-
 def TTIR_NullTxOp : TTIR_GenericRegionDatamovementOp<"null_tx", [Pure]> {
     let summary = "Create a null transaction.";
     let description = [{
