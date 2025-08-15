@@ -29,11 +29,19 @@ if (TTMLIR_ENABLE_RUNTIME)
     COMMAND_ERROR_IS_FATAL ANY
   )
   execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component ttnn-dev
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  execute_process(
     COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component tracy
     COMMAND_ERROR_IS_FATAL ANY
   )
   execute_process(
     COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component metalium-runtime
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  execute_process(
+    COMMAND \${CMAKE_COMMAND} --install \${CMAKE_BINARY_DIR} --prefix \${CMAKE_INSTALL_PREFIX} --component metalium-dev
     COMMAND_ERROR_IS_FATAL ANY
   )
   execute_process(
