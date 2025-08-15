@@ -2724,4 +2724,140 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+template <typename T>
+std::vector<T> getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
+  std::vector<T> result;
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    // Ensure the element type matches T
+    auto elementType = denseAttr.getType().getElementType();
+    if ((std::is_same<T, float>::value && elementType.isF32()) ||
+        (std::is_same<T, double>::value && elementType.isF64()) ||
+        (std::is_same<T, int32_t>::value && elementType.isInteger(32)) ||
+        (std::is_same<T, int64_t>::value && elementType.isInteger(64))) {
+      // Iterate over the elements
+      for (auto value : denseAttr.getValues<T>()) {
+        result.push_back(value);
+      }
+    }
+  } else {
+    assert(false && "Unknown constant value attribute type");
+  }
+  return result;
+}
+
+::ttnn::Shape getShape(mlir::ElementsAttr value) {
+  if (auto rankedTensorType =
+          dyn_cast<mlir::RankedTensorType>(value.getType())) {
+    // Get the shape as a vector of dimensions
+    llvm::ArrayRef<int64_t> shape = rankedTensorType.getShape();
+    return conversion::getShape(shape);
+  }
+  assert(false && "Unknown constant value attribute type");
+}
+
+/*
+enum class DataType {
+    BFLOAT16 = 0,
+    FLOAT32 = 1,
+    UINT32 = 2,
+    BFLOAT8_B = 3, // NS
+    BFLOAT4_B = 4, // NS
+    UINT8 = 5,
+    UINT16 = 6,
+    INT32 = 7,
+    INVALID = 8,
+};
+*/
+::tt::tt_metal::DataType getDataType(const mlir::ElementsAttr attr) {
+  std::cout << "Printing type" << std::endl;
+  attr.getType().dump();
+  std::cout << std::endl;
+  // type.
+  // auto eltype = type.getElementType();
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    // Ensure the element type matches T
+    auto elementType = denseAttr.getType().getElementType();
+    ::tt::tt_metal::DataType dtype = ::tt::tt_metal::DataType::INVALID;
+    if (elementType.isBF16()) {
+      dtype = ::tt::tt_metal::DataType::BFLOAT16;
+    } else if (elementType.isF32()) {
+      dtype = ::tt::tt_metal::DataType::FLOAT32;
+    } else if (elementType.isUnsignedInteger(32)) {
+      dtype = ::tt::tt_metal::DataType::UINT32;
+    } else if (elementType.isUnsignedInteger(16)) {
+      dtype = ::tt::tt_metal::DataType::UINT16;
+    } else if (elementType.isUnsignedInteger(8)) {
+      dtype = ::tt::tt_metal::DataType::UINT8;
+    } else if (elementType.isInteger(32)) {
+      dtype = ::tt::tt_metal::DataType::INT32;
+    }
+    assert(dtype != ::tt::tt_metal::DataType::INVALID &&
+           "Unsupported data type");
+    return dtype;
+  } else {
+    assert(false && "Unknown constant value attribute type");
+  }
+}
+
+/*
+template <typename BufferType>
+    static Tensor invoke(
+        const std::vector<BufferType>& buffer,
+        const Shape& shape,
+        const DataType dtype,
+        const Layout layout,
+        MeshDevice* device,
+        const MemoryConfig& memory_config)
+*/
+
+// ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
+
+llvm::Expected<OpConstraints>
+OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
+                                      mlir::ElementsAttr value,
+                                      TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  assert(outputLayout != nullptr && "Output layout is required");
+  auto memoryConfig = detail::getNullableMemoryConfig(outputLayout);
+  assert(memoryConfig.has_value() && "Memory config is required");
+  std::cout << "after asserts" << std::endl;
+
+  auto constantOpQuery = [=]() {
+    if (memoryConfig.has_value()) {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::from_buffer, device, getRawDataFromElementsAttr<float>(value),
+          getShape(value), getDataType(value),
+          conversion::getPageLayout(outputLayout), device,
+          memoryConfig.value());
+    } else {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::from_buffer, device, getRawDataFromElementsAttr<float>(value),
+          getShape(value), getDataType(value),
+          conversion::getPageLayout(outputLayout), device,
+          ::tt::tt_metal::MemoryConfig());
+    }
+  };
+  std::cout << "before calling the getOpConstraints query" << std::endl;
+  auto constraintsExp = operation::getOpConstraints(
+      value.getContext(), deviceGrid, constantOpQuery);
+  std::cout << "after calling the getOpConstraints query" << std::endl;
+  return constraintsExp;
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ConstantOp>::getOpRuntime(mlir::ElementsAttr value,
+                                  TTNNLayoutAttr outputLayout) {
+
+  return 0;
+}
 } // namespace mlir::tt::ttnn::op_model

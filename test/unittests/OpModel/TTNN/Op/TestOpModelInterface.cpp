@@ -2144,4 +2144,47 @@ TEST_F(OpModelBase, WhereOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, ConstantOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded)
+                          .withIgnorePhysicalLayout(true);
+  // Step 2: Define the tensor type (e.g., 2x2 tensor of f32)
+  std::vector<int64_t> shape = {2, 2};
+  mlir::Type elementType = builder.getF32Type();
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(shape, elementType);
+
+  // Step 3: Prepare the data (e.g., [1.0, 2.0, 3.0, 4.0] for a 2x2 tensor)
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  llvm::ArrayRef<float> dataRef(data);
+
+  // Step 4: Create the DenseElementsAttr
+  mlir::DenseElementsAttr attr =
+      mlir::DenseElementsAttr::get(tensorType, dataRef);
+  attr.getType().dump();
+  attr.dump();
+  EXPECT_TRUE(attr.getType().getElementType().isF32());
+  std::cout << "Passed the first check" << std::endl;
+
+  auto constant =
+      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
 } // namespace mlir::tt::ttnn

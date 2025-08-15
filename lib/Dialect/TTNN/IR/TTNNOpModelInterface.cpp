@@ -1703,4 +1703,55 @@ EmbeddingBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// ConstantOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// template <typename T>
+// std::vector<T> getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
+//   std::vector<T> result;
+//   if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+//     // Ensure the element type matches T
+//     auto elementType = denseAttr.getType().getElementType();
+//     if ((std::is_same<T, float>::value && elementType.isF32()) ||
+//         (std::is_same<T, double>::value && elementType.isF64()) ||
+//         (std::is_same<T, int32_t>::value && elementType.isInteger(32)) ||
+//         (std::is_same<T, int64_t>::value && elementType.isInteger(64))) {
+//       // Iterate over the elements
+//       for (auto value : denseAttr.getValues<T>()) {
+//         result.push_back(value);
+//       }
+//     }
+//   } else {
+//     assert(false && "Unknown constant value attribute type");
+//   }
+//   return result;
+// }
+
+llvm::Expected<op_model::OpConstraints>
+ConstantOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ConstantOp>::getOpConstraints, *this, deviceGrid,
+      getValue(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConstantOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ConstantOp>::getOpRuntime, *this, getValue(),
+      opConfig.outputLayout);
+}
+
 } // namespace mlir::tt::ttnn
