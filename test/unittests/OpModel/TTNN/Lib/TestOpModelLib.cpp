@@ -885,6 +885,53 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
+
+      bool useGreaterThan = std::is_same_v<OpTy, Atan2Op>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+
+  void RunTestInt32() {
+    const auto [inputShapeA, inputTensorLayoutA, inputBufferTypeA,
+                inputVirtualGridA] = GetParam().inputA;
+    const auto [inputShapeB, inputTensorLayoutB, inputBufferTypeB,
+                inputVirtualGridB] = GetParam().inputB;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = GetParam().expectedResult;
+
+    const TTNNLayoutAttr inputLayoutA = CreateTiledLayoutInt32(
+        inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
+    const TTNNLayoutAttr inputLayoutB = CreateTiledLayoutInt32(
+        inputShapeB, inputBufferTypeB, inputTensorLayoutB, inputVirtualGridB);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
+        inputLayoutB, outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
       EXPECT_EQ(peakSize, expectedPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
@@ -921,6 +968,11 @@ using OpModelLessThanParam = OpModelBinaryEltwiseParam<LessThanOp>;
 using OpModelLogicalAndParam = OpModelBinaryEltwiseParam<LogicalAndOp>;
 using OpModelLogicalOrParam = OpModelBinaryEltwiseParam<LogicalOrOp>;
 using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
+using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
+using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
+using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
+using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
+using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -937,6 +989,11 @@ TEST_P(OpModelLessThanParam, LessThanOp) { RunTest(); }
 TEST_P(OpModelLogicalAndParam, LogicalAndOp) { RunTest(); }
 TEST_P(OpModelLogicalOrParam, LogicalOrOp) { RunTest(); }
 TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
+TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
+TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
+TEST_P(OpModelPowParam, PowOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
@@ -1016,6 +1073,34 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
+                            std::size_t extraCbRequirement = 0) {
+  // Memory requirements for bitwise ops are 2x compared to other binary ops
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    newValues.back().expectedResult.expectedCbSize *= 2;
+    newValues.back().expectedResult.expectedPeakSize *= 2;
+    newValues.back().expectedResult.expectedOutputSize *= 2;
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParamsSameLayout(
+    std::initializer_list<BinaryEltwiseParam> values) {
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
+        (newValues.back().inputA.layout != newValues.back().output.layout)) {
+      newValues.back().expectedResult.expectedLegal = false;
+    }
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1064,6 +1149,22 @@ INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
 INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
                          generateBinaryEltwiseParams(
                              binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseAndTests, OpModelBitwiseAndParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    Atan2Tests, OpModelAtan2Param,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 
