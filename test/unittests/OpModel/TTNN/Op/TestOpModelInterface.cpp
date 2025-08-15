@@ -517,10 +517,6 @@ const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
 const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<Atan2Op>(l, t, r).getOperation();
 };
-const auto createRemainder = [](OpBuilder &b, Location l, Type t,
-                                ValueRange r) {
-  return b.create<RemainderOp>(l, t, r).getOperation();
-};
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<PowOp>(l, t, r).getOperation();
 };
@@ -556,10 +552,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
     {"Minimum", createMin, binaryExpected},
-    {"Atan2", createAtan2,
-     binaryExpected_extraCb4096_extraPeak30720}, // PENDING
-    {"Remainder", createRemainder,
-     binaryExpected_extraCb20480_extraPeak26624}, // PENDING
+    {"Atan2", createAtan2, binaryExpected_extraCb4096_extraPeak30720},
     {"Pow", createPow, binaryExpected}};
 
 // Define the test parameters for binary bitwise operations

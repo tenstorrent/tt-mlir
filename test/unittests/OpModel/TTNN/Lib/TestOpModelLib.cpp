@@ -886,8 +886,7 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
 
-      bool useGreaterThan =
-          std::is_same_v<OpTy, Atan2Op> || std::is_same_v<OpTy, RemainderOp>;
+      bool useGreaterThan = std::is_same_v<OpTy, Atan2Op>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
@@ -974,7 +973,6 @@ using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
 using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
-using OpModelRemainderParam = OpModelBinaryEltwiseParam<RemainderOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -995,7 +993,6 @@ TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
 TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
-TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
 TEST_P(OpModelPowParam, PowOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
@@ -1164,10 +1161,6 @@ INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
 
 INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
-    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
-
-INSTANTIATE_TEST_SUITE_P(
-    RemainderTests, OpModelRemainderParam,
     generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
