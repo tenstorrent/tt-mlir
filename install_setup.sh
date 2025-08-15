@@ -4,26 +4,26 @@ set -e  # Stop script if any command fails
 # -------------------------------
 # Update system and install base tools
 # -------------------------------
-sudo apt update
-sudo apt install -y git cmake ninja-build python3.10-venv python3-pip wget
+apt update
+apt install -y git cmake ninja-build python3.10-venv python3-pip wget
 
 # -------------------------------
 # Install LLVM 17
 # -------------------------------
 wget https://apt.llvm.org/llvm.sh
 chmod +x ./llvm.sh
-sudo ./llvm.sh 17
+./llvm.sh 17
 clang-17 --version
 
 # Set LLVM 17 as default
-sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
-sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
+update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
+update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
 clang --version
 
 # -------------------------------
 # Install required dependencies
 # -------------------------------
-sudo apt-get install -y \
+apt-get install -y \
     software-properties-common \
     build-essential \
     python3-dev \
@@ -62,8 +62,8 @@ bash install_dependencies.sh --docker
 # Setup TTMLIR Toolchain directory
 # -------------------------------
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
-sudo mkdir -p /opt/ttmlir-toolchain
-sudo chown -R $USER:$USER /opt/ttmlir-toolchain
+mkdir -p /opt/ttmlir-toolchain
+chown -R $USER:$USER /opt/ttmlir-toolchain
 
 # -------------------------------
 # Build and activate environment
@@ -81,6 +81,7 @@ cmake -G Ninja \
     -DTTMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DTT_RUNTIME_DEBUG=ON \
     -DCMAKE_DEBUG=ON \
+    -DTTMLIR_ENABLE_STABLEHLO=ON \
     -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
     -DCMAKE_BUILD_TYPE=Debug \
     -B build
