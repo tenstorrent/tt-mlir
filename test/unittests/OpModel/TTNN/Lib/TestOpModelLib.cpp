@@ -55,9 +55,6 @@ const TestTensor inerleaved2048X2048L1 = {{2048, 2048},
                                           llvm::SmallVector<int64_t>{8, 8}};
 } // namespace detail
 
-const YAML::Node allParams =
-    yaml_utils::parseYamlFile("test/unittests/OpModel/TTNN/Lib/params.yaml");
-
 // ==== Unary Eltwise Ops Starts ====
 
 template <typename OpTy>
@@ -2182,6 +2179,21 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto [expectedLegal, expectedCbSize, expectedPeakSize,
               expectedOutputSize] = params.expectedResult;
 
+  llvm::errs() << "--- input shape: ";
+  for (const auto &d : inputShape) {
+    llvm::errs() << d << " ";
+  }
+  llvm::errs() << "\n";
+  llvm::errs() << "--- input tensor layout: " << inputTensorLayout << "\n";
+  llvm::errs() << "--- input buffer type: " << inputBufferType << "\n";
+  if (inputVirtualGrid.has_value()) {
+    llvm::errs() << "--- input virtual grid: ";
+    for (const auto &d : inputVirtualGrid.value()) {
+      llvm::errs() << d << " ";
+    }
+    llvm::errs() << "\n";
+  }
+
   const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
       GetPhysicalGridSize(), builder.getF32Type());
@@ -2245,9 +2257,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
 
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
-    ::testing::Values(
-        yaml_utils::parseConv2dParams(allParams["conv2d_params_1"]),
-        yaml_utils::parseConv2dParams(allParams["conv2d_params_2"])));
+    ::testing::ValuesIn(yaml_utils::parseAllConv2dParams(
+        "test/unittests/OpModel/TTNN/Lib/conv2dparams.yml")));
 
 class OpModelConvTranspose2dParam
     : public OpModelTest,
@@ -2326,8 +2337,8 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
 
 INSTANTIATE_TEST_SUITE_P(
     ConvTranspose2dTests, OpModelConvTranspose2dParam,
-    ::testing::Values(yaml_utils::parseConvTranspose2dParams(
-        allParams["conv_transpose2d_params_1"])));
+    ::testing::ValuesIn(yaml_utils::parseAllConvTranspose2dParams(
+        "test/unittests/OpModel/TTNN/Lib/convtranspose2dparams.yml")));
 
 template <typename OpTy>
 class OpModelPool2DParam : public OpModelTest,
@@ -2403,10 +2414,8 @@ class OpModelMaxPool2DParam : public OpModelPool2DParam<MaxPool2dOp> {
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
-    ::testing::Values(
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_1"]),
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_2"]),
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_3"])));
+    ::testing::ValuesIn(yaml_utils::parseAllMaxPool2dParams(
+        "test/unittests/OpModel/TTNN/Lib/maxpool2dparams.yml")));
 
 // AvgPool2D tests
 class OpModelAvgPool2DParam : public OpModelPool2DParam<AvgPool2dOp> {};

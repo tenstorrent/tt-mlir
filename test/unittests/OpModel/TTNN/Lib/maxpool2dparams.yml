@@ -1,0 +1,77 @@
+maxpool2d_params_1:
+  input:
+    shape: [1, 1, 16384, 32]
+    # tensor_layout: row_major
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  output:
+    shape: [1, 1, 12544, 3]
+    # tensor_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  batch_size: 1
+  input_height: 128
+  input_width: 128
+  input_channels: 32
+  kernel_size: [2, 2]
+  stride: [2, 2]
+  padding: [0, 0]
+  dilation: [1, 1]
+  ceil_mode: false
+  expected_result:
+    legal: true
+    cb_size: 0
+    peak_size: 0
+    output_size: 0
+
+maxpool2d_params_2:
+  input:
+    shape: [1, 1, 65536, 32]
+    # tensor_layout: row_major
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  output:
+    shape: [1, 1, 8192, 32]
+    # tensor_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  batch_size: 1
+  input_height: 256
+  input_width: 256
+  input_channels: 32
+  kernel_size: [3, 3]
+  stride: [4, 2]
+  padding: [0, 0]
+  dilation: [1, 1]
+  ceil_mode: false
+  expected_result:
+    legal: false
+    cb_size: 0
+    peak_size: 0
+    output_size: 0
+
+maxpool2d_params_3:
+  input:
+    shape: [1, 1, 357, 32] # 17*21 = 357
+    # tensor_layout: row_major
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  output:
+    shape: [1, 1, 55, 22]
+    # tensor_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  batch_size: 1
+  input_height: 256
+  input_width: 256
+  input_channels: 22
+  kernel_size: [3, 3]
+  stride: [4, 2]
+  padding: [0, 0]
+  dilation: [1, 1]
+  ceil_mode: false
+  expected_result:
+    legal: false
+    cb_size: 0
+    peak_size: 0
+    output_size: 0
