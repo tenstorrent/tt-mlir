@@ -27,11 +27,19 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/transformer.fbs
 )
 
+set(TTNN_PROTOCOL_FBS_GEN_SOURCES
+  protocol/core.fbs
+  protocol/system_desc.fbs
+  protocol/runtime.fbs
+  protocol/protocol.fbs
+)
+
 set(TTNN_FBS_GEN_SOURCES
   types.fbs
   ${TTNN_OPERATIONS_FBS_GEN_SOURCES}
   program.fbs
   binary.fbs
+  ${TTNN_PROTOCOL_FBS_GEN_SOURCES}
 )
 
 build_flatbuffers("ttnn" "${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)

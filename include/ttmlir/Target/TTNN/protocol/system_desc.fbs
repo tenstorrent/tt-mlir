@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+
+namespace tt.target.ttnn.protocol;
+
+table GetSystemDescCommand {
+  dispatch_core_type: tt.target.DispatchCoreType;
+}
+
+table GetSystemDescResponse {
+  system_desc: tt.target.SystemDesc;
+}
