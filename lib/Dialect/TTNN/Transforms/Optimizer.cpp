@@ -280,19 +280,18 @@ public:
 
         // Save only L1 Interleaved legal configs in a separate map for
         // L1InterleavedFallbackAnalysis later
-        // if (!l1InterleavedFallbackAnalysisEnabled) {
-        //   return;
-        // }
-        std::vector<OpConfig> l1InterleavedConfigs;
-        for (const auto &config : legalConfigs[op]) {
-          auto layoutAttr = config.outputLayout;
-          if (layoutAttr.getBufferType() == BufferType::L1 &&
-              layoutAttr.getMemLayout().getValue() ==
-                  TensorMemoryLayout::Interleaved) {
-            l1InterleavedConfigs.push_back(config);
+        if (l1InterleavedFallbackAnalysisEnabled) {
+          std::vector<OpConfig> l1InterleavedConfigs;
+          for (const auto &config : legalConfigs[op]) {
+            auto layoutAttr = config.outputLayout;
+            if (layoutAttr.getBufferType() == BufferType::L1 &&
+                layoutAttr.getMemLayout().getValue() ==
+                    TensorMemoryLayout::Interleaved) {
+              l1InterleavedConfigs.push_back(config);
+            }
           }
+          l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
         }
-        l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
       });
     });
 
@@ -481,8 +480,8 @@ public:
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
-      // if (l1InterleavedFallbackAnalysisEnabled) {
-      L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
+      if (l1InterleavedFallbackAnalysisEnabled) {
+      	L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
           getAnalysis<L1InterleavedFallbackAnalysis>();
       l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
           l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
@@ -512,7 +511,7 @@ public:
 
         op->getResult(0).setType(newTensorType);
       }
-      //}
+      }
 
       insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
 
