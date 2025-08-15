@@ -110,20 +110,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   // When hoisting a non-DPS op (e.g. SHLO op), we need to DPS-ify to maintain
   // calling convention.
   const bool isDPSOp = mlir::isa<mlir::DestinationStyleOpInterface>(opToHoist);
-  llvm::SmallVector<mlir::Value> outputBuffers;
-  llvm::SmallVector<unsigned> outputBufferIndices;
   if (!isDPSOp) {
     // Create empty tensors for each tensor result.
-    unsigned argIdx = opToHoist->getNumOperands();
     for (auto resultType : opToHoist->getResultTypes()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(resultType)) {
         auto empty = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(),
             tensorType.getElementType());
-
-        outputBuffers.push_back(empty);
-        outputBufferIndices.push_back(argIdx++);
         convertedOperands.push_back(empty);
 
         // Add to function signature.
@@ -183,10 +177,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    // Clone the operation but modify its type if needed
+    // Clone the operation, but modify its type if needed.
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update operand types to f32 for tensor types
+    // Update operand types to f32 for tensor types.
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
@@ -198,7 +192,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       }
     }
 
-    // Update result types to f32 for tensor types
+    // Update result types to f32 for tensor types.
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
@@ -304,6 +298,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 namespace {
 class TTIRHoistAnalyze {
 public:
+  // Data structure to hold all sets of ops to hoist--each op should be hoisted
+  // continguously.  (Currently, we only support sets of size 1).
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
   TTIRHoistAnalyze(mlir::ModuleOp moduleOp,
@@ -311,6 +307,8 @@ public:
     moduleOp.walk([&](mlir::Operation *nestedOp) {
       if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name) ||
           dialectTypeIDs.contains(nestedOp->getDialect()->getTypeID())) {
+        // TODO (#1646): Add support for hoisting sets of multiple ops instead
+        // of single ops.
         llvm::SmallSet<mlir::Operation *, 4> opSet;
         opSet.insert(nestedOp);
         hoistedOps.push_back(opSet);
