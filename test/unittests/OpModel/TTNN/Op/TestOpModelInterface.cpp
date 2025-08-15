@@ -2188,4 +2188,54 @@ TEST_F(OpModelBase, AllGatherOpInterface) {
   EXPECT_NE(error2.find(expectedError), std::string::npos);
 }
 
+TEST_F(OpModelBase, ReduceScatterOpInterface) {
+  // ReduceScatterOp requires multi-device setup for operation. In single-device
+  // scenarios, it should fail gracefully. This test verifies that the
+  // operation correctly fails when device mesh requirements are not met.
+  llvm::SmallVector<int64_t> inputShape = {128, 1024};
+  llvm::SmallVector<int64_t> outputShape = {32, 1024}; // 4x scatter along dim 0
+
+  auto outputType = createRankedTensorType(outputShape);
+  auto input = createEmptyTensor(inputShape);
+
+  // Create ReduceScatterOp with typical parameters
+  auto reduceTypeAttr =
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Sum);
+  auto scatterDimAttr =
+      builder.getI32IntegerAttr(0); // scatter along dimension 0
+  auto clusterAxisAttr = builder.getUI32IntegerAttr(0); // cluster axis 0
+  auto numLinksAttr = builder.getUI32IntegerAttr(1);    // single link
+
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  auto reduceScatter = builder.create<ReduceScatterOp>(
+      builder.getUnknownLoc(), outputType, input, device, reduceTypeAttr,
+      scatterDimAttr, clusterAxisAttr, numLinksAttr);
+
+  // ReduceScatterOp should fold away since it's meaningless on single device
+  // but our test has different input/output shapes so it won't fold.
+  // The actual OpModel interface will fail due to CCL requirements.
+
+  // Test ReduceScatterOp interface - expects failure in single device setup
+  auto constraintsExp = getOpConstraints(reduceScatter.getOperation());
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  // Expected: operation fails in single-device setup
+  // Verify that we get a meaningful error message
+  const auto *expectedError =
+      "At least one of receiver_device_id or sender_device_id "
+      "must be specified";
+  auto error = llvm::toString(constraintsExp.takeError());
+  EXPECT_FALSE(error.empty());
+  EXPECT_NE(error.find(expectedError), std::string::npos);
+
+  auto runtimeExp = getOpRuntime(reduceScatter.getOperation());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  auto error2 = llvm::toString(runtimeExp.takeError());
+  EXPECT_FALSE(error2.empty());
+  EXPECT_NE(error2.find(expectedError), std::string::npos);
+}
+
 } // namespace mlir::tt::ttnn

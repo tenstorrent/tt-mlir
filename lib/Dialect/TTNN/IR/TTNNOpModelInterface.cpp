@@ -1741,7 +1741,7 @@ AllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// AllReduceOp - TTNN Op Model Interface
+// ReduceScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
