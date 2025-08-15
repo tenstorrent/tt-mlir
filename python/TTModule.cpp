@@ -20,11 +20,10 @@ void populateTTModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             std::vector<int64_t> gridShape, uint32_t oobValValue,
-             uint32_t memorySpaceValue) {
+             uint32_t oobValValue, uint32_t memorySpaceValue) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                ArrayRef<int64_t>(gridShape),
+                logicalShape.size(),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue)));
           })

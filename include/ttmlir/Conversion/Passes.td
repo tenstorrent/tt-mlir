@@ -114,9 +114,7 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
           [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
-          )}]>,
-      ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
-          "Override the device shape.">,
+          )}]>
   ];
 }
 

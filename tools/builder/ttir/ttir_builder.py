@@ -40,26 +40,22 @@ class TTIRBuilder(Builder):
     ):
         ctx = self._ctx
 
-        # Create grid shape by 1s filling logical rank.
-        original_rank = len(shape)
-        grid_shape = [1] * original_rank
-
         # Create layout with original logical shape.
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, shape, grid_shape, oobVal, memorySpace
-        )
-        # Sharded shape = grid + logical shape.
-        device_shape = grid_shape + list(shape)
+        layout = ttcore.ir.MetalLayoutAttr.get(ctx, shape, oobVal, memorySpace)
+
+        # Then shard the new shape by adding 1-filled grid dims.
+        original_rank = len(shape)
+        extended_shape = [1] * original_rank + list(shape)
 
         elemType = F32Type.get(ctx)
 
         if tiled:
             elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            device_shape[-2] //= 32
-            device_shape[-1] //= 32
+            extended_shape[-2] //= 32
+            extended_shape[-1] //= 32
 
         return RankedTensorType.get(
-            device_shape, elemType, layout, Location.unknown(ctx)
+            extended_shape, elemType, layout, Location.unknown(ctx)
         )
 
     # ----- Private methods ----
