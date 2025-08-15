@@ -91,7 +91,9 @@ public:
 
   /// A clone method to create a copy of this pass.
   std::unique_ptr<::mlir::Pass> clonePass() const override {
-    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
+    auto copy = std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
+    copy->devicePtr = this->devicePtr; // Copy the device pointer
+    return copy;
   }
 
   /// Return the dialect that must be loaded in the context before this pass.
@@ -112,8 +114,6 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
-    printf("TTMLIR: TTNNOptimizer constructor: Using device pointer %p\n", options.devicePtr);
-    printf("TTMLIR: TTNNOptimizer::constructor: this pointer %p\n", static_cast<void*>(this));
     devicePtr = std::move(options.devicePtr);
   }
 
@@ -167,8 +167,6 @@ protected:
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
-    std::cerr << "TTMLIR: TTNNOptimizer: Creating pass without options"
-              << std::endl;
     return std::make_unique<DerivedT>();
   }
 
@@ -195,11 +193,7 @@ public:
   void runOnOperation() final {
     // Set external device if provided
 #ifdef TTMLIR_ENABLE_OPMODEL
-    printf("TTMLIR: TTNNOptimizer::runOnOperation: Using device pointer %p\n", devicePtr);
-    printf("TTMLIR: TTNNOptimizer::runOnOperation: this pointer %p\n", static_cast<void*>(this));
-
     if (devicePtr != nullptr) {
-        std::cerr << "TTMLIR: TTNNOptimizer: Setting external device" << std::endl;
       op_model::SingletonDeviceContext::setExternalDevice(
           static_cast<::tt::tt_metal::distributed::MeshDevice *>(devicePtr));
     }

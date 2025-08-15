@@ -33,13 +33,9 @@ SingletonDeviceContext &SingletonDeviceContext::getInstance(bool externalDevice)
   static SingletonDeviceContext instance =
       SingletonDeviceContext(opModelDefaultTraceRegionSize, externalDevice);
 
-  std::cerr << "SingletonDeviceContext::getInstance: "
-            << "Using default trace region size: " << opModelDefaultTraceRegionSize
-            << " bytes, external device: " << (externalDevice ? "true" : "false")
-            << std::endl;
   // Don't assert if m_device is null when using external device -
   // it might not be set yet
-  if (!instance.m_isExternalDevice) {
+  if (!instance.m_isExternalDevice && !externalDevice) {
     if (instance.m_device == nullptr) {
       instance.openDevice(opModelDefaultTraceRegionSize);
     }
