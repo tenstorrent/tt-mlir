@@ -19,7 +19,8 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-def test_tilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_tilize(shape: Shape, target: str, request):
     def tilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -50,7 +51,7 @@ def test_tilize(shape: Shape, request):
     compile_ttir_to_flatbuffer(
         tilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -62,7 +63,8 @@ def test_tilize(shape: Shape, request):
     reason="Issue #3486: Unit testing untilize hits some unexpected lowering behaviour."
 )
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-def test_untilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_untilize(shape: Shape, target: str, request):
     def untilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -99,7 +101,7 @@ def test_untilize(shape: Shape, request):
     compile_ttir_to_flatbuffer(
         untilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -108,7 +110,8 @@ def test_untilize(shape: Shape, request):
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
-def test_tilize_untilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_tilize_untilize(shape: Shape, target: str, request):
     def tilize_untilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -129,7 +132,7 @@ def test_tilize_untilize(shape: Shape, request):
     compile_ttir_to_flatbuffer(
         tilize_untilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

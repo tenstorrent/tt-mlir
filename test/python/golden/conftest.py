@@ -159,6 +159,8 @@ def _safe_serialize(value: Any) -> str:
 
 def _get_shapes_param(params: Dict[str, Any]) -> Optional[Any]:
     """Get shapes parameter from various possible keys"""
+    # TODO(ctod): figure out a better way to detect the input shapes to become
+    # robust to tests that construct the shapes within the test itself (#4518)
     shape_keys = ["shapes", "shape", "input_shape", "inputs_shapes"]
     for key in shape_keys:
         if key in params:
@@ -229,7 +231,11 @@ def _extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
 
 def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract backend and remaining parameters"""
-    # Extract backend.
+    # Extract backend. Default to ttnn for now, since that's what
+    # `compile_ttir_to_flatbuffer` defaults to
+    # TODO(ctod): figure out a better way to detect the backend without
+    # necessitating a singleton parameter in test cases that will never need to
+    # test both ttnn and ttmetal (#4518)
     backend = params.get("target", "ttnn")
     _safe_add_property(item, "backend", backend)
 
