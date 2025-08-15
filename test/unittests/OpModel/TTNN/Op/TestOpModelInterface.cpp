@@ -192,6 +192,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 }
 
 const ExpectedResult expected{true, 8192, 2048, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -282,6 +283,11 @@ const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
   return b.create<ReciprocalOp>(loc, type, ops).getOperation();
 };
+const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<CbrtOp>(loc, type, ops).getOperation();
+};
+
 //===---------------------------------------------------------===
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
@@ -298,6 +304,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
     {"Reciprocal", createReciprocal, expected},
+    {"Cbrt", createCbrt, cbrtExpected},
     {"Gelu", createGelu, expected},
     {"IsFinite", createIsFinite, expected},
     {"LogicalNot", createLogicalNot, expected},
@@ -473,6 +480,57 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
       return info.param.testName;
     });
+
+// Separate test for BitwiseNot with integer data types
+TEST_F(OpModelBase, BitwiseNotOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create TTNNLayoutAttr with Int32 data type manually
+  // (CreateTiledLayout only supports FloatType, not IntegerType)
+  auto int32DataType = ttcore::DataType::Int32;
+  auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
+  auto bufferType = BufferType::L1;
+  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  auto memLayout =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
+                                         bufferType, grid, memLayout);
+
+  // Create tensors with the proper Int32 layout
+  auto intType = builder.getIntegerType(32);
+  auto inputType = createRankedTensorType(tensorShape, intType, int32Layout);
+  auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
+
+  // Create input tensor using OnesOp with Int32 layout
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      ShapeAttr::get(&context, tensorShape),
+                                      nullptr, nullptr, nullptr, nullptr);
+
+  auto bitwiseNot = builder.create<BitwiseNotOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
+
+  // Test BitwiseNot interface
+  auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 16384);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints for BitwiseNot; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(bitwiseNot.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for BitwiseNot; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
 
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
@@ -2516,6 +2574,208 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, EmptyOpInterface) {
+  // create EmptyOp with full TTNN layout attributes
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create a proper TTNN layout for the tensor
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  RankedTensorType inputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Cast to get TTNN layout attributes
+  RankedTensorType inputTensorType = mlir::cast<RankedTensorType>(inputType);
+  ttnn::TTNNLayoutAttr ttnnLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputTensorType.getEncoding());
+
+  // Create memory config attribute
+  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+      &context, ttnnLayoutAttr.getMemLayout(),
+      ttnn::BufferTypeAttr::get(&context, ttnnLayoutAttr.getBufferType()),
+      std::nullopt); // No sharding for this test
+
+  // Create a device value (required for EmptyOp)
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create the EmptyOp with all required parameters
+  auto empty = builder.create<ttnn::EmptyOp>(
+      builder.getUnknownLoc(), inputType,
+      ttnn::ShapeAttr::get(&context, inputTensorType.getShape()),
+      ttcore::DataTypeAttr::get(&context, ttnnLayoutAttr.getDataType()),
+      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()), device,
+      memoryConfigAttr);
+
+  // test EmptyOp interface
+  auto constraintsExp = getOpConstraints(empty.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ArangeOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 5};
+  auto layout = CreateRowMajorLayout(tensorShape, ttnn::BufferType::DRAM,
+                                     ttnn::TensorMemoryLayout::Interleaved);
+  auto resultType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create ArangeOp with IntegerAttr parameters
+  auto startAttr = builder.getI64IntegerAttr(0);
+  auto endAttr = builder.getI64IntegerAttr(10);
+  auto stepAttr = builder.getI64IntegerAttr(2);
+
+  auto arange =
+      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
+                               endAttr, stepAttr, /*dtype=*/nullptr,
+                               /*device=*/nullptr, /*memoryConfig=*/nullptr);
+
+  // test ArangeOp interface
+  auto backend = dyn_cast<OpModel>(arange.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(arange), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+struct NamedFullOpTestParams {
+  std::string testName;
+  std::function<Operation *(OpBuilder &, Location, Type, ttnn::ShapeAttr)>
+      createOp;
+  ExpectedResult expectedResult;
+};
+
+class NamedFullOpModelTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<NamedFullOpTestParams> {
+protected:
+  void SetUp() override {
+    OpModelBase::SetUp();
+    params = GetParam();
+  }
+
+  NamedFullOpTestParams params;
+};
+
+// Test case for namedFull operations
+TEST_P(NamedFullOpModelTest, TestOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeO = {workerCoresN300, 2048};
+  auto layout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                  TensorMemoryLayout::BlockSharded);
+  auto outputType =
+      createRankedTensorType(tensorShapeO, builder.getBF16Type(), layout);
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  ttnn::ShapeAttr::get(&context, tensorShapeO));
+  auto backend = dyn_cast<OpModel>(op);
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(op), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
+  } else {
+    FAIL() << "Missing L1 constraints for " << params.testName
+           << "; Error=" << llvm::toString(constraintsExp.takeError());
+  }
+}
+
+const auto createZeros = [](OpBuilder &b, Location loc, Type type,
+                            ttnn::ShapeAttr shape) {
+  return b
+      .create<ZerosOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
+                       /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .getOperation();
+};
+const auto createOnes = [](OpBuilder &b, Location loc, Type type,
+                           ttnn::ShapeAttr shape) {
+  return b
+      .create<OnesOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
+                      /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .getOperation();
+};
+
+const ExpectedResult namedFullExpected{true, 0, 0, 0};
+
+const std::vector<NamedFullOpTestParams> namedFullOpTestParams = {
+    {"Zeros", createZeros, namedFullExpected},
+    {"Ones", createOnes, namedFullExpected}};
+
+INSTANTIATE_TEST_SUITE_P(
+    NamedFullOpModelTests, NamedFullOpModelTest,
+    ::testing::ValuesIn(namedFullOpTestParams),
+    [](const testing::TestParamInfo<NamedFullOpTestParams> &info) {
+      return info.param.testName;
+    });
+
+TEST_F(OpModelBase, FullOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+  auto fullInt =
+      builder.create<FullOp>(builder.getUnknownLoc(), outputType,
+                             ttnn::ShapeAttr::get(&context, tensorShape),
+                             builder.getI32IntegerAttr(42),
+                             /*dtype=*/nullptr, /*layout=*/nullptr,
+                             /*device=*/nullptr, /*memoryConfig=*/nullptr);
+
+  // test FullOp interface with int fill value:
+  auto backendI = dyn_cast<OpModel>(fullInt.getOperation());
+  auto constraintsExpI =
+      backendI.getOpConstraints(getInputLayouts(fullInt), OpConfig(nullptr));
+  if (constraintsExpI) {
+    auto l1 = constraintsExpI.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpI.takeError()) << std::endl;
+  }
+
+  // test FullOp interface with float fill value:
+  auto fullF = builder.create<FullOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
+      /*dtype=*/nullptr, /*layout=*/nullptr,
+      /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto backendF = dyn_cast<OpModel>(fullF.getOperation());
+  auto constraintsExpF =
+      backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
+  if (constraintsExpF) {
+    auto l1 = constraintsExpF.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpF.takeError()) << std::endl;
   }
 }
 

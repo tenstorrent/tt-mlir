@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "d78ff5f6a9c1e63a9a33ef92778edec37bf4d292")
-set(STABLEHLO_VERSION "d04fac09573114edad22c7d7af27ae0030c7a04e")
-set(SHARDY_VERSION "ea2ba7edd02b693423107c5fc40542e8c0542bf8")
+set(LLVM_PROJECT_VERSION "f8cb7987c64dcffb72414a40560055cb717dbf74")
+set(STABLEHLO_VERSION "e07debd5e257ec1e118f18c54068977b89f03b2f")
+set(SHARDY_VERSION "a8f93f165dd5e56a44c300ed68bb5233c43dd30c")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
@@ -49,7 +49,7 @@ ExternalProject_Add(
 ExternalProject_Add(
     llvm-project
     # Super hacky way to install the python dependencies before the build
-    PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
+    PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/llvm.patch" && git commit -m "tt-mlir related patch" && bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
@@ -92,7 +92,7 @@ ExternalProject_Add(shardy
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
-   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch"
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy_roundtrip.patch" && git commit -m "tt-mlir related patch" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch"
 )
 
 add_custom_target(llvm-lit ALL COMMAND cp llvm-project-prefix/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)

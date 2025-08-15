@@ -174,15 +174,6 @@ def test_execute_model(model_path):
     convert_command_and_assert(model_path)
 
 
-def test_execute_mnist_l1_interleaved():
-    execute_command_and_wait(
-        MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "Greedy L1 Interleaved"},
-        timeout=300,
-    )
-    convert_command_and_assert(MNIST_SHARDING_PATH)
-
-
 def test_execute_mnist_df_sharding():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,

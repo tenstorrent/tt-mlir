@@ -506,6 +506,10 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
         to a target that only supports a subset of the element types.
   }];
+
+  list<Option> options = [
+    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
+  ];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">

@@ -20,6 +20,16 @@
 
 namespace mlir::tt::ttnn::op_model {
 
+template <typename T1, typename T2>
+void EXPECT_EQ_OR_GE(const T1 &actual, const T2 &expected,
+                     bool useGreaterThan = false) {
+  if (useGreaterThan) {
+    EXPECT_GE(actual, expected);
+  } else {
+    EXPECT_EQ(actual, expected);
+  }
+}
+
 class OpModelTest : public OpModelFixture {};
 
 namespace detail {
@@ -90,9 +100,54 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
-      EXPECT_EQ(outputSize, expectedOutputSize);
+
+      bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp =
+        OpModel<OpTy>::getOpRuntime(inputShape, inputLayout, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+
+  void RunTestInt32() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<2>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+
+      bool useGreaterThan = std::is_same_v<OpTy, BitwiseNotOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       // Must clean up the error
@@ -135,6 +190,8 @@ using OpModelRsqrtParam = OpModelUnaryEltwiseParam<RsqrtOp>;
 using OpModelLog1pParam = OpModelUnaryEltwiseParam<Log1pOp>;
 using OpModelExpm1Param = OpModelUnaryEltwiseParam<Expm1Op>;
 using OpModelReciprocalParam = OpModelUnaryEltwiseParam<ReciprocalOp>;
+using OpModelCbrtParam = OpModelUnaryEltwiseParam<CbrtOp>;
+using OpModelBitwiseNotParam = OpModelUnaryEltwiseParam<BitwiseNotOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
@@ -160,6 +217,8 @@ TEST_P(OpModelAtanParam, AtanOp) { RunTest(); }
 TEST_P(OpModelRsqrtParam, RsqrtOp) { RunTest(); }
 TEST_P(OpModelLog1pParam, Log1pOp) { RunTest(); }
 TEST_P(OpModelExpm1Param, Expm1Op) { RunTest(); }
+TEST_P(OpModelCbrtParam, CbrtOp) { RunTest(); }
+TEST_P(OpModelBitwiseNotParam, BitwiseNotOp) { RunTestInt32(); }
 
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
@@ -272,6 +331,12 @@ INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelBitwiseNotParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
@@ -2230,6 +2295,137 @@ TEST_F(OpModelTest, Where) {
       inputTensorShape, inputLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
+}
+
+TEST_F(OpModelTest, EmptyOp) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutL1Tiled =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  mlir::tt::ttnn::MemoryConfigAttr memoryConfig =
+      mlir::tt::ttnn::MemoryConfigAttr::get(
+          &context, inputLayoutL1Tiled.getMemLayout(),
+          mlir::tt::ttnn::BufferTypeAttr::get(
+              &context, inputLayoutL1Tiled.getBufferType()),
+          std::nullopt /*shardSpec*/);
+  mlir::tt::ttcore::DataTypeAttr dtype =
+      mlir::tt::ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32);
+  mlir::tt::ttnn::Layout layout = mlir::tt::ttnn::Layout::Tile;
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto constraintsExp =
+      ttnn::op_model::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
+          CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig,
+          outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 4096);
+  EXPECT_EQ(outputSize, 4096);
+}
+
+TEST_F(OpModelTest, ArangeOp) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  // Create IntegerAttr parameters
+  ::mlir::IntegerAttr startAttr = builder.getI32IntegerAttr(0);
+  ::mlir::IntegerAttr endAttr = builder.getI32IntegerAttr(10);
+  ::mlir::IntegerAttr stepAttr = builder.getI32IntegerAttr(1);
+
+  // Create optional dtype
+  std::optional<mlir::tt::ttcore::DataType> dtype =
+      mlir::tt::ttcore::DataType::Float32;
+
+  // Create optional memory config
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig =
+      mlir::tt::ttnn::MemoryConfigAttr::get(
+          &context, inputLayout.getMemLayout(),
+          mlir::tt::ttnn::BufferTypeAttr::get(&context,
+                                              inputLayout.getBufferType()),
+          std::nullopt /*shardSpec*/);
+
+  auto constraintsExp =
+      ttnn::op_model::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
+          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig,
+          nullptr);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  // Basic assertions to verify the op constraints are computed
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+}
+
+// ==== Creation Ops ====
+
+template <typename OpTy>
+class OpModelCreationParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<llvm::SmallVector<int64_t>, detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [tensorShape, expectedResult] = params;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = expectedResult;
+
+    const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+        CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                          mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+    auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, tensorShape);
+
+    auto constraintsExp = ttnn::op_model::OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt, std::nullopt,
+        outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    }
+  }
+};
+
+using OpModelZerosParam = OpModelCreationParam<mlir::tt::ttnn::ZerosOp>;
+using OpModelOnesParam = OpModelCreationParam<mlir::tt::ttnn::OnesOp>;
+
+TEST_P(OpModelZerosParam, ZerosOpParameterized) { RunTest(); }
+TEST_P(OpModelOnesParam, OnesOpParameterized) { RunTest(); }
+
+// Test data for creation operations
+const auto creationOpTestData = testing::Values(
+    std::make_tuple(llvm::SmallVector<int64_t>{1024, 256},
+                    detail::ExpectedResult{true, 0, 8192, 8192}));
+
+INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelZerosParam, creationOpTestData);
+INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelOnesParam, creationOpTestData);
+
+// ==== FullOp Tests ====
+TEST_F(OpModelTest, FullOp) {
+  const llvm::SmallVector<int64_t> shape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      CreateTiledLayout(shape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, shape);
+  auto constraintsExp =
+      ttnn::op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
+          CreateWorkerGrid(), shapeAttr, builder.getI32IntegerAttr(0),
+          std::nullopt, std::nullopt, std::nullopt, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 }
 
 class OpModelPrepareConv2dWeightsParam

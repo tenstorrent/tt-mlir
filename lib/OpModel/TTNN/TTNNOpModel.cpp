@@ -19,6 +19,7 @@
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -275,6 +276,10 @@ auto getOpSymbol() {
     return ::ttnn::log;
   } else if constexpr (std::is_same_v<OpTy, ReciprocalOp>) {
     return ::ttnn::reciprocal;
+  } else if constexpr (std::is_same_v<OpTy, CbrtOp>) {
+    return ::ttnn::cbrt;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseNotOp>) {
+    return ::ttnn::bitwise_not;
   } else if constexpr (std::is_same_v<OpTy, AddOp>) {
     return ::ttnn::add;
   } else if constexpr (std::is_same_v<OpTy, MultiplyOp>) {
@@ -311,6 +316,10 @@ auto getOpSymbol() {
     return ::ttnn::mean;
   } else if constexpr (std::is_same_v<OpTy, SumOp>) {
     return ::ttnn::sum;
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
+    return ::ttnn::zeros;
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::OnesOp>) {
+    return ::ttnn::ones;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -743,6 +752,8 @@ template struct UnaryEltwiseOpModel<NegOp>;
 template struct UnaryEltwiseOpModel<TanOp>;
 template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
+template struct UnaryEltwiseOpModel<CbrtOp>;
+template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
@@ -1167,6 +1178,54 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for ReductionOpModel.
 template struct ReductionOpModel<MeanOp>;
 template struct ReductionOpModel<SumOp>;
+
+//===----------------------------------------------------------------------===//
+// Named Full Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::Layout> layout,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  std::optional<::tt::tt_metal::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
+  if (layout.has_value()) {
+    metalLayout = conversion::getPageLayout(layout.value());
+  }
+  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
+  if (outputLayout) {
+    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig.has_value()) {
+    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
+  auto namedFullOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        detail::getOpSymbol<OpTy>(), device,
+        conversion::getShape(shape.getShape()), metalDtype, metalLayout,
+        deviceRef, metalMemoryConfig);
+  };
+  return operation::getOpConstraints(shape.getContext(), deviceGrid,
+                                     namedFullOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+// Explicit template instantiation for NamedFullOpModel.
+template struct NamedFullOpModel<ZerosOp>;
+template struct NamedFullOpModel<OnesOp>;
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
@@ -3066,6 +3125,158 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
   return operation::getOpRuntime(embeddingBackwardOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Use the output layout if possible:
+  ::tt::tt_metal::MemoryConfig memConfig =
+      outputLayout ? conversion::getMemoryConfig(outputLayout)
+                   : conversion::getMemoryConfig(memoryConfig);
+
+  auto emptyOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::empty, device, conversion::getShape(inputShape),
+        conversion::getDataType(dtype.getValue()),
+        conversion::getPageLayout(inputLayout), device, memConfig);
+  };
+
+  return operation::getOpConstraints(dtype.getContext(), deviceGrid,
+                                     emptyOpQuery);
+#else
+  return OpConstraints{};
+#endif //
+}
+
+//===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+// sgholamiTT: There are two reasons why receiving the start, end, and step as
+// attributes is better than as integers:
+//   1. That is the only valid way to aquire a pointer to MLIRContext.
+//   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
+//      mlir idiomatic than static_cast<int64_t>(start).
+llvm::Expected<OpConstraints>
+OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, ::mlir::IntegerAttr start,
+    ::mlir::IntegerAttr end, ::mlir::IntegerAttr step,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  // ~~~~~~~~~~~~~~~~~~~~~ Note ~~~~~~~~~~~~~~~~~~~~~
+  // The following default values are taken from Arrange's invoke function in
+  // tt-metal/ttnn/cpp/ttnn/operations/creation.hpp
+  const ::tt::tt_metal::DataType defaultDtypeInMetal =
+      ::tt::tt_metal::DataType::BFLOAT16;
+  const ::ttnn::MemoryConfig defaultMemoryConfigInMetal =
+      ::ttnn::DRAM_MEMORY_CONFIG;
+  const ::ttnn::Layout defaultLayoutInMetal = ::ttnn::ROW_MAJOR_LAYOUT;
+  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  ::tt::tt_metal::DataType dataType = defaultDtypeInMetal;
+  if (dtype.has_value()) {
+    dataType = conversion::getDataType(dtype.value());
+  }
+  ::ttnn::MemoryConfig memoryConfig = defaultMemoryConfigInMetal;
+  // Prefer the output layout if possible:
+  if (outputLayout) {
+    memoryConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memConfig.has_value()) {
+    memoryConfig = conversion::getMemoryConfig(memConfig.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
+  auto arangeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::arange, device, start.getInt(), end.getInt(), step.getInt(),
+        dataType, deviceRef, memoryConfig, defaultLayoutInMetal);
+  };
+
+  return operation::getOpConstraints(start.getContext(), deviceGrid,
+                                     arangeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
+    mlir::Attribute fillValue, std::optional<mlir::tt::ttcore::DataType> dtype,
+    std::optional<mlir::tt::ttnn::Layout> layout,
+    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prefer the output layout if possible:
+  std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
+  if (outputLayout) {
+    metalMemConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig.has_value()) {
+    metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+
+  std::optional<::ttnn::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  ::ttnn::Shape metalShape = conversion::getShape(shape.getShape());
+
+  std::optional<::ttnn::Layout> metalLayout = std::nullopt;
+  if (layout.has_value()) {
+    metalLayout = conversion::getPageLayout(layout.value());
+  }
+  std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
+      deviceRef = *device;
+
+  // Helper lambda to create the query with any fill value type
+  auto createFullOpQuery = [=](auto convertedFillValue) {
+    return [=]() {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::full, device, metalShape, convertedFillValue, metalDtype,
+          metalLayout, deviceRef, metalMemConfig,
+          /*optional_output_tensor = */ std::nullopt);
+    };
+  };
+
+  // The invoke function of fullOp is templated over the fill value type. That's
+  // why the following code is aranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
+    int convertedFillValue = static_cast<int>(value.getInt());
+    auto query = createFullOpQuery(convertedFillValue);
+    return operation::getOpConstraints(fillValue.getContext(), deviceGrid,
+                                       query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(fillValue)) {
+    float convertedFillValue = value.getValue().convertToFloat();
+    auto query = createFullOpQuery(convertedFillValue);
+    return operation::getOpConstraints(fillValue.getContext(), deviceGrid,
+                                       query);
+  }
+  return llvm::createStringError("Invalid fillValue");
+#else
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
