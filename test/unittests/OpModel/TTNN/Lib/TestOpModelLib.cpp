@@ -1029,6 +1029,9 @@ INSTANTIATE_TEST_SUITE_P(MulTests, OpModelMultiplyParam,
 INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
+INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
+
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
