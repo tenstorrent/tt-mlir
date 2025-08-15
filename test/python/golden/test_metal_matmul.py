@@ -12,6 +12,8 @@ from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("m", [2])
@@ -112,7 +114,7 @@ def test_matmul_multi_core_8otpc(
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes(
-    shape: tuple[int],
+    shape: tuple[int, ...],
     dst_register_size_tiles: int,
     request,
 ):
