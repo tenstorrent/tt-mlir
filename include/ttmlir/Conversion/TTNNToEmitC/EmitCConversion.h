@@ -163,6 +163,12 @@ struct TypeName<std::array<T, k>> {
       "::std::array<" + TypeNameV<T> + ", " + std::to_string(k) + ">";
 };
 
+template <typename First, typename Second>
+struct TypeName<std::pair<First, Second>> {
+  inline static const std::string value =
+      "::std::pair<" + TypeNameV<First> + ", " + TypeNameV<Second> + ">";
+};
+
 template <typename T>
 struct TypeName<std::vector<T>> {
   inline static const std::string value = "::std::vector<" + TypeNameV<T> + ">";
@@ -894,6 +900,32 @@ private:
     llvm::interleaveComma(values, rso);
     rso << "}";
     return buf;
+  }
+};
+
+template <typename First, typename Second>
+struct EmitCTypeConverter<std::pair<First, Second>> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (!attr) {
+      return {};
+    }
+
+    if (auto arrayAttr = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
+      if (arrayAttr.size() != 2) {
+        return {};
+      }
+      auto firstConverted = EmitCTypeConverter<First>::convert(arrayAttr[0]);
+      auto secondConverted = EmitCTypeConverter<Second>::convert(arrayAttr[1]);
+      if (!firstConverted || !secondConverted) {
+        return {};
+      }
+      std::stringstream rso;
+      rso << "std::make_pair(" << *firstConverted << ", " << *secondConverted
+          << ")";
+      return rso.str();
+    }
+
+    return {};
   }
 };
 
