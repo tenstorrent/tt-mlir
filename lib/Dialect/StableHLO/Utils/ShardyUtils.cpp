@@ -369,6 +369,103 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
   return outShardingAttrs;
 }
 
+// Reads sharding for a manual_computation region argument.
+// Returns nullptr if not available.
+mlir::sdy::TensorShardingAttr
+getShardingForManualComputationArg(mlir::BlockArgument barg) {
+  mlir::sdy::TensorShardingAttr result = nullptr;
+
+  mlir::Operation *parent = barg.getOwner()->getParentOp();
+  auto mc = llvm::dyn_cast_or_null<mlir::sdy::ManualComputationOp>(parent);
+  if (mc) {
+    auto spv = mlir::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
+        mc.getInShardings());
+    if (spv) {
+      auto shardings = spv.getShardings(); // ArrayRef<TensorShardingAttr>
+      unsigned idx = barg.getArgNumber();
+      if (idx < shardings.size()) {
+        result = shardings[idx];
+      }
+    }
+  }
+
+  return result;
+}
+
+// Reads sharding for an OpResult via op-level attributes.
+// Prefers sdy.sharding_per_value, then falls back to sdy.sharding.
+// Returns nullptr if not available.
+mlir::sdy::TensorShardingAttr getShardingForOpResult(mlir::OpResult res) {
+  mlir::sdy::TensorShardingAttr result = nullptr;
+
+  mlir::Operation *owner = res.getOwner();
+  unsigned resNo = res.getResultNumber();
+
+  auto spv = owner->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+      "sdy.sharding_per_value");
+  if (spv) {
+    auto shardings = spv.getShardings(); // ArrayRef<TensorShardingAttr>
+    if (!shardings.empty()) {
+      unsigned i = (resNo < shardings.size()) ? resNo : 0u; // broadcast-safe
+      result = shardings[i];
+    }
+  }
+
+  if (!result) {
+    auto ts =
+        owner->getAttrOfType<mlir::sdy::TensorShardingAttr>("sdy.sharding");
+    if (ts) {
+      result = ts;
+    }
+  }
+
+  return result;
+}
+
+// Returns the TensorShardingAttr for a given Value, if available.
+//
+// This function checks for sharding annotations in the following order:
+//   - sdy.manual_computation region arguments (via
+//   getShardingForManualComputationArg)
+//   - func.func entry-block arguments (via getInShardingAttrs)
+//   - OpResults (using per-value or op-level sharding attributes)
+//
+// If no sharding annotation is found, returns a default "full replicate"
+// sharding attribute.
+mlir::sdy::TensorShardingAttr getShardingAttr(mlir::Value v,
+                                              mlir::sdy::MeshOp globalMeshOp) {
+  mlir::sdy::TensorShardingAttr result = nullptr;
+
+  if (auto barg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
+    // manual_computation region argument
+    result = getShardingForManualComputationArg(barg);
+
+    // func.func entry-block argument (only if still unresolved)
+    if (!result) {
+      mlir::Operation *parent = barg.getOwner()->getParentOp();
+      if (parent) {
+        auto funcOp = parent->getParentOfType<mlir::func::FuncOp>();
+        if (funcOp && parent == funcOp.getOperation()) {
+          auto inAttrs =
+              getInShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp);
+          unsigned i = barg.getArgNumber();
+          if (i < inAttrs.size()) {
+            result = inAttrs[i];
+          }
+        }
+      }
+    }
+  } else if (auto res = mlir::dyn_cast<mlir::OpResult>(v)) {
+    result = getShardingForOpResult(res);
+  }
+  // If still unresolved, fall back to "full replicate"
+  if (!result) {
+    result = shardy_utils::getDefaultTensorSdyShardingAttr(
+        v.getContext(), globalMeshOp.getSymName(), v.getType());
+  }
+  return result;
+}
+
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>
 calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
