@@ -16,9 +16,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#ifdef TTMLIR_ENABLE_STABLEHLO
-#include "stablehlo/dialect/StablehloOps.h"
-#endif
 
 using namespace mlir;
 using namespace mlir::tt;
