@@ -4,12 +4,15 @@ add_mlir_extension_library(TTMLIRTransforms
         ExtractGPUModules.cpp
         ReenableLostDPS.cpp
         RemoveReturnValues.cpp
+<<<<<<< HEAD
         WrapAffineFor.cpp
 <<<<<<< HEAD
 
 =======
 =======
 >>>>>>> f4793b162 (Cuda runtime.)
+=======
+>>>>>>> 8c436437a (Merging fixes)
         ExtractGPUModules.cpp
         WrapAffineFor.cpp
 >>>>>>> 4fa39775e (Fixing translation to NVVM with 1D tensors.)
