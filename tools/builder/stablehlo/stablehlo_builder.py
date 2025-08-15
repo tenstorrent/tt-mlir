@@ -10,30 +10,40 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy
 
 from builder.base.builder import *
 from builder.base import builder_golden
+from builder.base.sharded_tensor import ShardedTensor
 
 
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: str = "mesh",
+        mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    ):
         super().__init__(ctx, location)
+        self._mesh_name = mesh_name
+        self._mesh_dict = mesh_dict
 
     # ----- Private Methods ----
-    def _create_mesh_attr_from_ordered_dict(
-        self,
-        mesh_dict: OrderedDict[str, int],
-    ) -> sdy.MeshAttr:
+    def _get_mesh_attr(self) -> sdy.MeshAttr:
         axes = [
             self.mesh_axis_attr(name=axis_name, size=size)
-            for axis_name, size in mesh_dict.items()
+            for axis_name, size in self._mesh_dict.items()
         ]
         return self.mesh_attr(axes)
+
+    def _get_mesh(self) -> sdy.Mesh:
+        return self.mesh(self._mesh_name, self._get_mesh_attr())
 
     def _op_proxy(
         self,
@@ -42,12 +52,10 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         organize_stablehlo_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
-        output_shape: Optional[Shape] = None,
-        output_type: Optional[Type] = None,
-        output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
         stack = inspect.stack()
         cur_filename = stack[0].filename
@@ -67,31 +75,26 @@ class StableHLOBuilder(Builder):
             op_golden_function = builder_golden.get_golden_function(
                 op_stablehlo_function, **golden_kwargs
             )
+            skip_golden = True if not op_golden_function else skip_golden
 
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
+            if not skip_golden:
+                if (
+                    not isinstance(organize_golden_args(inputs), torch.Tensor)
+                    and organize_golden_args(inputs) == 0
+                ):
+                    golden_output = op_golden_function(**golden_kwargs)
+                else:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)),
+                        **golden_kwargs,
+                    )
+
+                golden = (
+                    Golden(golden_output[0])
+                    if not isinstance(golden_output, torch.Tensor)
+                    and not isinstance(golden_output, ShardedTensor)
+                    else Golden(golden_output)
                 )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
 
             id = self._get_next_global_id()
             loc = (
@@ -111,8 +114,9 @@ class StableHLOBuilder(Builder):
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
+            if not skip_golden:
+                self._id_golden_map[str(loc)] = golden
+                self._store_golden(op, golden)
             return op
 
     def _eltwise_proxy(
@@ -193,6 +197,14 @@ class StableHLOBuilder(Builder):
         (*sdy.MeshAxisAttr*)
             A mesh axis attribute representing the specified axis with its name and size
         """
+        if name not in self._mesh_dict:
+            raise ValueError(
+                f"Invalid axis name '{name}', valid names include {self._mesh_dict.keys()}"
+            )
+        if self._mesh_dict[name] != size:
+            raise ValueError(
+                f"Incorrect size {size} for mesh axis '{name}', expected {self._mesh_dict[name]}"
+            )
         return sdy.MeshAxisAttr.get(name, size)
 
     def mesh_attr(
@@ -238,6 +250,10 @@ class StableHLOBuilder(Builder):
         (*sdy.AxisRefAttr*)
             An axis reference attribute that can be used to refer to a specific axis in a mesh
         """
+        if name not in self._mesh_dict:
+            raise ValueError(
+                f"Invalid axis name '{name}', expected one of: {self._mesh_dict.keys()}"
+            )
         return sdy.AxisRefAttr.get(name, sub_axis_info_attr)
 
     def dimension_sharding_attr(
@@ -295,6 +311,10 @@ class StableHLOBuilder(Builder):
         (*sdy.TensorShardingAttr*)
             A tensor sharding attribute that describes how a tensor is distributed across the mesh
         """
+        if mesh_name != self._mesh_name:
+            raise ValueError(
+                f"Invalid mesh name '{mesh_name}', expected '{self._mesh_name}'"
+            )
         return sdy.TensorShardingAttr.get(
             mesh_name,
             dimension_shardings,

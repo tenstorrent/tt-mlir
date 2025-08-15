@@ -11,7 +11,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, sdy
+from ttmlir.dialects import func
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -22,6 +22,7 @@ from ttmlir.passes import (
     translate_to_cpp,
     MLIRModuleLogger,
     stablehlo_pipeline,
+    stablehlo_to_ttir_pipeline,
 )
 
 from builder.base.builder import *
@@ -31,8 +32,8 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 # ----- Private APIs -----
 
 
-def _get_target_path(output_path, filename, target):
-    target_dir = os.path.join(output_path, target)
+def _get_target_path(output_path, builder_dir, filename, target):
+    target_dir = os.path.join(output_path, "builder-artifacts", builder_dir, target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     return os.path.join(target_dir, filename)
@@ -68,16 +69,13 @@ def _create_custom_ttir_pipeline_fn(
 def _run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
-    pipeline_options: Optional[List[str]] = None,
+    pipeline_options: List[str] = [],
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
-    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    mesh_dict: OrderedDict[str, int] = None,
     argument_types_string: Optional[str] = None,
 ):
-    if pipeline_options is None:
-        pipeline_options = []
-
     if argument_types_string:
         tt_populate_argument_types(module, argument_types_string)
         pipeline_options.append("enable-const-eval=true")
@@ -87,11 +85,14 @@ def _run_ttir_pipeline(
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
     pipeline_options.append(f"system-desc-path={system_desc_path}")
 
-    mesh_shape = tuple(mesh_dict.values())
-    if len(mesh_shape) != 2:
-        raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
+    if mesh_dict is not None:
+        mesh_shape = tuple(mesh_dict.values())
+        if len(mesh_shape) != 2:
+            raise ValueError(
+                f"Mesh shape must be a tuple of length 2, got: {mesh_shape}"
+            )
 
-    pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+        pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
@@ -136,16 +137,13 @@ def build_ttir_module(
         Data types of the input tensors
 
     mesh_name: *str*
-        Name of the mesh to be used in the module. Default is "mesh".
+        Name of the mesh to be used in the module.
 
     mesh_dict: *OrderedDict[str, int]*
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
 
     module_dump : bool
-        Set to True to print out generated MLIR module.
-
-    golden_dump : bool
-        Set to True to dump golden info to flatbuffer file.
+        Set to True to print out generated MLIR module. Default is True.
 
     base : *Optional[str]*
         Output file name
@@ -155,8 +153,8 @@ def build_ttir_module(
 
     Returns
     -------
-    Module
-        MLIR module containing MLIR op graph defined by `fn`
+    Tuple[Module, TTIRBuilder]
+        A tuple containing the MLIR module and the TTIRBuilder instance
 
     Example
     -------
@@ -243,11 +241,13 @@ def build_ttir_module(
                 ttir_builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
-        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
 
         base = fn.__name__ if base is None else base
 
-        filename = _get_target_path(output_root, base + "_ttir.mlir", "ttir")
+        filename = _get_target_path(
+            output_root, "ttir-builder", base + "_ttir.mlir", base
+        )
 
         if module_dump:
             with open(filename, "w") as f:
@@ -261,7 +261,7 @@ def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
@@ -270,7 +270,7 @@ def compile_ttir_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: Optional[List[str]] = None,
+    pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
 ) -> str:
     """
@@ -296,10 +296,9 @@ def compile_ttir_to_flatbuffer(
     inputs_types : *Optional[List[torch.dtype]]*, optional
         The dtypes to use for the inputs to `fn`. Note that if supplied,
         `len(inputs_shapes) == len(inputs_types)` must be true.
-        Default is None.
 
     test_base : str
-        The string to be used as the base name for dumped files throughout the
+        The string to be used as the test_base name for dumped files throughout the
         process. If `None` is provided, then the `__name__` of `fn` will be used.
 
     output_root : str
@@ -307,9 +306,16 @@ def compile_ttir_to_flatbuffer(
         exist, it will be created.
 
     target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
-        Either "ttnn" or "ttmetal". This controls which backend to use.
+        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
 
-    argument_types_string : *Optional[str]*
+    mesh_name : *str*, optional
+        Name of the mesh to be used in the module. Default is "mesh".
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+
+    argument_types_string : *Optional[str]*, optional
+        String defining argument types for constant evaluation.
 
     custom_pipeline : *Union[Callable, str]*, optional
         Pipeline function to run.
@@ -318,73 +324,25 @@ def compile_ttir_to_flatbuffer(
         - A Callable: custom_pipeline(module, options)
         - A str: "ttir-lower-to-layout,ttir-bufferization-pipeline"
 
-    mesh_name : *str*
-        Name of the mesh to be used in the module. Default is "mesh".
+    system_desc_path : str, optional
+        Path to the system descriptor file
 
-    mesh_dict : *OrderedDict[str, int]*
-        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
-
-    module_dump : bool
-        Set to True to print out generated TTIR MLIR module.
-        Default is False.
-
-    pipeline_options : *Optional[List[str]]*
-        Pipeline options to be added to the pass
+    pipeline_options : *List[str]*, optional
+        Pipeline options to be added to the pass.
 
     print_ir : *Union[bool, str]*, optional
         Set to True to print IR to stdout. Set to dir path to print IR after
         each pass to its own file under that directory.
-        Default is False.
+        Default is True.
 
     Returns
     -------
     str
         The path to the generated TT{Metal,NN} MLIR file.
     """
-
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
-
-    if type(custom_pipeline) is str:
-        custom_pipeline = _create_custom_ttir_pipeline_fn(
-            custom_pipeline, print_ir=print_ir
-        )
-
-    if pipeline_options is None:
-        pipeline_options = []
-
-    pipeline_fn: Callable
-    to_target: Callable
-    mlir_suffix: str
-    target_extension: str
-
-    if target == "ttnn":
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
-        )
-        to_target = ttnn_to_flatbuffer_file
-        mlir_suffix = "_ttnn.mlir"
-        target_extension = "ttnn"
-    elif target == "ttmetal":
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
-        )
-        to_target = ttmetal_to_flatbuffer_file
-        mlir_suffix = "_ttm.mlir"
-        target_extension = "ttm"
-    elif target == "ttnn-standalone":
-        ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
-            "ttir-to-emitc-pipeline", print_ir=print_ir
-        )
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
-        )
-        to_target = _emitc_to_executable
-        mlir_suffix = "_ttnn.mlir"
-        target_extension = "cpp"
-    else:
-        raise ValueError("Unsupported target: " + target)
 
     # Compile model to TTIR MLIR
     module, builder = build_ttir_module(
@@ -397,34 +355,20 @@ def compile_ttir_to_flatbuffer(
         output_root=output_root,
     )
 
-    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
-    output_file_fbb = ".".join([output_file_mlir, target_extension])
-
-    # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = _run_ttir_pipeline(
+    return compile_ttir_module_to_flatbuffer(
         module,
-        pipeline_fn,
-        pipeline_options=pipeline_options,
-        dump_to_file=module_dump,
-        output_file_name=output_file_mlir,
+        builder,
         system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
         mesh_dict=mesh_dict,
+        module_dump=module_dump,
         argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
     )
-    print(f"{target} pipeline ran successfully.")
-
-    module_logger = MLIRModuleLogger()
-    module_logger.attach_context(module.context)
-
-    # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_target(
-        module,
-        output_file_fbb,
-        builder.golden_map,
-        module_logger.module_log if module_logger.module_log else [],
-    )
-    print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-    return output_file_mlir
 
 
 def build_stablehlo_module(
@@ -462,7 +406,7 @@ def build_stablehlo_module(
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
 
     module_dump : bool
-        Set to True to print out generated MLIR module.
+        Set to True to print out generated MLIR module. Default is True.
 
     base : *Optional[str]*
         Output file name
@@ -472,8 +416,8 @@ def build_stablehlo_module(
 
     Returns
     -------
-    Module
-        MLIR module containing MLIR op graph defined by `fn`
+    *Tuple[Module, StableHLOBuilder]*
+        A tuple containing the MLIR module and the StableHLOBuilder instance
 
     Example
     -------
@@ -510,7 +454,7 @@ def build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc)
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
@@ -535,14 +479,7 @@ def build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
-        module.body.append(
-            stablehlo_builder.mesh(
-                mesh_name=mesh_name,
-                mesh_attr=stablehlo_builder._create_mesh_attr_from_ordered_dict(
-                    mesh_dict
-                ),
-            )
-        )
+        module.body.append(stablehlo_builder._get_mesh())
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
@@ -564,11 +501,13 @@ def build_stablehlo_module(
                 stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
-        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
 
         base = fn.__name__ if base is None else base
 
-        filename = _get_target_path(output_root, base + "_shlo.mlir", "shlo")
+        filename = _get_target_path(
+            output_root, "stablehlo-builder", base + "_shlo.mlir", base
+        )
 
         if module_dump:
             with open(filename, "w") as f:
@@ -576,3 +515,278 @@ def build_stablehlo_module(
                 print(module)
 
         return module, stablehlo_builder
+
+
+def compile_stablehlo_to_flatbuffer(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: Optional[str] = None,
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    ttir_pipeline_options: List[str] = [],
+    shlo_pipeline_options: List[str] = [],
+    shlo_to_ttir_pipeline_options: List[str] = [],
+    print_ir: Union[bool, str] = False,
+) -> str:
+    """
+    Compiles a StableHLO function to flatbuffer format.
+
+    This function compiles a StableHLO function through the complete pipeline:
+    StableHLO -> TTIR -> TT{Metal,NN} -> Flatbuffer. It first builds a StableHLO
+    module, runs the stablehlo pipeline and conversion to TTIR, then compiles
+    the TTIR module to the target flatbuffer format.
+
+    Parameters
+    ----------
+    fn : Callable
+        The StableHLO function to compile
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function
+
+    inputs_types : *Optional[List[Union[torch.dtype, TypeInfo]]]*, optional
+        The dtypes to use for the inputs to `fn`
+
+    system_desc_path : str, optional
+        Path to the system descriptor file
+
+    test_base : str, optional
+        The string to be used as the test_base name for dumped files
+
+    output_root : str, optional
+        The path to dump all generated files under
+
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+        The target backend to use. Default is "ttnn"
+
+    mesh_name : str, optional
+        Name of the mesh to be used in the module
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape
+
+    module_dump : bool, optional
+        Set to True to print out generated MLIR modules
+        Default is True.
+
+    argument_types_string : *Optional[str]*
+        String defining argument types for constant evaluation
+
+    custom_pipeline : *Optional[Union[Callable, str]]*
+        Custom pipeline function or string to run instead of default pipeline
+
+    ttir_pipeline_options : *List[str]*
+        Additional pipeline options to pass to the TTIR pipeline
+
+    shlo_pipeline_options : *List[str]*
+        Additional pipeline options to pass to the StableHLO pipeline
+
+    print_ir :*Union[bool, str]*, optional
+        Set to True to print IR to stdout or to a directory path
+        Default is False.
+
+    Returns
+    -------
+    str
+        The path to the generated TT{Metal,NN} MLIR file.
+
+    Raises
+    ------
+    ValueError
+        If inputs_shapes and inputs_types have different lengths
+    """
+    if inputs_types is not None:
+        if len(inputs_shapes) != len(inputs_types):
+            raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    # Compile model to StableHLO and run stablehlo pipeline to TTIR MLIR
+    module, builder = build_stablehlo_module(
+        fn,
+        inputs_shapes,
+        inputs_types,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        output_root=output_root,
+    )
+
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
+    print(module)
+    stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
+    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
+    print(module)
+
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
+    )
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+
+    return compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        builder_dir="stablehlo-builder",
+        target=target,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=ttir_pipeline_options,
+        print_ir=print_ir,
+    )
+
+
+def compile_ttir_module_to_flatbuffer(
+    module: Module,
+    builder: Union[TTIRBuilder, StableHLOBuilder],
+    system_desc_path: Optional[str] = None,
+    test_base: str = "test",
+    output_root: str = ".",
+    builder_dir: str = "ttir-builder",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: List[str] = [],
+    print_ir: Union[bool, str] = False,
+):
+    """
+    Compiles a TTIR MLIR module to flatbuffer format.
+
+    This decorator takes an existing TTIR MLIR module and compiles it through
+    the backend pipeline to generate a flatbuffer file. It supports multiple
+    targets including TTNN, TTMetal, and TTNN-standalone. It is mainly a wrapper around the following functions, with
+    each next function called on the output of the last:
+
+    1. `_run_ttir_pipeline`
+    2. `to_target`
+
+    Parameters
+    ----------
+    module : Module
+        The TTIR MLIR module to compile
+
+    builder : *Union[TTIRBuilder, StableHLOBuilder]*
+        The builder instance containing golden reference values
+
+    system_desc_path : str, optional
+        Path to the system descriptor file
+
+    test_base : str, optional
+        The string to be used as the test_base name for dumped files.
+
+    output_root : str, optional
+        The path to dump all generated files under
+
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+        The target backend to use. Default is "ttnn"
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape.
+
+    module_dump : bool, optional
+        Set to True to print out generated MLIR modules. Default is True.
+
+    argument_types_string : *Optional[str]*, optional
+        String defining argument types for constant evaluation
+
+    custom_pipeline : *Optional[Union[Callable, str]]*
+        Custom pipeline function or string to run instead of default pipeline
+
+    pipeline_options : *List[str]*, optional
+        Additional pipeline options to pass to the pipeline
+
+    print_ir : *Union[bool, str], optional*
+        Set to True to print IR to stdout or to a directory path.
+
+    Returns
+    -------
+    str
+        The path to the generated target MLIR file
+
+    Raises
+    ------
+    ValueError
+        If an unsupported target is specified
+    """
+    if type(custom_pipeline) is str:
+        custom_pipeline = _create_custom_ttir_pipeline_fn(
+            custom_pipeline, print_ir=print_ir
+        )
+
+    pipeline_fn: Callable
+    to_target: Callable
+    mlir_suffix: str
+    target_extension: str
+
+    if target == "ttnn":
+        pipeline_fn = (
+            custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
+        )
+        to_target = ttnn_to_flatbuffer_file
+        mlir_suffix = "_ttnn.mlir"
+        target_extension = "ttnn"
+    elif target == "ttmetal":
+        pipeline_fn = (
+            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
+        )
+        to_target = ttmetal_to_flatbuffer_file
+        mlir_suffix = "_ttm.mlir"
+        target_extension = "ttm"
+        mesh_dict = None
+    elif target == "ttnn-standalone":
+        ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
+            "ttir-to-emitc-pipeline", print_ir=print_ir
+        )
+        pipeline_fn = (
+            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
+        )
+        to_target = _emitc_to_executable
+        mlir_suffix = "_ttnn.mlir"
+        target_extension = "cpp"
+    else:
+        raise ValueError("Unsupported target: " + target)
+
+    output_file_mlir = _get_target_path(
+        output_root, builder_dir, test_base + mlir_suffix, test_base
+    )
+    output_file_fbb = ".".join([output_file_mlir, target_extension])
+
+    # Compile TTIR MLIR -> TT{Metal,NN} MLIR
+    module = _run_ttir_pipeline(
+        module,
+        pipeline_fn,
+        pipeline_options=pipeline_options,
+        dump_to_file=module_dump,
+        output_file_name=output_file_mlir,
+        system_desc_path=system_desc_path,
+        mesh_dict=mesh_dict,
+        argument_types_string=argument_types_string,
+    )
+    print(f"{target} pipeline ran successfully.")
+
+    module_logger = MLIRModuleLogger()
+    module_logger.attach_context(module.context)
+
+    # Compile TT{Metal,NN} MLIR -> flatbuffer
+    to_target(
+        module,
+        output_file_fbb,
+        builder.golden_map,
+        module_logger.module_log if module_logger.module_log else [],
+    )
+    print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
+    return output_file_mlir
