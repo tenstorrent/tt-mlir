@@ -293,7 +293,7 @@ def avg_pool2d_golden(input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         - padding: Union[int, List[int]] - Padding for pooling operation
         - dilation: Union[int, List[int]] - Dilation for pooling operation
         - ceil_mode: bool - Whether to use ceiling mode for pooling
-        - count_include_pad: bool - Whether to include padding in the count
+        - count_include_pad: bool - Whether to include padding in the average calculation
 
     Returns
     -------

@@ -3619,6 +3619,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
         - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
         - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
     - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
+    - `count_include_pad` (Boolean): When true, include padding in the average calculation (default: True)
 
     Outputs:
     - `result` (Tensor): Output tensor after average pooling.

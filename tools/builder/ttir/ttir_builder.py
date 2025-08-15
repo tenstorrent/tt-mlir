@@ -2931,7 +2931,7 @@ class TTIRBuilder(Builder):
         ceil_mode : bool, optional
             When True, use ceil instead of floor for output shape (default: False)
         count_include_pad : bool, optional
-            When True , include padding in the count (default: True)
+            When True , include padding in the average calculation (default: True)
         unit_attrs : *Optional[List[str]]*
             Optional list of unit attributes
 
