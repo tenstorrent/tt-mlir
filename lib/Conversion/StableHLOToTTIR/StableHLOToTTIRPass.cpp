@@ -21,7 +21,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -45,79 +45,93 @@ struct ConvertStableHLOToTTIRPass
       : Base(options) {}
 
   void runOnOperation() final {
-    MLIRContext *context = &getContext();
+    mlir::ConversionTarget target(getContext());
 
-    // Setup common type converter (all types map 1:1).
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) { return type; });
-
-    RewritePatternSet patterns(context);
-    populateStableHLOToTTIRPatterns(context, patterns, typeConverter);
-    populateShardyToTTIRPatterns(context, patterns, typeConverter);
-    addEmptyOpTypeConversionPattern(context, patterns, typeConverter);
-
-    if (enablePartialConversion) {
-      // Partial conversion: use greedy rewriting.
-      // This naturally only converts ops with matching patterns.
-      // Note that this is not as resilient to type changes as
-      // applyFull/PartialConversion; however, we don't expect types to change
-      // anyway.
-      GreedyRewriteConfig config;
-      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
-                                       config))) {
-        // In partial conversion, continue even if some patterns fail
-        emitWarning(getOperation()->getLoc())
-            << "Some patterns failed during partial conversion.";
-      }
-    } else {
-      // Full conversion: use dialect conversion framework.
-      mlir::ConversionTarget target(*context);
-      setupConversionTarget(target, typeConverter);
-
-      // Add function conversion patterns for full conversion.
-      addFunctionConversionPatterns(patterns, typeConverter, target);
-
-      // Apply full conversion - will fail if any StableHLO/Sdy ops remain.
-      if (failed(applyFullConversion(getOperation(), target,
-                                     std::move(patterns)))) {
-        signalPassFailure();
-      }
-    }
-  }
-
-private:
-  // Dialect and op-level conversion rules.
-  void setupConversionTarget(ConversionTarget &target,
-                             TypeConverter &typeConverter) {
+    // Common legal/illegal ops/dialects
     target.addLegalDialect<mlir::quant::QuantDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
-
-    target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
-    target.addIllegalDialect<mlir::sdy::SdyDialect>();
+    target.addLegalOp<mlir::func::FuncOp>();
+    target.addLegalOp<mlir::func::ReturnOp>();
+    target.addLegalOp<mlir::func::CallOp>();
     target.addIllegalOp<mlir::tensor::EmptyOp>();
-  }
 
-  // Func dialect type conversions.
-  void addFunctionConversionPatterns(RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter,
-                                     ConversionTarget &target) {
+    TypeConverter typeConverter;
+    typeConverter.addConversion([](Type type) { return type; });
+    RewritePatternSet patterns(&getContext());
+
+    // Func type conversions
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return typeConverter.isSignatureLegal(op.getFunctionType()) &&
              typeConverter.isLegal(&op.getBody());
     });
-
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::ReturnOp>(
         [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
-
     populateCallOpTypeConversionPattern(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::CallOp>(
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
+    addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
+    ::mlir::tt::populateStableHLOToTTIRPatterns(&getContext(), patterns,
+                                                typeConverter);
+    populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
+
+    if (enablePartialConversion) {
+      // For partial conversion: Don't explicitly mark StableHLO/Sdy as illegal
+      // Instead, mark unknown ops as dynamically legal based on whether we have
+      // patterns This should make the framework only try to convert ops we have
+      // patterns for
+
+      // Mark unknown operations as legal by default
+      // This means ops without patterns won't be touched
+      target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+
+      // Track which ops couldn't be converted
+      DenseSet<Operation *> unlegalizedOps;
+      ConversionConfig config;
+      config.unlegalizedOps = &unlegalizedOps;
+
+      // Don't mark StableHLO/Sdy as illegal - let them be "unknown"
+      // The patterns will still apply to ops they match
+
+      if (failed(applyPartialConversion(getOperation(), target,
+                                        std::move(patterns), config))) {
+        signalPassFailure();
+        return;
+      }
+
+      // Report what couldn't be converted
+      if (!unlegalizedOps.empty()) {
+        emitRemark(getOperation()->getLoc())
+            << "Partial conversion: " << unlegalizedOps.size()
+            << " ops could not be converted";
+      }
+    } else {
+      // Full conversion - any StableHLO or Sdy op is illegal
+      target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
+      target.addIllegalDialect<mlir::sdy::SdyDialect>();
+
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    // Full conversion - any StableHLO or Sdy op is illegal
+    target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addIllegalDialect<mlir::sdy::SdyDialect>();
+
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
   }
+}
 };
 } // namespace
 } // namespace mlir::tt::ttir
