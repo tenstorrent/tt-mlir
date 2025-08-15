@@ -145,7 +145,11 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
-  pm.addPass(ttir::createElementTypeNormalization());
+  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+  elementTypeNormalizationOptions.enableBfp8Conversion =
+      options.enableBfp8Conversion;
+  pm.addPass(
+      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).

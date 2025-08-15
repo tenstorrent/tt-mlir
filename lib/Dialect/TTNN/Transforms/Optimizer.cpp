@@ -371,8 +371,7 @@ public:
           if (op->hasTrait<HasOutputDTypeTrait>()) {
             ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
                 op->getContext(), layoutAttr.getDataType());
-            op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
-                        newDataTypeAttr);
+            op->setAttr(ttmlir::utils::g_outputDtypeAttrName, newDataTypeAttr);
           }
 
           // Update DPS operand layout as well.
