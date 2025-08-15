@@ -700,7 +700,7 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
 }
 
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a

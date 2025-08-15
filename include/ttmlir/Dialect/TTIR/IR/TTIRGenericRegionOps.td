@@ -612,10 +612,9 @@ class TTIR_SemaphoreUpdateOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
     let description = [{
       Set or increment the semaphore value atomically. This op comes in a few flavors:
 
-      - Set or increment this local core's semaphore value
+      - Set this local core's semaphore value
       ```mlir
       ttir.semaphore_set %sem0, %c1
-      ttir.semaphore_inc %sem0, %c1
       ```
 
       - Update a remote core's semaphore value
