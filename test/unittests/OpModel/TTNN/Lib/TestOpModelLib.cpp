@@ -931,7 +931,7 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      
+
       bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
@@ -1079,8 +1079,7 @@ INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
-                         generateBinaryEltwiseParams(
-                          binaryEltwiseParams));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
