@@ -51,9 +51,10 @@ public:
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      unsigned usableL1CacheSize, float tensorL1UsageCap)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize) {}
+                                   schedule, usableL1CacheSize,
+                                   tensorL1UsageCap) {}
 
   /**
    * Retrieve the greedy OpConfig for the given base operation
@@ -87,10 +88,9 @@ private:
   TTNNLayoutAttr getL1InterleavedLayout(Operation *op);
 
   size_t getAvailableL1CacheSize() const {
-    // Figure out this const based on exec data, but will be replaced
-    // with API.
-    //
-    constexpr float tensorL1UsageCap = 0.75;
+    // tensorL1UsageCap is a value between 0.0 and 1.0, where 1.0 means that the
+    // entire L1 cache can be used by ops. This cap is set by a flag in the
+    // pipeline options.
     return tensorL1UsageCap * usableL1CacheSize;
   }
 

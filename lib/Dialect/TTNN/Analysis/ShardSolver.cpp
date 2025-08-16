@@ -54,7 +54,7 @@ ShardSolver::ShardSolver(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
-    const unsigned usableL1CacheSize,
+    const unsigned usableL1CacheSize, const float tensorL1UsageCap,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
     const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
@@ -63,6 +63,7 @@ ShardSolver::ShardSolver(
     : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
+      tensorL1UsageCap(tensorL1UsageCap),
       memReconfigEdges(overrideReshardEdges),
       overrideOutputLayout(overrideOutputLayout),
       customCheckShardCompatible(customCheckShardCompatible) {
@@ -823,10 +824,6 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     return customCheckShardCompatible(producerOperand, producerLayout,
                                       consumerOp, consumerConfig);
   }
-  // Figure out this const based on exec data, but will be replaced
-  // with API.
-  //
-  constexpr float tensorL1UsageCap = 0.9;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {

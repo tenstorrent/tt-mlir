@@ -152,6 +152,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<mlir::Operation *> l1ChainedOps;
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
+  constexpr float tensorL1UsageCap = 0.9f;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
@@ -271,8 +272,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   // checks.
   ShardSolver shardSolver(/*tensorTypePossibleLayouts=*/nullptr, legalConfigs,
                           opL1MemSpecs, l1ChainedOps, usableL1CacheSize,
-                          overrideReshardEdges, overrideOutputLayout,
-                          checkShardCompatible);
+                          tensorL1UsageCap, overrideReshardEdges,
+                          overrideOutputLayout, checkShardCompatible);
 
   ASSERT_TRUE(shardSolver.resolve());
 

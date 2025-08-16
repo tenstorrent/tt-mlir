@@ -43,6 +43,16 @@ def main():
     obj.set_enable_memory_layout_analysis(False)
     print(f"Enable Memory Layout Analysis: {obj.get_enable_memory_layout_analysis()}")
 
+    # Enable L1 Interleaved Fallback Analysis
+    obj.set_enable_l1_interleaved_fallback_analysis(True)
+    print(
+        f"Enable L1 Interleaved Fallback Analysis: {obj.get_enable_l1_interleaved_fallback_analysis()}"
+    )
+    obj.set_enable_l1_interleaved_fallback_analysis(False)
+    print(
+        f"Enable L1 Interleaved Fallback Analysis: {obj.get_enable_l1_interleaved_fallback_analysis()}"
+    )
+
     # Enable Memory Layout Analysis Policy
     obj.set_enable_memory_layout_analysis_policy(True)
     print(
