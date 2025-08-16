@@ -248,16 +248,10 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
+    auto resultType = this->getTypeConverter()->convertType(op.getType());
+    auto inputs = adaptor.getOperands();
 
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultType, inputs);
     return success();
   }
 };
@@ -275,10 +269,8 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
@@ -1499,7 +1491,7 @@ public:
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
+        op, getTypeConverter()->convertType(op.getType()), adaptor.getUpdate(),
         adaptor.getInput());
 
     return success();

@@ -42,9 +42,9 @@ public:
                                         permuteUser.getPermutation()),
         sliceOperandType.getElementType(), sliceOperandType.getEncoding());
 
-    PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, op.getInput(),
-        permuteUser.getPermutation());
+    PermuteOp newPerm =
+        rewriter.create<PermuteOp>(op->getLoc(), newPermuteType, op.getInput(),
+                                   permuteUser.getPermutation());
 
     SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
         op.getBegins().getValue(), permuteUser.getPermutation());
@@ -58,11 +58,11 @@ public:
                                         permuteUser.getPermutation()),
         op.getType().getElementType(), op.getType().getEncoding());
 
-    SliceOp newSlice = utils::createDPSOp<SliceOp>(
-        rewriter, op->getLoc(), newSliceType, newPerm,
-        rewriter.getArrayAttr(newSliceStarts),
-        rewriter.getArrayAttr(newSliceEnds),
-        rewriter.getArrayAttr(newSliceSteps));
+    SliceOp newSlice =
+        rewriter.create<SliceOp>(op->getLoc(), newSliceType, newPerm,
+                                 rewriter.getArrayAttr(newSliceStarts),
+                                 rewriter.getArrayAttr(newSliceEnds),
+                                 rewriter.getArrayAttr(newSliceSteps));
 
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
@@ -102,8 +102,8 @@ public:
     SmallVector<Attribute> newSliceSteps = ttmlir::utils::applyPermutation(
         op.getStep().getValue(), inversePermutation);
 
-    SliceOp newSlice = utils::createDPSOp<SliceOp>(
-        rewriter, op->getLoc(), newSliceType, permuteOperand.getInput(),
+    SliceOp newSlice = rewriter.create<SliceOp>(
+        op->getLoc(), newSliceType, permuteOperand.getInput(),
         rewriter.getArrayAttr(newSliceStarts),
         rewriter.getArrayAttr(newSliceEnds),
         rewriter.getArrayAttr(newSliceSteps));
@@ -111,9 +111,9 @@ public:
     RankedTensorType newPermuteType = RankedTensorType::get(
         op.getType().getShape(), newSlice.getType().getElementType(),
         newSlice.getType().getEncoding());
-    PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, newSlice,
-        permuteOperand.getPermutation());
+    PermuteOp newPerm =
+        rewriter.create<PermuteOp>(op->getLoc(), newPermuteType, newSlice,
+                                   permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
   }
@@ -143,13 +143,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
+      if (checkIdenticalTms(operand.getDefiningOp(), permuteOperand) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }
       return false;

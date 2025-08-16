@@ -40,8 +40,8 @@ ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
   // requires that the shape attribute is a 32-bit integer array attribute.
   // Construction the SmallVector allows us to cast it.
-  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-      rewriter, ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
+  return rewriter.create<ttir::ReshapeOp>(
+      ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
       outputType, input,
       rewriter.getI32ArrayAttr(SmallVector<int32_t>(
           outputType.getShape().begin(), outputType.getShape().end())));
@@ -66,8 +66,8 @@ public:
         getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
-    auto newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
-        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+    auto newConv = rewriter.create<ttir::Conv2dOp>(
+        op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
         adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
         flattenedCompatInfoAttr);
@@ -101,8 +101,8 @@ public:
         inputType.getContext(), inputType.getDimSize(0),
         inputType.getDimSize(1), inputType.getDimSize(2));
 
-    auto newPool = ttir::utils::createDPSOp<Pooling2dOp>(
-        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+    auto newPool = rewriter.create<Pooling2dOp>(
+        op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
         adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
 

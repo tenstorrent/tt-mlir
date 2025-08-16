@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -134,17 +135,15 @@ protected:
                                                  output);
   }
 
-  // Common need to navigate DPS (<inputs>;<inits>) operand split:
-  // note that this requires only 'getDpsInits()' to be available.
-  template <typename Adaptor>
-  static std::array<mlir::SmallVector<Value>, 2>
-  splitDpsSignature(Adaptor adaptor, size_t numDPSInits) {
-    auto numOperands = adaptor.getOperands().size();
-    assert(numDPSInits <= numOperands && "expected numDPSInits <= numOperands");
-    auto numInputs = numOperands - numDPSInits;
-    mlir::ValueRange inputs = adaptor.getOperands().take_front(numInputs);
-    mlir::ValueRange outputs = adaptor.getOperands().drop_front(numInputs);
-    return {inputs, outputs};
+  static SmallVector<Value>
+  createDestinations(mlir::ConversionPatternRewriter &rewriter,
+                     const TypeConverter *typeConverter, mlir::Location loc,
+                     mlir::Operation *op) {
+    return llvm::to_vector(
+        llvm::map_range(op->getResults(), [&](OpResult result) -> Value {
+          return rewriter.create<tt::ttir::EmptyOp>(
+              loc, typeConverter->convertType(result.getType()));
+        }));
   }
 
   static SmallVector<mlir::AffineMap>
@@ -242,8 +241,10 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    static_assert(!ttir::utils::has_dps_trait_v<ConcreteOp>);
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDestinations(rewriter, this->getTypeConverter(), loc, op);
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
@@ -353,8 +354,10 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    static_assert(!ttir::utils::has_dps_trait_v<ConcreteOp>);
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDestinations(rewriter, this->getTypeConverter(), loc, op);
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
@@ -583,8 +586,10 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    static_assert(!ttir::utils::has_dps_trait_v<ConcreteOp>);
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDestinations(rewriter, this->getTypeConverter(), loc, op);
     auto [inputs, outputs] = toLayoutOperandsAndResults(
         rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 

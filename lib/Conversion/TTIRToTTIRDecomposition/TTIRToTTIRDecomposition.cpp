@@ -66,9 +66,9 @@ struct IndexToSliceConversionPattern
     }
 
     auto newOp = rewriter.create<ttir::SliceOp>(
-        op.getLoc(), op.getType(), adaptor.getInput(), adaptor.getOutput(),
-        rewriter.getArrayAttr(begins), rewriter.getArrayAttr(ends),
-        rewriter.getArrayAttr(steps));
+        op.getLoc(), getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), rewriter.getArrayAttr(begins),
+        rewriter.getArrayAttr(ends), rewriter.getArrayAttr(steps));
 
     rewriter.replaceOp(op, newOp.getResult());
     return success();
@@ -217,8 +217,8 @@ public:
     // The shapes that the convolution currently operates with have are 3D, and
     // we need to add another dimension for it to match the conv2d signature, so
     // adding a dimension of size 1 to the end of input and output shapes.
-    auto outputType =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
     llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
     llvm::SmallVector<int64_t> conv2dOutputShape(outputShape);
     conv2dOutputShape.push_back(1);
@@ -276,12 +276,13 @@ public:
         convolutionLayout.getOutputSpatialDimensions());
     conv2dOutputSpatialDimensions.push_back(3);
 
-    auto new2dConvolutionOp = ttir::utils::createDPSOp<ttir::ConvolutionOp>(
-        rewriter, op.getLoc(), conv2dOutputShape, outputType.getElementType(),
-        outputType.getEncoding(), reshapeInput, reshapeWeight, Value(),
-        conv2dOpWindowsStridesAttr, conv2dOpPaddingAttr,
-        conv2dOpInputDilationAttr, conv2dOpWeightDilationAttr,
-        conv2dOpWindowReversalAttr,
+    auto new2dConvolutionOp = rewriter.create<ttir::ConvolutionOp>(
+        op.getLoc(),
+        RankedTensorType::get(conv2dOutputShape, outputType.getElementType(),
+                              outputType.getEncoding()),
+        reshapeInput, reshapeWeight, Value(), conv2dOpWindowsStridesAttr,
+        conv2dOpPaddingAttr, conv2dOpInputDilationAttr,
+        conv2dOpWeightDilationAttr, conv2dOpWindowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), convolutionLayout.getInputBatchDimension(),
             convolutionLayout.getInputFeatureDimension(),
@@ -312,9 +313,11 @@ private:
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, targetShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
+    return rewriter.create<ttir::ReshapeOp>(
+        loc,
+        RankedTensorType::get(targetShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        input, shapeAttr);
   }
 
   mlir::DenseI64ArrayAttr
@@ -432,9 +435,10 @@ public:
     auto permutation = generateConvPermutation(op, conv2dLayout);
     auto permuteOutputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
-    auto input = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
-        permuteOutputShape, inputType.getElementType(), inputType.getEncoding(),
+    auto input = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
+        RankedTensorType::get(permuteOutputShape, inputType.getElementType(),
+                              inputType.getEncoding()),
         adaptor.getInput(), permutation);
 
     auto weight = adaptor.getWeight();
@@ -450,10 +454,11 @@ public:
     auto weightOutputShape = ::ttmlir::utils::applyPermutation(
         mlir::cast<RankedTensorType>(weight.getType()).getShape(),
         kernelPermutation);
-    weight = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
-        weightOutputShape, weightType.getElementType(),
-        weightType.getEncoding(), weight, kernelPermutation);
+    weight = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
+        RankedTensorType::get(weightOutputShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        weight, kernelPermutation);
 
     mlir::Value newConv;
     if (isTransposed) {
@@ -495,13 +500,13 @@ public:
           static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_HEIGHT]),
           static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_WIDTH]),
       });
-      newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
-          rewriter, op->getLoc(), outputType, Value(input), Value(weight),
+      newConv = rewriter.create<ttir::ConvTranspose2dOp>(
+          op.getLoc(), outputType, Value(input), Value(weight),
           adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
           dilationAttr, groupsAttr);
     } else {
-      newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
-          rewriter, op.getLoc(), outputType, Value(input), Value(weight),
+      newConv = rewriter.create<ttir::Conv2dOp>(
+          op.getLoc(), outputType, Value(input), Value(weight),
           adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
           /*flattenedCompatInfo=*/nullptr);
     }
@@ -522,9 +527,9 @@ public:
     auto outputPermutation = ttmlir::utils::generatePermutation(
         llvm::ArrayRef(conv2dLayout), llvm::ArrayRef(outputLayout));
 
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
-                                                 newConv, adaptor.getOutput(),
-                                                 outputPermutation);
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
+        op, getTypeConverter()->convertType(op.getType()), newConv,
+        outputPermutation);
 
     return success();
   }
@@ -684,11 +689,11 @@ struct GatherToEmbeddingConversionPattern
     auto embeddingOutputType = mlir::RankedTensorType::get(
         newOutputShape, input.getType().getElementType(),
         input.getType().getEncoding());
-    ttir::EmbeddingOp embeddingOp = ttir::utils::createDPSOp<ttir::EmbeddingOp>(
-        rewriter, op.getLoc(), embeddingOutputType, startIndices, input);
+    ttir::EmbeddingOp embeddingOp = rewriter.create<ttir::EmbeddingOp>(
+        op.getLoc(), embeddingOutputType, startIndices, input);
 
-    rewriter.replaceOp(op, reshapeAndPermuteOutput(rewriter, op->getLoc(),
-                                                   embeddingOp, op.getOutput(),
+    rewriter.replaceOp(op, reshapeAndPermuteOutput(rewriter, op.getLoc(),
+                                                   embeddingOp, op.getResult(),
                                                    op.getOffsetDims()));
     return success();
   }
@@ -713,9 +718,11 @@ private:
         }));
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
-    return ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, loc, permutedInputShape, inputType.getElementType(),
-        inputType.getEncoding(), input, inputPermutation);
+    return rewriter.create<ttir::PermuteOp>(
+        loc,
+        RankedTensorType::get(permutedInputShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        input, inputPermutation);
   }
 
   // This helper flattens the indexing dims to be one, first dim of
@@ -765,20 +772,20 @@ private:
     auto permutedStartIndicesShape = ttmlir::utils::applyPermutation(
         startIndicesType.getShape(), startIndicesPermutation);
     auto startIndicesPermuted =
-        ttir::utils::createDPSOp<ttir::PermuteOp>(
-            rewriter,
-            ttmlir::utils::appendLocationSuffix(op.getLoc(),
-                                                "_permuteStartIndices"),
-            permutedStartIndicesShape, startIndicesType.getElementType(),
-            startIndicesType.getEncoding(), startIndices,
-            startIndicesPermutation)
+        rewriter
+            .create<ttir::PermuteOp>(
+                ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                    "_permuteStartIndices"),
+                RankedTensorType::get(permutedStartIndicesShape,
+                                      startIndicesType.getElementType(),
+                                      startIndicesType.getEncoding()),
+                startIndices, startIndicesPermutation)
             .getResult();
 
     // Typecast op because matmul needs float operands.
     auto typecastResultType = startIndicesPermuted.getType().clone(
         mlir::Float32Type::get(op.getContext()));
-    ttir::TypecastOp typecastOp = ttir::utils::createDPSOp<ttir::TypecastOp>(
-        rewriter,
+    ttir::TypecastOp typecastOp = rewriter.create<ttir::TypecastOp>(
         ttmlir::utils::appendLocationSuffix(op->getLoc(), "_typecast"),
         typecastResultType, startIndicesPermuted);
 
@@ -804,9 +811,8 @@ private:
     auto matmulResultType = mlir::RankedTensorType::get(
         matmulResultShape, Float32Type::get(op.getContext()));
 
-    return ttir::utils::createDPSOp<ttir::MatmulOp>(
-        rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(),
-        constantOp);
+    return rewriter.create<ttir::MatmulOp>(op.getLoc(), matmulResultType,
+                                           typecastOp.getResult(), constantOp);
   }
 
   // Helper that reshapes start indices to reduce number of dims, as Embedding
@@ -858,10 +864,9 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
         output, permutedOutputShape);
 
-    return ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
-        expectedOutputType.getShape(), expectedOutputType.getElementType(),
-        expectedOutputType.getEncoding(), reshapedOutput,
+    return rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
+        expectedOutputType, reshapedOutput,
         ttmlir::utils::inversePermutation(outputPermutation));
   }
 
@@ -872,9 +877,9 @@ private:
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, targetShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, inputType.cloneWith(targetShape, inputType.getElementType()),
+        input, shapeAttr);
   }
 };
 } // namespace
@@ -977,8 +982,9 @@ struct DotGeneralToMatmulConversionPattern
         computeProductOfDims(rhsType.getShape(), rhsResultDims));
 
     // Perform matmul operation.
-    auto matmulOp = ttir::utils::createDPSOp<ttir::MatmulOp>(
-        rewriter, op.getLoc(), matmulDestinationShape, elementType, encoding,
+    auto matmulOp = rewriter.create<ttir::MatmulOp>(
+        op.getLoc(),
+        RankedTensorType::get(matmulDestinationShape, elementType, encoding),
         lhsMatmulInput, rhsMatmulInput);
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
@@ -998,8 +1004,8 @@ struct DotGeneralToMatmulConversionPattern
     llvm::SmallVector<int32_t> finalShapeI32(resultShape.begin(),
                                              resultShape.end());
 
-    auto reshapeOutput = ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
-        rewriter, op, resultShape, elementType, encoding, matmulOp,
+    auto reshapeOutput = rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, RankedTensorType::get(resultShape, elementType, encoding), matmulOp,
         rewriter.getI32ArrayAttr(finalShapeI32));
 
     reshapeOutput->setLoc(ttmlir::utils::appendLocationSuffix(
@@ -1060,9 +1066,9 @@ private:
     SmallVector<int64_t> destinationShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
 
-    return ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, loc, destinationShape, inputType.getElementType(),
-        inputType.getEncoding(), input, permutation);
+    return rewriter.create<ttir::PermuteOp>(
+        loc, inputType.cloneWith(destinationShape, inputType.getElementType()),
+        input, permutation);
   }
 
   SmallVector<int64_t>
@@ -1096,8 +1102,10 @@ private:
     llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
                                              finalShape.end());
 
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, finalShape, type.getElementType(), type.getEncoding(),
+    return rewriter.create<ttir::ReshapeOp>(
+        loc,
+        RankedTensorType::get(finalShape, type.getElementType(),
+                              type.getEncoding()),
         input, rewriter.getI32ArrayAttr(finalShapeI32));
   }
 
@@ -1308,34 +1316,34 @@ private:
     llvm::SmallVector<Value> outputs;
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
       Value input = adaptor.getInputs()[i];
-      Value originalOutput = adaptor.getOutputs()[i];
-      RankedTensorType originalOutputTy =
-          mlir::cast<RankedTensorType>(originalOutput.getType());
+      Value originalOutput = op.getResults()[i];
+      RankedTensorType originalOutputTy = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(originalOutput.getType()));
       // Apply input permutation.
       RankedTensorType inputTy = mlir::cast<RankedTensorType>(input.getType());
       auto inputPermuteShape =
           ::ttmlir::utils::applyPermutation(inputTy.getShape(), permutation);
-      input = ttir::utils::createDPSOp<ttir::PermuteOp>(
-          rewriter,
+      input = rewriter.create<ttir::PermuteOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteInput"),
-          inputPermuteShape, inputTy.getElementType(), inputTy.getEncoding(),
+          RankedTensorType::get(inputPermuteShape, inputTy.getElementType(),
+                                inputTy.getEncoding()),
           input, permutation);
 
       // Apply output permutation.
       auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
           originalOutputTy.getShape(), permutation);
-      auto newPool = ttir::utils::createDPSOp<PoolOpType>(
-          rewriter, op.getLoc(), resultPermuteShape,
-          originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+      auto newPool = rewriter.create<PoolOpType>(
+          op.getLoc(),
+          RankedTensorType::get(resultPermuteShape,
+                                originalOutputTy.getElementType(),
+                                originalOutputTy.getEncoding()),
           input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
           ceilModeAttr);
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
-      auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
-          rewriter,
+      auto output = rewriter.create<ttir::PermuteOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteOutput"),
-          originalOutputTy.getShape(), originalOutputTy.getElementType(),
-          originalOutputTy.getEncoding(), newPool, inverseOfPermutation);
+          originalOutputTy, newPool, inverseOfPermutation);
       outputs.push_back(output);
     }
 
@@ -1380,8 +1388,7 @@ private:
     llvm::SmallVector<Value> sumPoolOutputs;
     // Multiply each average pooling op with kernel size.
     for (Value inputOp : avgPoolOutputs) {
-      auto outputOp = ttir::utils::createDPSOp<ttir::MultiplyOp>(
-          rewriter,
+      auto outputOp = rewriter.create<ttir::MultiplyOp>(
           ttmlir::utils::appendLocationSuffix(op->getLoc(), "_multiply"),
           outputType, inputOp, constantOp);
       sumPoolOutputs.push_back(outputOp);
@@ -1549,18 +1556,19 @@ public:
       begins[dim] = newBegin;
       ends[dim] = newEnd;
 
-      auto newOp = ttir::utils::createDPSOp<ttir::SliceOp>(
-          rewriter, op.getLoc(), resultShape, inputType.getElementType(),
-          inputType.getEncoding(), adaptor.getInput(),
-          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
-          rewriter.getI32ArrayAttr(steps));
+      auto newOp = rewriter.create<ttir::SliceOp>(
+          op.getLoc(),
+          RankedTensorType::get(resultShape, inputType.getElementType(),
+                                inputType.getEncoding()),
+          adaptor.getInput(), rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
       slices.push_back(newOp);
     }
 
     assert(!slices.empty());
     if (slices.size() > 1) {
-      auto concatOp = ttir::utils::createDPSOp<ttir::ConcatOp>(
-          rewriter, op.getLoc(), outputType, slices, dim);
+      auto concatOp =
+          rewriter.create<ttir::ConcatOp>(op.getLoc(), outputType, slices, dim);
       rewriter.replaceOp(op, concatOp);
     } else {
       rewriter.replaceOp(op, slices[0]);
@@ -1630,10 +1638,10 @@ public:
                              : reshapeShape.push_back(1);
       }
 
-      output = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter,
+      output = rewriter.create<ttir::ReshapeOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeOutput"),
-          reshapeShape, outputType.getElementType(), outputType.getEncoding(),
+          RankedTensorType::get(reshapeShape, outputType.getElementType(),
+                                outputType.getEncoding()),
           output,
           rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
               reshapeShape.begin(), reshapeShape.end())));
@@ -1660,8 +1668,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      output = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-          rewriter,
+      output = rewriter.create<ttir::BroadcastOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_broadcastOutput"),
           broadcastType, output, broadcastShape);
 
@@ -1690,8 +1697,8 @@ public:
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::ProdOp>(
-        rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+    rewriter.replaceOpWithNewOp<ttir::ProdOp>(
+        op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
         op.getDimArgAttr());
 
     return success();
@@ -1714,8 +1721,8 @@ public:
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::SumOp>(
-        rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+    rewriter.replaceOpWithNewOp<ttir::SumOp>(
+        op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
         op.getDimArgAttr());
 
     return success();
@@ -1772,10 +1779,10 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
-        rewriter, op, outputType, adaptor.getOperand(), scale_4d, offset_4d,
-        mean_4d, variance_4d, adaptor.getEpsilonAttr(),
-        adaptor.getDimensionAttr(), adaptor.getTrainingAttr());
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormOp>(
+        op, outputType, adaptor.getOperand(), scale_4d, offset_4d, mean_4d,
+        variance_4d, adaptor.getEpsilonAttr(), adaptor.getDimensionAttr(),
+        adaptor.getTrainingAttr());
 
     return success();
   }
@@ -1813,9 +1820,11 @@ private:
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, targetShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
+    return rewriter.create<ttir::ReshapeOp>(
+        loc,
+        RankedTensorType::get(targetShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        input, shapeAttr);
   }
 };
 } // namespace
@@ -1915,11 +1924,10 @@ public:
     }
     IntegerAttr axisAttr = getAxis(elementType, rewriter);
     mlir::Type quantizeOutputType =
-        this->getTypeConverter()->convertType(op.getOutput().getType());
+        this->getTypeConverter()->convertType(op.getResult().getType());
 
     rewriter.replaceOpWithNewOp<QuantizeUnrolledOpTy>(
-        op, quantizeOutputType, adaptor.getInput(), scale, zeroPoint, axisAttr,
-        adaptor.getOutput());
+        op, quantizeOutputType, adaptor.getInput(), scale, zeroPoint, axisAttr);
     return success();
   }
 
@@ -1937,7 +1945,7 @@ struct QuantizeOpPattern
 protected:
   mlir::quant::QuantizedType
   getQuantizedElementType(ttir::QuantizeOp op) const override {
-    mlir::RankedTensorType outputType = op.getOutput().getType();
+    mlir::RankedTensorType outputType = op.getResult().getType();
     return mlir::dyn_cast<mlir::quant::QuantizedType>(
         outputType.getElementType());
   }
@@ -1966,7 +1974,7 @@ public:
   matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     mlir::RankedTensorType inputType = op.getInput().getType();
-    mlir::RankedTensorType outputType = op.getOutput().getType();
+    mlir::RankedTensorType outputType = op.getResult().getType();
 
     mlir::quant::QuantizedType inputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
@@ -1995,12 +2003,11 @@ public:
 
     IntegerAttr axisAttr = getAxis(inputElementType, rewriter);
     mlir::Type requantizeOutputType =
-        this->getTypeConverter()->convertType(op.getOutput().getType());
+        this->getTypeConverter()->convertType(op.getResult().getType());
 
     rewriter.replaceOpWithNewOp<ttir::RequantizeUnrolledOp>(
         op, requantizeOutputType, adaptor.getInput(), inputScale,
-        inputZeroPoint, outputScale, outputZeroPoint, axisAttr,
-        adaptor.getOutput());
+        inputZeroPoint, outputScale, outputZeroPoint, axisAttr);
     return success();
   }
 };
@@ -2055,9 +2062,8 @@ public:
       }
 
       RankedTensorType outputType = RankedTensorType::get(shape, elementType);
-      runningProdOp = ttir::utils::createDPSOp<ttir::ProdOp>(
-          rewriter, op->getLoc(), outputType, runningProdOp,
-          op.getKeepDimAttr(), dimArg);
+      runningProdOp = rewriter.create<ttir::ProdOp>(
+          op.getLoc(), outputType, runningProdOp, op.getKeepDimAttr(), dimArg);
     }
 
     rewriter.replaceOp(op, runningProdOp);

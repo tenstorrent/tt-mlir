@@ -250,8 +250,8 @@ inline PermuteOp getInverseTM(PermuteOp permuteOp, Value input,
   SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
       inputType.getShape(), ArrayRef<int64_t>(inversePermutation));
   RankedTensorType resultType = inputType.clone(outputShape);
-  return ttir::utils::createDPSOp<PermuteOp>(
-      rewriter, permuteOp->getLoc(), resultType, input, inversePermutation);
+  return rewriter.create<PermuteOp>(permuteOp->getLoc(), resultType, input,
+                                    inversePermutation);
 }
 
 inline ReshapeOp getInverseTM(ReshapeOp reshapeOp, Value input,
@@ -264,8 +264,8 @@ inline ReshapeOp getInverseTM(ReshapeOp reshapeOp, Value input,
   auto outputShape = reshapeOp.getInput().getType().getShape();
   RankedTensorType resultType = inputType.clone(outputShape);
 
-  return ttir::utils::createDPSOp<ReshapeOp>(
-      rewriter, reshapeOp->getLoc(), resultType, input,
+  return rewriter.create<ReshapeOp>(
+      reshapeOp->getLoc(), resultType, input,
       rewriter.getI32ArrayAttr(SmallVector<int32_t>(outputShape)));
 }
 
