@@ -904,6 +904,53 @@ protected:
       llvm::consumeError(runtimeExp.takeError());
     }
   }
+
+  void RunTestInt32() {
+    const auto [inputShapeA, inputTensorLayoutA, inputBufferTypeA,
+                inputVirtualGridA] = GetParam().inputA;
+    const auto [inputShapeB, inputTensorLayoutB, inputBufferTypeB,
+                inputVirtualGridB] = GetParam().inputB;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = GetParam().expectedResult;
+
+    const TTNNLayoutAttr inputLayoutA = CreateTiledLayoutInt32(
+        inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
+    const TTNNLayoutAttr inputLayoutB = CreateTiledLayoutInt32(
+        inputShapeB, inputBufferTypeB, inputTensorLayoutB, inputVirtualGridB);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
+        inputLayoutB, outputLayout);
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      
+      bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp>;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
 };
 
 // Type aliases for binary operations
@@ -927,7 +974,7 @@ using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
-TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTest(); }
+TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTestInt32(); }
 TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
 TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
 TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }
@@ -1008,7 +1055,8 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
 
 ::testing::internal::ParamGenerator<BinaryEltwiseParam>
 generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
-                            std::size_t extraCbRequirement = 0) {
+                            std::size_t extraCbRequirement = 0,
+                            std::size_t extraPeakRequirement = 0) {
   // The expected size of the circular buffer is the same for most binary ops,
   // but some of them (such as Divide, LogicalOr and LogicalXor) extra memory is
   // required due to the op's implementation.
@@ -1016,6 +1064,7 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   for (const auto &v : values) {
     newValues.emplace_back(v);
     newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
+    newValues.back().expectedResult.expectedPeakSize += extraPeakRequirement;
   }
   return ::testing::ValuesIn(newValues);
 }
@@ -1030,7 +1079,8 @@ INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
-                         generateBinaryEltwiseParams(binaryEltwiseParams));
+                         generateBinaryEltwiseParams(
+                          binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
