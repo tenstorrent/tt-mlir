@@ -7,7 +7,9 @@
 
 #include <optional>
 
+#ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY
+#endif
 #include "tt-metalium/host_api.hpp"
 
 #include "tt-metalium/fabric_types.hpp"

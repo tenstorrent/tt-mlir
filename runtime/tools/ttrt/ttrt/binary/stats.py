@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttrt.runtime._ttmlir_runtime.binary import Binary
+from ttrt.runtime.lib._ttmlir_runtime.binary import Binary
 import json
 import re
 
