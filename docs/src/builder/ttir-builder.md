@@ -4,15 +4,18 @@
 
 ## Building
 
-1. Build [tt-mlir](./getting-started.md)
-2. Build [`ttrt`](./ttrt.md#building)
+1. Build [tt-mlir](../getting-started.md)
+2. Build [`ttrt`](../ttrt.md#building)
 3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `ttrt-artifacts` folder containing a `system_desc.ttsys` file.
 
 ```bash
 ttrt query --save-artifacts
 ```
 
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `builder.base.builder_utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+4. Export this file in your environment. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+```bash
+export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
+```
 
 ## Getting started
 
@@ -499,27 +502,27 @@ compile_ttir_to_flatbuffer(
 
 ### Alternatives for file creation
 
-1. The [`ttmlir-opt`](./ttmlir-opt.md) tool runs a compiler pass on an `.mlir` file.
-2. The [`ttmlir-translate`](./ttmlir-translate.md) can generate a flatbuffer from an `.mlir` file.
+1. The [`ttmlir-opt`](../ttmlir-opt.md) tool runs a compiler pass on an `.mlir` file.
+2. The [`ttmlir-translate`](../ttmlir-translate.md) can generate a flatbuffer from an `.mlir` file.
 3. [`llvm-lit`](https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f32ab/docs/src/ttrt.md#generate-flatbuffer-files-using-llvm-lit) can also be used to generate a flatbuffer from an existing `.mlir` file.
 
 ### Running models
 
 #### ttrt
 
-[`ttrt`](./ttrt.md) is intended to be a swiss army knife for working with flatbuffers.
+[`ttrt`](../ttrt.md) is intended to be a swiss army knife for working with flatbuffers.
 
 #### tt-explorer
 
-[`tt-explorer`](./tt-explorer/tt-explorer.md) is a visualizer tool for `ttmlir`-powered compiler results.
+[`tt-explorer`](../tt-explorer/tt-explorer.md) is a visualizer tool for `ttmlir`-powered compiler results.
 
 #### ttnn-standalone
 
-[`ttnn-standalone`](./ttnn-standalone.md) is a post-compile tuning/debugging tool.
+[`ttnn-standalone`](../ttnn-standalone.md) is a post-compile tuning/debugging tool.
 
 #### llvm-lit
 
-[`llvm-lit`](./lit-testing.md) can also be used for MLIR testing.
+[`llvm-lit`](../lit-testing.md) can also be used for MLIR testing.
 
 ## Golden mode
 
@@ -639,3 +642,301 @@ ttrt run ttnn/test_ttnn.mlir.ttnn --log-file ttrt.log --save-golden-tensors
 #### Golden callbacks
 
 The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) on the callback function feature. Callback functions run between each op execution during runtime and contain op level golden analysis. They are also customizable and provide the flexibility for you to get creative with your golden usage.
+
+## Optimizer Overrides
+
+The optimizer is the main component of tt-mlir responsible for performance. Documentation can be found [here](../optimizer.md) and more detail on many of the attributes implemented in these overrides can be found in the dropdown descriptions of the [ttnn ops](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTNNOp.html). There are three types of overrides the optimizer exposes as pipeline options - optimization policy, output layout overrides, and conv2d config overrides - all of which are designed only to be used in ttnn. `ttir-builder` supports all three, providing APIs to configure the respective pipeline options and add them to the pipeline run. To use overrides, tt-mlir must be built with `-DTTMLIR_ENABLE_OPMODEL=ON`; without it, optimizer overrides will not be applied to the pipeline.
+
+### Optimization policy
+
+Optimization policies instruct the optimizer how to shard tensors and/or allocate memory. The only supported policies at the moment are `DF Sharding` and `BF Interleaved`. Each can be passed into `compile_ttir_to_flatbuffer()` using the `optimization_policy` argument.
+
+```bash
+from ttmlir import optimizer_overrides
+
+optimization_policy=optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved
+```
+
+For example, `"BF Interleaved"` will produce the following pipeline options:
+
+```bash
+system-desc-path=ttrt-artifacts/system_desc.ttsys enable-optimizer=true memreconfig-enabled=true memory-layout-analysis-enabled=true memory-layout-analysis-policy=BFInterleaved
+```
+
+Example of ttnn module using the optimization policy `"BF Interleaved"`:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @matmul(%arg0: tensor<128x128xf32, #ttnn_layout>, %arg1: tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout1> {
+        %0 = "ttnn.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<128x128xf32, #ttnn_layout>, tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout1>
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        return %0 : tensor<128x128xf32, #ttnn_layout1>
+      }
+    }
+  }
+}
+```
+
+</details>
+
+Example of ttnn module without enabling optimization policy for comparison:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @matmul(%arg0: tensor<128x128xf32, #ttnn_layout>, %arg1: tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout> {
+        %0 = "ttnn.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<128x128xf32, #ttnn_layout>, tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout>
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        return %0 : tensor<128x128xf32, #ttnn_layout>
+      }
+    }
+  }
+}
+```
+
+</details>
+
+### Output layout overrides
+The API [`set_output_layout_override`](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/apis.html) can be used in the function `fn` passed into `compile_ttir_to_flatbuffer()`. These are op-level overrides and as such, the op to be overridden is passed in to `set_output_layout_override` as an argument. This an example of the full set of potential overrides and their implementation, any subset of the following can be used, whatever isn't will be set to default.
+
+```bash
+data_type : dictates the output tensor type
+memory_layout : represents tensor memory layout ("row_major", "tile", "invalid")
+buffer_type : specifies which memory type to use ("l1", "dram", "system_memory", "l1_small", "trace")
+tensor_memory_layout : defines how the tensor is laid out in memory ("interleaved", "block_sharded", "width_sharded", "height_sharded")
+grid_shape : shape of grid of cores which are used to store tensor in memory ([N, M])
+```
+
+```bash
+output_layout_overrides = {
+    "buffer_type": "l1",
+}
+
+def matmul_overrides(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+):
+    matmul_0 = builder.matmul(in0, in1)
+    builder.set_output_layout_override(output_layout_overrides, matmul_0)
+    return matmul_0
+
+compile_to_flatbuffer(
+    matmul_overrides,
+    [(128, 128)] * 2,
+    [torch.float32] * 2,
+)
+```
+
+This example will produce the following pipeline options:
+
+```bash
+system-desc-path=ttrt-artifacts/system_desc.ttsys enable-optimizer=true memreconfig-enabled=true override-output-layout=/home/$USER/tt-mlir/build/python_packages/ttir_builder/ops.py:3513:id(0)=1x1:l1:interleaved:tile:f32
+```
+
+Example of ttnn module using the output layout overrides detailed above:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x16x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @matmul_overrides(%arg0: tensor<128x128xf32, #ttnn_layout>, %arg1: tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout1> {
+        %0 = "ttnn.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<128x128xf32, #ttnn_layout>, tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout1>
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        return %0 : tensor<128x128xf32, #ttnn_layout1>
+      }
+    }
+  }
+}
+```
+
+</details>
+
+Example of ttnn module without output layout overrides for comparison:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @matmul_overrides(%arg0: tensor<128x128xf32, #ttnn_layout>, %arg1: tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout> {
+        %0 = "ttnn.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<128x128xf32, #ttnn_layout>, tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout>
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> ()
+        return %0 : tensor<128x128xf32, #ttnn_layout>
+      }
+    }
+  }
+}
+```
+
+</details>
+
+### Conv2d config overrides
+
+The [ttnn documentation](https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.Conv2dConfig.html) provides the most detailed information on Conv2d config override options and functionality. This section will provide instructions on implementing them in `ttir-builder`.
+The API [`set_conv2d_config_override(configs, op)`](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir-builder/apis.html) can be used in the function `fn` passed into `compile_ttir_to_flatbuffer()`. These are op-level overrides and as such, the op to be overridden is passed in to `set_conv2d_config_override` as an argument. This API is only intended for ops `ttir.conv2d` and `ttir.conv_transpose2d`. This an example of the full set of potential overrides and their implementation, any subset of the following can be used, whatever isn't will be set to default.
+
+```bash
+conv2d_config = {
+    "dtype": "f32",
+    "weights_dtype": "f32",
+    "activation": "relu",
+}
+
+def conv2d(
+    in0: Operand,
+    weight: Operand,
+    bias: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+):
+    conv2d_0 = builder.conv2d(
+        in0,
+        weight,
+        bias,
+        in1,
+        stride=[2, 1],
+        padding=[2, 1],
+        dilation=[2, 1],
+        groups=2,
+    )
+    builder.set_conv2d_config_override(conv2d_config, conv2d_0)
+    return conv2d_0
+
+compile_to_flatbuffer(
+    conv2d,
+    [(1, 32, 32, 64),
+    (64, 32, 3, 3),
+    (1, 1, 1, 64),
+    (1, 16, 28, 64)],
+    [torch.float32] * 4,
+)
+```
+
+This will produce the following pipeline options:
+
+```bash
+system-desc-path=ttrt-artifacts/system_desc.ttsys enable-optimizer=true memreconfig-enabled=true override-conv2d-config=/home/$USER/tt-mlir/build/python_packages/ttir_builder/ops.py:2650:id(0)=dtype#f32:weights_dtype#f32:activation#relu:deallocate_activation#false:reallocate_halo_output#false:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#height_sharded:transpose_shards#false:output_layout#tile:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+```
+
+Example of ttnn module using the conv2d config overrides detailed above:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#system_memory = #ttnn.buffer_type<system_memory>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 96 + d1 * 3 + d2, d3), <1x1>, memref<6144x3xf32, #system_memory>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 32 + d2, d3), <1x1>, memref<16x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 576 + d1 * 576 + d2, d3), <1x1>, memref<18x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 512 + d2, d3), <1x1>, memref<16x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @conv2d(%arg0: tensor<1x32x32x64xf32, #ttnn_layout>, %arg1: tensor<64x32x3x3xf32, #ttnn_layout1>, %arg2: tensor<1x1x1x64xf32, #ttnn_layout2>, %arg3: tensor<1x16x28x64xf32, #ttnn_layout3>) -> tensor<1x16x32x64xf32, #ttnn_layout3> {
+        %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+        "ttnn.deallocate"(%arg3) <{force = false}> : (tensor<1x16x28x64xf32, #ttnn_layout3>) -> ()
+        "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x64xf32, #ttnn_layout2>) -> ()
+        %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1024 : i32, 64 : i32]}> : (tensor<1x32x32x64xf32, #ttnn_layout>) -> tensor<1x1x1024x64xf32, #ttnn_layout4>
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x32x32x64xf32, #ttnn_layout>) -> ()
+        %2 = "ttnn.prepare_conv2d_weights"(%arg1, %0) <{batch_size = 1 : i32, conv2d_config = #ttnn.conv2d_config<dtype = f32, weights_dtype = f32, activation = "relu", deallocate_activation = false, reallocate_halo_output = false, act_block_h_override = 0, act_block_w_div = 1, reshard_if_not_optimal = false, override_sharding_config = false, shard_layout = height_sharded, transpose_shards = false, output_layout = tile, enable_act_double_buffer = false, enable_weights_double_buffer = false, enable_split_reader = false, enable_subblock_padding = false>, dilation = array<i32: 2, 1>, groups = 2 : i32, has_bias = false, in_channels = 64 : i32, input_dtype = #ttcore.supportedDataTypes<f32>, input_height = 32 : i32, input_memory_config = #ttnn.memory_config<#dram, <interleaved>>, input_tensor_layout = #ttnn.layout<tile>, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, output_dtype = #ttcore.supportedDataTypes<f32>, padding = array<i32: 2, 1>, stride = array<i32: 2, 1>, weights_format = "OIHW"}> : (tensor<64x32x3x3xf32, #ttnn_layout1>, !ttnn.device) -> tensor<1x1x576x64xf32, #ttnn_layout5>
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<64x32x3x3xf32, #ttnn_layout1>) -> ()
+        %3 = "ttnn.conv2d"(%1, %2, %0) <{batch_size = 1 : i32, conv2d_config = #ttnn.conv2d_config<dtype = f32, weights_dtype = f32, activation = "relu", deallocate_activation = false, reallocate_halo_output = false, act_block_h_override = 0, act_block_w_div = 1, reshard_if_not_optimal = false, override_sharding_config = false, shard_layout = height_sharded, transpose_shards = false, output_layout = tile, enable_act_double_buffer = false, enable_weights_double_buffer = false, enable_split_reader = false, enable_subblock_padding = false>, dilation = array<i32: 2, 1>, groups = 2 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, output_dtype = #ttcore.supportedDataTypes<f32>, padding = array<i32: 2, 1>, stride = array<i32: 2, 1>}> : (tensor<1x1x1024x64xf32, #ttnn_layout4>, tensor<1x1x576x64xf32, #ttnn_layout5>, !ttnn.device) -> tensor<1x1x512x64xf32, #ttnn_layout6>
+        "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x576x64xf32, #ttnn_layout5>) -> ()
+        "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x1024x64xf32, #ttnn_layout4>) -> ()
+        %4 = "ttnn.reshape"(%3) <{shape = [1 : i32, 16 : i32, 32 : i32, 64 : i32]}> : (tensor<1x1x512x64xf32, #ttnn_layout6>) -> tensor<1x16x32x64xf32, #ttnn_layout3>
+        "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x1x512x64xf32, #ttnn_layout6>) -> ()
+        return %4 : tensor<1x16x32x64xf32, #ttnn_layout3>
+      }
+    }
+  }
+}
+```
+
+</details>
+
+Example of ttnn module without conv2d config overrides for comparison:
+
+<details>
+
+```bash
+#dram = #ttnn.buffer_type<dram>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 99904, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073142400, physical_helper_cores = {dram = [ 0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,  0x8,  0x9,  0x10,  0x11] eth_inactive = [ 16x18,  16x19,  16x20,  16x21,  16x22,  16x23,  16x24,  16x25,  17x18,  17x19,  17x20,  17x21,  17x22,  17x23,  17x24,  17x25]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_register_size_tiles = 8, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#system_memory = #ttnn.buffer_type<system_memory>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 96 + d1 * 3 + d2, d3), <1x1>, memref<6144x3xf32, #system_memory>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 32 + d2, d3), <1x1>, memref<16x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, f32>, #system_memory>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<1024x64xf32, #system_memory>>
+#ttnn_layout7 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<1024x64xf32, #dram>, <interleaved>>
+#ttnn_layout8 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 512 + d2, d3), <1x1>, memref<16x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @conv2d(%arg0: tensor<1x32x32x64xf32, #ttnn_layout>, %arg1: tensor<64x32x3x3xf32, #ttnn_layout1>, %arg2: tensor<1x1x1x64xf32, #ttnn_layout2>, %arg3: tensor<1x16x28x64xf32, #ttnn_layout3>) -> tensor<1x16x32x64xf32, #ttnn_layout3> {
+        %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+        "ttnn.deallocate"(%arg3) <{force = false}> : (tensor<1x16x28x64xf32, #ttnn_layout3>) -> ()
+        "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x64xf32, #ttnn_layout2>) -> ()
+        %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1024 : i32, 64 : i32]}> : (tensor<1x32x32x64xf32, #ttnn_layout>) -> tensor<1x1x1024x64xf32, #ttnn_layout4>
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x32x32x64xf32, #ttnn_layout>) -> ()
+        %2 = "ttnn.from_device"(%1) : (tensor<1x1x1024x64xf32, #ttnn_layout4>) -> tensor<1x1x1024x64xf32, #ttnn_layout5>
+        "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x1024x64xf32, #ttnn_layout4>) -> ()
+        %3 = "ttnn.to_layout"(%2) <{layout = #ttnn.layout<row_major>}> : (tensor<1x1x1024x64xf32, #ttnn_layout5>) -> tensor<1x1x1024x64xf32, #ttnn_layout6>
+        "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x1024x64xf32, #ttnn_layout5>) -> ()
+        %4 = "ttnn.to_device"(%3, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x1024x64xf32, #ttnn_layout6>, !ttnn.device) -> tensor<1x1x1024x64xf32, #ttnn_layout7>
+        "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x1x1024x64xf32, #ttnn_layout6>) -> ()
+        %5 = "ttnn.conv2d"(%4, %arg1, %0) <{batch_size = 1 : i32, dilation = array<i32: 2, 1>, groups = 2 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, output_dtype = #ttcore.supportedDataTypes<f32>, padding = array<i32: 2, 1>, stride = array<i32: 2, 1>}> : (tensor<1x1x1024x64xf32, #ttnn_layout7>, tensor<64x32x3x3xf32, #ttnn_layout1>, !ttnn.device) -> tensor<1x1x512x64xf32, #ttnn_layout8>
+        "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x1x1024x64xf32, #ttnn_layout7>) -> ()
+        "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<64x32x3x3xf32, #ttnn_layout1>) -> ()
+        %6 = "ttnn.reshape"(%5) <{shape = [1 : i32, 16 : i32, 32 : i32, 64 : i32]}> : (tensor<1x1x512x64xf32, #ttnn_layout8>) -> tensor<1x16x32x64xf32, #ttnn_layout3>
+        "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x1x512x64xf32, #ttnn_layout8>) -> ()
+        return %6 : tensor<1x16x32x64xf32, #ttnn_layout3>
+      }
+    }
+  }
+}
+```
+
+</details>

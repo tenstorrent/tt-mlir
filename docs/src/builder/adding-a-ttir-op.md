@@ -161,7 +161,7 @@ in0 : Operand
     First input tensor
 in1 : Operand
     Second input tensor
-unit_attrs : Optional[List[str]], optional
+unit_attrs : *Optional[List[str]]*, optional
     Optional list of unit attributes
 
 Returns
