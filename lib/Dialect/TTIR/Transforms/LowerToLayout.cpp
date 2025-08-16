@@ -115,6 +115,7 @@ public:
                           : builder.create<ttir::DMAOp>(
                                 loc, blockArgs[0], viewOutput, indexingMap);
           builder.create<ttir::DMAWaitOp>(loc, dma);
+          builder.create<YieldOp>(loc, blockArgs[1]);
         },
         ThreadType::Datamovement);
 
@@ -139,6 +140,7 @@ public:
           } else {
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
+          builder.create<YieldOp>(loc, blockArgs[1]);
         });
 
     return success();
