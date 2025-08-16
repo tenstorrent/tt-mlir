@@ -356,10 +356,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value lhs = adaptor.getLhs();
     Value rhs = adaptor.getRhs();
-    Value output = adaptor.getOutput();
 
     auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
+        this->getTypeConverter()->convertType(op.getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
     auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
@@ -422,10 +421,10 @@ public:
     auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
         op.getLoc(), resultType, adaptor.getInput(), shapeOp);
 
-    // Handle DPS semantics - directly copy to output.
-    Value output = adaptor.getOutput();
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
     auto copyOp = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), ValueRange{reshapeOp}, output);
+        op.getLoc(), ValueRange{reshapeOp}, output.getResult());
     rewriter.replaceOp(op, copyOp.getResult(0));
 
     return success();
@@ -481,12 +480,10 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+    auto inputs = adaptor.getOperands();
 
     auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
+        this->getTypeConverter()->convertType(op.getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
     const int64_t dim = op.getDim();
@@ -1723,16 +1720,13 @@ public:
 
     // Perform the actual op substitution, using broadcasted operands when
     // needed.
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
+    auto resultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
 
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto outputs = adaptor.getOperands().take_back(op.getNumDpsInits());
-    rewriter.replaceOpWithNewOp<LinalgOpTy>(op, resultTypes, broadcastedInputs,
-                                            outputs);
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    rewriter.replaceOpWithNewOp<LinalgOpTy>(op, resultType, broadcastedInputs,
+                                            output.getResult());
     return success();
   }
 };
@@ -1750,18 +1744,15 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
+    Location loc = op.getLoc();
+    auto resultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
 
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
-    auto outputs =
-        ttir::utils::getDpsOutputsFromAdaptor(adaptor, op.getNumDpsInits());
-    rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultTypes, inputs, outputs);
+    auto inputs = adaptor.getOperands();
+    auto output = rewriter.create<tensor::EmptyOp>(loc, resultType.getShape(),
+                                                   resultType.getElementType());
+    rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultType, inputs,
+                                            output.getResult());
     return success();
   }
 };
@@ -1775,6 +1766,8 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SoftmaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
 
     Value input = adaptor.getInput();
     const size_t inputSize =
@@ -1783,9 +1776,11 @@ public:
                                   ? op.getDimension() + inputSize
                                   : op.getDimension();
 
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()), input,
-        adaptor.getOutput(), dimension);
+        output.getResult(), dimension);
     return success();
   }
 };
@@ -1816,9 +1811,11 @@ public:
     auto zeroes = rewriter.create<arith::ConstantOp>(
         op.getLoc(), resultType, cast<DenseElementsAttr>(zeroAttr));
 
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::MaxOp>(
         op, resultType, ValueRange{input, zeroes.getResult()},
-        ValueRange{adaptor.getOutput()});
+        ValueRange{output});
     return success();
   }
 };
@@ -1849,11 +1846,15 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
     Value input = adaptor.getInput();
     llvm::ArrayRef<int64_t> permutation = op.getPermutation();
 
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
-        op, input, adaptor.getOutput(), permutation);
+        op, input, output.getResult(), permutation);
 
     return success();
   }
@@ -1871,7 +1872,6 @@ public:
   matchAndRewrite(ttir::SliceStaticOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
-    Value output = adaptor.getOutput(); // Get the output buffer
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
     assert(inputType && "Input must be a ranked tensor type.");
 
@@ -1911,8 +1911,10 @@ public:
 
     // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
     // the result into the output buffer
-    auto copyResult =
-        rewriter.create<linalg::CopyOp>(op.getLoc(), extractedSlice, output);
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto copyResult = rewriter.create<linalg::CopyOp>(
+        op.getLoc(), extractedSlice, output.getResult());
     rewriter.replaceOp(op, copyResult);
 
     return success();

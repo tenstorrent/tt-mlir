@@ -30,8 +30,8 @@ public:
     auto outputType = mlir::cast<mlir::RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
-        rewriter, srcOp, outputType, adaptor.getOperands());
+    rewriter.create<DestOp>(
+        srcOp.getLoc(), outputType, adaptor.getOperands());
 
     return mlir::success();
   }
@@ -70,8 +70,8 @@ public:
                   })))
             : nullptr;
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), srcOp.getKeepDim(),
+    rewriter.create<DestOp>(
+        srcOp.getLoc(), outputType, adaptor.getInput(), srcOp.getKeepDim(),
         dimArgAttr);
 
     return mlir::success();
@@ -98,8 +98,8 @@ public:
             ? rewriter.getI32ArrayAttr({static_cast<int32_t>(*srcOp.getDim())})
             : nullptr;
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ArgMaxOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), keepDimAttr,
+    rewriter.create<mlir::tt::ttir::ArgMaxOp>(
+        srcOp.getLoc(), outputType, adaptor.getInput(), keepDimAttr,
         dimArgAttr);
 
     return mlir::success();
@@ -129,8 +129,8 @@ public:
                                 {static_cast<int32_t>(*srcOp.getDimArg())})
                           : nullptr;
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ProdOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), keepDimAttr,
+    rewriter.create<mlir::tt::ttir::ProdOp>(
+        srcOp.getLoc(), outputType, adaptor.getInput(), keepDimAttr,
         dimArgAttr);
 
     return mlir::success();
@@ -150,8 +150,8 @@ public:
     auto outputType = mlir::cast<mlir::RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CumSumOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), srcOp.getDim());
+    rewriter.create<mlir::tt::ttir::CumSumOp>(
+        srcOp.getLoc(), outputType, adaptor.getInput(), srcOp.getDim());
 
     return mlir::success();
   }
@@ -172,8 +172,8 @@ public:
     auto outputType = mlir::cast<mlir::RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MatmulOp>(
-        rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB(),
+    rewriter.create<mlir::tt::ttir::MatmulOp>(
+        srcOp.getLoc(), outputType, adaptor.getA(), adaptor.getB(),
         adaptor.getTransposeA(), adaptor.getTransposeB());
 
     // Note that TTNN attributes that have no TTIR equivalents are simply

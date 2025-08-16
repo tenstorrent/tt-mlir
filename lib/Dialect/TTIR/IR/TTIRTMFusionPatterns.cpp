@@ -76,8 +76,8 @@ public:
         newReshapeShape, permuteOperand.getType().getElementType());
     ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
         SmallVector<int32_t>(newReshapeShape.begin(), newReshapeShape.end()));
-    utils::replaceOpWithNewDPSOp<ReshapeOp>(
-        rewriter, op, newReshapeType, permuteOperand.getInput(), newShapeAttr);
+    rewriter.replaceOpWithNewOp<ReshapeOp>(
+        op, newReshapeType, permuteOperand.getInput(), newShapeAttr);
 
     return success();
   }

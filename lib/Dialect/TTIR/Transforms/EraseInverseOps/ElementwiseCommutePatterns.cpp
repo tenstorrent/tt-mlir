@@ -50,9 +50,9 @@ public:
 
       mlir::Location newLoc = ttmlir::utils::appendLocationSuffix(
           tmUser->getLoc(), "_tm" + std::to_string(operandIdx));
-      auto newTM = ttir::utils::createDPSOp<TMOpType>(
-          rewriter, newLoc, newTMResultTypes[operandIdx],
-          op->getOperand(operandIdx), tmUser->getAttrs());
+      auto newTM = rewriter.create<TMOpType>(
+          newLoc, newTMResultTypes[operandIdx], op->getOperand(operandIdx),
+          tmUser->getAttrs());
 
       newEltwiseOperands.push_back(newTM);
     }
@@ -88,20 +88,11 @@ public:
     RankedTensorType newEltwiseType =
         cast<RankedTensorType>(op->getResult(0).getType())
             .clone(tmOperand.getInput().getType().getShape());
-    // For each of the other operands we must generate an inverse TM
-    // Do not want to do anything to the DPS operand
+
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
     SmallVector<Value> newEltwiseOperands;
-    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands();
-         operandIdx++) {
-
-      if (auto asDpsOp =
-              dyn_cast<DestinationStyleOpInterface>(op.getOperation())) {
-        if (asDpsOp.isDpsInit(&asDpsOp->getOpOperand(operandIdx))) {
-          continue;
-        }
-      }
-      Value operand = op->getOperand(operandIdx);
-
+    for (auto operand : op->getOperands()) {
       if (operand.getDefiningOp() == tmOperand) {
         newEltwiseOperands.push_back(tmOperand.getInput());
         continue;
@@ -120,9 +111,9 @@ public:
     RankedTensorType newTMType =
         cast<RankedTensorType>(op->getResult(0).getType())
             .clone(tmOperand.getType().getShape());
-    TMOpType newUserTM = ttir::utils::createDPSOp<TMOpType>(
-        rewriter, op->getLoc(), newTMType, newEltwise->getResult(0),
-        tmOperand->getAttrs());
+    TMOpType newUserTM = rewriter.create<TMOpType>(op->getLoc(), newTMType,
+                                                   newEltwise->getResult(0),
+                                                   tmOperand->getAttrs());
 
     rewriter.replaceOp(op, newUserTM);
   }
@@ -156,15 +147,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (auto asDpsOp =
-              dyn_cast<DestinationStyleOpInterface>(op.getOperation())) {
-        if (asDpsOp.isDpsInit(&asDpsOp->getOpOperand(i))) {
-          continue;
-        }
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(), tmOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
+      if (checkIdenticalTms(operand.getDefiningOp(), tmOperand) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }
       return false;
