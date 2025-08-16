@@ -68,6 +68,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
+#include <cstdint>
 
 namespace tt::runtime::ttnn {
 
@@ -124,6 +125,16 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+
+  ProgramTensorPool &tensorPool = this->context->getTensorPool();
+  for (std::uint32_t inputId : tensorPool.getProgramInputIds()) {
+    auto runtimeTensor = tensorPool.getRuntimeTensor(inputId);
+    ::ttnn::Tensor ttnnTensor =
+        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(
+            runtimeTensor);
+    std::cout << ttnnTensor.write_to_string() << std::endl;
+  }
+
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
