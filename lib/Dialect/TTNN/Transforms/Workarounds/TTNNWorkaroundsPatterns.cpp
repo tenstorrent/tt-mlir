@@ -19,7 +19,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -686,12 +685,6 @@ public:
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
-    }
-    if (repeatFoldingWorkaroundEnabled) {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
-          &getContext());
-      runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
