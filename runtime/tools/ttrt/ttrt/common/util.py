@@ -484,9 +484,11 @@ class FileManager:
                     ttnn_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
-                self.logging.info(f"file '{path}' not found - skipping")
+                raise Exception(f"file '{path}' not found")
         else:
-            self.check_directory_exists(path)
+            if not self.check_directory_exists(path):
+                raise Exception(f"'{path}' not found")
+
             try:
                 for root, _, files in os.walk(path):
                     for file in files:
@@ -516,9 +518,11 @@ class FileManager:
                     ttmetal_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
-                self.logging.info(f"file '{path}' not found - skipping")
+                raise Exception(f"file '{path}' not found")
         else:
-            self.check_directory_exists(path)
+            if not self.check_directory_exists(path):
+                raise Exception(f"'{path}' not found")
+
             try:
                 for root, _, files in os.walk(path):
                     for file in files:
@@ -548,9 +552,11 @@ class FileManager:
                     ttsys_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
-                self.logging.info(f"file '{path}' not found - skipping")
+                raise Exception(f"file '{path}' not found")
         else:
-            self.check_directory_exists(path)
+            if not self.check_directory_exists(path):
+                raise Exception(f"'{path}' not found")
+
             try:
                 for root, _, files in os.walk(path):
                     for file in files:
