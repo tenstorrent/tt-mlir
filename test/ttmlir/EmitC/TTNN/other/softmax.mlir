@@ -5,6 +5,12 @@
 
 func.func @softmax(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
   %0 = ttir.empty() : tensor<512x1024xbf16>
-  %1 = "ttir.softmax"(%arg0, %0) <{dimension = 1 : si32}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
+  %1 = "ttir.softmax"(%arg0, %0) <{dimension = 1 : si32, numericStable = false}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
+  return %1 : tensor<512x1024xbf16>
+}
+
+func.func @softmax_numeric_stable(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
+  %0 = ttir.empty() : tensor<512x1024xbf16>
+  %1 = "ttir.softmax"(%arg0, %0) <{dimension = 1 : si32, numericStable = true}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
   return %1 : tensor<512x1024xbf16>
 }
