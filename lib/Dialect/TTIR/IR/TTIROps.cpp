@@ -2371,6 +2371,26 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  ToLayoutFoldRedundantPattern(MLIRContext *context)
+      : OpRewritePattern<ToLayoutOp>(context) {
+    setDebugName("ttir.ToLayoutFoldRedundantPattern");
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
+    if (!producerLayoutOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
+                                            op.getOutput());
+    return success();
+  }
+};
+
 static ::mlir::LogicalResult
 verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
                mlir::Type outputTensorOrMemrefTy, bool allowFormatChange,
@@ -2584,7 +2604,7 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
 }
 
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
   patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
     EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
@@ -2595,16 +2615,7 @@ void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     return success();
   });
 
-  // Back to back ToLayoutOp folding, last one wins
-  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
-    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
-    if (!producerLayoutOp) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
-                                            op.getOutput());
-    return success();
-  });
+  patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
