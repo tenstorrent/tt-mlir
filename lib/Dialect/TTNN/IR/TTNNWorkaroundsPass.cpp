@@ -239,12 +239,10 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceOp requires bfloat16 data type for strided slice.
-// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
-// to Width and Height) are not divisible by tile width and height.
+// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
-    ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
+TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
   // slice operation.
@@ -253,40 +251,44 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
     return intAttr.getInt() > 1;
   });
 
-  // Compute Width Index.
-  int64_t idxWidth = begins.size() - 1;
-  // Compute Height Index; 0 if input tensor is 1D.
-  int64_t idxHeight = begins.size() > 1 ? begins.size() - 2 : 0;
-
-  // Determine if workaround for row major layout is required.
-  bool isLayoutWARequired = layoutAttr.isTiled();
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isLayoutWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  isLayoutWARequired &=
-      ((mlir::dyn_cast<mlir::IntegerAttr>(begins[idxWidth]).getInt() %
-            tileWidth !=
-        0) ||
-       (mlir::dyn_cast<mlir::IntegerAttr>(begins[idxHeight]).getInt() %
-            tileHeight !=
-        0));
-
-  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  TTNNOperandWorkarounds bF16Workaround;
   if (isStridedSliceOp) {
-    rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-        ttcore::DataType::BFloat16;
-  }
-  if (!isStridedSliceOp && isLayoutWARequired) {
-    rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+      .addInputOperandWorkaround(bF16Workaround)
+      .addOutputOperandWorkaround(bF16Workaround);
+}
+
+// Factory method to create a set of workarounds for dynamic slice op input
+// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
+// ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
+    mlir::ArrayAttr step) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation. If step is null, assume non-strided operation.
+  bool isStridedSliceOp = false;
+  if (step) {
+    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+      return intAttr.getInt() > 1;
+    });
+  }
+
+  TTNNOperandWorkarounds bF16Workaround;
+  if (isStridedSliceOp) {
+    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
+  TTNNOperandWorkarounds uInt32Workaround;
+  uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(bF16Workaround)
+      .addInputOperandWorkaround(uInt32Workaround)
+      .addInputOperandWorkaround(uInt32Workaround)
+      .addOutputOperandWorkaround(bF16Workaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN

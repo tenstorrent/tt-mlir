@@ -65,7 +65,7 @@ struct IndexToSliceConversionPattern
       }
     }
 
-    auto newOp = rewriter.create<ttir::SliceOp>(
+    auto newOp = rewriter.create<ttir::SliceStaticOp>(
         op.getLoc(), op.getType(), adaptor.getInput(), adaptor.getOutput(),
         rewriter.getArrayAttr(begins), rewriter.getArrayAttr(ends),
         rewriter.getArrayAttr(steps));
@@ -1463,9 +1463,9 @@ public:
 };
 } // namespace
 
-// IndexSelectOp is converted to a series of SliceOp and potentially a ConcatOp
-// if the sliced dimension is sliced multiple times. For example, if the input
-// tensor is
+// IndexSelectOp is converted to a series of SliceStaticOp and potentially a
+// ConcatOp if the sliced dimension is sliced multiple times. For example, if
+// the input tensor is
 //    [[[1, 2, 3],
 //      [4, 5, 6],
 //      [7, 8, 9],
@@ -1549,7 +1549,7 @@ public:
       begins[dim] = newBegin;
       ends[dim] = newEnd;
 
-      auto newOp = ttir::utils::createDPSOp<ttir::SliceOp>(
+      auto newOp = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
           rewriter, op.getLoc(), resultShape, inputType.getElementType(),
           inputType.getEncoding(), adaptor.getInput(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
