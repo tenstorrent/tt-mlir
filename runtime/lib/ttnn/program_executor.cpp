@@ -126,26 +126,9 @@ void ProgramExecutor::runCallback(
 template <typename T>
 void save_vector_with_dtype_and_shape(const std::vector<T> &data,
                                       const std::vector<uint32_t> &shape,
-                                      const std::string &filename) {
+                                      const std::string &filename,
+                                      const std::string &dtype) {
   std::ofstream file(filename, std::ios::binary);
-
-  // Write dtype identifier
-  std::string dtype;
-  if constexpr (std::is_same_v<T, float>) {
-    dtype = "float32";
-  } else if constexpr (std::is_same_v<T, double>) {
-    dtype = "float64";
-  } else if constexpr (std::is_same_v<T, int32_t>) {
-    dtype = "int32";
-  } else if constexpr (std::is_same_v<T, int64_t>) {
-    dtype = "int64";
-  } else if constexpr (std::is_same_v<T, uint8_t>) {
-    dtype = "uint8";
-  } else if constexpr (std::is_same_v<T, uint16_t>) {
-    dtype = "uint16";
-  } else if constexpr (std::is_same_v<T, uint32_t>) {
-    dtype = "uint32";
-  }
 
   // Write dtype string length and string
   uint32_t dtype_len = dtype.length();
@@ -223,21 +206,34 @@ void ProgramExecutor::execute() {
 
     // Save each tensor in the folder
     fs::path filename = folder / (std::to_string(fileIndex) + ".txt");
-    if (ttnnTensor.dtype() == tt_metal::DataType::INT32) {
+    switch (ttnnTensor.dtype()) {
+    case tt_metal::DataType::INT32:
       save_vector_with_dtype_and_shape(ttnnTensor.to_vector<int32_t>(), shape,
-                                       filename.string());
-    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT8) {
+                                       filename.string(), "int32");
+      break;
+    case tt_metal::DataType::UINT8:
       save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint8_t>(), shape,
-                                       filename.string());
-    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT16) {
+                                       filename.string(), "uint8");
+      break;
+    case tt_metal::DataType::UINT16:
       save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint16_t>(), shape,
-                                       filename.string());
-    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT32) {
+                                       filename.string(), "uint16");
+      break;
+    case tt_metal::DataType::UINT32:
       save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint32_t>(), shape,
-                                       filename.string());
-    } else {
+                                       filename.string(), "uint32");
+      break;
+    case tt_metal::DataType::FLOAT32:
       save_vector_with_dtype_and_shape(ttnnTensor.to_vector<float>(), shape,
-                                       filename.string());
+                                       filename.string(), "float32");
+      break;
+    case tt_metal::DataType::BFLOAT16:
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<float>(), shape,
+                                       filename.string(), "bfloat16");
+      break;
+    // Add other BFLOAT types if needed
+    default:
+      throw std::runtime_error("Unsupported tensor dtype");
     }
 
     fileIndex++;
