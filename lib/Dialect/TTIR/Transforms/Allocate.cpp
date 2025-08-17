@@ -119,7 +119,7 @@ struct AllocOpContext {
   // Live range of this alloc, starting with the op itself and
   // extending to its latest user.
   LiveRange live = {-1, -1};
-  ttcore::MemorySpace memspace;    // TODO is available from the op itself
+  ttcore::MemorySpace memspace; // TODO is available from the op itself
   bool hasNonGenericUsers = false;
   bool isSomeonesOutput = false;
 
@@ -705,15 +705,16 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success();
   }
 
-  static llvm::SmallVector<OperandStreamParams> analyzeOperandStreams(ttir::GenericOp genericOp) {
+  static llvm::SmallVector<OperandStreamParams>
+  analyzeOperandStreams(ttir::GenericOp genericOp) {
     const int32_t outputsStart = genericOp.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
 
     llvm::SmallVector<OperandStreamParams> result;
 
     for (int32_t operandIndex = 0;
-        operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
-        ++operandIndex) {
+         operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
+         ++operandIndex) {
       OperandStreamParams &params = result.emplace_back(operandIndex);
 
       // TODO check logic here for outputs
@@ -740,13 +741,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
               }
               const auto dimPosition = indexingMap.getDimPosition(resultIndex);
               ttcore::IteratorType iteratorType =
-                  mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
+                  mlir::cast<ttcore::IteratorTypeAttr>(
+                      iteratorTypes[dimPosition])
                       .getValue();
               return (iteratorType == ttcore::IteratorType::Reduction);
             });
 
-        // Note: even if `params.requiresStream` is left false here, a stream may
-        // still be inserted, e.g. to read the operand from DRAM
+        // Note: even if `params.requiresStream` is left false here, a stream
+        // may still be inserted, e.g. to read the operand from DRAM
       };
     }
 
@@ -851,8 +853,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           operandMemrefType.getShape(), operandMemrefType.getElementType(),
           streamAttr, operandMemrefType.getMemorySpace());
 
-      // TODO this buffer type selection decision is repeated here, it was already made by
-      // an analysis step
+      // TODO this buffer type selection decision is repeated here, it was
+      // already made by an analysis step
       auto bufferMemref = selectStreamBuffer(rewriter, operandMemrefType);
       auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
       assign(rewriter, buffer, req.offset, info);
