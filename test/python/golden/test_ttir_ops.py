@@ -1146,7 +1146,14 @@ def test_max_pool2d(
     "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
     [
         ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
-        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, False),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
     ],
 )
 @pytest.mark.parametrize("shapes", [[(1, 31, 31, 32), (1, 31, 35, 32)]])
