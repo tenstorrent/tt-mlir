@@ -15,8 +15,7 @@ module attributes {} {
     // CHECK: {{.*}}"ttnn.transpose"{{.*}}#[[LAYOUT_HS]]>
     %1 = "ttir.transpose"(%arg0, %0) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x3x224x224xf32>, tensor<1x224x3x224xf32>) -> tensor<1x224x3x224xf32> loc(#loc2)
 
-    %2 = ttir.empty() : tensor<1x224x3x224xf32> loc(#loc3)
-    %3 = "ttir.relu"(%1, %2) : (tensor<1x224x3x224xf32>, tensor<1x224x3x224xf32>) -> tensor<1x224x3x224xf32> loc(#loc4)
+    %3 = "ttir.relu"(%1) : (tensor<1x224x3x224xf32>) -> tensor<1x224x3x224xf32> loc(#loc4)
     return %3 : tensor<1x224x3x224xf32> loc(#loc5)
   }
 }

@@ -8,8 +8,7 @@ module {
       // CHECK: return %[[RESHAPE]]
       %0 = ttir.empty() : tensor<1x2048xbf16>
       %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 2048 : i32]}> : (tensor<32x64xbf16>, tensor<1x2048xbf16>) -> tensor<1x2048xbf16>
-      %2 = ttir.empty() : tensor<1x2048xbf16>
-      %3 = "ttir.exp"(%1, %2) : (tensor<1x2048xbf16>, tensor<1x2048xbf16>) -> tensor<1x2048xbf16>
+      %3 = "ttir.exp"(%1) : (tensor<1x2048xbf16>) -> tensor<1x2048xbf16>
       return %3 : tensor<1x2048xbf16>
     }
 }
@@ -21,8 +20,7 @@ module {
       // CHECK: return %[[PERMUTE]]
       %0 = ttir.empty() : tensor<1x224x224x3xbf16>
       %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x224x224xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
-      %2 = ttir.empty() : tensor<1x224x224x3xbf16>
-      %3 = "ttir.exp"(%1, %2) : (tensor<1x224x224x3xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
+      %3 = "ttir.exp"(%1) : (tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
       return %3 : tensor<1x224x224x3xbf16>
     }
 }

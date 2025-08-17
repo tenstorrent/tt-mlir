@@ -117,7 +117,6 @@ module {
 module {
   func.func @upsample_supported_mode(%arg0: tensor<3x16x32x4xbf16>) -> tensor<3x16x32x4xbf16> {
     // CHECK: error: 'ttnn.upsample' op Expected modes are (nearest, bilinear), got "x"
-    %0 = ttir.empty() : tensor<3x16x32x4xbf16>
     %1 = "ttnn.upsample"(%arg0) <{mode = "x", scale_factor = 1 : si32}> : (tensor<3x16x32x4xbf16>) -> tensor<3x16x32x4xbf16>
     return %1 : tensor<3x16x32x4xbf16>
   }

@@ -24,14 +24,11 @@ module {
                     %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
                     %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: ttcore.load_cached(@test_undo_redo_const_eval_0, [%arg2, %arg3])
-    %0 = ttir.empty() : tensor<32x32xbf16>
-    %1 = "ttir.add"(%arg2, %arg3, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %2 = ttir.empty() : tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg2, %arg3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttir.add"(%arg0, %arg1, %{{.*}})
-    %3 = "ttir.add"(%arg0, %arg1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %4 = ttir.empty() : tensor<32x32xbf16>
+    %3 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
-    %5 = "ttir.add"(%3, %1, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %5 = "ttir.add"(%3, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %5 : tensor<32x32xbf16>
   }
 
@@ -59,24 +56,19 @@ module {
                           %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>},
                           %arg4: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: ttcore.load_cached(@test_multi_undo_redo_const_eval_0, [%arg2, %arg3])
-    %0 = ttir.empty() : tensor<32x32xbf16>
-    %1 = "ttir.add"(%arg2, %arg3, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg2, %arg3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // CHECK: ttcore.load_cached(@test_multi_undo_redo_const_eval_1, [%arg3, %arg4])
-    %2 = ttir.empty() : tensor<32x32xbf16>
-    %3 = "ttir.multiply"(%arg3, %arg4, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.multiply"(%arg3, %arg4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    %4 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.add"(%arg0, %arg1, %{{.*}})
-    %5 = "ttir.add"(%arg0, %arg1, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %5 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    %6 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
-    %7 = "ttir.add"(%5, %1, %6) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %7 = "ttir.add"(%5, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    %8 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
-    %9 = "ttir.multiply"(%7, %3, %8) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %9 = "ttir.multiply"(%7, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     return %9 : tensor<32x32xbf16>
   }

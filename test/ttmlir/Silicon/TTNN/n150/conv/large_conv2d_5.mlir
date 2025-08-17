@@ -14,8 +14,7 @@ module {
     %7 = "ttir.reshape"(%3, %6) <{shape = [1 : i32, 1024 : i32, 1 : i32, 1 : i32]}> : (tensor<1024x1x1xbf16>, tensor<1x1024x1x1xbf16>) -> tensor<1x1024x1x1xbf16>
     %8 = ttir.empty() : tensor<1x1024x14x14xbf16>
     %9 = "ttir.broadcast"(%7, %8) <{broadcast_dimensions = array<i64: 1, 1, 14, 14>}> : (tensor<1x1024x1x1xbf16>, tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
-    %10 = ttir.empty() : tensor<1x1024x14x14xbf16>
-    %11 = "ttir.add"(%5, %9, %10) : (tensor<1x1024x14x14xbf16>, tensor<1x1024x14x14xbf16>, tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
+    %11 = "ttir.add"(%5, %9) : (tensor<1x1024x14x14xbf16>, tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
     return %11 : tensor<1x1024x14x14xbf16>
   }
 }

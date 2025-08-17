@@ -115,8 +115,7 @@ func.func public @main(%arg0: tensor<8192x784xf32> {mhlo.layout_mode = "default"
   %2 = ttir.empty() : tensor<392x16384xf32>
   %3 = "ttir.mesh_shard"(%arg1, %2) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1>,  shard_type = #ttcore.shard_type<devices>}> : (tensor<784x16384xf32>, tensor<392x16384xf32>) -> tensor<392x16384xf32>
   // CHECK: "ttnn.mesh_shard"
-  %4 = ttir.empty() : tensor<8192x16384xf32>
-  %5 = "ttir.matmul"(%1, %3, %4) : (tensor<8192x392xf32>, tensor<392x16384xf32>, tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
+  %5 = "ttir.matmul"(%1, %3) : (tensor<8192x392xf32>, tensor<392x16384xf32>) -> tensor<8192x16384xf32>
   %6 = ttir.empty() : tensor<8192x16384xf32>
   %7 = "ttir.all_reduce"(%5, %6) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<8192x16384xf32>, tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
   %8 = ttir.empty() : tensor<8192x16384xf32>

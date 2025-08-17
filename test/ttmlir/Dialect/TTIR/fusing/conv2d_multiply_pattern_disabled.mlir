@@ -14,8 +14,7 @@ module {
               dilation = 1: i32,
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %3 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %3 = "ttir.multiply"(%1, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %3: tensor<1x30x30x64xbf16>
   }
 }

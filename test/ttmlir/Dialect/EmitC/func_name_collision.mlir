@@ -5,8 +5,7 @@
 // conflict with the function names that are introduced as a part of the pipeline.
 module {
   func.func @main(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }

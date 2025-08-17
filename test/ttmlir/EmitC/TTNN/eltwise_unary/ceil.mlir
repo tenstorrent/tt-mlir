@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @ceil(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-  %0 = ttir.empty() : tensor<32x32xf32>
-  %1 = "ttir.ceil"(%arg0, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  %1 = "ttir.ceil"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
   return %1 : tensor<32x32xf32>
 }
