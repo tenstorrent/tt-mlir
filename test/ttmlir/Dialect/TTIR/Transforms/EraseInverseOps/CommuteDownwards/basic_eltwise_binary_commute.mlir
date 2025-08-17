@@ -12,7 +12,7 @@ module {
         %2 = tensor.empty() : tensor<1x224x224x3xbf16>
         %3 = "ttir.permute"(%arg1, %2) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x224x224xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
         %4 = tensor.empty() : tensor<1x224x224x3xbf16>
-        %5 = "ttir.add"(%1, %3, %4) : (tensor<1x224x224x3xbf16>, tensor<1x224x224x3xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
+        %5 = "ttir.add"(%1, %3) : (tensor<1x224x224x3xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
         return %5: tensor<1x224x224x3xbf16>
     }
 }
@@ -26,8 +26,7 @@ module {
         %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1 : i32, 3 : i32, 50176 : i32]}> : (tensor<1x3x224x224xbf16>, tensor<1x1x3x50176xbf16>) -> tensor<1x1x3x50176xbf16>
         %2 = ttir.empty() : tensor<1x1x3x50176xbf16>
         %3 = "ttir.reshape"(%arg1, %2) <{shape = [1 : i32, 1 : i32, 3 : i32, 50176 : i32]}> : (tensor<1x3x224x224xbf16>, tensor<1x1x3x50176xbf16>) -> tensor<1x1x3x50176xbf16>
-        %4 = ttir.empty() : tensor<1x1x3x50176xbf16>
-        %5 = "ttir.add"(%1, %3, %4) : (tensor<1x1x3x50176xbf16>, tensor<1x1x3x50176xbf16>, tensor<1x1x3x50176xbf16>) -> tensor<1x1x3x50176xbf16>
+        %5 = "ttir.add"(%1, %3) : (tensor<1x1x3x50176xbf16>, tensor<1x1x3x50176xbf16>) -> tensor<1x1x3x50176xbf16>
         return %5 : tensor<1x1x3x50176xbf16>
     }
 }

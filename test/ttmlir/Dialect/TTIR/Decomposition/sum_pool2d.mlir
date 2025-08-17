@@ -31,15 +31,12 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
   %5 = "ttir.reshape"(%1, %4) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
   %6 = ttir.empty() : tensor<8x256x8x8xf32>
   %7 = "ttir.broadcast"(%5, %6) <{broadcast_dimensions = array<i64: 8, 256, 8, 8>}> : (tensor<1x1x1x1xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
-  %8 = ttir.empty() : tensor<1xf32>
-  %9 = "ttir.typecast"(%0, %8) : (tensor<1xi32>, tensor<1xf32>) -> tensor<1xf32>
+  %9 = "ttir.typecast"(%0) : (tensor<1xi32>) -> tensor<1xf32>
   %10 = ttir.empty() : tensor<1x1x1x1xf32>
   %11 = "ttir.reshape"(%9, %10) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
   %12 = ttir.empty() : tensor<8x256x8x8xf32>
   %13 = "ttir.broadcast"(%11, %12) <{broadcast_dimensions = array<i64: 8, 256, 8, 8>}> : (tensor<1x1x1x1xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
-  %14 = ttir.empty() : tensor<8x256x8x8xf32>
-  %15 = "ttir.multiply"(%7, %13, %14) : (tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
-  %16 = ttir.empty() : tensor<8x256x8x8xf32>
-  %17 = "ttir.div"(%3, %15, %16) : (tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
+  %15 = "ttir.multiply"(%7, %13) : (tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
+  %17 = "ttir.div"(%3, %15) : (tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
   return %17 : tensor<8x256x8x8xf32>
 }

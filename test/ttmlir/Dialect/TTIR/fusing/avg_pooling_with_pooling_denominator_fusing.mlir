@@ -18,8 +18,7 @@ module {
     %861 = "ttir.reshape"(%859, %860) <{shape = [1 : i32, 1 : i32, 35 : i32, 35 : i32]}> : (tensor<35x35xbf16>, tensor<1x1x35x35xbf16>) -> tensor<1x1x35x35xbf16>
     %862 = ttir.empty() : tensor<1x384x35x35xbf16>
     %863 = "ttir.broadcast"(%861, %862) <{broadcast_dimensions = array<i64: 1, 384, 1, 1>}> : (tensor<1x1x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
-    %864 = ttir.empty() : tensor<1x384x35x35xbf16>
-    %865 = "ttir.div"(%857, %863, %864) : (tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
+    %865 = "ttir.div"(%857, %863) : (tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
     return %865  : tensor<1x384x35x35xbf16>
   }
 }
@@ -38,8 +37,7 @@ module {
     %861 = "ttir.reshape"(%859, %860) <{shape = [1 : i32, 1 : i32, 35 : i32, 35 : i32]}> : (tensor<35x35xbf16>, tensor<1x1x35x35xbf16>) -> tensor<1x1x35x35xbf16>
     %862 = ttir.empty() : tensor<1x384x35x35xbf16>
     %863 = "ttir.broadcast"(%861, %862) <{broadcast_dimensions = array<i64: 1, 384, 1, 1>}> : (tensor<1x1x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
-    %864 = ttir.empty() : tensor<1x384x35x35xbf16>
-    %865 = "ttir.div"(%857, %863, %864) : (tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
+    %865 = "ttir.div"(%857, %863) : (tensor<1x384x35x35xbf16>, tensor<1x384x35x35xbf16>) -> tensor<1x384x35x35xbf16>
     return %865  : tensor<1x384x35x35xbf16>
   }
 }
@@ -61,8 +59,7 @@ module {
     %861 = "ttir.reshape"(%859, %860) <{shape = [1 : i32, 1 : i32, 35 : i32, 35 : i32]}> : (tensor<35x35xi32>, tensor<1x1x35x35xi32>) -> tensor<1x1x35x35xi32>
     %862 = ttir.empty() : tensor<1x384x35x35xi32>
     %863 = "ttir.broadcast"(%861, %862) <{broadcast_dimensions = array<i64: 1, 384, 1, 1>}> : (tensor<1x1x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
-    %864 = ttir.empty() : tensor<1x384x35x35xi32>
-    %865 = "ttir.div"(%857, %863, %864) : (tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
+    %865 = "ttir.div"(%857, %863) : (tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
     return %865  : tensor<1x384x35x35xi32>
   }
 }
@@ -81,8 +78,7 @@ module {
     %861 = "ttir.reshape"(%859, %860) <{shape = [1 : i32, 1 : i32, 35 : i32, 35 : i32]}> : (tensor<35x35xi32>, tensor<1x1x35x35xi32>) -> tensor<1x1x35x35xi32>
     %862 = ttir.empty() : tensor<1x384x35x35xi32>
     %863 = "ttir.broadcast"(%861, %862) <{broadcast_dimensions = array<i64: 1, 384, 1, 1>}> : (tensor<1x1x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
-    %864 = ttir.empty() : tensor<1x384x35x35xi32>
-    %865 = "ttir.div"(%857, %863, %864) : (tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
+    %865 = "ttir.div"(%857, %863) : (tensor<1x384x35x35xi32>, tensor<1x384x35x35xi32>) -> tensor<1x384x35x35xi32>
     return %865  : tensor<1x384x35x35xi32>
   }
 }

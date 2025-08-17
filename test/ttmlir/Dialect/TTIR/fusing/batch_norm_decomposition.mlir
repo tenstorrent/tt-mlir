@@ -44,8 +44,7 @@ module {
               dilation = 1: i32,
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %3 = "ttir.add"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %3 = "ttir.add"(%1, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
     %4 = ttir.empty() : tensor<1x30x30x64xbf16>
     %5 = "ttir.batch_norm_inference"(%1, %arg3, %arg4, %arg5, %arg6, %4) <{dimension = 3 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x30x30x64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %3, %5 : tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>

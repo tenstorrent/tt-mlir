@@ -15,8 +15,7 @@ module {
 module {
   func.func @test_sort(%arg0: tensor<64x128xbf16>) -> (tensor<64x128xbf16>) {
     // CHECK: error: 'ttir.sort' op expected 2 results
-    %0 = ttir.empty() : tensor<64x128xbf16>
-    %1 = "ttir.sort"(%arg0, %0) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    %1 = "ttir.sort"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
     return %1 : tensor<64x128xbf16>
   }
 }
@@ -36,7 +35,6 @@ module {
 module {
   func.func @test_sort(%arg0: tensor<64x128xbf16>) -> (tensor<64x128xbf16>, tensor<64xi16>) {
     // CHECK: error: 'ttir.sort' op Indices shape does not match with input tensor shape.
-    %0 = ttir.empty() : tensor<64x128xbf16>
     %1 = ttir.empty() : tensor<64xi16>
     %2, %3 = "ttir.sort"(%arg0, %0, %1) <{dim = -1 : si32}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64xi16>) -> (tensor<64x128xbf16>, tensor<64xi16>)
     return %2, %3 : tensor<64x128xbf16>, tensor<64xi16>

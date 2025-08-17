@@ -35,8 +35,7 @@ module @test_conv_transpose {
     %11 = "ttir.reshape"(%7, %10) <{shape = [1 : i32, 128 : i32, 1 : i32, 1 : i32]}> : (tensor<128x1x1xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x1x1xf32>
     %12 = ttir.empty() : tensor<1x128x64x64xf32>
     %13 = "ttir.broadcast"(%11, %12) <{broadcast_dimensions = array<i64: 1, 1, 64, 64>}> : (tensor<1x128x1x1xf32>, tensor<1x128x64x64xf32>) -> tensor<1x128x64x64xf32>
-    %14 = ttir.empty() : tensor<1x128x64x64xf32>
-    %15 = "ttir.add"(%9, %13, %14) : (tensor<1x128x64x64xf32>, tensor<1x128x64x64xf32>, tensor<1x128x64x64xf32>) -> tensor<1x128x64x64xf32>
+    %15 = "ttir.add"(%9, %13) : (tensor<1x128x64x64xf32>, tensor<1x128x64x64xf32>) -> tensor<1x128x64x64xf32>
     return %15 : tensor<1x128x64x64xf32>
   }
 

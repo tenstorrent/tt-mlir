@@ -17,8 +17,7 @@ module {
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK-NOT: ttnn.relu
-    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %3 = "ttir.relu"(%1, %2) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %3 = "ttir.relu"(%1) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // This reshape is comming from flattening sliding window.
     // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
@@ -114,13 +113,11 @@ module {
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: %[[RELU:.*]] = "ttnn.relu"
-    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %3 = "ttir.relu"(%1, %2) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %3 = "ttir.relu"(%1) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: %[[ADD:.*]] = "ttnn.add"
-    %4 = ttir.empty() : tensor<1x30x30x64xbf16>
     // Second use of conv2d, we cannot fuse.
-    %5 = "ttir.add"(%1, %3, %4) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %5 = "ttir.add"(%1, %3) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     return %5 :tensor<1x30x30x64xbf16>
   }
@@ -139,11 +136,10 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK-NOT: %[[SIGMOID:.*]] = "ttnn.sigmoid"
-    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
+    // CHECK: %[[SIGMOID:.*]] = "ttnn.sigmoid"
 
     // Sigmoid cannot be fused with conv2d.
-    %3 = "ttir.sigmoid"(%1, %2) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %3 = "ttir.sigmoid"(%1) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     return %3 : tensor<1x30x30x64xbf16>
   }

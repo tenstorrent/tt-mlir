@@ -9,7 +9,7 @@ func.func @add_unaligned(%arg0: tensor<33x128xf32>, %arg1: tensor<33x128xf32>) -
     // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     %0 = ttir.empty() : tensor<33x128xf32>
     // CHECK: "ttmetal.enqueue_program"
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<33x128xf32>, tensor<33x128xf32>, tensor<33x128xf32>) -> tensor<33x128xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<33x128xf32>, tensor<33x128xf32>) -> tensor<33x128xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: "ttmetal.finish"
     return %1 : tensor<33x128xf32>
@@ -22,7 +22,7 @@ func.func @add_3d(%arg0: tensor<2x32x128xf32>, %arg1: tensor<2x32x128xf32>) -> t
     // CHECK-DAG:  = "ttmetal.create_buffer"{{.*}} : () -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     %0 = ttir.empty() : tensor<2x32x128xf32>
     // CHECK: "ttmetal.enqueue_program"
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<2x32x128xf32>, tensor<2x32x128xf32>, tensor<2x32x128xf32>) -> tensor<2x32x128xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<2x32x128xf32>, tensor<2x32x128xf32>) -> tensor<2x32x128xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: "ttmetal.finish"
     return %1 : tensor<2x32x128xf32>
@@ -60,7 +60,7 @@ func.func @add_3d_larger(%arg0: tensor<4x64x256xf32>, %arg1: tensor<4x64x256xf32
     // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     %0 = ttir.empty() : tensor<4x64x256xf32>
     // CHECK: "ttmetal.enqueue_program"
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<4x64x256xf32>, tensor<4x64x256xf32>, tensor<4x64x256xf32>) -> tensor<4x64x256xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<4x64x256xf32>, tensor<4x64x256xf32>) -> tensor<4x64x256xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: "ttmetal.finish"
     return %1 : tensor<4x64x256xf32>
@@ -80,7 +80,7 @@ func.func @add_3d_unaligned_last_dim(%arg0: tensor<2x32x130xf32>, %arg1: tensor<
     // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<2x5x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     %0 = ttir.empty() : tensor<2x32x130xf32>
     // CHECK: "ttmetal.enqueue_program"
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<2x32x130xf32>, tensor<2x32x130xf32>, tensor<2x32x130xf32>) -> tensor<2x32x130xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<2x32x130xf32>, tensor<2x32x130xf32>) -> tensor<2x32x130xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: "ttmetal.finish"
     return %1 : tensor<2x32x130xf32>

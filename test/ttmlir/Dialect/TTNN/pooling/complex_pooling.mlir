@@ -27,8 +27,7 @@ module attributes {} {
         window_dilations = array<i64: 1, 1, 1, 1>,
         padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>)
 
-    %4 = ttir.empty() : tensor<1x32x64x64xbf16>
-    %5 = "ttir.add"(%2, %3, %4) : (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> tensor<1x32x64x64xbf16>
+    %5 = "ttir.add"(%2, %3) : (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> tensor<1x32x64x64xbf16>
     return %5 : tensor<1x32x64x64xbf16>
   }
   func.func @forward_mixed_types(%arg0: tensor<1x32x128x128xbf16>, %arg1: tensor<1x32x128x128xf32>) -> (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xf32>) {
