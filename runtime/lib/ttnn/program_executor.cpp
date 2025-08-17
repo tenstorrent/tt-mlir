@@ -69,6 +69,7 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 #include <cstdint>
+#include <ttnn/tensor/types.hpp>
 
 namespace tt::runtime::ttnn {
 
@@ -184,7 +185,21 @@ void ProgramExecutor::execute() {
 
     // Save each tensor in the folder
     fs::path filename = folder / (std::to_string(fileIndex) + ".txt");
-    save_vector_with_dtype(ttnnTensor.to_vector<float>(), filename.string());
+    if (ttnnTensor.dtype() == tt_metal::DataType::INT32) {
+      save_vector_with_dtype(ttnnTensor.to_vector<int32_t>(),
+                             filename.string());
+    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT8) {
+      save_vector_with_dtype(ttnnTensor.to_vector<uint8_t>(),
+                             filename.string());
+    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT16) {
+      save_vector_with_dtype(ttnnTensor.to_vector<uint16_t>(),
+                             filename.string());
+    } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT32) {
+      save_vector_with_dtype(ttnnTensor.to_vector<uint32_t>(),
+                             filename.string());
+    } else {
+      save_vector_with_dtype(ttnnTensor.to_vector<float>(), filename.string());
+    }
 
     fileIndex++;
   }
