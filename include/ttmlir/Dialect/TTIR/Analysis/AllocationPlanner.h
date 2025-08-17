@@ -50,7 +50,7 @@ public:
   using AllocSizeT = std::int64_t;
   // Type for liveness "logical time".
   using SequenceT = std::int32_t;
-  // TODO useful?
+  // Type of indexing into variable/request collections.
   using IndexT = std::int32_t; // more compact index type than std::size_t
 
   struct LiveRange {
@@ -154,8 +154,8 @@ public:
 
   struct Problem; // forward
 
+  // TODO this is kind of ugly
   struct VariableBuilder {
-
     VariableBuilder(Problem &parent) : parent(&parent) {}
 
     IndexT request(Space space, AllocSizeT size, SequenceT first,
@@ -166,7 +166,6 @@ public:
       return reqIndex;
     }
 
-    // TODO this is kind of ugly
     VariableBuilder &place(Space space) {
       placement = space;
       return (*this);
@@ -189,7 +188,6 @@ public:
       variable.placement = placement;
 
       TT_debug(requests.size() == spaces.size());
-
       for (std::size_t i = 0; i < requests.size(); ++i) {
         const auto reqIndex = static_cast<IndexT>(parent->requests.size());
         parent->requests.emplace_back(
@@ -343,23 +341,6 @@ private:
   // TODO doc
   // this implicitly allocates within SCRATCH
   static AnalysisStats analyze(const Problem &solution, AllocSizeT watermark);
-};
-
-// TODO move this into a util sub-ns?
-template <typename T>
-struct parse<T, std::enable_if_t<std::is_same_v<T, AllocationPlanner::Space>>> {
-  static std::optional<AllocationPlanner::Space> evaluate(llvm::StringRef s) {
-    if ("scratch" == s) {
-      return AllocationPlanner::Space::Scratch;
-    }
-    if ("spill" == s) {
-      return AllocationPlanner::Space::Spill;
-    }
-    if ("NA" == s) {
-      return AllocationPlanner::Space::NA;
-    }
-    return {};
-  }
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,

@@ -55,6 +55,19 @@ void parseArrayAsIntegerSet(const llvm::json::Array &array, IntegerSet &out) {
   }
 }
 
+std::optional<Planner::Space> parseSpace(llvm::StringRef s) {
+  if ("scratch" == s) {
+    return Planner::Space::Scratch;
+  }
+  if ("spill" == s) {
+    return Planner::Space::Spill;
+  }
+  if ("NA" == s) {
+    return Planner::Space::NA;
+  }
+  return {};
+}
+
 using NodeID = int32_t;
 
 struct Node {
@@ -304,8 +317,7 @@ llvm::Expected<Planner::Problem> AllocationTools::read(std::istream &in) {
 
     Planner::Variable variable;
 
-    if (auto placement = parse<Planner::Space>::evaluate(
-            *var->get("placement")->getAsString())) {
+    if (auto placement = parseSpace(*var->get("placement")->getAsString())) {
       variable.placement = *placement;
     } else {
       return llvm::createStringError("failed to parse 'placement'");
