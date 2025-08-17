@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
 
+#include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>

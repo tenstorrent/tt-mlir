@@ -78,8 +78,10 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
   TT_assert(problem.valid());
 
   const Algorithm algorithm = Algorithm::Greedy;
-  TT_ALLOC_DEBUG("solution watermark set at {}, using '{}' base algorithm",
-                 memUsageLimit, algorithm);
+  TT_ALLOC_DEBUG("solution limit set at {}, using '{}' base algorithm over {} "
+                 "var(s) ({} bound)",
+                 memUsageLimit, algorithm, problem.variables.size(),
+                 problem.bound.size());
 
   // Start with every (unbound) variable placed into scratch space.
   problem.reset(Space::Scratch);
@@ -89,6 +91,18 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
     TT_ALLOC_DEBUG("no spilling was required");
     return {0, 0, stats};
   }
+
+  const int32_t varCount = problem.variables.size();
+  const int32_t freeVarCount = varCount - problem.bound.size();
+
+  if (freeVarCount == 0) {
+    TT_ALLOC_ERROR(
+        "can't find feasible allocation because all {} var(s) are bound",
+        varCount);
+    return {0, 0, stats};
+  }
+
+  TT_debug(freeVarCount > 0);
 
   Problem work = problem;
   const AnalysisStats metrics = analyze(work, memUsageLimit);
@@ -103,6 +117,7 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
   };
 
   std::vector<SpillPriority> priorities;
+  priorities.reserve(freeVarCount);
 
   // TODO templatize this comparator
   auto byPriority = [&](const SpillPriority &lhs, const SpillPriority &rhs) {
@@ -112,11 +127,6 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
              ((lhs.worstSize == rhs.worstSize) &&
               (lhs.worstMaxConflictSize > rhs.worstMaxConflictSize))));
   };
-
-  const int32_t varCount = work.variables.size();
-  const int32_t freeVarCount = varCount - work.bound.size();
-
-  priorities.reserve(freeVarCount);
 
   for (IndexT varIndex = 0; varIndex < varCount; ++varIndex) {
     if (work.bound.contains(varIndex)) {
@@ -154,9 +164,7 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
 
   for (stepCount = 1; lo <= hi; ++stepCount) {
     const int32_t mid = lo + ((hi - lo) >> 1);
-
-    TT_ALLOC_DEBUG("[step {}] lo/hi = [{}/{}], mid = {}", stepCount, lo, hi,
-                   mid);
+    TT_ALLOC_DEBUG("[step {}] lo/hi/mid: {}/{}/{}", stepCount, lo, hi, mid);
 
     work.reset(Space::Scratch);
     for (int32_t k = 0; k <= mid; ++k) {
@@ -165,7 +173,8 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
     }
 
     const AllocateStats midStats = allocate(work, algorithm);
-    TT_ALLOC_DEBUG("[step {}] mem usage {}", stepCount, midStats.memUsage);
+    TT_ALLOC_DEBUG("[step {}] mem usage/limit: {}/{}", stepCount,
+                   midStats.memUsage, memUsageLimit);
 
     if (midStats.memUsage <= memUsageLimit) {
       hi = mid - 1;
@@ -179,7 +188,7 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
   }
 
   if (spilledCount < 0) {
-    TT_ALLOC_ERROR("failed to allocate below mem usage limit {} after spilling "
+    TT_ALLOC_ERROR("failed to allocate within usage limit {} after spilling "
                    "all {} var(s)",
                    memUsageLimit, freeVarCount);
     return {stepCount, -1, stats};
