@@ -39,10 +39,8 @@ table EltwiseBinaryOp {
 enum EltwiseBinaryCompositeOpType: uint32 {
   Maximum,
   Minimum,
-  Remainder,
   Scatter,
   Pow,
-  Atan2,
   BitwiseAnd,
   BitwiseOr,
   BitwiseXor
@@ -56,6 +54,19 @@ table EltwiseBinaryCompositeOp {
   post_activations: [UnaryWithParam];
   lhs_activations: [UnaryWithParam];
   rhs_activations: [UnaryWithParam];
+  out: tt.target.ttnn.TensorRef;
+}
+
+enum EltwiseBinaryCompositeWithoutFusedActivationOpType: uint32 {
+  Remainder,
+  Atan2,
+}
+
+table EltwiseBinaryCompositeWithoutFusedActivationOp {
+  type: EltwiseBinaryCompositeWithoutFusedActivationOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
 

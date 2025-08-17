@@ -446,6 +446,35 @@ public:
 };
 } // namespace
 
+namespace {
+template <typename SourceOp>
+class EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Eltwise Binary NG Composite op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -2499,10 +2528,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::ScatterOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
+      EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern<
+          mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
-      typeConverter, ctx);
+      EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern<
+          mlir::tt::ttnn::Atan2Op>>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //

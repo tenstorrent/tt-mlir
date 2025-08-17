@@ -234,6 +234,34 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
     ];
 }
 
+class TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    let summary = "Eltwise binary composite op.";
+    let description = [{
+      Eltwise binary composite op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+      }]>
+    ];
+}
+
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise ternary op.";
@@ -719,22 +747,6 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
     }];
 }
 
-
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
-    let summary = "Eltwise remainder.";
-    let description = [{
-      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
-      result tensor.
-
-      Example:
-
-      // %lhs: [17, -17, 17, -17]
-      // %rhs: [3, 3, -3, -3]
-      %result = "ttnn.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
-      // %result: [2, -2, 2, -2]
-    }];
-}
-
 def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
@@ -752,7 +764,22 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
     }];
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<"remainder"> {
+    let summary = "Eltwise remainder.";
+    let description = [{
+      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
+      result tensor.
+
+      Example:
+
+      // %lhs: [17, -17, 17, -17]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttnn.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+      // %result: [2, -2, 2, -2]
+    }];
+}
+
+def TTNN_Atan2Op : TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result

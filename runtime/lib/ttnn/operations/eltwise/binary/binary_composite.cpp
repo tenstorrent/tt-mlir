@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
@@ -83,6 +84,29 @@ static void runEltwiseBinaryCompositeOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+static void runEltwiseBinaryCompositeOp(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp
+        *op,
+    ProgramTensorPool &tensorPool,
+    const std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
+                       const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
+
+  ::ttnn::Tensor lhs = tensorPool.getTTNNTensorAndValidate(op->lhs());
+  ::ttnn::Tensor rhs = tensorPool.getTTNNTensorAndValidate(op->rhs());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out = ttnnOp(lhs, rhs, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -95,20 +119,12 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::minimum);
     break;
   }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter: {
     ::tt::runtime::ttnn::operations::data_movement::run(op, context);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::atan2);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd: {
@@ -121,6 +137,25 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseXor: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_xor);
+    break;
+  }
+  }
+}
+
+void run(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp
+        *op,
+    ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  switch (op->type()) {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOpType::
+      Remainder: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOpType::
+      Atan2: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::atan2);
     break;
   }
   }
