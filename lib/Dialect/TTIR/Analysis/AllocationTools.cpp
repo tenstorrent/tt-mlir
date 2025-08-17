@@ -216,9 +216,10 @@ struct Graph {
 
 } // namespace
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const AllocationTools::GenerateCfg &obj) {
-  for (std::size_t i = 0; i < obj.segments.size(); ++ i) {
-    const auto & s = obj.segments[i];
+llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                              const AllocationTools::GenerateCfg &obj) {
+  for (std::size_t i = 0; i < obj.segments.size(); ++i) {
+    const auto &s = obj.segments[i];
     os << '(' << s.neckLength << ", " << s.conflictCount << ')';
   }
   os << ", bind fraction " << obj.bindFraction << ", seed " << obj.seed;
