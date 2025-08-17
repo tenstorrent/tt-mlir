@@ -122,17 +122,71 @@ void ProgramExecutor::runCallback(
   }
 }
 
+template <typename T>
+void save_vector_with_dtype(const std::vector<T> &data,
+                            const std::string &filename) {
+  std::ofstream file(filename, std::ios::binary);
+
+  // Write dtype identifier
+  std::string dtype;
+  if constexpr (std::is_same_v<T, float>) {
+    dtype = "float32";
+  } else if constexpr (std::is_same_v<T, double>) {
+    dtype = "float64";
+  } else if constexpr (std::is_same_v<T, int32_t>) {
+    dtype = "int32";
+  } else if constexpr (std::is_same_v<T, int64_t>) {
+    dtype = "int64";
+  } else if constexpr (std::is_same_v<T, uint8_t>) {
+    dtype = "uint8";
+  }
+  // Add more types as needed
+
+  // Write dtype string length and string
+  uint32_t dtype_len = dtype.length();
+  file.write(reinterpret_cast<const char *>(&dtype_len), sizeof(dtype_len));
+  file.write(dtype.c_str(), dtype_len);
+
+  // Write data size and data
+  size_t size = data.size();
+  file.write(reinterpret_cast<const char *>(&size), sizeof(size));
+  file.write(reinterpret_cast<const char *>(data.data()), size * sizeof(T));
+
+  file.close();
+}
+
+#include <filesystem> // C++17
+#include <fstream>
+#include <string>
+#include <type_traits>
+#include <vector>
+namespace fs = std::filesystem;
+
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-
   ProgramTensorPool &tensorPool = this->context->getTensorPool();
+
+  // Create folder for tensors
+  fs::path folder = program->name()->c_str();
+  if (!fs::exists(folder)) {
+    fs::create_directory(folder);
+  }
+
+  int fileIndex = 0;
   for (std::uint32_t inputId : tensorPool.getProgramInputIds()) {
     auto runtimeTensor = tensorPool.getRuntimeTensor(inputId);
     ::ttnn::Tensor ttnnTensor =
         ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(
             runtimeTensor);
+
     std::cout << ttnnTensor.write_to_string() << std::endl;
+
+    // Save each tensor in the folder
+    fs::path filename = folder / (std::to_string(fileIndex) + ".txt");
+    save_vector_with_dtype(ttnnTensor.to_vector<float>(), filename.string());
+
+    fileIndex++;
   }
 
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
