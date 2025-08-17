@@ -12,7 +12,6 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/AsmState.h"
 #include "mlir/IR/OpDefinition.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -39,15 +38,6 @@ inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
                         .getValue()
                   : dflt;
 }
-
-// TODO move elsewhere
-inline std::string as_operand_str(Value v, mlir::AsmState &state) {
-  std::string s{};
-  llvm::raw_string_ostream out{s};
-  v.printAsOperand(out, state);
-  return s;
-}
-
 //===----------------------------------------------------------------------===//
 // Helper classes.
 //===----------------------------------------------------------------------===//
@@ -119,7 +109,7 @@ struct LivenessClosure {
 struct AllocOpContext {
   // All generic op users of this alloc (immediate or through view/steam layout
   // ops).
-  llvm::DenseSet<ttir::GenericOp> users;
+  llvm::DenseSet<ttir::GenericOp> genericUsers;
   // "Raw" allocation request size in bytes (unaligned for any particular
   // memspace).
   AllocSizeT size = -1; // TODO this is available from the op itself
@@ -127,7 +117,7 @@ struct AllocOpContext {
   // extending to its latest user.
   LiveRange live = {-1, -1};
   ttcore::MemorySpace memspace;    // TODO is available from the op itself
-  bool hasNonGenericUsers = false; // TODO doc
+  bool hasNonGenericUsers = false;
   bool isSomeonesOutput = false;
 
   int32_t varIndex = -1; // needed to retrieve Variable::placement
@@ -174,7 +164,7 @@ struct SequenceMapping {
   }
 };
 
-struct FuncAnalysisData final {
+struct FuncAnalysisData {
   SequenceMapping mapping;
   llvm::DenseMap<memref::AllocOp, AllocOpContext> allocOps;     // owns values
   llvm::DenseMap<ttir::GenericOp, GenericOpContext> genericOps; // owns values
@@ -189,61 +179,6 @@ struct FuncAnalysisData final {
         (const_cast<const FuncAnalysisData *>(this))->problem(space));
   }
 };
-
-// TODO move below
-llvm::SmallVector<OperandStreamParams>
-analyzeOperandStreams(ttir::GenericOp genericOp) {
-  const int32_t outputsStart = genericOp.getOutputs().getBeginOperandIndex();
-  ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
-
-  llvm::SmallVector<OperandStreamParams> result;
-
-  for (int32_t operandIndex = 0;
-       operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
-       ++operandIndex) {
-    OperandStreamParams &params = result.emplace_back(operandIndex);
-
-    // TODO check logic here for outputs
-    if (operandIndex >= outputsStart) {
-      params.isOutput = true;
-      // No stream (NOC ops) will be needed if 'operand' is already
-      // allocated in L1 ("alias" mode), which is currently guaranteed
-      // to be the case for outputs.
-      params.requiresStream = false;
-    } else {
-      // A core participating in a reduction dim necessarily requires
-      // non-local data movement unless it is the only core involved
-      // in that dim.
-      //
-      // Similar logic applies to a broadcast dim.
-      //
-      // TODO(vroubtsov) we are currently fixing the core grid shape to be
-      // equal to the output shape, hence could we not infer the *exact*
-      // pattern of data movement that's not local to any core by walking
-      // the operand/output affine maps?
-      const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      const auto bcastDims = indexingMap.getBroadcastDims();
-      const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
-                                                      bcastDims.end());
-      params.requiresStream = llvm::any_of(
-          llvm::seq(indexingMap.getNumResults()), [&](unsigned resultIndex) {
-            if (bcastDimIndex.contains(resultIndex)) {
-              return true;
-            }
-            const auto dimPosition = indexingMap.getDimPosition(resultIndex);
-            ttcore::IteratorType iteratorType =
-                mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
-                    .getValue();
-            return (iteratorType == ttcore::IteratorType::Reduction);
-          });
-
-      // Note: even if `params.requiresStream` is left false here, a stream may
-      // still be inserted to support reading the operand from DRAM
-    };
-  }
-
-  return result;
-}
 
 } // namespace
 //===----------------------------------------------------------------------===//
@@ -286,9 +221,11 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     FuncAnalysisData analysis;
 
-    // TODO step comments
+    if (failed(runAnalyzeAllocOps(funcOp, analysis))) {
+      return failure();
+    }
 
-    if (failed(runAnalyzeAllocs(funcOp, analysis))) {
+    if (failed(runAnalyzeGenericOps(funcOp, analysis))) {
       return failure();
     }
 
@@ -296,7 +233,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       return failure();
     }
 
-    if (failed(solveMemorySpaceMapping(funcOp, analysis))) {
+    if (failed(runMemoryPlanner(funcOp, analysis))) {
       return failure();
     }
 
@@ -311,10 +248,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success();
   }
 
-  // TODO this actually analyzes allocs AND streams...
-  LogicalResult runAnalyzeAllocs(func::FuncOp funcOp,
-                                 FuncAnalysisData &analysis) {
-    mlir::AsmState state{funcOp}; // TODO rm
+  LogicalResult runAnalyzeAllocOps(func::FuncOp funcOp,
+                                   FuncAnalysisData &analysis) {
+    [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
 
     ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     Block &funcBody = funcOp.getBody().front();
@@ -322,75 +258,86 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // All `memref.alloc`s will need to be placed into memspaces, therefore
     // collect all of them (regardless of whether they define operands of
     // generic ops or something else).
-    {
-      // Start with SSA liveness for `func`.
 
-      mlir::Liveness liveness(funcOp.getOperation());
-      const mlir::LivenessBlockInfo *li = liveness.getLiveness(&funcBody);
+    // Start with SSA liveness for `func`.
 
-      // (a) Build `Operation` <-> preorder position mappings for the
-      // (unmodified) `funcOp` IR.
-      //  (b) Collect a separate set of "ops of interest", which are
-      //  `memref.alloc`s as well as certain ops that we imbue with semantics
-      //   of extending liveness of their memref operands.
+    mlir::Liveness liveness(funcOp.getOperation());
+    const mlir::LivenessBlockInfo *li = liveness.getLiveness(&funcBody);
 
-      llvm::DenseMap<Operation *, LivenessClosure> livenessJoinGraph;
+    // (a) Build `Operation` <-> preorder position mappings for the
+    // (unmodified) `funcOp` IR.
+    //  (b) Collect a separate set of "ops of interest", which are
+    //  `memref.alloc`s as well as certain ops that we imbue with semantics
+    //   of extending liveness of their memref operands.
 
-      funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
-        const SequenceT position = analysis.mapping.size();
+    llvm::DenseMap<Operation *, LivenessClosure> livenessJoinGraph;
 
-        analysis.mapping.operationMap[op] = position;
-        analysis.mapping.positionMap.emplace_back(op);
+    funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
+      const SequenceT position = analysis.mapping.size();
 
-        if (llvm::isa<memref::AllocOp, ttir::ViewLayoutOp,
-                      ttir::StreamLayoutOp>(op)) {
-          TT_assert(op->getNumResults() == 1u);
-          Value result = op->getResult(0);
+      analysis.mapping.operationMap[op] = position;
+      analysis.mapping.positionMap.emplace_back(op);
 
-          Operation *firstOp = li->getStartOperation(result);
-          Operation *lastOp = li->getEndOperation(result, firstOp);
+      if (llvm::isa<memref::AllocOp, ttir::ViewLayoutOp, ttir::StreamLayoutOp>(
+              op)) {
+        TT_assert(op->getNumResults() == 1u);
+        Value result = op->getResult(0);
 
-          LivenessClosure &closure = livenessJoinGraph[op];
-          closure.lastOp = lastOp;
-          closure.live = {position, -1};
-        }
-      });
-      TT_debug(analysis.mapping.operationMap.size() ==
-               analysis.mapping.positionMap.size());
+        Operation *firstOp = li->getStartOperation(result);
+        Operation *lastOp = li->getEndOperation(result, firstOp);
 
-      // Ops in `livenessJoinGraph` form a graph of Values and their users where
-      // some Values have their original SSA liveness "extended" by stream op
-      // users (ttir.view_layout, ttir.stream_layout).
-      //
-      // We calculate the "last use position" by computing for each value
-      // the max over its users over a traversal through this graph.
-
-      for (auto &[op, closure] : livenessJoinGraph) {
-        // Initial maxLast values are from the SSA liveness calculation.
-        auto i = analysis.mapping.operationMap.find(closure.lastOp);
-        TT_debug(i != analysis.mapping.operationMap.end());
-        closure.live.last = i->second;
+        LivenessClosure &closure = livenessJoinGraph[op];
+        closure.lastOp = lastOp;
+        closure.live = {position, -1};
       }
+    });
+    TT_debug(analysis.mapping.operationMap.size() ==
+             analysis.mapping.positionMap.size());
 
-      // TODO non-recursive impl
-      for (auto &[op, closure] : livenessJoinGraph) {
-        closure.live.last = resolve(op, livenessJoinGraph);
+    // Ops in `livenessJoinGraph` form a graph of Values and their users where
+    // some Values have their original SSA liveness "extended" by stream op
+    // users (ttir.view_layout, ttir.stream_layout).
+    //
+    // We calculate the "last use position" by computing for each value
+    // the max over its users over a traversal through this graph.
 
-        // Copy liveness results into our alloc set.
-        if (memref::AllocOp allocOp = llvm::dyn_cast<memref::AllocOp>(op)) {
-          AllocOpContext &allocCtx = analysis.allocOps[allocOp];
-          allocCtx.live = closure.live;
-          const auto memrefType = allocOp.getType();
+    for (auto &[op, closure] : livenessJoinGraph) {
+      // Initial maxLast values are from the SSA liveness calculation.
+      auto i = analysis.mapping.operationMap.find(closure.lastOp);
+      TT_debug(i != analysis.mapping.operationMap.end());
+      closure.live.last = i->second;
+    }
 
-          allocCtx.memspace =
-              getMemorySpace(memrefType, ttcore::MemorySpace::System);
+    // TODO non-recursive impl
+    for (auto &[op, closure] : livenessJoinGraph) {
+      closure.live.last = resolve(op, livenessJoinGraph);
 
-          if (isDeviceMemorySpace(allocCtx.memspace)) {
-            allocCtx.size = device.getMemrefSizeBytes(memrefType);
-          }
+      // Copy liveness results into our alloc set.
+      if (memref::AllocOp allocOp = llvm::dyn_cast<memref::AllocOp>(op)) {
+        TT_assertv(!allocOp->use_empty(),
+                   "didn't expect an alloc op without uses: {}",
+                   asOperand(allocOp));
+
+        AllocOpContext &allocCtx = analysis.allocOps[allocOp];
+        allocCtx.live = closure.live;
+        const auto memrefType = allocOp.getType();
+
+        allocCtx.memspace =
+            getMemorySpace(memrefType, ttcore::MemorySpace::System);
+
+        if (isDeviceMemorySpace(allocCtx.memspace)) {
+          allocCtx.size = device.getMemrefSizeBytes(memrefType);
         }
       }
     }
+
+    TT_ALLOC_DEBUG("collected {} root alloc(s)", analysis.allocOps.size());
+    return success();
+  }
+
+  LogicalResult runAnalyzeGenericOps(func::FuncOp funcOp,
+                                     FuncAnalysisData &analysis) {
+    Block &funcBody = funcOp.getBody().front();
 
     // All `ttir.generic`s will need to make decisions about their operand
     // streams, so collect all of them.
@@ -400,63 +347,63 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // Such `memref.alloc`s with non-generic users are ineligible for memspace
     // remapping because this pass doesn't (currently) deal with non-generic
     // ops.
-    {
-      llvm::DenseMap<memref::AllocOp, llvm::SmallPtrSet<Operation *, 4>>
-          allocPathVisitSets; // TODO rename
 
-      funcBody.walk([&](ttir::GenericOp genericOp) {
-        GenericOpContext &genericCtx = analysis.genericOps[genericOp];
+    llvm::DenseMap<memref::AllocOp, llvm::SmallPtrSet<Operation *, 4>>
+        allocPathVisitSets; // TODO rename
 
-        llvm::SmallVector<OperandStreamParams> streams =
-            analyzeOperandStreams(genericOp);
+    funcBody.walk([&](ttir::GenericOp genericOp) {
+      GenericOpContext &genericCtx = analysis.genericOps[genericOp];
 
-        const int32_t outputsStart =
-            genericOp.getOutputs().getBeginOperandIndex();
+      llvm::SmallVector<OperandStreamParams> streams =
+          analyzeOperandStreams(genericOp);
 
-        int32_t operandIndex = 0;
-        for (Value operand : genericOp->getOperands()) {
-          llvm::SmallVector<Operation *> path;
+      const int32_t outputsStart =
+          genericOp.getOutputs().getBeginOperandIndex();
 
-          memref::AllocOp allocOp = findRootAlloc(operand, path);
-          if (allocOp) {
-            auto i = analysis.allocOps.find(allocOp);
-            TT_debug(i != analysis.allocOps.end());
-            AllocOpContext &allocCtx = i->second;
+      int32_t operandIndex = 0;
+      for (Value operand : genericOp->getOperands()) {
+        llvm::SmallVector<Operation *> path;
 
-            allocCtx.users.insert(genericOp);
+        memref::AllocOp allocOp = findRootAlloc(operand, path);
+        if (allocOp) {
+          auto i = analysis.allocOps.find(allocOp);
+          TT_debug(i != analysis.allocOps.end());
+          AllocOpContext &allocCtx = i->second;
 
-            if (operandIndex >= outputsStart) {
-              allocCtx.isSomeonesOutput = true;
-            }
+          allocCtx.genericUsers.insert(genericOp);
 
-            // Track the full set of ops along the generic/alloc use-def chains.
-            auto &allocOpPathVisits = allocPathVisitSets[allocOp];
-
-            allocOpPathVisits.insert(genericOp.getOperation());
-            allocOpPathVisits.insert(path.begin(), path.end());
+          if (operandIndex >= outputsStart) {
+            allocCtx.isSomeonesOutput = true;
           }
-          genericCtx.operands.try_emplace(allocOp,
-                                          std::move(streams[operandIndex]));
-          ++operandIndex;
+
+          // Track the full set of ops along the generic/alloc use-def chains.
+          auto &allocOpPathVisits = allocPathVisitSets[allocOp];
+
+          allocOpPathVisits.insert(genericOp.getOperation());
+          allocOpPathVisits.insert(path.begin(), path.end());
         }
-      });
+        genericCtx.operands.try_emplace(allocOp,
+                                        std::move(streams[operandIndex]));
+        ++operandIndex;
+      }
+    });
 
-      for (auto &[allocOp, pathVisits] : allocPathVisitSets) {
-        for (Operation *user : allocOp->getUsers()) {
-          if (!pathVisits.contains(user)) {
-            analysis.allocOps[allocOp].hasNonGenericUsers = true;
-          }
+    for (auto &[allocOp, pathVisits] : allocPathVisitSets) {
+      for (Operation *user : allocOp->getUsers()) {
+        if (!pathVisits.contains(user)) {
+          analysis.allocOps[allocOp].hasNonGenericUsers = true;
         }
       }
     }
 
-    TT_ALLOC_DEBUG("collected {} root alloc(s), {} generic(s)",
-                   analysis.allocOps.size(), analysis.genericOps.size());
+    TT_ALLOC_DEBUG("collected {} generic(s)", analysis.genericOps.size());
     return success();
   }
 
   LogicalResult runAnalyzeStreams(func::FuncOp funcOp,
                                   FuncAnalysisData &analysis) {
+    [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
+
     // Convert 'analysis' into an allocation plan problem. There are two
     // levels of decision variables:
     //
@@ -483,15 +430,13 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // (3) if an alloc defines an operand to a non-generic op, we leave its
     //  placement as-is, the alloc will not be a decision variable
 
-    mlir::AsmState state{funcOp}; // TODO rm
-
     ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     IRRewriter rewriter(funcOp->getContext());
 
     for (auto &[allocOp, ctx] : analysis.allocOps) {
-      TT_ALLOC_TRACE("{}:\t[{}, {}] {} byte(s), {} user(s)",
-                     as_operand_str(allocOp->getResult(0), state),
-                     ctx.live.first, ctx.live.last, ctx.size, ctx.users.size());
+      TT_ALLOC_TRACE("{}:\t[{}, {}] {} byte(s), {} user(s)", asOperand(allocOp),
+                     ctx.live.first, ctx.live.last, ctx.size,
+                     ctx.genericUsers.size());
     }
 
     // Form a placement problem.
@@ -529,7 +474,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           // stream, there will be a scratch buffer request for the
           // corresponding operand:
 
-          for (ttir::GenericOp user : allocCtx.users) {
+          for (ttir::GenericOp user : allocCtx.genericUsers) {
             GenericOpContext &genericCtx = analysis.genericOps[user];
             OperandStreamParams &params =
                 genericCtx.operands.find(allocOp)->second;
@@ -556,14 +501,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         }
 
         // An alloc is not a free decision variables if:
-        //  - it is the output of some `ttir.generic` op and
-        // `allow-output-spilling` pass option is not enabled, or
+        //  - it is the output of some `ttir.generic` op but
+        // `allow-output-spilling` pass option is disabled, or
         //  - it was placed into DRAM explicitly, or
-        //  - it has a user that is not a `ttir.generic` op.
+        //  - it has a user that is not a `ttir.generic` op
 
         if ((allocCtx.isSomeonesOutput && !allowOutputSpilling) ||
             (allocCtx.memspace == ttcore::MemorySpace::DeviceDRAM) ||
-            allocCtx.hasNonGenericUsers) {
+            (allocCtx.genericUsers.empty() || allocCtx.hasNonGenericUsers)) {
           b.bind(asPlannerSpace(allocCtx.memspace));
         }
       });
@@ -573,8 +518,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success();
   }
 
-  LogicalResult solveMemorySpaceMapping(func::FuncOp funcOp,
-                                        FuncAnalysisData &analysis) {
+  LogicalResult runMemoryPlanner(func::FuncOp funcOp,
+                                 FuncAnalysisData &analysis) {
     {
       auto &problem = analysis.problem(Planner::Space::Scratch);
 
@@ -635,9 +580,20 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         TT_ALLOC_TRACE("DRAM planner problem:\n{}", problem);
 
         [[maybe_unused]] const auto stats = Planner::allocate(problem);
-        TT_ALLOC_DEBUG("DRAM solution verified: {}",
-                       Planner::verify(problem)); // TODO fix output formatting
-        TT_ALLOC_TRACE("DRAM solution:{}", problem);
+
+        const auto memUsageLimit = memInfo.maxAddress - memInfo.baseAddress;
+        if (stats.memUsage > memUsageLimit) {
+          return funcOp.emitOpError()
+                 << "required DRAM memory usage " << stats.memUsage
+                 << " exceeds memory capacity "
+                 << (memInfo.maxAddress - memInfo.baseAddress)
+                 << " (usable space is [" << memInfo.baseAddress << ", "
+                 << memInfo.maxAddress << "))";
+
+          TT_ALLOC_DEBUG("DRAM solution verified: {}",
+                         Planner::verify(problem));
+          TT_ALLOC_TRACE("DRAM solution:{}", problem);
+        }
       }
     }
 
@@ -650,17 +606,16 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // and will be fixed in a subsequent step.
   LogicalResult runAssignAddresses(func::FuncOp funcOp,
                                    const FuncAnalysisData &analysis) {
-    IRRewriter rewriter(funcOp->getContext());
+    [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
 
-    mlir::AsmState state{funcOp}; // TODO rm
+    IRRewriter rewriter(funcOp->getContext());
 
     for (auto &[allocOp, allocCtx] : analysis.allocOps) {
       if (!ttcore::isDeviceMemorySpace(allocCtx.memspace)) {
         continue; // TODO somebody needs to deal with system allocs...
       }
       TT_debugv(allocCtx.finalMemSpace.has_value(),
-                "should have been placed: {}",
-                as_operand_str(allocOp->getResult(0), state));
+                "should have been placed: {}", asOperand(allocOp));
 
       const auto &solution =
           analysis.problem(asPlannerSpace(*allocCtx.finalMemSpace));
@@ -675,9 +630,6 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
   LogicalResult runInsertStreams(func::FuncOp funcOp,
                                  const FuncAnalysisData &analysis) {
-
-    mlir::AsmState state{funcOp}; // TODO rm
-
     IRRewriter rewriter(funcOp->getContext());
 
     const auto &L1solution = analysis.problem(Planner::Space::Scratch);
@@ -748,6 +700,54 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     }
 
     return success();
+  }
+
+  static llvm::SmallVector<OperandStreamParams> analyzeOperandStreams(ttir::GenericOp genericOp) {
+    const int32_t outputsStart = genericOp.getOutputs().getBeginOperandIndex();
+    ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
+
+    llvm::SmallVector<OperandStreamParams> result;
+
+    for (int32_t operandIndex = 0;
+        operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
+        ++operandIndex) {
+      OperandStreamParams &params = result.emplace_back(operandIndex);
+
+      // TODO check logic here for outputs
+      if (operandIndex >= outputsStart) {
+        params.isOutput = true;
+        // No stream (NOC ops) will be needed if 'operand' is already
+        // allocated in L1 ("alias" mode), which is currently guaranteed
+        // to be the case for outputs.
+        params.requiresStream = false;
+      } else {
+        // A core participating in a reduction dim necessarily requires
+        // non-local data movement unless it is the only core involved
+        // in that dim.
+        //
+        // Similar logic applies to a broadcast dim.
+        const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+        const auto bcastDims = indexingMap.getBroadcastDims();
+        const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
+                                                        bcastDims.end());
+        params.requiresStream = llvm::any_of(
+            llvm::seq(indexingMap.getNumResults()), [&](unsigned resultIndex) {
+              if (bcastDimIndex.contains(resultIndex)) {
+                return true;
+              }
+              const auto dimPosition = indexingMap.getDimPosition(resultIndex);
+              ttcore::IteratorType iteratorType =
+                  mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
+                      .getValue();
+              return (iteratorType == ttcore::IteratorType::Reduction);
+            });
+
+        // Note: even if `params.requiresStream` is left false here, a stream may
+        // still be inserted, e.g. to read the operand from DRAM
+      };
+    }
+
+    return result;
   }
 
   static void assign(RewriterBase &rewriter, memref::AllocOp op,
@@ -848,20 +848,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           operandMemrefType.getShape(), operandMemrefType.getElementType(),
           streamAttr, operandMemrefType.getMemorySpace());
 
-      // TODO buffer sizing must comport with `req.size` (although the latter is
-      // aligned)
-      llvm::SmallVector<int64_t> bufferShape =
-          selectStreamBufferShape(operandMemrefType);
-
-      auto bufferLayout = ttcore::ShardLayoutAttr::get(
-          ArrayRef(bufferShape).take_back(bufferShape.size() / 2),
-          operandMemrefType.getElementType(), /*buffers=*/1);
-      auto bufferMemref =
-          MemRefType::get(ArrayRef(bufferShape),
-                          operandMemrefType.getElementType(), bufferLayout,
-                          rewriter.getAttr<ttcore::MemorySpaceAttr>(
-                              ttcore::MemorySpace::DeviceL1));
-
+      // TODO this buffer type selection decision is repeated here, it was already made by
+      // an analysis step
+      auto bufferMemref = selectStreamBuffer(rewriter, operandMemrefType);
       auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
       assign(rewriter, buffer, req.offset, info);
       insertDealloc(rewriter, buffer, req.last, mapping);
