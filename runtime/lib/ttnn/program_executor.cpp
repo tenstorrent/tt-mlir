@@ -124,8 +124,9 @@ void ProgramExecutor::runCallback(
 }
 
 template <typename T>
-void save_vector_with_dtype(const std::vector<T> &data,
-                            const std::string &filename) {
+void save_vector_with_dtype_and_shape(const std::vector<T> &data,
+                                      const std::vector<uint32_t> &shape,
+                                      const std::string &filename) {
   std::ofstream file(filename, std::ios::binary);
 
   // Write dtype identifier
@@ -140,13 +141,22 @@ void save_vector_with_dtype(const std::vector<T> &data,
     dtype = "int64";
   } else if constexpr (std::is_same_v<T, uint8_t>) {
     dtype = "uint8";
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    dtype = "uint16";
+  } else if constexpr (std::is_same_v<T, uint32_t>) {
+    dtype = "uint32";
   }
-  // Add more types as needed
 
   // Write dtype string length and string
   uint32_t dtype_len = dtype.length();
   file.write(reinterpret_cast<const char *>(&dtype_len), sizeof(dtype_len));
   file.write(dtype.c_str(), dtype_len);
+
+  // Write shape information
+  uint32_t ndim = shape.size();
+  file.write(reinterpret_cast<const char *>(&ndim), sizeof(ndim));
+  file.write(reinterpret_cast<const char *>(shape.data()),
+             ndim * sizeof(uint32_t));
 
   // Write data size and data
   size_t size = data.size();
@@ -154,6 +164,19 @@ void save_vector_with_dtype(const std::vector<T> &data,
   file.write(reinterpret_cast<const char *>(data.data()), size * sizeof(T));
 
   file.close();
+}
+
+// Helper function to get shape from TTNN tensor
+std::vector<uint32_t> get_tensor_shape(const ::ttnn::Tensor &tensor) {
+  auto ttnn_shape = tensor.logical_shape();
+  std::vector<uint32_t> shape(ttnn_shape.rank());
+
+  // Convert TTNN shape to vector of uint32_t
+  for (size_t i = 0; i < ttnn_shape.rank(); ++i) {
+    shape.push_back(ttnn_shape[i]);
+  }
+
+  return shape;
 }
 
 #include <filesystem> // C++17
@@ -183,22 +206,26 @@ void ProgramExecutor::execute() {
 
     std::cout << ttnnTensor.write_to_string() << std::endl;
 
+    // Get tensor shape
+    std::vector<uint32_t> shape = get_tensor_shape(ttnnTensor);
+
     // Save each tensor in the folder
     fs::path filename = folder / (std::to_string(fileIndex) + ".txt");
     if (ttnnTensor.dtype() == tt_metal::DataType::INT32) {
-      save_vector_with_dtype(ttnnTensor.to_vector<int32_t>(),
-                             filename.string());
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<int32_t>(), shape,
+                                       filename.string());
     } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT8) {
-      save_vector_with_dtype(ttnnTensor.to_vector<uint8_t>(),
-                             filename.string());
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint8_t>(), shape,
+                                       filename.string());
     } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT16) {
-      save_vector_with_dtype(ttnnTensor.to_vector<uint16_t>(),
-                             filename.string());
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint16_t>(), shape,
+                                       filename.string());
     } else if (ttnnTensor.dtype() == tt_metal::DataType::UINT32) {
-      save_vector_with_dtype(ttnnTensor.to_vector<uint32_t>(),
-                             filename.string());
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<uint32_t>(), shape,
+                                       filename.string());
     } else {
-      save_vector_with_dtype(ttnnTensor.to_vector<float>(), filename.string());
+      save_vector_with_dtype_and_shape(ttnnTensor.to_vector<float>(), shape,
+                                       filename.string());
     }
 
     fileIndex++;
