@@ -21,7 +21,8 @@ void runAvgPool2dOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, uint32_t, uint32_t, uint32_t, uint32_t,
         std::array<uint32_t, 2>, std::array<uint32_t, 2>,
-        std::array<uint32_t, 2>, bool, bool, std::optional<int32_t>,
+        std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>, bool,
+        bool, std::optional<int32_t>,
         const std::optional<const ::ttnn::MemoryConfig> &,
         const std::optional<const ::ttnn::TensorMemoryLayout>, bool)> &ttnnOp) {
   ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -33,10 +34,22 @@ void runAvgPool2dOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  std::array<uint32_t, 2> kernelSize, stride, padding;
+  std::array<uint32_t, 2> kernelSize, stride;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
-  std::copy_n(op->padding()->begin(), 2, padding.begin());
+
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
+  if (op->padding()->size() == 2) {
+    padding =
+        std::array<uint32_t, 2>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(1))};
+  } else {
+    padding = std::array<uint32_t, 4>{
+        static_cast<uint32_t>(op->padding()->Get(0)),  // top
+        static_cast<uint32_t>(op->padding()->Get(2)),  // bottom
+        static_cast<uint32_t>(op->padding()->Get(1)),  // left
+        static_cast<uint32_t>(op->padding()->Get(3))}; // right
+  }
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
@@ -60,7 +73,8 @@ void runMaxPool2dOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, uint32_t, uint32_t, uint32_t, uint32_t,
         std::array<uint32_t, 2>, std::array<uint32_t, 2>,
-        std::array<uint32_t, 2>, std::array<uint32_t, 2>, bool,
+        std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>,
+        std::array<uint32_t, 2>, bool,
         const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::TensorMemoryLayout> &, bool)> &ttnnOp) {
   ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -72,11 +86,23 @@ void runMaxPool2dOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  std::array<uint32_t, 2> kernelSize, stride, padding, dilation;
+  std::array<uint32_t, 2> kernelSize, stride, dilation;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
-  std::copy_n(op->padding()->begin(), 2, padding.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
+
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
+  if (op->padding()->size() == 2) {
+    padding =
+        std::array<uint32_t, 2>{static_cast<uint32_t>(op->padding()->Get(0)),
+                                static_cast<uint32_t>(op->padding()->Get(1))};
+  } else {
+    padding = std::array<uint32_t, 4>{
+        static_cast<uint32_t>(op->padding()->Get(0)),  // top
+        static_cast<uint32_t>(op->padding()->Get(2)),  // bottom
+        static_cast<uint32_t>(op->padding()->Get(1)),  // left
+        static_cast<uint32_t>(op->padding()->Get(3))}; // right
+  }
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
