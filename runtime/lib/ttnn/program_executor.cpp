@@ -168,13 +168,25 @@ void save_vector_with_dtype_and_shape(const std::vector<T> &data,
 
 // Helper function to get shape from TTNN tensor
 std::vector<uint32_t> get_tensor_shape(const ::ttnn::Tensor &tensor) {
+  std::cout << tensor.write_to_string() << std::endl;
+
   auto ttnn_shape = tensor.logical_shape();
   std::vector<uint32_t> shape(ttnn_shape.rank());
 
   // Convert TTNN shape to vector of uint32_t
   for (size_t i = 0; i < ttnn_shape.rank(); ++i) {
-    shape.push_back(ttnn_shape[i]);
+    shape[i] = ttnn_shape[i]; // assign instead of push_back
   }
+
+  // Print shape
+  std::cout << "Shape: [";
+  for (size_t i = 0; i < shape.size(); ++i) {
+    std::cout << shape[i];
+    if (i + 1 < shape.size()) {
+      std::cout << ", ";
+    }
+  }
+  std::cout << "]" << std::endl;
 
   return shape;
 }
