@@ -103,7 +103,7 @@ struct ConvTranspose2dParams {
         expectedResult(std::move(expectedResult)) {}
 };
 
-struct MaxPool2dParams {
+struct PoolingParams {
   detail::TestTensor input;
   detail::TestTensor output;
   uint32_t batchSize;
@@ -115,21 +115,22 @@ struct MaxPool2dParams {
   llvm::SmallVector<int32_t> padding;
   llvm::SmallVector<int32_t> dilation;
   bool ceilMode;
+  bool inPlaceHalo;
   detail::ExpectedResult expectedResult;
 
-  MaxPool2dParams(detail::TestTensor input, detail::TestTensor output,
-                  uint32_t batchSize, uint32_t inputHeight, uint32_t inputWidth,
-                  uint32_t inputChannels, llvm::SmallVector<int32_t> kernelSize,
-                  llvm::SmallVector<int32_t> stride,
-                  llvm::SmallVector<int32_t> padding,
-                  llvm::SmallVector<int32_t> dilation, bool ceilMode,
-                  detail::ExpectedResult expectedResult)
+  PoolingParams(detail::TestTensor input, detail::TestTensor output,
+                uint32_t batchSize, uint32_t inputHeight, uint32_t inputWidth,
+                uint32_t inputChannels, llvm::SmallVector<int32_t> kernelSize,
+                llvm::SmallVector<int32_t> stride,
+                llvm::SmallVector<int32_t> padding,
+                llvm::SmallVector<int32_t> dilation, bool ceilMode,
+                bool inPlaceHalo, detail::ExpectedResult expectedResult)
       : input(std::move(input)), output(std::move(output)),
         batchSize(batchSize), inputHeight(inputHeight), inputWidth(inputWidth),
         inputChannels(inputChannels), kernelSize(std::move(kernelSize)),
         stride(std::move(stride)), padding(std::move(padding)),
         dilation(std::move(dilation)), ceilMode(ceilMode),
-        expectedResult(std::move(expectedResult)) {}
+        inPlaceHalo(inPlaceHalo), expectedResult(std::move(expectedResult)) {}
 };
 
 namespace yaml_utils {
@@ -161,11 +162,11 @@ parseAllConvTranspose2dParams(const std::string &yamlFilePath);
 
 /// Returns MaxPool2dParams object matching OpModelMaxPool2dParam test
 /// parameter structure
-MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node);
+PoolingParams parsePoolingParams(const YAML::Node &node);
 
 /// Returns a vector of MaxPool2dParams objects from a YAML file
-std::vector<MaxPool2dParams>
-parseAllMaxPool2dParams(const std::string &yamlFilePath);
+std::vector<PoolingParams>
+parseAllPoolingParams(const std::string &yamlFilePath);
 
 } // namespace yaml_utils
 

@@ -187,7 +187,7 @@ parseAllConvTranspose2dParams(const std::string &yamlFilePath) {
   return params;
 }
 
-MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node) {
+PoolingParams parsePoolingParams(const YAML::Node &node) {
   // Parse tensor parameters
   auto inputTensor = parseTestTensor(node["input"]);
   auto outputTensor = parseTestTensor(node["output"]);
@@ -204,21 +204,22 @@ MaxPool2dParams parseMaxPool2dParams(const YAML::Node &node) {
   auto padding = parseIntVector(node["padding"]);
   auto dilation = parseIntVector(node["dilation"]);
   bool ceilMode = node["ceil_mode"].as<bool>();
+  bool inPlaceHalo = node["in_place_halo"].as<bool>();
 
   // Parse expected result
   auto expectedResult = parseExpectedResult(node["expected_result"]);
 
-  return MaxPool2dParams(inputTensor, outputTensor, batchSize, inputHeight,
-                         inputWidth, inputChannels, kernelSize, stride, padding,
-                         dilation, ceilMode, expectedResult);
+  return PoolingParams(inputTensor, outputTensor, batchSize, inputHeight,
+                       inputWidth, inputChannels, kernelSize, stride, padding,
+                       dilation, ceilMode, inPlaceHalo, expectedResult);
 }
 
-std::vector<MaxPool2dParams>
-parseAllMaxPool2dParams(const std::string &yamlFilePath) {
+std::vector<PoolingParams>
+parseAllPoolingParams(const std::string &yamlFilePath) {
   YAML::Node config = parseYamlFile(yamlFilePath);
-  std::vector<MaxPool2dParams> params;
+  std::vector<PoolingParams> params;
   for (const auto &kv : config) {
-    params.push_back(parseMaxPool2dParams(kv.second));
+    params.push_back(parsePoolingParams(kv.second));
   }
   return params;
 }

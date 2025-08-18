@@ -2342,7 +2342,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 template <typename OpTy>
 class OpModelPool2DParam : public OpModelTest,
-                           public testing::WithParamInterface<MaxPool2dParams> {
+                           public testing::WithParamInterface<PoolingParams> {
 protected:
   void RunTest() {
     // TODO(2976): Some of these test cases return L1 interleaved row major
@@ -2363,7 +2363,8 @@ protected:
     const auto padding = params.padding;
     const auto dilation = params.dilation;
     const auto ceilMode = params.ceilMode;
-    const auto expectedLegal = params.expectedLegal;
+    const auto inPlaceHalo = params.inPlaceHalo;
+    const auto expectedResult = params.expectedResult;
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -2375,12 +2376,12 @@ protected:
     auto constraintsExp = OpModel<MaxPool2dOp>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
         inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-        ceilMode, outputLayout);
+        ceilMode, inPlaceHalo, outputLayout);
     if (!constraintsExp) {
       std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
                 << std::endl;
     }
-    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedResult.expectedLegal);
 
     if (constraintsExp) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
@@ -2398,23 +2399,22 @@ protected:
     auto runtimeExp = OpModel<MaxPool2dOp>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        outputLayout);
-    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+        inPlaceHalo, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedResult.expectedLegal);
     if (runtimeExp) {
       EXPECT_TRUE(runtimeExp.get() > 0);
     } else {
       llvm::consumeError(runtimeExp.takeError());
     }
   }
-}
+};
 
 // MaxPool2D tests
-class OpModelMaxPool2DParam : public OpModelPool2DParam<MaxPool2dOp> {
-};
+class OpModelMaxPool2DParam : public OpModelPool2DParam<MaxPool2dOp> {};
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
-    ::testing::ValuesIn(yaml_utils::parseAllMaxPool2dParams(
+    ::testing::ValuesIn(yaml_utils::parseAllPoolingParams(
         "test/unittests/OpModel/TTNN/Lib/poolingparams.yml")));
 
 // AvgPool2D tests
@@ -2422,10 +2422,8 @@ class OpModelAvgPool2DParam : public OpModelPool2DParam<AvgPool2dOp> {};
 TEST_P(OpModelAvgPool2DParam, AvgPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     AvgPool2DTests, OpModelAvgPool2DParam,
-    ::testing::Values(
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_1"]),
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_2"]),
-        yaml_utils::parseMaxPool2dParams(allParams["maxpool2d_params_3"])));
+    ::testing::ValuesIn(yaml_utils::parseAllPoolingParams(
+        "test/unittests/OpModel/TTNN/Lib/poolingparams.yml")));
 
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<
