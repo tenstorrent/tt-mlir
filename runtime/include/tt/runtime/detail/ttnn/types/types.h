@@ -104,6 +104,9 @@ struct LayoutDesc {
   bool isOnDevice() const;
   bool isTilized() const;
 
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+  toMemoryDesc(::flatbuffers::FlatBufferBuilder &fbb) const;
+
   bool operator==(const LayoutDesc &other) const;
 };
 

@@ -50,6 +50,37 @@ bool LayoutDesc::isOnDevice() const { return !isOnHost(); }
 
 bool LayoutDesc::isTilized() const { return layout == ::ttnn::Layout::TILE; }
 
+::flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+LayoutDesc::toMemoryDesc(::flatbuffers::FlatBufferBuilder &fbb) const {
+  ::tt::target::ttnn::StorageType fbStorageType =
+      ::tt::runtime::ttnn::utils::fromTTNNStorageType(storageType);
+
+  ::tt::target::Dim2d tileShape(1, 1);
+  if (layout == ::ttnn::Layout::TILE) {
+    tileShape = ::tt::target::Dim2d(32, 32);
+  } else {
+    LOG_ASSERT(layout == ::ttnn::Layout::ROW_MAJOR,
+               "Expected layout to be TILE or ROW_MAJOR");
+    tileShape = ::tt::target::Dim2d(1, 1);
+  }
+
+  ::tt::target::DataType fbDataType =
+      ::tt::runtime::ttnn::utils::fromTTNNDataType(dataType);
+
+  if (!memoryConfig.has_value()) {
+    return ::tt::target::ttnn::CreateMemoryDesc(
+        fbb, fbStorageType, &tileShape, fbDataType, /*memory_config=*/0);
+  }
+
+  const ::ttnn::MemoryConfig &outputMemoryConfig = memoryConfig.value();
+
+  auto fbMemoryConfig =
+      ::tt::runtime::ttnn::utils::fromTTNNMemoryConfig(fbb, outputMemoryConfig);
+
+  return ::tt::target::ttnn::CreateMemoryDesc(fbb, fbStorageType, &tileShape,
+                                              fbDataType, fbMemoryConfig);
+}
+
 bool LayoutDesc::operator==(const LayoutDesc &other) const {
   return (storageType == other.storageType) && (layout == other.layout) &&
          (dataType == other.dataType) && (memoryConfig == other.memoryConfig);

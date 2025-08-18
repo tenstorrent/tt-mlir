@@ -59,8 +59,6 @@ template <typename OpT, typename FnT, typename TensorFnT>
 Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
                              FnT fn, TensorFnT tensorValueToFlatbuffer,
                              const llvm::StringMap<uint32_t> &programIndexMap) {
-  constexpr uint64_t kHostAllocatedSize = 0;
-
   OpPrintingFlags printFlags;
   printFlags = printFlags.elideLargeElementsAttrs()
                    .elideLargeResourceString()
@@ -72,8 +70,7 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
   program.name = entry.getSymName().data();
 
   for (auto &input : entry.getBody().getArguments()) {
-    program.inputs.push_back(
-        cache.getOrCreate(input, tensorValueToFlatbuffer, kHostAllocatedSize));
+    program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer));
   }
 
   mlir::AsmState printState(entry, printFlags);

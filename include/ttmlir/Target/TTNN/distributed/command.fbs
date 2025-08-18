@@ -1,0 +1,74 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/binary.fbs";
+
+namespace tt.target.ttnn.distributed;
+
+table GetSystemDescCommand {
+  dispatch_core_type: tt.target.DispatchCoreType;
+}
+
+table MeshDeviceOptions {
+  mesh_offset: [uint32];
+  device_ids: [int];
+  num_hw_cqs: uint8;
+  enable_program_cache: bool;
+  mesh_shape: [uint32];
+  l1_small_size: uint64 = null;
+  trace_region_size: uint64 = null;
+  dispatch_core_type: tt.target.DispatchCoreType = null;
+}
+
+table OpenMeshDeviceCommand {
+  device_global_id: uint64;
+  options: MeshDeviceOptions;
+}
+
+table CloseMeshDeviceCommand {
+  device: tt.target.DeviceRef;
+}
+
+table CreateHostTensorCommand {
+  data: [ubyte];
+  shape: [uint32];
+  stride: [uint32];
+  item_size: uint32;
+  data_type: tt.target.DataType;
+}
+
+table ToLayoutCommand {
+  input_global_id: uint64;
+  output_global_id: uint64;
+  device: tt.target.DeviceRef;
+  layout: tt.target.ttnn.MemoryDesc;
+}
+
+table SubmitCommand {
+  input_global_ids: [uint64];
+  output_global_ids: [uint64];
+  binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
+  program_id: uint32;
+  device: tt.target.DeviceRef;
+}
+
+table ShutdownCommand {
+}
+
+union CommandType {
+  GetSystemDescCommand,
+  OpenMeshDeviceCommand,
+  CloseMeshDeviceCommand,
+  CreateHostTensorCommand,
+  ToLayoutCommand,
+  SubmitCommand,
+  ShutdownCommand,
+}
+
+table Command {
+  command_id: uint64;
+  type: CommandType;
+}
+
+root_type Command;
+file_identifier "NNCM";
+file_extension "ttnncmd";

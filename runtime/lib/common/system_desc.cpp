@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/detail/common/system_desc.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/runtime.h"
@@ -25,6 +26,18 @@ namespace tt::runtime::system_desc {
 
 using HalMemType = ::tt::tt_metal::HalMemType;
 using BufferType = ::tt::tt_metal::BufferType;
+
+static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
+createFullMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
+
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
+  return ::tt::tt_metal::distributed::MeshDevice::create(
+      ::tt::tt_metal::distributed::MeshDeviceConfig(
+          /*mesh_shape=*/std::nullopt),
+      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+}
 
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
@@ -137,8 +150,9 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
   return dramUnreservedEnd;
 }
 
-static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
-    const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
+::flatbuffers::Offset<tt::target::SystemDescRoot>
+buildSystemDescRoot(::flatbuffers::FlatBufferBuilder &fbb,
+                    const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
   std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
             [](const ::tt::tt_metal::IDevice *a,
@@ -151,7 +165,6 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   // Ignore for now
   std::vector<::tt::target::ChipCoord> chipCoords = {
       ::tt::target::ChipCoord(0, 0, 0, 0)};
-  ::flatbuffers::FlatBufferBuilder fbb;
 
   std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
   std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
@@ -238,28 +251,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   auto root = ::tt::target::CreateSystemDescRootDirect(
       fbb, &version, tt::target::common::system_desc_bfbs_schema_hash,
       ::ttmlir::getGitHash(), "unknown", systemDesc);
-  ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
-  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    LOG_FATAL("Failed to verify system desc root buffer");
-  }
-  uint8_t *buf = fbb.GetBufferPointer();
-  auto size = fbb.GetSize();
-  auto handle = ::tt::runtime::utils::malloc_shared(size);
-  std::memcpy(handle.get(), buf, size);
-  return std::make_unique<::tt::runtime::SystemDesc>(handle);
-}
 
-static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
-createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
-
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
-
-  return ::tt::tt_metal::distributed::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig(
-          /*mesh_shape=*/std::nullopt),
-      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+  return root;
 }
 
 ::tt::runtime::SystemDesc
@@ -272,7 +265,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
             getCurrentRuntime());
   } else {
-    meshDevicePtr = createNewMeshDevice(dispatchCoreType);
+    meshDevicePtr = createFullMeshDevice(dispatchCoreType);
   }
 
   LOG_DEBUG("Device grid size = { ",
@@ -280,11 +273,12 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
             meshDevicePtr->compute_with_storage_grid_size().y, " }");
 
   std::exception_ptr eptr = nullptr;
-  std::unique_ptr<::tt::runtime::SystemDesc> desc;
+  ::flatbuffers::FlatBufferBuilder fbb;
+  flatbuffers::Offset<tt::target::SystemDescRoot> root;
   try {
-    desc = getCurrentSystemDescImpl(*meshDevicePtr);
+    root = buildSystemDescRoot(fbb, *meshDevicePtr);
   } catch (...) {
-    eptr = std::current_exception();
+    std::current_exception();
   }
   if (!meshDevice.has_value()) {
     // Close if mesh device was created in this scope (not passed from caller)
@@ -294,7 +288,17 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
     LOG_ERROR("Exception occured when getting system descriptor");
     std::rethrow_exception(eptr);
   }
-  return *desc;
+
+  ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
+  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
+  bool verified =
+      ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier);
+  LOG_ASSERT(verified, "Failed to verify system desc root buffer");
+  uint8_t *buf = fbb.GetBufferPointer();
+  auto size = fbb.GetSize();
+  auto handle = ::tt::runtime::utils::malloc_shared(size);
+  std::memcpy(handle.get(), buf, size);
+  return ::tt::runtime::SystemDesc(handle);
 }
 
 } // namespace tt::runtime::system_desc

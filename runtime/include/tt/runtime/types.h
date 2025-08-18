@@ -59,6 +59,16 @@ enum class DispatchCoreType {
   ETH,
 };
 
+inline ::tt::target::DispatchCoreType
+toFlatbuffer(const ::tt::runtime::DispatchCoreType &dispatchCoreType) {
+  switch (dispatchCoreType) {
+  case ::tt::runtime::DispatchCoreType::WORKER:
+    return ::tt::target::DispatchCoreType::Worker;
+  case ::tt::runtime::DispatchCoreType::ETH:
+    return ::tt::target::DispatchCoreType::Ethernet;
+  }
+}
+
 enum class FabricConfig {
   DISABLED,
   FABRIC_1D,
@@ -215,8 +225,8 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
-struct TraceCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+struct Connection : public detail::ObjectImpl {
+  using detail::ObjectImpl::ObjectImpl;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
@@ -226,7 +236,10 @@ struct Flatbuffer : public detail::ObjectImpl {
   static Flatbuffer loadFromMemory(const void *memory, size_t size);
 
   void store(const char *path) const;
-  void storeToMemory(std::vector<std::byte> &serializedFlatbuffer) const;
+
+  template <typename T>
+  void storeToMemory(std::vector<T> &serializedFlatbuffer) const;
+
   std::string getFileIdentifier() const;
   std::string getVersion() const;
   std::string getSchemaHash() const;
@@ -294,16 +307,28 @@ private:
   std::shared_ptr<TensorCache> tensorCache;
 };
 
+struct TraceCache : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
 struct Device : public detail::RuntimeCheckedObjectImpl {
 
   Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
-         DeviceRuntime runtime)
+         DeviceRuntime runtime,
+         std::optional<std::uint32_t> globalId = std::nullopt)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        globalId(globalId.value_or(nextDeviceGlobalId())),
         traceCache(traceCache) {}
 
   std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
 
+  std::uint32_t getGlobalId() const { return globalId; }
+
 private:
+  std::uint32_t nextDeviceGlobalId();
+
+  std::uint32_t globalId;
+
   // The trace cache associated with this device.
   std::shared_ptr<TraceCache> traceCache;
 };
@@ -317,14 +342,19 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
   Event event;
 
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         DeviceRuntime runtime)
+         DeviceRuntime runtime,
+         std::optional<std::shared_ptr<void>> eventHandle = std::nullopt,
+         std::optional<std::uint64_t> globalId = std::nullopt)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(nullptr, runtime) {}
+        event(eventHandle.value_or(nullptr), runtime),
+        globalId(globalId.value_or(nextTensorGlobalId())) {}
 
-  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(eventHandle, runtime) {}
+  std::uint64_t getGlobalId() const { return globalId; }
+
+private:
+  std::uint64_t nextTensorGlobalId();
+
+  std::uint64_t globalId;
 };
 
 struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {

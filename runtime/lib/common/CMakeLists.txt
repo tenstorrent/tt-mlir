@@ -32,14 +32,24 @@ else()
 endif()
 
 if (NOT ANY_RUNTIME_ENABLED)
+  add_library(TTRuntimeTypes INTERFACE)
   add_library(TTRuntimeSysDesc INTERFACE)
   add_library(TTRuntimeContext INTERFACE)
+  add_library(TTRuntimeSocket INTERFACE)
   add_library(TTRuntimeDebug INTERFACE)
   add_library(TTRuntimePerf INTERFACE)
   add_library(TTRuntimeWorkarounds INTERFACE)
   add_library(TTRuntimeDylibs INTERFACE)
   return()
 endif()
+
+add_library(TTRuntimeTypes STATIC types.cpp)
+set_property(TARGET TTRuntimeTypes PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeTypes
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
+target_link_libraries(TTRuntimeTypes PUBLIC coverage_config)
 
 add_library(TTRuntimeSysDesc STATIC system_desc.cpp)
 set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)
