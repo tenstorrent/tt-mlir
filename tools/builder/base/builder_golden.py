@@ -972,6 +972,8 @@ def gather_golden(
     ):
 
         indices = start_indices_tensor.squeeze().long()
+        # Emulate device numerics used by non-hoisted path (bf16 kernel round-trip)
+        # input_tensor = input_tensor.to(torch.bfloat16).to(input_tensor.dtype)
         device = input_tensor.device if hasattr(input_tensor, "device") else None
 
         if indices.dim() == 0:
