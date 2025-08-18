@@ -462,10 +462,12 @@ public:
       auto biasPermutation = generateConvPermutation(op, conv2dLayout);
       auto biasOutputShape = ::ttmlir::utils::applyPermutation(
           biasType.getShape(), biasPermutation);
-      biasValue = ttir::utils::createDPSOp<ttir::PermuteOp>(
+      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
+                                              biasOutputShape.end());
+      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
           rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
           biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
-          biasValue, biasPermutation);
+          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
     }
 
     mlir::Value newConv;
