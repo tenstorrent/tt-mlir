@@ -1,13 +1,13 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
 include "ttmlir/Target/TTNN/binary.fbs";
-include "ttmlir/Target/TTNN/protocol/core.fbs";
+include "ttmlir/Target/TTNN/distributed/core.fbs";
 
-namespace tt.target.ttnn.protocol;
+namespace tt.target.ttnn.distributed;
 
 table OpenMeshDeviceCommand {
   device_global_id: uint64;
-  options: tt.target.ttnn.protocol.DeviceOptions;
+  options: tt.target.ttnn.distributed.DeviceOptions;
 }
 
 table OpenMeshDeviceResponse {

@@ -11,7 +11,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/binary_bfbs_hash_generated.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
-#include "ttmlir/Target/TTNN/protocol/protocol_generated.h"
+#include "ttmlir/Target/TTNN/distributed/protocol_generated.h"
 #pragma clang diagnostic pop
 
 #endif
