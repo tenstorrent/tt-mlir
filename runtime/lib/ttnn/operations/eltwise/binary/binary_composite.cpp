@@ -85,6 +85,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::logical_left_shift);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::atan2);
     break;

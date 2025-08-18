@@ -2467,6 +2467,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalOrOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalXorOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::BitwiseAndOp>,
+      EltwiseBinaryCompositeOpConversionPattern<
+          mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::BitwiseOrOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::BitwiseXorOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::EqualOp>,

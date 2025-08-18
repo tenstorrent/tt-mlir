@@ -199,6 +199,10 @@ struct OpModel<LogicalRightShiftOp>
     : BinaryEltwiseOpModel<LogicalRightShiftOp> {};
 
 template <>
+struct OpModel<LogicalLeftShiftOp> : BinaryEltwiseOpModel<LogicalLeftShiftOp> {
+};
+
+template <>
 struct OpModel<SubtractOp> : BinaryEltwiseOpModel<SubtractOp> {};
 
 template <>

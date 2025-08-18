@@ -932,7 +932,8 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
 
-      bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp>;
+      bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp> ||
+                            std::is_same_v<OpTy, LogicalLeftShiftOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
@@ -958,6 +959,8 @@ using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
 using OpModelLogicalRightShiftParam =
     OpModelBinaryEltwiseParam<LogicalRightShiftOp>;
+using OpModelLogicalLeftShiftParam =
+    OpModelBinaryEltwiseParam<LogicalLeftShiftOp>;
 using OpModelSubtractParam = OpModelBinaryEltwiseParam<SubtractOp>;
 using OpModelMaximumParam = OpModelBinaryEltwiseParam<MaximumOp>;
 using OpModelMinimumParam = OpModelBinaryEltwiseParam<MinimumOp>;
@@ -975,6 +978,7 @@ using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
 TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTestInt32(); }
+TEST_P(OpModelLogicalLeftShiftParam, LogicalLeftShiftOp) { RunTestInt32(); }
 TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
 TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
 TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }
@@ -1079,6 +1083,9 @@ INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(LogicalLeftShiftTests, OpModelLogicalLeftShiftParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,

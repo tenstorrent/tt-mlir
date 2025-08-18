@@ -1065,6 +1065,9 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
+  } else if constexpr (std::is_same_v<EltwiseBinaryCompositeOp,
+                                      LogicalLeftShiftOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseAndOp>) {
@@ -1996,6 +1999,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, bitwiseAndOp),
                            debugString, locInfo);
+  }
+  if (auto logicalLeftShiftOp = dyn_cast<LogicalLeftShiftOp>(op);
+      logicalLeftShiftOp) {
+    return createOperation(
+        cache, createEltwiseBinaryCompositeOp(cache, logicalLeftShiftOp),
+        debugString, locInfo);
   }
   if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
     return createOperation(cache,
