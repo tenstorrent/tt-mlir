@@ -2563,15 +2563,14 @@ def test_gather(
             [0, 2],
             [1],
             [1, 16, 1],
-            marks=pytest.mark.skip(reason="Gather with complex indices is not supported yet"),
+            marks=pytest.mark.skip(
+                reason="Gather with complex indices is not supported yet"
+            ),
         ),  # Complex indices
     ],
     ids=["simple_1d", "complex_indices"],
 )
 # Note: Doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-#@pytest.mark.skip(
-#    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
-#)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
@@ -2586,13 +2585,6 @@ def test_hoisted_gather(
     def gather_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        # Match device numerics (bf16 kernel) so hoisted == golden
-        # f32 -> bf16.
-        # bf16_out = builder.zeros(builder.get_shape(in0), data_type=torch.bfloat16)
-        # in0_bf16 = builder.typecast(in0, bf16_out)
-
-        # f32_out = builder.zeros(builder.get_shape(in0_bf16), data_type=torch.float32)
-        # in0 = builder.typecast(in0_bf16, f32_out)
         return gather(
             in0,
             builder,

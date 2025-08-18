@@ -111,6 +111,10 @@ class TTIRBuilder(Builder):
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
+        if unit_attrs is not None:
+            golden_kwargs = dict(golden_kwargs)
+            golden_kwargs["unit_attrs"] = list(unit_attrs)
+
         if organize_ttir_args is None:
             organize_ttir_args = self._organize_eltwise_ttir
 
