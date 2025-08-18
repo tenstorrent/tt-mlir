@@ -383,6 +383,16 @@ public:
         emitter.emit(srcOp.getRhs()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*output=*/std::nullopt),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getPostActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getLhsActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getRhsActivations()),
     };
 
     emitter.replaceOp(*this, args);
@@ -400,6 +410,45 @@ public:
 namespace {
 template <typename SourceOp>
 class EltwiseBinaryCompositeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*optional_output_tensor=*/std::nullopt),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getPostActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getLhsActivations()),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            srcOp.getRhsActivations()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+template <typename SourceOp>
+class EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 
 public:
@@ -2479,10 +2528,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::ScatterOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
+      EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern<
+          mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
-      typeConverter, ctx);
+      EltwiseBinaryCompositeWithoutFusedActivationOpConversionPattern<
+          mlir::tt::ttnn::Atan2Op>>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //

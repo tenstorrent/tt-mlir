@@ -13,7 +13,6 @@ module @"dealloc_test" attributes {} {
     // CHECK: "ttnn.deallocate"(%[[MATMUL1]]) {{.+}} : (tensor<1x256xf32, {{.+}}>) -> ()
     %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
     %5 = "ttir.relu"(%3, %4) : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
-    // CHECK: %{{.+}} = "ttnn.relu"([[I1:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
     %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
     %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     // CHECK: %[[MATMUL2:.*]] = "ttnn.matmul"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xf32, {{.+}}>

@@ -13,6 +13,11 @@ namespace tt::runtime::ttnn::operations::eltwise::binary {
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
          ProgramContext &context);
 
+void run(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp
+        *op,
+    ProgramContext &context);
+
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif

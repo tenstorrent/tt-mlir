@@ -1045,8 +1045,16 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  auto postActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getPostActivations());
+  auto lhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getLhsActivations());
+  auto rhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getRhsActivations());
+
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, postActivations,
+      lhsActivations, rhsActivations, out);
 }
 
 template <typename EltwiseBinaryCompositeOp>
@@ -1059,14 +1067,10 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, MinimumOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseAndOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseOrOp>) {
@@ -1089,8 +1093,49 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
 
+  auto postActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getPostActivations());
+  auto lhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getLhsActivations());
+  auto rhsActivations = toFlatbuffer<mlir::tt::ttnn::UnaryWithParamAttr>(
+      cache, op.getRhsActivations());
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
-      *cache.fbb, type, lhs, rhs, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, memoryConfig, postActivations, lhsActivations,
+      rhsActivations, out);
+}
+
+template <typename OpTy>
+::flatbuffers::Offset<
+    ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp>
+createEltwiseBinaryCompositeWithoutFusedActivationOp(
+    FlatbufferObjectCache &cache, OpTy op) {
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOpType type;
+  if (std::is_same_v<OpTy, RemainderOp>) {
+    type = ::tt::target::ttnn::
+        EltwiseBinaryCompositeWithoutFusedActivationOpType::Remainder;
+  } else if (std::is_same_v<OpTy, Atan2Op>) {
+    type = ::tt::target::ttnn::
+        EltwiseBinaryCompositeWithoutFusedActivationOpType::Atan2;
+  } else {
+    llvm_unreachable("unhandled EltwiseBinaryCompositeOp");
+  }
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto rhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto result = op.getResult();
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::
+      CreateEltwiseBinaryCompositeWithoutFusedActivationOp(
+          *cache.fbb, type, lhs, rhs, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -1476,8 +1521,7 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
-  auto dimArg =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+  auto dimArg = toFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
                                                dimArg, op.getKeepDim());
@@ -1590,8 +1634,7 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
+  auto shape = toFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
@@ -1660,12 +1703,9 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
-  auto step =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
+  auto begins = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
+  auto ends = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+  auto step = toFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
 
   return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
                                            step);
@@ -2023,7 +2063,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
     return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, remainderOp),
+                           createEltwiseBinaryCompositeWithoutFusedActivationOp(
+                               cache, remainderOp),
                            debugString, locInfo);
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
@@ -2032,9 +2073,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, atan2Op),
-                           debugString, locInfo);
+    return createOperation(
+        cache,
+        createEltwiseBinaryCompositeWithoutFusedActivationOp(cache, atan2Op),
+        debugString, locInfo);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
     return createOperation(cache, createEltwiseTernaryWhereOp(cache, whereOp),
