@@ -548,39 +548,47 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
-// Currently, there is more support for conv2d and conv_transpose2d for
-// row-major inputs than there is for tile inputs.
-// There is no single issue in tt-metal for this. This workaround is here
-// to ensure we use the more generally-supported input layout for
-// convolutions in ttnn. For example, here is an issue highlighting
-// some convolutions that will not work when the input is in tile layout,
-// but will work when the input is in row-major layout:
+// Conv2d and ConvTranspose2d are memory intensive operations and until
+// there is a proper solution to handle large inputs ttnn recommends to
+// use row major layout for conv activations. In general case (when optimizer is
+// disabled) we will apply row major layout workaround to activation. When
+// optimizer is enabled this workaround is skipped because from what we observed
+// tile layout for activations works for the models we tested up to now.
+//
+// There is another workaround decompositon for conv2d and conv2d transpose
+// which is run regardless if optimizer is on or off.
+// Purpose of that decomposition is to move weight and bias to host memory
+// in row major layout and rewrite output of conv2d and conv2d transpose to
+// tile layout.
 // https://github.com/tenstorrent/tt-metal/issues/19762
+template <typename T>
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-    bool hasBias) {
+TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(T op) {
 
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
-  // Convolution outputs are always in tile layout regardless
-  // of the input layout. We explicitly state this here to
-  // avoid accidentally assigning the output of a convolution
-  // to row major layout just because its input is row major.
-  TTNNOperandWorkarounds outputWorkaround;
-  outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  // If input dtype is BFP_BFloat8, we need to apply a dtype workaround
+  // to bfloat16 before we convert to row major.
+  RankedTensorType inputType = op.getInput().getType();
+  ttcore::DataType inputDataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  if (inputDataType == ttcore::DataType::BFP_BFloat8) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
 
-  TTNNOperandWorkarounds parameterWorkaround;
+  TTNNOperandWorkarounds emptyWorkaround;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addInputOperandWorkaround(parameterWorkaround)
-          .addOutputOperandWorkaround(outputWorkaround);
+          .addInputOperandWorkaround(emptyWorkaround)
+          .addOutputOperandWorkaround(emptyWorkaround);
 
-  if (hasBias) {
-    workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
+  if (op.getBias()) {
+    workaround = workaround.addInputOperandWorkaround(emptyWorkaround);
   }
+
   return workaround;
 }
 
@@ -659,4 +667,12 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(datatypeWorkaround);
 }
+
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+    ttnn::Conv2dOp op);
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+    ttnn::ConvTranspose2dOp op);
+
 } // namespace mlir::tt::ttnn::wa

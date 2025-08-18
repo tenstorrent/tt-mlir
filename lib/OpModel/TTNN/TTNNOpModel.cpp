@@ -533,7 +533,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
-mlir::RankedTensorType getPreparedConv2dWeightsOutputTensor(Conv2dOp *op) {
+mlir::RankedTensorType
+getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
+                                     Conv2dConfigAttr conv2dConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto input = op->getInput().getType();
   auto weight = op->getWeight().getType();
@@ -546,8 +548,9 @@ mlir::RankedTensorType getPreparedConv2dWeightsOutputTensor(Conv2dOp *op) {
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          op->getConv2dConfig(), op->getBias() != nullptr,
+          conv2dConfig, op->getBias() != nullptr,
           /* transpose */ false);
+
   if (!outputTensorSpec) {
     llvm::errs() << llvm::toString(outputTensorSpec.takeError());
     assert(false && "Failed to calculate conv2d prepared weights shape.");
