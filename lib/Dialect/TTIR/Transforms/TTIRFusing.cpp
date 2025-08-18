@@ -602,19 +602,18 @@ private:
 using Conv2dWithMultiply = Conv2dWithMultiplyTemplate<Conv2dOp>;
 using ConvolutionWithMultiply = Conv2dWithMultiplyTemplate<ConvolutionOp>;
 
-// Tag all block arguments which are direct inputs to Conv2dOp or ConvolutionOp
-// with discardable attribute. This is used during Layouting to check if
+// Tag all block arguments which are direct inputs to Conv2dOp with
+// discardable attribute. This is used during Layouting to check if
 // function argument need to be put to Host/RM. This is temporary
 // solution until we complete refactor of TTNNLayout see:
 // https://github.com/tenstorrent/tt-mlir/issues/3432.
-template <typename ConvOpType>
-class ConvTagWeightsTemplate : public mlir::OpRewritePattern<ConvOpType> {
+class Conv2dTagWeights : public mlir::OpRewritePattern<Conv2dOp> {
 public:
-  ConvTagWeightsTemplate(MLIRContext *context)
-      : mlir::OpRewritePattern<ConvOpType>(context, PatternBenefit(2)) {}
+  Conv2dTagWeights(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
 
   mlir::LogicalResult
-  matchAndRewrite(ConvOpType convOp,
+  matchAndRewrite(Conv2dOp conv2d,
                   mlir::PatternRewriter &rewriter) const final {
     Value weightValue = conv2d.getWeight();
 
@@ -650,10 +649,6 @@ public:
     return failure();
   }
 };
-
-// Instantiate the template for both Conv2dOp and ConvolutionOp
-using Conv2dTagWeights = ConvTagWeightsTemplate<Conv2dOp>;
-using ConvolutionTagWeights = ConvTagWeightsTemplate<ConvolutionOp>;
 
 class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
   using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
@@ -1937,7 +1932,6 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<Conv2dTagWeights>(&getContext());
-      patterns.add<ConvolutionTagWeights>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
