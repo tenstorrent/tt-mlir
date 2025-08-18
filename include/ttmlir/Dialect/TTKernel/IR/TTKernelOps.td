@@ -1109,6 +1109,19 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_InvokeSFPIOp : TTKernel_SFPUOp<"invoke_sfpi", [NoTerminator]> {
+    let summary = "";
+    let description = [{}];
+
+    let arguments = (ins);
+
+    let regions = (region AnyRegion:$region);
+
+    let assemblyFormat = [{
+      attr-dict-with-keyword $region
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel CB operations
 //===----------------------------------------------------------------------===//

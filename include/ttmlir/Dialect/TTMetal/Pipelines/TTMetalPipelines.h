@@ -80,6 +80,14 @@ struct TTIRToTTMetalPipelineOptions
           clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
           clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
       llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
+
+  // This option disables back-to-back ToLayoutOp folding; this is mainly
+  // useful for mocking up DMA tests that do 'unnecessary' roundtrip DMA.
+  Option<bool> disableToLayoutFolding{
+      *this, "disable-tolayout-folding",
+      llvm::cl::desc("Disable folding of back-to-back ToLayoutOp during "
+                     "canonicalization; useful for DMA testing"),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
