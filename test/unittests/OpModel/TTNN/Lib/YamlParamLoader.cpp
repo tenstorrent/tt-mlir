@@ -4,7 +4,6 @@
 
 #include "YamlParamLoader.h"
 
-#include "llvm/Support/raw_ostream.h"
 #include <stdexcept>
 
 #include <vector>
@@ -15,12 +14,18 @@ namespace mlir::tt::ttnn::op_model {
 namespace yaml_utils {
 
 mlir::tt::ttnn::TensorMemoryLayout
-parseTensorLayout(const std::string &layout) {
-  if (layout == "row_major") {
+parseTensorMemoryLayout(const std::string &layout) {
+  if (layout == "interleaved") {
     return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
   }
-  if (layout == "tile") {
-    return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
+  if (layout == "height_sharded") {
+    return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
+  }
+  if (layout == "width_sharded") {
+    return mlir::tt::ttnn::TensorMemoryLayout::WidthSharded;
+  }
+  if (layout == "block_sharded") {
+    return mlir::tt::ttnn::TensorMemoryLayout::BlockSharded;
   }
   throw std::runtime_error("Unknown tensor layout: " + layout);
 }
@@ -49,9 +54,9 @@ detail::TestTensor parseTestTensor(const YAML::Node &tensorNode) {
   }
 
   // Parse tensor layout
-  if (tensorNode["tensor_layout"]) {
-    testTensor.layout =
-        parseTensorLayout(tensorNode["tensor_layout"].as<std::string>());
+  if (tensorNode["memory_layout"]) {
+    testTensor.memoryLayout =
+        parseTensorMemoryLayout(tensorNode["memory_layout"].as<std::string>());
   }
 
   // Parse buffer type
