@@ -138,6 +138,7 @@ def test_matmul_ttnn(
     compile_to_flatbuffer(
         matmul_blocking,
         [lhs, rhs],
+        [torch.bfloat16, torch.bfloat16],
         target="ttmetal",
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
