@@ -241,3 +241,21 @@ add_custom_target(tt-alchemist
   COMMAND ${Python3_EXECUTABLE} -m pip install --force-reinstall ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
   COMMENT "Installing tt-alchemist wheel"
 )
+
+# Install templates directly under install/templates
+add_custom_command(
+  OUTPUT ${CMAKE_INSTALL_PREFIX}/templates
+  DEPENDS
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}/templates
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates ${CMAKE_INSTALL_PREFIX}/templates
+  COMMENT "Installing templates to install/templates"
+)
+
+add_custom_target(install-templates
+  DEPENDS ${CMAKE_INSTALL_PREFIX}/templates
+  COMMENT "Installing templates directory"
+)
