@@ -2215,27 +2215,20 @@ TEST_F(OpModelBase, ReduceScatterOpInterface) {
       builder.getUnknownLoc(), outputType, input, device, reduceTypeAttr,
       scatterDimAttr, clusterAxisAttr, numLinksAttr);
 
-  // ReduceScatterOp should fold away since it's meaningless on single device
-  // but our test has different input/output shapes so it won't fold.
-  // The actual OpModel interface will fail due to CCL requirements.
-
   // Test ReduceScatterOp interface - expects failure in single device setup
+  // (note that it doesn't fail gracefully on a single device setup).
   auto constraintsExp = getOpConstraints(reduceScatter.getOperation());
-  EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  // Expected: operation fails in single-device setup
-  // Verify that we get a meaningful error message
-  const auto *expectedError =
-      "At least one of receiver_device_id or sender_device_id "
-      "must be specified";
-  auto error = llvm::toString(constraintsExp.takeError());
-  EXPECT_FALSE(error.empty());
-  EXPECT_NE(error.find(expectedError), std::string::npos);
+  EXPECT_FALSE(
+      static_cast<bool>(constraintsExp)); // Should fail on single device
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
 
   auto runtimeExp = getOpRuntime(reduceScatter.getOperation());
-  EXPECT_TRUE(static_cast<bool>(runtimeExp));
-  auto error2 = llvm::toString(runtimeExp.takeError());
-  EXPECT_FALSE(error2.empty());
-  EXPECT_NE(error2.find(expectedError), std::string::npos);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  if (!runtimeExp) {
+    llvm::consumeError(runtimeExp.takeError());
+  }
 }
 
 } // namespace mlir::tt::ttnn

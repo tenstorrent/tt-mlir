@@ -2818,23 +2818,6 @@ llvm::Expected<size_t> OpModel<AllGatherOp>::getOpRuntime(
 // ReduceScatterOp
 //===----------------------------------------------------------------------===//
 
-/*
-
-        const Tensor& input_tensor,
-        int32_t dim,
-        uint32_t cluster_axis,
-        const MeshDevice& mesh_device,
-        ttnn::operations::reduction::ReduceType reduce_op =
-        ttnn::operations::reduction::ReduceType::Sum,
-        uint32_t num_links = 1,
-        const std::optional<ttnn::MemoryConfig>& output_mem_config =
-           tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG,
-        ttnn::ccl::Topology topology = ttnn::ccl::Topology::Ring,
-        std::optional<size_t> user_defined_num_workers = std::nullopt,
-        std::optional<size_t> user_defined_num_buffers_per_channel =
-   std::nullopt
-*/
-
 llvm::Expected<OpConstraints> OpModel<ReduceScatterOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, ttcore::ReduceType reduceType,

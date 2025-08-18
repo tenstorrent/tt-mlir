@@ -2394,4 +2394,130 @@ const std::initializer_list<std::tuple<detail::TestTensor, // input
 INSTANTIATE_TEST_SUITE_P(AllGatherTests, OpModelAllGatherOpParam,
                          ::testing::ValuesIn(allGatherParams));
 
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp Tests
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+class OpModelReduceScatterParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor, // input
+                     detail::TestTensor, // output
+                     ttcore::ReduceType, // reduceType
+                     int32_t,            // scatterDim
+                     uint32_t,           // clusterAxis
+                     uint32_t,           // numLinks
+                     detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto reduceType = std::get<2>(params);
+    const auto scatterDim = std::get<3>(params);
+    const auto clusterAxis = std::get<4>(params);
+    const auto numLinks = std::get<5>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<6>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<OpTy>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, reduceType, scatterDim,
+        clusterAxis, numLinks, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+
+      EXPECT_GE(cbSize, expectedCbSize);
+      EXPECT_GE(peakSize, expectedPeakSize);
+      EXPECT_GE(outputSize, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      // Must clean up the error
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<OpTy>::getOpRuntime(
+        inputShape, inputLayout, reduceType, scatterDim, clusterAxis, numLinks,
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+using OpModelReduceScatterOpParam = OpModelReduceScatterParam<ReduceScatterOp>;
+
+TEST_P(OpModelReduceScatterOpParam, ReduceScatterOp) { RunTest(); }
+
+const std::initializer_list<std::tuple<detail::TestTensor, // input
+                                       detail::TestTensor, // output
+                                       ttcore::ReduceType, // reduceType
+                                       int32_t,            // scatterDim
+                                       uint32_t,           // clusterAxis
+                                       uint32_t,           // numLinks
+                                       detail::ExpectedResult>>
+    reduceScatterParams = {
+        // ReduceScatterOp requires multi-device setup, so these tests expect
+        // failure in single-device scenarios. This tests that the operation
+        // correctly fails when device mesh requirements are not met. This is
+        // also how this op is used in runtime code.
+
+        // Basic test case: reduce sum and scatter along dimension 0, cluster
+        // axis 0, 1 link
+        // Expects failure due to single device setup
+        std::make_tuple(
+            detail::TestTensor{
+                {128, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            detail::TestTensor{
+                {32, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            ttcore::ReduceType::Sum, // reduceType
+            0,                       // scatterDim
+            0,                       // clusterAxis
+            1,                       // numLinks
+            detail::ExpectedResult{false, 0, 0, 0}),
+
+        // Reduce max and scatter along dimension 1, cluster axis 1, 1 link
+        // Expects failure: Reduce scatter only supports reduce_type Sum.
+        // Op type ReduceType::Max not supported.
+        std::make_tuple(
+            detail::TestTensor{
+                {1024, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            detail::TestTensor{
+                {1024, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            ttcore::ReduceType::Max, // reduceType
+            1,                       // scatterDim
+            1,                       // clusterAxis
+            1,                       // numLinks
+            detail::ExpectedResult{false, 0, 0, 0}),
+
+        // Reduce min and scatter along dimension 0, cluster axis 0, 2 links
+        // Expects failure: Reduce scatter only supports reduce_type Sum. Op
+        // type ReduceType::Min not supported
+        std::make_tuple(
+            detail::TestTensor{
+                {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            detail::TestTensor{
+                {64, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            ttcore::ReduceType::Min, // reduceType
+            0,                       // scatterDim
+            0,                       // clusterAxis
+            2,                       // numLinks
+            detail::ExpectedResult{false, 0, 0, 0})};
+
+INSTANTIATE_TEST_SUITE_P(ReduceScatterTests, OpModelReduceScatterOpParam,
+                         ::testing::ValuesIn(reduceScatterParams));
+
 } // namespace mlir::tt::ttnn::op_model
