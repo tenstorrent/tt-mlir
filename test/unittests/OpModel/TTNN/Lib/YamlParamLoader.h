@@ -19,7 +19,7 @@ namespace detail {
 
 struct TestTensor {
   llvm::SmallVector<int64_t> shape;
-  mlir::tt::ttnn::TensorMemoryLayout layout;
+  mlir::tt::ttnn::TensorMemoryLayout memoryLayout;
   mlir::tt::ttnn::BufferType bufferType;
   std::optional<llvm::SmallVector<int64_t>> virtualGrid = std::nullopt;
 };
@@ -135,7 +135,8 @@ struct MaxPool2dParams {
 namespace yaml_utils {
 
 /// Parse tensor layout string to enum
-mlir::tt::ttnn::TensorMemoryLayout parseTensorLayout(const std::string &layout);
+mlir::tt::ttnn::TensorMemoryLayout
+parseTensorMemoryLayout(const std::string &layout);
 
 /// Parse buffer type string to enum
 mlir::tt::ttnn::BufferType parseBufferType(const std::string &bufferType);

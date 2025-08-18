@@ -1,17 +1,17 @@
-conv2d_params_1:
+conv2d_params_0:
   input:
     shape: [1, 1, 50176, 3]
-    tensor_layout: tile
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   weight:
     shape: [64, 3, 7, 7]
-    tensor_layout: tile
+    memory_layout: interleaved
     buffer_type: system_memory
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 12544, 64]
-    # tensor_layout: row_major
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   in_channels: 3
@@ -30,20 +30,20 @@ conv2d_params_1:
     peak_size: 190568
     output_size: 0
 
-conv2d_params_2:
+conv2d_params_1:
   input:
     shape: [1, 1, 50176, 3]
-    tensor_layout: tile
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   weight:
     shape: [64, 3, 9, 7]
-    tensor_layout: tile
+    # memory_layout: interleaved
     buffer_type: system_memory
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 12544, 64]
-    # tensor_layout: interleaved
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   in_channels: 3
@@ -57,7 +57,7 @@ conv2d_params_2:
   dilation: [1, 1]
   groups: 1
   expected_result:
-    legal: false
+    legal: true
     cb_size: 0
     peak_size: 0
     output_size: 0
