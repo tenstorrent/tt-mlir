@@ -1308,7 +1308,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights",
+    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1336,7 +1337,8 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias",
+    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$bias_tensor,
@@ -1549,7 +1551,8 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
 }
 
 class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Generic pooling op.";
     let description = [{
       Generic pooling op.
@@ -1601,16 +1604,15 @@ def TTNN_AvgPool2dOp : TTNN_PoolingOp<"avg_pool2d"> {
   }];
 }
 
-def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 }
 
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Batch normalization op.";
     let description = [{
       Batch normalization operation over each channel on input tensor.
