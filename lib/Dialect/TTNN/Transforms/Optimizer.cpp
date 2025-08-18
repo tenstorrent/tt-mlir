@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -92,7 +93,8 @@ public:
   /// A clone method to create a copy of this pass.
   std::unique_ptr<::mlir::Pass> clonePass() const override {
     auto copy = std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
-    copy->devicePtr = this->devicePtr; // Copy the device pointer
+    // `devicePtr` is not technically a pass option, so we need to copy it manually.
+    copy->devicePtr = this->devicePtr;
     return copy;
   }
 
@@ -163,7 +165,7 @@ protected:
       ::llvm::cl::init(false)};
 
   // Device pointer provided by frontend (not a command line option)
-  void *devicePtr = nullptr;
+  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -195,7 +197,7 @@ public:
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (devicePtr != nullptr) {
       op_model::SingletonDeviceContext::setExternalDevice(
-          static_cast<::tt::tt_metal::distributed::MeshDevice *>(devicePtr));
+          devicePtr);
     }
 #endif
 

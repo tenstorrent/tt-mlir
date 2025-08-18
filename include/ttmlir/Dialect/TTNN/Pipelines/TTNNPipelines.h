@@ -11,6 +11,10 @@
 
 #include "mlir/Pass/PassOptions.h"
 
+namespace tt::tt_metal::distributed {
+class MeshDevice;
+} // namespace tt::tt_metal::distributed
+
 namespace mlir::tt::ttnn {
 // Options for the TTIR to TTNN backend pipeline.
 //
@@ -278,7 +282,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to provide an already opened device pointer. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
-  void *devicePtr = nullptr;
+  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
 };
 
 // TTIR to EmitC pipeline options.

@@ -10,13 +10,9 @@
 #include <cstddef>
 #include <memory>
 
-namespace tt {
-namespace tt_metal {
-namespace distributed {
+namespace tt::tt_metal::distributed {
 class MeshDevice;
-} // namespace distributed
-} // namespace tt_metal
-} // namespace tt
+} // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn::op_model {
 
