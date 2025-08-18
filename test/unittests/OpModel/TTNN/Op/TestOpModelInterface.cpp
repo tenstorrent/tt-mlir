@@ -461,8 +461,6 @@ const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
 // buffer memory which is captured via the following expected values:
 const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
 const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
-const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
-    true, 12288 + 4096, 2048 + 30720, 2048};
 const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 0};
 
 //===---------------------------------------------------------===
@@ -512,9 +510,6 @@ const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
 const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<MinimumOp>(l, t, r).getOperation();
 };
-const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<Atan2Op>(l, t, r).getOperation();
-};
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<PowOp>(l, t, r).getOperation();
 };
@@ -550,7 +545,6 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
     {"Minimum", createMin, binaryExpected},
-    {"Atan2", createAtan2, binaryExpected_extraCb4096_extraPeak30720},
     {"Pow", createPow, binaryExpected}};
 
 // Define the test parameters for binary bitwise operations

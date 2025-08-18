@@ -262,9 +262,6 @@ struct OpModel<BitwiseOrOp> : BinaryCompositeOpModel<BitwiseOrOp> {};
 template <>
 struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
 
-template <>
-struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {};
-
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//

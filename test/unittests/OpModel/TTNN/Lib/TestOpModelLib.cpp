@@ -887,7 +887,7 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
 
-      bool useGreaterThan = std::is_same_v<OpTy, Atan2Op>;
+      bool useGreaterThan = false;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
@@ -977,7 +977,6 @@ using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
 using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
-using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -998,7 +997,6 @@ TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
 TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
-TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 TEST_P(OpModelPowParam, PowOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
@@ -1095,20 +1093,6 @@ generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
-::testing::internal::ParamGenerator<BinaryEltwiseParam>
-generateBinaryEltwiseParamsSameLayout(
-    std::initializer_list<BinaryEltwiseParam> values) {
-  std::vector<BinaryEltwiseParam> newValues;
-  for (const auto &v : values) {
-    newValues.emplace_back(v);
-    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
-        (newValues.back().inputA.layout != newValues.back().output.layout)) {
-      newValues.back().expectedResult.expectedLegal = false;
-    }
-  }
-  return ::testing::ValuesIn(newValues);
-}
-
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1169,10 +1153,6 @@ INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
 
 INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
                          generateBinaryBitwiseParams(binaryEltwiseParams));
-
-INSTANTIATE_TEST_SUITE_P(
-    Atan2Tests, OpModelAtan2Param,
-    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));

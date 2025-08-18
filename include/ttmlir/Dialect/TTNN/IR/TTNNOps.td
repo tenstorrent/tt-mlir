@@ -750,9 +750,7 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow",
     }];
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
