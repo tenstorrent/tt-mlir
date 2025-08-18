@@ -145,8 +145,8 @@ add_custom_target(install-tt-alchemist-python
 )
 
 add_custom_target(install-tt-alchemist-all
-  DEPENDS install-tt-alchemist-runtime install-tt-alchemist-dev install-tt-alchemist-python
-  COMMENT "Installing all tt-alchemist components"
+  DEPENDS install-tt-alchemist-runtime install-tt-alchemist-dev install-tt-alchemist-python install-templates
+  COMMENT "Installing all tt-alchemist components including templates"
 )
 
 # Include component installation utilities
@@ -242,20 +242,19 @@ add_custom_target(tt-alchemist
   COMMENT "Installing tt-alchemist wheel"
 )
 
-# Install templates directly under install/templates
-add_custom_command(
-  OUTPUT ${CMAKE_INSTALL_PREFIX}/templates
-  DEPENDS
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}/templates
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates ${CMAKE_INSTALL_PREFIX}/templates
-  COMMENT "Installing templates to install/templates"
+# Install templates directly under install/templates using proper CMake install
+# This ensures templates are always copied during installation
+install(DIRECTORY
+  ${TT_ALCHEMIST_HOME}/templates/
+  DESTINATION templates
+  COMPONENT tt-alchemist-templates
+  FILES_MATCHING
+  PATTERN "*"
+  PATTERN ".git*" EXCLUDE
 )
 
+# Create convenience target for installing templates
 add_custom_target(install-templates
-  DEPENDS ${CMAKE_INSTALL_PREFIX}/templates
-  COMMENT "Installing templates directory"
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component tt-alchemist-templates --prefix ${CMAKE_INSTALL_PREFIX}
+  COMMENT "Installing templates to install/templates"
 )
