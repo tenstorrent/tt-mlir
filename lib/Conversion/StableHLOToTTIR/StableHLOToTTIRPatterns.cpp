@@ -2173,6 +2173,9 @@ public:
 };
 } // namespace
 
+// NOTE: StableHLO Dynamic Slice Op clamps start indices to ensure validity,
+// but we don't. Would add multiple ops (worse perf) and doesn't appear in test
+// models.
 namespace {
 class StableHLOToTTIRDynamicSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DynamicSliceOp> {
