@@ -216,6 +216,42 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// LogicalRightShiftOp
+//===----------------------------------------------------------------------===//
+
+// LogicalRightShiftOp verifier
+::mlir::LogicalResult mlir::tt::ttir::LogicalRightShiftOp::verify() {
+  RankedTensorType lhsTensorType = getLhs().getType();
+  RankedTensorType rhsTensorType = getRhs().getType();
+  RankedTensorType outputTensorType = getResult().getType();
+
+  // Check that left operand (value to be shifted) has integer element type.
+  auto lhsElemType = lhsTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(lhsElemType)) {
+    return emitOpError()
+           << "Left operand element type must be integer, but got "
+           << lhsElemType;
+  }
+
+  // Check that right operand (shift amount) has integer element type.
+  auto rhsElemType = rhsTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(rhsElemType)) {
+    return emitOpError()
+           << "Right operand element type must be integer, but got "
+           << rhsElemType;
+  }
+
+  // Check that output has integer element type.
+  auto outputElemType = outputTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(outputElemType)) {
+    return emitOpError() << "Output element type must be integer, but got "
+                         << outputElemType;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ClampTensorOp
 //===----------------------------------------------------------------------===//
 
