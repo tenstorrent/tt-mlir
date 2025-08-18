@@ -1,1 +1,2 @@
-add_subdirectory(types)
+add_subdirectory(client)
+add_subdirectory(server)

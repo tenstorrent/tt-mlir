@@ -1,0 +1,72 @@
+
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/system_desc.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/binary.fbs";
+
+namespace tt.target.ttnn.distributed;
+
+table ErrorResponse {
+  message: string;
+}
+
+table GetSystemDescResponse {
+  system_desc: tt.target.SystemDescRoot;
+}
+
+table MeshDeviceDesc {
+  mesh_shape: [uint32];
+  device_ids: [int];
+  num_hw_cqs: uint8;
+  program_cache_enabled: bool;
+  l1_small_size: uint64;
+  trace_region_size: uint64;
+  num_dram_channels: uint32;
+  dram_size_per_channel: uint64;
+  l1_size_per_core: uint32;
+}
+
+table OpenMeshDeviceResponse {
+  device: tt.target.DeviceRef;
+  desc: MeshDeviceDesc;
+}
+
+table CloseMeshDeviceResponse {
+  success: bool;
+}
+
+table CreateHostTensorResponse {
+  output_global_id: uint64;
+}
+
+table ToLayoutResponse {
+  output_global_id: uint64;
+}
+
+table SubmitResponse {
+  output_global_ids: [uint64];
+}
+
+table ShutdownResponse {
+  success: bool;
+}
+
+union ResponseType {
+  ErrorResponse,
+  GetSystemDescResponse,
+  OpenMeshDeviceResponse,
+  CloseMeshDeviceResponse,
+  CreateHostTensorResponse,
+  ToLayoutResponse,
+  SubmitResponse,
+  ShutdownResponse,
+}
+
+table Response {
+  command_id: uint64;
+  type: ResponseType;
+}
+
+root_type Response;
+file_identifier "NNRS";
+file_extension "ttnnrsp";

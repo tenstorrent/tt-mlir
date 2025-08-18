@@ -28,10 +28,8 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
 )
 
 set(TTNN_DISTRIBUTED_FBS_GEN_SOURCES
-  distributed/core.fbs
-  distributed/system_desc.fbs
-  distributed/runtime.fbs
-  distributed/protocol.fbs
+  distributed/command.fbs
+  distributed/response.fbs
 )
 
 set(TTNN_FBS_GEN_SOURCES

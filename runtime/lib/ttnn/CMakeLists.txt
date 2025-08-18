@@ -8,7 +8,6 @@ add_subdirectory(utils)
 add_subdirectory(debug)
 add_subdirectory(types)
 add_subdirectory(operations)
-add_subdirectory(distributed)
 
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNN INTERFACE)
@@ -30,3 +29,5 @@ target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTME
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
+
+add_subdirectory(distributed)

@@ -15,6 +15,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
+
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
