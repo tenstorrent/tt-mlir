@@ -947,9 +947,29 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    // Convert UnaryOpType vectors to UnaryWithParamAttr vectors
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> postActivationsAttrs;
+    for (auto opType : GetParam().postActivations) {
+      postActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> lhsActivationsAttrs;
+    for (auto opType : GetParam().lhsActivations) {
+      lhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> rhsActivationsAttrs;
+    for (auto opType : GetParam().rhsActivations) {
+      rhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, outputLayout);
+        inputLayoutB, postActivationsAttrs, lhsActivationsAttrs,
+        rhsActivationsAttrs, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -968,7 +988,9 @@ protected:
     }
 
     llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);

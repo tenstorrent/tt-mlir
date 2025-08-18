@@ -579,7 +579,7 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
                                        nullptr, nullptr, nullptr, nullptr);
 
   auto logicalRightShift = builder.create<LogicalRightShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+      builder.getUnknownLoc(), outputType, input1, input2);
 
   // Test LogicalRightShift interface
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
