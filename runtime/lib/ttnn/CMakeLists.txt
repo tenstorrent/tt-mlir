@@ -8,6 +8,7 @@ add_subdirectory(utils)
 add_subdirectory(debug)
 add_subdirectory(types)
 add_subdirectory(operations)
+add_subdirectory(distributed)
 
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNN INTERFACE)

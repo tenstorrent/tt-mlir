@@ -1,6 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 
-namespace tt.target.ttnn.protocol;
+namespace tt.target.ttnn.distributed;
 
 table GetSystemDescCommand {
   dispatch_core_type: tt.target.DispatchCoreType;

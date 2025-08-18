@@ -61,6 +61,14 @@ target_include_directories(TTRuntimeContext
 )
 target_link_libraries(TTRuntimeContext PUBLIC coverage_config)
 
+add_library(TTRuntimeSocket STATIC socket.cpp)
+set_property(TARGET TTRuntimeSocket PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeSocket
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
+target_link_libraries(TTRuntimeSocket PUBLIC coverage_config)
+
 add_library(TTRuntimeDebug STATIC debug.cpp)
 set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDebug

@@ -1,10 +1,10 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
-include "ttmlir/Target/TTNN/protocol/core.fbs";
-include "ttmlir/Target/TTNN/protocol/system_desc.fbs";
-include "ttmlir/Target/TTNN/protocol/runtime.fbs";
+include "ttmlir/Target/TTNN/distributed/core.fbs";
+include "ttmlir/Target/TTNN/distributed/system_desc.fbs";
+include "ttmlir/Target/TTNN/distributed/runtime.fbs";
 
-namespace tt.target.ttnn.protocol;
+namespace tt.target.ttnn.distributed;
 
 union CommandType {
   GetSystemDescCommand,
