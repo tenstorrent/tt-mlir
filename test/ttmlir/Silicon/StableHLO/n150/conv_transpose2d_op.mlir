@@ -14,7 +14,7 @@ module @test_conv_transpose {
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: tensor<1x256x32x32xf32,
     // CHECK-SAME: -> tensor<1x32x32x256xf32,
-    // CHECK: %[[CONV_T:[0-9]+]] = "ttnn.conv_transpose2d"(%{{[0-9]+}}, %arg1, %{{[0-9]+}})
+    // CHECK: %[[CONV_T:[0-9]+]] = "ttnn.conv_transpose2d"
     // CHECK-SAME: batch_size = 1 : i32,
     // CHECK-SAME: dilation = array<i32: 1, 1>,
     // CHECK-SAME: groups = 1 : i32,

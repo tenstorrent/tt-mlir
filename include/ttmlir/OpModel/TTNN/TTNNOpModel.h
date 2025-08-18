@@ -21,7 +21,10 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  ttcore::GridAttr maxGrid);
 
 // Calculate the output tensor type of the prepared weights for a conv2d op.
-mlir::RankedTensorType getPreparedConv2dWeightsOutputTensor(Conv2dOp *op);
+// Conv2dConfigAttr is used to determine the output tensor type.
+mlir::RankedTensorType
+getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
+                                     Conv2dConfigAttr conv2dConfig);
 
 //===----------------------------------------------------------------------===//
 // Device
