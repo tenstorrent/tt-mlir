@@ -7,6 +7,7 @@ from enum import Enum
 
 from ttmlir.dialects import ttkernel
 
+
 class CircularBuffer:
     def __init__(self, cb_id, tensor_shape=(8, 128, 128), dtype="Float32"):
         self.cb_id = cb_id
@@ -105,6 +106,7 @@ class TensorAccessorConfig(Enum):
     def __ior__(self, other):
         """Enable |= operator"""
         return self.__or__(other)
+
 
 class ClassRegistry:
     _registry = {}
