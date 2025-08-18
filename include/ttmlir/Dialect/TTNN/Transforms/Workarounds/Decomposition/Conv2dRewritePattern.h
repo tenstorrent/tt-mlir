@@ -40,6 +40,28 @@ mlir::Value moveToHostRowMajorIfNeeded(ConvOp op,
       /*targetTensorMemoryLayout=*/std::nullopt, desiredDataType, locSuffix);
 }
 
+template <typename ConvOp>
+mlir::Value moveToRowMajor(ConvOp op, mlir::TypedValue<RankedTensorType> value,
+                           mlir::PatternRewriter &rewriter,
+                           llvm::StringRef locSuffix) {
+  mlir::RankedTensorType valueType = value.getType();
+  TTNNLayoutAttr layoutAttr =
+      mlir::cast<TTNNLayoutAttr>(valueType.getEncoding());
+  if (!layoutAttr.isTiled()) {
+    return nullptr;
+  }
+
+  ttcore::DataType currentDataType = layoutAttr.getDataType();
+  ttcore::DataType desiredDataType = currentDataType;
+  if (currentDataType == ttcore::DataType::BFP_BFloat8) {
+    desiredDataType = ttcore::DataType::BFloat16;
+  }
+
+  return utils::createToLayoutOp(
+      op, value, rewriter, Layout::RowMajor, layoutAttr.getBufferType(),
+      layoutAttr.getMemLayoutOpt(), desiredDataType, locSuffix);
+}
+
 mlir::RankedTensorType rewriteOutputToTile(mlir::RankedTensorType resultType) {
   TTNNLayoutAttr layoutAttr =
       mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
@@ -63,6 +85,8 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ConvOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
+    mlir::Value input =
+        moveToRowMajor(srcOp, srcOp.getInput(), rewriter, "_input");
     mlir::Value weight = moveToHostRowMajorIfNeeded(srcOp, srcOp.getWeight(),
                                                     rewriter, "_weight");
     mlir::Value bias = srcOp.getBias()
@@ -78,6 +102,9 @@ public:
     }
 
     rewriter.modifyOpInPlace(srcOp, [&]() {
+      if (input) {
+        srcOp.getInputMutable().assign(input);
+      }
       if (weight) {
         srcOp.getWeightMutable().assign(weight);
       }
