@@ -2415,7 +2415,7 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
     ::testing::ValuesIn(yaml_utils::parseAllMaxPool2dParams(
-        "test/unittests/OpModel/TTNN/Lib/maxpool2dparams.yml")));
+        "test/unittests/OpModel/TTNN/Lib/poolingparams.yml")));
 
 // AvgPool2D tests
 class OpModelAvgPool2DParam : public OpModelPool2DParam<AvgPool2dOp> {};
