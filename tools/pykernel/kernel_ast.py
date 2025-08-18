@@ -15,12 +15,13 @@ from .kernel_types import *
 from .common.ast_base import PyKernelAstBase
 from .common.utils import _discover_dialect_ops
 
+
 class TTKernelCompiler(PyKernelAstBase):
     _fn_map = _discover_dialect_ops(ttkernel)
     _fn_map["get_compile_time_arg_val"] = (
-            ttkernel.get_compile_time_arg_val,
-            [True, True],
-        )  # True for arg as attribute
+        ttkernel.get_compile_time_arg_val,
+        [True, True],
+    )  # True for arg as attribute
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):
         assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
@@ -110,7 +111,6 @@ class TTKernelCompiler(PyKernelAstBase):
         # TODO: add alloca args name into symbol table
         assert not self.func_entry, "Cannot declare function within a function"
 
-        arg_types = []
         rt_args = []
         common_rt_args = []
         ct_args = []
@@ -167,7 +167,6 @@ class TTKernelCompiler(PyKernelAstBase):
                 self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
             )
 
-        func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=([], []))
         # Supply cb_args as ct_args, use rt_args and ct_args "normally"
         arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
