@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <functional>
 
 namespace mlir::tt::ttir {
 
@@ -287,6 +288,75 @@ TEST(GreedyAllocationTest, ConflictFree) {
 //===----------------------------------------------------------------------===//
 // Tests for space mapping algorithms.
 //===----------------------------------------------------------------------===//
+
+namespace {
+struct S0 {
+  int32_t i32;
+  double d;
+  int64_t i64;
+};
+} // namespace
+
+TEST(AllocationToolsTest, UtilTypes) {
+  const S0 a{1, 1.0, 1};
+
+  const S0 b{2, 1.0, 1};
+  const S0 c{1, 2.0, 1};
+  const S0 d{1, 1.0, 2};
+  {
+    auto compare = make_lexicographical_field_comparator<std::less<>>(
+        &S0::i32, &S0::d, &S0::i64);
+
+    EXPECT_TRUE(compare(a, b));
+    EXPECT_TRUE(compare(a, c));
+    EXPECT_TRUE(compare(a, d));
+
+    EXPECT_TRUE(compare(c, b));
+    EXPECT_TRUE(compare(d, b));
+    EXPECT_TRUE(compare(d, c));
+
+    EXPECT_FALSE(compare(a, a));
+    EXPECT_FALSE(compare(b, b));
+    EXPECT_FALSE(compare(c, c));
+    EXPECT_FALSE(compare(d, d));
+  }
+  {
+    auto compare = make_lexicographical_field_comparator<std::greater<>>(
+        &S0::i32, &S0::d, &S0::i64);
+
+    EXPECT_FALSE(compare(a, b));
+    EXPECT_FALSE(compare(a, c));
+    EXPECT_FALSE(compare(a, d));
+
+    EXPECT_FALSE(compare(c, b));
+    EXPECT_FALSE(compare(d, b));
+    EXPECT_FALSE(compare(d, c));
+
+    EXPECT_FALSE(compare(a, a));
+    EXPECT_FALSE(compare(b, b));
+    EXPECT_FALSE(compare(c, c));
+    EXPECT_FALSE(compare(d, d));
+  }
+  {
+    auto compare =
+        make_lexicographical_field_comparator<std::less<>>(&S0::d, &S0::i64);
+
+    EXPECT_FALSE(compare(a, b));
+    EXPECT_FALSE(compare(b, a));
+
+    EXPECT_TRUE(compare(a, c));
+    EXPECT_TRUE(compare(a, d));
+  }
+  {
+    auto compare01 =
+        make_lexicographical_field_comparator<std::less<>>(&S0::i32, &S0::d);
+    auto compare10 =
+        make_lexicographical_field_comparator<std::less<>>(&S0::d, &S0::i32);
+
+    EXPECT_TRUE(compare01(c, b));
+    EXPECT_TRUE(compare10(b, c));
+  }
+}
 
 TEST(AllocationToolsTest, SupportTypes) {
 
