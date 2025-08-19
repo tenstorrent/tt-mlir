@@ -316,6 +316,10 @@ auto getOpSymbol() {
     return ::ttnn::where;
   } else if constexpr (std::is_same_v<OpTy, MeanOp>) {
     return ::ttnn::mean;
+  } else if constexpr (std::is_same_v<OpTy, MaxOp>) {
+    return ::ttnn::max;
+  } else if constexpr (std::is_same_v<OpTy, MinOp>) {
+    return ::ttnn::min;
   } else if constexpr (std::is_same_v<OpTy, SumOp>) {
     return ::ttnn::sum;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
@@ -1181,6 +1185,8 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for ReductionOpModel.
 template struct ReductionOpModel<MeanOp>;
 template struct ReductionOpModel<SumOp>;
+template struct ReductionOpModel<MaxOp>;
+template struct ReductionOpModel<MinOp>;
 
 //===----------------------------------------------------------------------===//
 // Named Full Ops

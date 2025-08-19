@@ -758,7 +758,8 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
+class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic,
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let summary = "Reduction op.";
   let description = [{
     Reduction op.
@@ -780,18 +781,14 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
   let hasVerifier = 1;
 }
 
-def TTNN_SumOp : TTNN_ReductionOp<"sum",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{
       Sum reduction op.
     }];
 }
 
-def TTNN_MeanOp : TTNN_ReductionOp<"mean",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
   let summary = "Mean reduction op.";
   let description = [{
     Mean reduction op.
