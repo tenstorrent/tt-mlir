@@ -98,7 +98,7 @@ void ProgramExecutor::finishing() {
     }
     int64_t size = getDim(memref->type()->data_type()) * dim;
     if (size < 0) {
-      llvm::errs() << "Failed to get size of tensor: " << memref->name()->str()
+      llvm::errs() << "Failed to get size of tensor: " << memref->id()->str()
                    << "\n";
       finishing();
       return ::tt::runtime::Tensor(nullptr, nullptr,
@@ -108,15 +108,15 @@ void ProgramExecutor::finishing() {
     CUdeviceptr devicePtr;
     auto cudaStatus = cuMemAlloc(&devicePtr, size);
     if (cudaStatus != 0) {
-      llvm::errs() << "cudaMalloc failed for tensor " << memref->name()->str()
+      llvm::errs() << "cudaMalloc failed for tensor " << memref->id()->str()
                    << " with error code " << cudaStatus << "\n";
     }
-    tensorMap.insert({memref->name()->str(), devicePtr});
-    memrefDescMap.insert({memref->name()->str(), memref});
+    tensorMap.insert({memref->id()->str(), devicePtr});
+    memrefDescMap.insert({memref->id()->str(), memref});
 
-    if (memref->name()->str().find("%arg") != std::string::npos) {
+    if (memref->id()->str().find("%arg") != std::string::npos) {
       // Copy input tensors to device.
-      size_t i = std::stoi(memref->name()->str().substr(4));
+      size_t i = std::stoi(memref->id()->str().substr(4));
       if (programInputs.size() <= i) {
         llvm::errs() << "Not enough arguments provided\n";
         finishing();
@@ -129,7 +129,7 @@ void ProgramExecutor::finishing() {
   }
 
   for (auto *constant : *program->constants()) {
-    constantMap.insert({constant->name()->str(), constant});
+    constantMap.insert({constant->id()->str(), constant});
   }
 
   // Run kernels.
@@ -163,7 +163,7 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
   auto kernelArgs = std::make_unique<void *[]>(kernel->input_names()->size());
   size_t i = 0;
   for (const auto *arg : *kernel->input_names()) {
-    if (tensorMap.count(arg->str()) == 0) {
+    if (!tensorMap.contains(arg->str()) && !constantMap.contains(arg->str())) {
       llvm::errs() << "Tensor not found: " << arg->str() << "\n";
       return;
     }
