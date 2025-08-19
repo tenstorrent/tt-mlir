@@ -4,6 +4,8 @@
 
 #include "ttmlir/Target/CUDA/CudaToFlatbuffer.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
@@ -17,7 +19,6 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 using namespace mlir;
 
