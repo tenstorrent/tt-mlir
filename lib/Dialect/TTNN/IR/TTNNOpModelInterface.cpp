@@ -792,6 +792,70 @@ MinimumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// BitwiseAndOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+BitwiseAndOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+BitwiseAndOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// BitwiseOrOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+BitwiseOrOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+BitwiseOrOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// BitwiseXorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+BitwiseXorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+BitwiseXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// PowOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PowOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+PowOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // DivideOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
