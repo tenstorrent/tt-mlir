@@ -60,7 +60,6 @@ void runAvgPool2dOp(
   ::ttnn::Tensor out =
       ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
              op->channels(), kernelSize, stride, padding, op->ceil_mode(),
-             /*count_include_pad=*/
              op->extra_params_as_AvgPool2dExtraParams()->count_include_pad(),
              /*divisor_override=*/std::nullopt, outputMemoryConfig,
              appliedShardScheme, op->in_place_halo());
