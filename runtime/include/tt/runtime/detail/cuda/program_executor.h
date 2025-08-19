@@ -5,12 +5,14 @@
 #ifndef TT_RUNTIME_DETAIL_CUDA_PROGRAM_EXECUTOR_H
 #define TT_RUNTIME_DETAIL_CUDA_PROGRAM_EXECUTOR_H
 
+#include "ttmlir/Target/CUDA/program_generated.h"
+
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
-#include "ttmlir/Target/CUDA/program_generated.h"
+
 #include "llvm/ADT/StringMap.h"
 
 #include <cuda.h>
@@ -38,6 +40,7 @@ private:
   std::vector<::tt::runtime::Tensor> programInputs;
   llvm::StringMap<CUdeviceptr> tensorMap;
   llvm::StringMap<const ::cuda::MemRefDesc *> memrefDescMap;
+  llvm::StringMap<const ::cuda::Constant *> constantMap;
   CUdevice device;
   CUcontext context;
 

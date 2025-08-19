@@ -1,3 +1,5 @@
+include "ttmlir/Target/Common/types.fbs";
+
 namespace cuda;
 
 table Kernel {
@@ -12,15 +14,39 @@ table Kernel {
   input_names: [string];
 }
 
+enum DataType: uint16 {
+  Float64,
+  UInt64,
+  Int64,
+  Float32,
+  UInt32,
+  Int32,
+  Float16,
+  BFloat16,
+  UInt16,
+  Int16
+}
+
+table Type {
+  shape: [uint64];
+  data_type: DataType;
+}
+
 table MemRefDesc {
   name: string;
-  type: string;
-  value: string;
+  type: Type;
+}
+
+table Constant {
+  name: string;
+  type: Type;
+  value: [uint8];
 }
 
 table Program {
   kernels: [Kernel];
   memrefs: [MemRefDesc];
+  constants: [Constant];
   return_variable: string;
 }
 

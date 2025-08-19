@@ -118,9 +118,11 @@ protected:
         fbb.CreateVector(std::vector<flatbuffers::Offset<::cuda::Kernel>>{});
     auto emptyMemrefs = fbb.CreateVector(
         std::vector<flatbuffers::Offset<::cuda::MemRefDesc>>{});
+    auto emptyConstants =
+        fbb.CreateVector(std::vector<flatbuffers::Offset<::cuda::Constant>>{});
     auto returnVar = fbb.CreateString("");
-    auto program =
-        ::cuda::CreateProgram(fbb, emptyKernels, emptyMemrefs, returnVar);
+    auto program = ::cuda::CreateProgram(fbb, emptyKernels, emptyMemrefs,
+                                         emptyConstants, returnVar);
     fbb.FinishSizePrefixed(program);
 
     uint8_t *buf = fbb.GetBufferPointer();
