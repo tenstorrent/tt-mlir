@@ -1987,7 +1987,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::ValuesIn(yaml_utils::parseAllConv2dParams(
-        "test/unittests/OpModel/TTNN/Lib/conv2dparams.yml")));
+        "test/unittests/OpModel/TTNN/Lib/Params/conv2d.yml")));
 
 class OpModelConvTranspose2dParam
     : public OpModelTest,
@@ -2067,7 +2067,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
 INSTANTIATE_TEST_SUITE_P(
     ConvTranspose2dTests, OpModelConvTranspose2dParam,
     ::testing::ValuesIn(yaml_utils::parseAllConvTranspose2dParams(
-        "test/unittests/OpModel/TTNN/Lib/convtranspose2dparams.yml")));
+        "test/unittests/OpModel/TTNN/Lib/Params/convtranspose2d.yml")));
 
 template <typename OpTy>
 class OpModelPool2DParam : public OpModelTest,
@@ -2140,7 +2140,7 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     MaxPool2DTests, OpModelMaxPool2DParam,
     ::testing::ValuesIn(yaml_utils::parseAllPoolingParams(
-        "test/unittests/OpModel/TTNN/Lib/poolingparams.yml")));
+        "test/unittests/OpModel/TTNN/Lib/Params/pooling.yml")));
 
 // AvgPool2D tests
 class OpModelAvgPool2DParam : public OpModelPool2DParam<AvgPool2dOp> {};
@@ -2148,7 +2148,7 @@ TEST_P(OpModelAvgPool2DParam, AvgPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(
     AvgPool2DTests, OpModelAvgPool2DParam,
     ::testing::ValuesIn(yaml_utils::parseAllPoolingParams(
-        "test/unittests/OpModel/TTNN/Lib/poolingparams.yml")));
+        "test/unittests/OpModel/TTNN/Lib/Params/pooling.yml")));
 
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<
