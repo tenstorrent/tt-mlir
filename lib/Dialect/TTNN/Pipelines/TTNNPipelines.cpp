@@ -71,7 +71,6 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
-  pm.addPass(ttir::createElementTypeNormalization());
 }
 
 void createTTNNPipelineAnalysisPasses(

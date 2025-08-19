@@ -1838,8 +1838,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
 
     // Create ttir::ConstantOp for zero point.
     int32_t zeroPoint = static_cast<int32_t>(quantPerTensorType.getZeroPoint());
-    mlir::RankedTensorType zeroPointType =
-        mlir::RankedTensorType::get({1}, rewriter.getIntegerType(32));
+    mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
+        {1}, IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed));
     mlir::DenseIntElementsAttr zeroPointDenseAttr =
         mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoint);
     ttir::ConstantOp zeroPointConstant = rewriter.create<ttir::ConstantOp>(
@@ -1865,7 +1865,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
     SmallVector<int32_t> zeroPoints(
         llvm::to_vector_of<int32_t>(quantPerAxisType.getZeroPoints()));
     mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
-        {static_cast<int64_t>(zeroPoints.size())}, rewriter.getIntegerType(32));
+        {static_cast<int64_t>(zeroPoints.size())},
+        IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed));
     mlir::DenseIntElementsAttr zeroPointDenseAttr =
         mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoints);
     ttir::ConstantOp zeroPointConstant = rewriter.create<ttir::ConstantOp>(
