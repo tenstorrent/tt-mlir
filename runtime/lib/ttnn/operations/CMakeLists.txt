@@ -4,6 +4,7 @@ if (NOT TTNN_RUNTIME_ENABLED)
 endif()
 
 set(TTNN_OPS_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/attention/paged_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp

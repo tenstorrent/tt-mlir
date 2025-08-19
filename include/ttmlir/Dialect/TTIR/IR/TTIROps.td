@@ -5512,4 +5512,23 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot_product_attention_decode"> {
+  let summary = "Paged scaled dot product attention decode.";
+  let description = [{
+    Paged scaled dot product attention decode.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$keys,
+                       AnyRankedTensor:$values,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$cur_pos_tensor,
+                       AnyRankedTensor:$output,
+                       Optional<AnyRankedTensor>:$attn_mask,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 #endif
