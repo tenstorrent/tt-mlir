@@ -1,7 +1,7 @@
-conv_transpose2d_params_1:
+conv_transpose2d_params_0:
   input:
     shape: [1, 1, 50176, 3]
-    # memory_layout: row_major
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   weight:
@@ -11,7 +11,7 @@ conv_transpose2d_params_1:
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 12544, 64]
-    # memory_layout: interleaved
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   in_channels: 3
