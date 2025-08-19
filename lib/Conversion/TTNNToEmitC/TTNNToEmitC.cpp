@@ -2325,6 +2325,40 @@ public:
 };
 } // namespace
 
+// RMSNormOp conversion pattern
+//
+namespace {
+class RMSNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::RMSNormOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RMSNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* residual_input_tensor= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/* program_config= */ std::nullopt),
+        emitter.emit(/* compute_kernel_config= */ std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -2580,8 +2614,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern>(
-      typeConverter, ctx);
+               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
+               RMSNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //

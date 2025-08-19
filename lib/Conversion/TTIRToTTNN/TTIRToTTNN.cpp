@@ -939,6 +939,45 @@ public:
 };
 } // namespace
 
+namespace {
+class RMSNormOpConversionPattern : public OpConversionPattern<ttir::RMSNormOp> {
+public:
+  using OpConversionPattern<ttir::RMSNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RMSNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // We need to validate that the normalized_shape matches this constraint.
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> normalizedShape = adaptor.getNormalizedShape();
+
+    // For now, TTNN only support normalization over the last dimension (most
+    // common case).
+    if (normalizedShape.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN RMS norm currently only supports normalization over the "
+              "last dimension");
+    }
+
+    if (normalizedShape[0] != inputShape.back()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN RMS norm requires normalized_shape to match the last "
+              "dimension of input shape");
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -1867,6 +1906,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
            BatchNormOpConversionPattern,
+           RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

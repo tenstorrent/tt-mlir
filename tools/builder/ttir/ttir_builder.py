@@ -133,7 +133,6 @@ class TTIRBuilder(Builder):
             op_golden_function = builder_golden.get_golden_function(
                 op_ttir_function, **golden_kwargs
             )
-
             if (
                 not isinstance(organize_golden_args(inputs), torch.Tensor)
                 and organize_golden_args(inputs) == 0
@@ -4786,4 +4785,77 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+        )
+
+    def rms_norm(
+        self,
+        in0: Operand,
+        normalized_shape: List[int],
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.rms_norm``.
+
+        *RMS normalization operation.*
+
+        Performs RMS (Root Mean Square) normalization on the input tensor. This operation
+        normalizes the input tensor by computing the root mean square of elements across
+        the specified dimensions and dividing by that value, optionally scaling and
+        shifting the result.
+
+        Mathematical definition: rms_norm(x, weight, bias, epsilon) =
+          (x / sqrt(mean(x^2, dims=normalized_dims) + epsilon)) * weight + bias
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be normalized
+        normalized_shape : List[int]
+            Shape over which to normalize (typically the last few dimensions)
+        weight : Optional[Operand], optional
+            Scale parameter (gamma) tensor with shape matching normalized_shape
+        bias : Optional[Operand], optional
+            Shift parameter (beta) tensor with shape matching normalized_shape
+        epsilon : float, optional
+            Small constant for numerical stability (default: 1e-5)
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        # Prepare TTIR kwargs:
+        ttir_kwargs = {
+            "normalized_shape": normalized_shape,
+            "epsilon": epsilon,
+        }
+
+        golden_kwargs = {
+            "normalized_shape": normalized_shape,
+            "epsilon": epsilon,
+        }
+
+        if weight is not None:
+            ttir_kwargs["weight"] = weight
+            golden_kwargs["weight"] = self._get_golden_tensor(weight)
+        if bias is not None:
+            ttir_kwargs["bias"] = bias
+            golden_kwargs["bias"] = self._get_golden_tensor(bias)
+
+        return self._op_proxy(
+            ttir.RMSNormOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            unit_attrs=unit_attrs,
         )

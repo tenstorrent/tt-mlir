@@ -332,6 +332,50 @@ def batch_norm_golden(
     return result
 
 
+def rms_norm_golden(
+    input: torch.Tensor,
+    weight: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    normalized_shape: List[int] = None,
+    epsilon: float = 1e-5,
+) -> torch.Tensor:
+    """
+    Custom golden function for RMS normalization operation.
+    Parameters
+    ----------
+    input : torch.Tensor
+        Input tensor to RMS normalization operation
+    weight : torch.Tensor, optional
+        Weight tensor for scaling (default: None)
+    bias : torch.Tensor, optional
+        Bias tensor for shifting (default: None)
+    normalized_shape : List[int], optional
+        Shape of the input tensor to normalize (default: None)
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+    Returns
+    -------
+    torch.Tensor
+        RMS normalized output tensor
+    """
+    # Convert to float for computation
+    input_float = input.float()
+
+    rms_norm = torch.nn.functional.rms_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    # Apply bias (shift) if provided
+    if bias is not None:
+        rms_norm = rms_norm + bias.float()
+
+    # Convert back to original dtype
+    return rms_norm.to(input.dtype)
+
+
 def argmax_golden(input_tensor, dim_arg, keep_dim=False):
     """
     Custom golden function for argmax.
@@ -2133,6 +2177,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormOp: batch_norm_golden,
+    ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: torch.Tensor.type,
     # Tensor creation

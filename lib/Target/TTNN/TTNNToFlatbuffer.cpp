@@ -880,6 +880,37 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
       weight, bias, memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
+createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateRMSNormOp(*cache.fbb, input, weight, bias,
+                                             op.getEpsilon().convertToFloat(),
+                                             memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -2358,6 +2389,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
     return createOperation(cache, createOp(cache, batchNormOp), debugString,
+                           locInfo);
+  }
+  if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
+    return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
