@@ -2,14 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tt/runtime/detail/cuda/program_executor.h"
+
+#include "tt/runtime/types.h"
+
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include "llvm/Support/Error.h"
 #include <cstddef>
 #include <cuda.h>
 #include <cuda_runtime.h>
-
-#include "tt/runtime/detail/cuda/program_executor.h"
-#include "tt/runtime/types.h"
 
 namespace tt::runtime::cuda {
 
@@ -23,17 +26,22 @@ ProgramExecutor::ProgramExecutor(
   cuCtxCreate(&context, 0, device);
 }
 
-static int64_t getDim(std::string typeStr) {
-  if (typeStr.find("f32") != std::string::npos) {
-    return sizeof(float);
+static int64_t getDim(::cuda::DataType dataType) {
+  switch (dataType) {
+  case ::cuda::DataType::Int64:
+  case ::cuda::DataType::UInt64:
+  case ::cuda::DataType::Float64:
+    return 8;
+  case ::cuda::DataType::Int32:
+  case ::cuda::DataType::UInt32:
+  case ::cuda::DataType::Float32:
+    return 4;
+  case ::cuda::DataType::Float16:
+  case ::cuda::DataType::BFloat16:
+  case ::cuda::DataType::UInt16:
+  case ::cuda::DataType::Int16:
+    return 2;
   }
-  if (typeStr.find("i32") != std::string::npos) {
-    return sizeof(int32_t);
-  }
-  if (typeStr.find("i64") != std::string::npos) {
-    return sizeof(int64_t);
-  }
-  return -1;
 }
 
 void ProgramExecutor::finishing() {
@@ -61,6 +69,13 @@ void ProgramExecutor::finishing() {
     ;
   }
 
+  if (!program->constants()) {
+    llvm::errs() << "No constants found in program\n";
+    return ::tt::runtime::Tensor(nullptr, nullptr,
+                                 ::tt::runtime::DeviceRuntime::CUDA);
+    ;
+  }
+
   if (!program->kernels()) {
     llvm::errs() << "No kernels found in program\n";
     return ::tt::runtime::Tensor(nullptr, nullptr,
@@ -78,12 +93,10 @@ void ProgramExecutor::finishing() {
   for (auto *memref : *program->memrefs()) {
     int64_t dim = 1;
     // Get size of tensor.
-    std::string typeStr = memref->type()->str();
-    while (typeStr.find("x") != std::string::npos) {
-      dim *= std::stoi(typeStr.substr(0, typeStr.find("x")));
-      typeStr = typeStr.substr(typeStr.find("x") + 1);
+    for (auto shapeDim : *memref->type()->shape()) {
+      dim *= shapeDim;
     }
-    int64_t size = getDim(typeStr) * dim;
+    int64_t size = getDim(memref->type()->data_type()) * dim;
     if (size < 0) {
       llvm::errs() << "Failed to get size of tensor: " << memref->name()->str()
                    << "\n";
@@ -115,6 +128,10 @@ void ProgramExecutor::finishing() {
     }
   }
 
+  for (auto *constant : *program->constants()) {
+    constantMap.insert({constant->name()->str(), constant});
+  }
+
   // Run kernels.
   for (const auto *kernel : *program->kernels()) {
     runKernel(kernel);
@@ -122,14 +139,15 @@ void ProgramExecutor::finishing() {
 
   // Copy return value to host.
   CUdeviceptr returnVariable = tensorMap[program->return_variable()->str()];
-  std::string returnTypeStr =
-      memrefDescMap[program->return_variable()->str()]->type()->str();
   int64_t returnDim = 1;
-  while (returnTypeStr.find("x") != std::string::npos) {
-    returnDim *= std::stoi(returnTypeStr.substr(0, returnTypeStr.find("x")));
-    returnTypeStr = returnTypeStr.substr(returnTypeStr.find("x") + 1);
+  for (auto shapeDim :
+       *memrefDescMap[program->return_variable()->str()]->type()->shape()) {
+    returnDim *= shapeDim;
   }
-  size_t returnSize = getDim(returnTypeStr) * returnDim;
+  size_t returnSize = getDim(memrefDescMap[program->return_variable()->str()]
+                                 ->type()
+                                 ->data_type()) *
+                      returnDim;
   auto returnPtr = std::shared_ptr<void>(std::malloc(returnSize), std::free);
   cuMemcpyDtoH(returnPtr.get(), returnVariable, returnSize);
 
@@ -149,23 +167,9 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
       llvm::errs() << "Tensor not found: " << arg->str() << "\n";
       return;
     }
-    if (memrefDescMap[arg->str()]->value()->str().size() > 0) {
-      if (memrefDescMap[arg->str()]->type()->str().find("f32") !=
-          std::string::npos) {
-        float value = std::stof(memrefDescMap[arg->str()]->value()->str());
-        kernelArgs[i] = &value;
-      } else if (memrefDescMap[arg->str()]->type()->str().find("i32") !=
-                 std::string::npos) {
-        int32_t value = std::stoi(memrefDescMap[arg->str()]->value()->str());
-        kernelArgs[i] = &value;
-      } else if (memrefDescMap[arg->str()]->type()->str().find("i64") !=
-                 std::string::npos) {
-        int64_t value = std::stoll(memrefDescMap[arg->str()]->value()->str());
-        kernelArgs[i] = &value;
-      } else {
-        llvm::errs() << "Unsupported tensor type: "
-                     << memrefDescMap[arg->str()]->type()->str() << "\n";
-      }
+    if (constantMap.contains(arg->str())) {
+      const uint8_t *byteData = constantMap[arg->str()]->value()->data();
+      kernelArgs[i] = const_cast<uint8_t *>(byteData);
     } else {
       kernelArgs[i] = &tensorMap[arg->str()];
     }
