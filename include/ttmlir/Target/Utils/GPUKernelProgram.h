@@ -5,16 +5,16 @@
 #ifndef TTMLIR_TARGET_UTILS_GPUKERNELPROGRAM_H
 #define TTMLIR_TARGET_UTILS_GPUKERNELPROGRAM_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "llvm/Support/raw_ostream.h"
-#include <flatbuffers/buffer.h>
-#include <string>
-#include <vector>
-
 #include "flatbuffers/flatbuffers.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <flatbuffers/buffer.h>
+#include <string>
+#include <vector>
 
 namespace mlir::tt::cuda {
 struct MemRefDesc {

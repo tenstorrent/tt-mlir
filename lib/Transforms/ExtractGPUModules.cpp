@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
@@ -14,10 +16,9 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+
 #include <cassert>
 #include <iostream>
-
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 
 namespace mlir::tt::transforms {
 
