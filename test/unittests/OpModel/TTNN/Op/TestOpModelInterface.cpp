@@ -1757,6 +1757,11 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
+  Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
+                                      ? *conv2d.getConv2dConfig()
+                                      : Conv2dConfigAttr::get(&context);
+  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+
   // Now create PrepareConv2dWeightsOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
       &context,
@@ -1769,7 +1774,7 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
 
   // Get expected prepared weights output shape
   auto preparedWeightOutputType =
-      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d);
+      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
 
   PrepareConv2dWeightsOp prepareConv2dWeights =
       builder.create<PrepareConv2dWeightsOp>(
