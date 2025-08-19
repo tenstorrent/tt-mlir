@@ -2112,20 +2112,26 @@ public:
 };
 } // namespace
 
-// SliceOp conversion pattern
+// SliceStaticOp conversion pattern
 //
 namespace {
-class SliceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SliceOp> {
+class SliceStaticOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SliceStaticOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.slice_static";
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::slice"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::SliceOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::SliceStaticOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::SliceOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::SliceStaticOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceStaticOp> emitter(
         srcOp, adaptor, rewriter);
 
     // Create SmallVector variable for begins
@@ -2208,6 +2214,44 @@ public:
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, resultType, this->convertOpName(srcOp),
         rewriter.getArrayAttr(args), /*template_args=*/nullptr, operands);
+
+    return success();
+  }
+};
+} // namespace
+
+// SliceDynamicOp conversion pattern
+//
+namespace {
+class SliceDynamicOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SliceDynamicOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.slice_dynamic";
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::slice"; }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SliceDynamicOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SliceDynamicOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceDynamicOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBegins()),
+        emitter.emit(srcOp.getEnds()),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }
@@ -2493,7 +2537,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
+               RepeatInterleaveOpConversionPattern,
+               SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
                SortOpConversionPattern, PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
                                                                   ctx);

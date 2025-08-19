@@ -4449,7 +4449,7 @@ class TTIRBuilder(Builder):
 
         # Use op_proxy
         return self._op_proxy(
-            ttir.SliceOp,
+            ttir.SliceStaticOp,
             [in0],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
