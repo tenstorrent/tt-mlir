@@ -1859,6 +1859,29 @@ public:
 };
 } // namespace
 
+namespace {
+
+class PagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<ttir::PagedScaledDotProductAttentionDecodeOp> {
+public:
+  using OpConversionPattern<
+      ttir::PagedScaledDotProductAttentionDecodeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PagedScaledDotProductAttentionDecodeOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PagedScaledDotProductAttentionDecodeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKeys(), adaptor.getValues(),
+        adaptor.getPageTable(), adaptor.getAttnMask(),
+        adaptor.getCurPosTensor(), adaptor.getIsCausal(), adaptor.getScale());
+    return success();
+  }
+};
+
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -1972,7 +1995,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
-           ConcatenateHeadsOpConversionPattern
+           ConcatenateHeadsOpConversionPattern,
+           PagedScaledDotProductAttentionDecodeOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
