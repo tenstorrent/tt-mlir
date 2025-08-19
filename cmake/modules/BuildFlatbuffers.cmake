@@ -52,4 +52,23 @@ foreach(FILE ${sources})
 
 endforeach()
 add_library(${target} INTERFACE ${FBS_GEN_OUTPUTS})
+
+if (TTMLIR_ENABLE_PYKERNEL)
+  set(FLATBUFFERS_PYTHON_OUT_DIR "${PROJECT_BINARY_DIR}/python_packages")
+  set(FLATBUFFERS_PYTHON_STAMP "${FLATBUFFERS_PYTHON_OUT_DIR}/tt/.py_stamps/${namespace}_python.stamp")
+  if ("${namespace}" STREQUAL "ttnn")
+    set(_globs "*.fbs operations/*.fbs")
+  else()
+    set(_globs "*.fbs")
+  endif()
+  add_custom_command(OUTPUT "${FLATBUFFERS_PYTHON_STAMP}"
+    COMMAND /bin/sh -c "${FLATBUFFERS_COMPILER} -I ${PROJECT_SOURCE_DIR}/include/ --python --keep-prefix -o ${FLATBUFFERS_PYTHON_OUT_DIR} ${_globs}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${FLATBUFFERS_PYTHON_STAMP}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Generating FlatBuffers Python modules for: ${namespace}"
+    VERBATIM
+  )
+  add_custom_target(${target}_PY DEPENDS "${FLATBUFFERS_PYTHON_STAMP}")
+endif()
+
 endfunction()
