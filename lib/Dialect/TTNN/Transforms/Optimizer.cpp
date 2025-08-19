@@ -271,7 +271,7 @@ public:
         legalOpLayoutAnalysis.init(LegalOpLayoutAnalysisInput(
             &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
             rowMajorEnabled));
-        
+
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(

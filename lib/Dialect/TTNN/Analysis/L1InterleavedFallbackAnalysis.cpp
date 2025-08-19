@@ -34,7 +34,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // Skip operations that have DRAM output in runtime even when configured as
     // L1 via this analysis.
     // TODO(bmalesevic,#4505): remove this after they are supported in runtime
-    if (isa<ttnn::SliceOp, ttnn::TypecastOp>(op)) {
+    if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
       return;
     }
 
@@ -42,7 +42,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       // Skip operations that have DRAM input in runtime even when configured as
       // L1 via this analysis.
       // TODO(bmalesevic,#4505): remove this after they are supported in runtime
-      if (isa<ttnn::SliceOp, ttnn::TypecastOp>(user)) {
+      if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(user)) {
         return;
       }
     }
