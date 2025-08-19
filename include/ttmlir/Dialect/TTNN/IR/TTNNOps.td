@@ -2546,4 +2546,22 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
+def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged scaled dot product attention decode.";
+  let description = [{
+    Paged scaled dot product attention decode.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$keys,
+                       AnyRankedTensor:$values,
+                       AnyRankedTensor:$page_table,
+                       Optional<AnyRankedTensor>:$attn_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 #endif

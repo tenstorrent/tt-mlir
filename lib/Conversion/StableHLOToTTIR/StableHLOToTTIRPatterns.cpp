@@ -3347,6 +3347,52 @@ public:
 };
 } // namespace
 
+namespace {
+class StableHLOPagedAttentionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    if (srcOp.getCallTargetNameAttr() != "tt.paged_attention") {
+      return failure();
+    }
+
+    SmallVector<Value> operands = adaptor.getOperands();
+    if (operands.size() != 5) {
+      return failure();
+    }
+
+    Value query = operands[0];
+    Value keys = operands[1];
+    Value values = operands[2];
+    Value page_table = operands[3];
+    Value update_indices = operands[4];
+
+    mlir::tt::ttir::EmptyOp emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
+        srcOp.getLoc(), operands[0].getType());
+    rewriter.replaceOpWithNewOp<
+        mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+        srcOp, emptyOp.getType(), query, keys, values, page_table,
+        update_indices, emptyOp, nullptr, rewriter.getBoolAttr(true),
+        rewriter.getF32FloatAttr(1.0));
+
+    // ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+    //     rewriter, srcOp,
+    //     cast<RankedTensorType>(
+    //         getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+    //     query, keys, values, page_table, update_indices, std::nullopt,
+    //     true, 1.0);
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -3657,6 +3703,13 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
           typeConverter, ctx);
 }
 
+
+static void addPagedAttentionOpConversionPattern(MLIRContext *ctx,
+                                                 RewritePatternSet &patterns,
+                                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOPagedAttentionOpConversionPattern>(typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3695,6 +3748,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
                                                         typeConverter);
+  addPagedAttentionOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

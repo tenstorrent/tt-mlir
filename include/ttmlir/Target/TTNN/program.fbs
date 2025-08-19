@@ -12,6 +12,7 @@ include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
 include "ttmlir/Target/TTNN/operations/generic_op.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
+include "ttmlir/Target/TTNN/operations/paged_attention.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
 include "ttmlir/Target/TTNN/operations/load_cached.fbs";
 // ANCHOR: adding_an_op_matmul_fbs_include
@@ -72,6 +73,7 @@ union OpType {
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
   PadOp,
+  PagedScaledDotProductAttentionDecodeOp,
   PermuteOp,
   PointToPointOp,
   Pool2dOp,

@@ -1,0 +1,16 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table PagedScaledDotProductAttentionDecodeOp {
+  query: tt.target.ttnn.TensorRef;
+  keys: tt.target.ttnn.TensorRef;
+  values: tt.target.ttnn.TensorRef;
+  page_table: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attn_mask: tt.target.ttnn.TensorRef;
+  cur_pos_tensor: tt.target.ttnn.TensorRef;
+  scale: float = null;
+}

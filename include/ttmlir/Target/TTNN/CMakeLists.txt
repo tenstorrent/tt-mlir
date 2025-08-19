@@ -13,6 +13,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/embedding.fbs
   operations/generic_op.fbs
   operations/kv_cache.fbs
+  operations/paged_attention.fbs
   operations/layout.fbs
   operations/load_cached.fbs
   # ANCHOR: adding_an_op_matmul_fbs_cmake
