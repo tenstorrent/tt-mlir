@@ -228,10 +228,25 @@ static llvm::Expected<std::string> getReturnVariableName(ModuleOp rootModule) {
     auto returnOpCast = dyn_cast<mlir::func::ReturnOp>(returnOp);
     if (returnOpCast && returnOpCast.getNumOperands() > 0) {
       Value returnValue = returnOpCast.getOperand(0);
+
+      // Apply the same pattern as operand extraction to find the original
+      // return variable by walking backwards through any reinterpret casts
+      // or other transformations.
+      Operation *definingOp = returnValue.getDefiningOp();
+      Operation *lastOp = returnOpCast;
+      while (definingOp && definingOp->getNumOperands() > 0) {
+        lastOp = definingOp;
+        definingOp = definingOp->getOperand(0).getDefiningOp();
+      }
+      Value finalReturnValue = lastOp->getOpOperand(0).get();
+      if (lastOp == returnOpCast) {
+        finalReturnValue = returnValue;
+      }
+
       std::string returnStr;
       llvm::raw_string_ostream returnStream(returnStr);
       AsmState asmState(rootModule);
-      returnValue.printAsOperand(returnStream, asmState);
+      finalReturnValue.printAsOperand(returnStream, asmState);
       returnVariableName = returnStream.str();
       return returnVariableName;
     }
