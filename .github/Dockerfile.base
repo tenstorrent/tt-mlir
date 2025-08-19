@@ -40,6 +40,8 @@ apt-get install -y \
 # Setup / install metal dependencies
 wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/{install_dependencies.sh,tt_metal/sfpi-version.sh}
 bash install_dependencies.sh --docker
+
+rm -rf /var/cache/apt /var/lib/apt/lists
 # ANCHOR_END: developer_dependencies
 EOT
 
@@ -50,7 +52,8 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     apt install -y libc++-17-dev libc++abi-17-dev && \
     ln -s /usr/bin/clang-17 /usr/bin/clang && \
     ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
-    ln -s /usr/bin/clangd-17 /usr/bin/clangd
+    ln -s /usr/bin/clangd-17 /usr/bin/clangd && \
+    rm -rf /var/cache/apt /var/lib/apt/lists
 
 # Install python packages
 RUN pip install cmake \
