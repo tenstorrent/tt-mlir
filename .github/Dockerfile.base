@@ -58,7 +58,8 @@ RUN wget https://apt.llvm.org/llvm.sh && \
 # Install python packages
 RUN pip install cmake \
     sphinx \
-    sphinx-markdown-builder
+    sphinx-markdown-builder && \
+    rm -rf ~/.cache/pip
 
 # Install Googletest
 RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && \
