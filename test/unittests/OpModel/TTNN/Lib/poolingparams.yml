@@ -1,12 +1,12 @@
-maxpool2d_params_1:
+maxpool2d_params_0:
   input:
     shape: [1, 1, 16384, 32]
-    # memory_layout: row_major
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 12544, 3]
-    # memory_layout: interleaved
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   batch_size: 1
@@ -25,15 +25,15 @@ maxpool2d_params_1:
     peak_size: 0
     output_size: 0
 
-maxpool2d_params_2:
+maxpool2d_params_1:
   input:
     shape: [1, 1, 65536, 32]
-    # memory_layout: row_major
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 8192, 32]
-    # memory_layout: interleaved
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   batch_size: 1
@@ -47,20 +47,20 @@ maxpool2d_params_2:
   ceil_mode: false
   in_place_halo: false
   expected_result:
-    legal: false
+    legal: true
     cb_size: 0
     peak_size: 0
     output_size: 0
 
-maxpool2d_params_3:
+maxpool2d_params_2:
   input:
     shape: [1, 1, 357, 32] # 17*21 = 357
-    # memory_layout: row_major
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   output:
     shape: [1, 1, 55, 22]
-    # memory_layout: interleaved
+    memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
   batch_size: 1

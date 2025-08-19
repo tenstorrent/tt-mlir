@@ -2345,10 +2345,6 @@ class OpModelPool2DParam : public OpModelTest,
                            public testing::WithParamInterface<PoolingParams> {
 protected:
   void RunTest() {
-    // TODO(2976): Some of these test cases return L1 interleaved row major
-    // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
-    // when the linked issue is fixed
-    GTEST_SKIP();
     auto params = GetParam();
     const auto [inputShape, inputTensorLayout, inputBufferType,
                 inputVirtualGrid] = params.input;
@@ -2388,7 +2384,7 @@ protected:
           constraintsExp.get();
       EXPECT_GT(cbSize, 0);
       EXPECT_GT(peakSize, 0);
-      EXPECT_GT(outputSize, 0);
+      EXPECT_EQ(outputSize, 0);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
