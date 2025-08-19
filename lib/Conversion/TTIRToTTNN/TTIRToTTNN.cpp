@@ -1496,11 +1496,60 @@ public:
           op, "ttnn and tt-metal have limited scatter support. Inserted window "
               "dimenstion must be 1 in the input tensor shape.");
     }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
+
+    // Full scatter decomposition based on original tt-metal workaround:
+    // 1. Create mask using ones_like(input) with input shape
+    // 2. Pad update tensor to match input shape
+    // 3. Use where(mask, input, padded_update) to select values
+
+    Value input = adaptor.getInput();
+    Value update = adaptor.getUpdate();
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(input.getType());
+    RankedTensorType updateType =
+        mlir::cast<RankedTensorType>(update.getType());
+
+    RankedTensorType convertedInputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(inputType));
+    RankedTensorType convertedOutputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+
+    llvm::SmallVector<int64_t> inputShapeVec(inputType.getShape());
+    ttnn::ShapeAttr shapeAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), inputShapeVec);
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    // Create ones tensor with explicit TILE layout and matching data type for
+    // whereop
+    auto layoutAttr =
+        ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(convertedInputType.getEncoding());
+    auto dtypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                               ttnnLayoutAttr.getDataType());
+    auto onesOp = rewriter.create<ttnn::OnesOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_mask"),
+        convertedInputType, /*shape=*/shapeAttr, /*dtype=*/dtypeAttr,
+        /*layout=*/layoutAttr, /*device=*/device, /*memory_config=*/nullptr);
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> updateShape = updateType.getShape();
+
+    SmallVector<int32_t> padding;
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      padding.push_back(0); // low padding (start_index = {0,0,0,0})
+      padding.push_back(inputShape[i] - updateShape[i]);
+    }
+
+    auto paddedUpdateOp = rewriter.create<ttnn::PadOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_padded_update"),
+        convertedInputType, update, padding, /*pad_value=*/mlir::APFloat(0.0f),
+        /*use_multicore=*/false, /*memory_config=*/nullptr);
+
+    auto whereOp = rewriter.replaceOpWithNewOp<ttnn::WhereOp>(
+        op, convertedOutputType, onesOp, input, paddedUpdateOp);
+    whereOp->setLoc(
+        ttmlir::utils::appendLocationSuffix(whereOp.getLoc(), "_where"));
 
     return success();
   }
