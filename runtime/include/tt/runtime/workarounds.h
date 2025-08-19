@@ -10,15 +10,9 @@
 namespace tt::runtime::workaround {
 
 struct Env {
-  static const Env &get(bool swapBinaryOperands = true,
-                        bool readUpdateIndexFromDeviceForKVCache = true,
+  static const Env &get(bool readUpdateIndexFromDeviceForKVCache = true,
                         bool traceImplicitFromDevice = true,
                         bool blackholeWorkarounds = true);
-
-  // TODO(bug #1124): We're currently swapping the operands for binary ops
-  // in runtime if the lhs operand is smaller (and requires broadcast onto the
-  // rhs operand). We should add this check in the compiler.
-  bool swapBinaryOperands;
 
   // TODO(bug #1510): ttnn::update_cache takes a single update index as a uint32
   // as a function argument. The tt-torch frontend and likely others model this
@@ -40,11 +34,9 @@ struct Env {
   bool blackholeWorkarounds;
 
 private:
-  constexpr Env(bool swapBinaryOperands,
-                bool readUpdateIndexFromDeviceForKVCache,
+  constexpr Env(bool readUpdateIndexFromDeviceForKVCache,
                 bool traceImplicitFromDevice, bool blackholeWorkarounds)
-      : swapBinaryOperands(swapBinaryOperands),
-        readUpdateIndexFromDeviceForKVCache(
+      : readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         traceImplicitFromDevice(traceImplicitFromDevice),
         blackholeWorkarounds(blackholeWorkarounds) {}
@@ -52,8 +44,6 @@ private:
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
-  os << "\t"
-     << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
   os << "\t"
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";

@@ -162,13 +162,7 @@ class Run:
             choices=[True, False],
             help="enable blocking CQ mode device execution",
         )
-        Run.register_arg(
-            name="--disable-swap-binary-operands",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable swap binary operands workaround",
-        )
+
         Run.register_arg(
             name="--disable-read-update-index-for-kv-cache",
             type=bool,
@@ -571,7 +565,6 @@ class Run:
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
-                not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
