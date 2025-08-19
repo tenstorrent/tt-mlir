@@ -33,12 +33,12 @@ table Type {
 }
 
 table MemRefDesc {
-  name: string;
+  id: string;
   type: Type;
 }
 
 table Constant {
-  name: string;
+  id: string;
   type: Type;
   value: [uint8];
 }
