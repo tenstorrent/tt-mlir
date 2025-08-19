@@ -125,6 +125,9 @@ add_custom_command(
 
 # Copy all required shared libraries to the Python package
 # TODO: Eventually leverage these libs from ttnn-install for smaller footprint
+set(TTMETALIUM_LOCATAION $<TARGET_FILE:TT::Metalium>)
+set(TTNN_CPP_LOCATAION $<TARGET_FILE:TTNN::CPP>)
+set(UMD_DEVICE_LOCATION $<TARGET_FILE:umd::device>)
 add_custom_command(
   OUTPUT
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
@@ -133,9 +136,9 @@ add_custom_command(
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
   DEPENDS ${ALCHEMIST_LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETALIUM_LOCATAION} ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTNN_CPP_LOCATAION} ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${UMD_DEVICE_LOCATION} ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMENT "Copying shared libraries to Python package"
 )
 
