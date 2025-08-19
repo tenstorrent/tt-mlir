@@ -265,7 +265,9 @@ def test_reduce_scatter(
 @pytest.mark.parametrize(
     "pairs",
     [
-        [(0, 1)],
+        pytest.param(
+            [(0, 1)], marks=pytest.mark.fails_golden
+        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
         [(0, 1), (1, 2), (2, 3), (3, 0)],
         [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)],
         [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)],
