@@ -26,13 +26,26 @@ table CircularBufferConfig {
   num_buffers: uint64;
 }
 
-table BufferDesc {
-  shape: [int];
-  tile_shape: Dim2d;
-  data_type: DataType;
-  memory_space: MemorySpace;
+table SystemBuffer {
+  stride: [int];
+}
+
+table MetalBuffer {
+  buffer_type: BufferType;
   sharded_buffer_config: ShardedBufferConfig;
   circular_buffer_config: CircularBufferConfig;
+}
+
+union BufferDetail {
+  SystemBuffer,
+  MetalBuffer
+}
+
+table BufferDesc {
+  shape: [int];
+  data_type: DataType;
+  element_shape: Dim2d;
+  buffer_detail: BufferDetail;
 }
 
 table BufferRef {

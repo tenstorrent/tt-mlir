@@ -837,9 +837,10 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32)])
-@pytest.mark.parametrize("dims", [[32, 1, 1]])
-def test_repeat(shape: Shape, dims: List[int], request):
+@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)])
+@pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_repeat(shape: Shape, dims: List[int], dtype, request):
     def repeat(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -848,6 +849,7 @@ def test_repeat(shape: Shape, dims: List[int], request):
     compile_ttir_to_flatbuffer(
         repeat,
         [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -2236,7 +2238,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         ge,
         gt,
         div | Marks(pytest.mark.run_error),
-        remainder | Marks(pytest.mark.run_error),
+        remainder,
         maximum,
         minimum,
         pow | Marks(pytest.mark.run_error),
