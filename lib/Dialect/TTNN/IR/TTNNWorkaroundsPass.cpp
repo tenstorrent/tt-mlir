@@ -571,7 +571,7 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
 // https://github.com/tenstorrent/tt-metal/issues/19762
 template <typename T>
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(T op) {
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
 
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
@@ -677,10 +677,10 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
 }
 
 template TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
 template TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
 
 } // namespace mlir::tt::ttnn::wa

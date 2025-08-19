@@ -1451,7 +1451,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(*this);
+        return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
     }];
 }
@@ -1541,7 +1541,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(*this);
+        return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
     }];
 }

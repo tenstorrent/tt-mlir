@@ -511,8 +511,9 @@ public:
 
     // Special case for bfp8 weights which don't come directly from
     // function argument but are created by TypecastOp.
-    if (isa_and_present<TypecastOp>(weightValue.getDefiningOp())) {
-      weightValue = weightValue.getDefiningOp<TypecastOp>().getInput();
+    if (auto typecast =
+            dyn_cast_if_present<TypecastOp>(weightValue.getDefiningOp())) {
+      weightValue = typecast.getInput();
     }
 
     if (BlockArgument blockArg = dyn_cast<BlockArgument>(weightValue)) {

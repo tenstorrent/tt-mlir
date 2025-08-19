@@ -279,7 +279,7 @@ public:
 
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
-  static TTNNOperandsWorkarounds createConv2dOpOperandsWorkarounds(T op);
+  static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
