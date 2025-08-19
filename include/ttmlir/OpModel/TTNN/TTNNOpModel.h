@@ -188,6 +188,19 @@ struct BinaryEltwiseOpModel {
                TTNNLayoutAttr outputLayout);
 };
 
+template <typename OpT>
+struct BinaryCompositeOpModel {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+      TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
+      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               TTNNLayoutAttr outputLayout);
+};
+
 template <>
 struct OpModel<AddOp> : BinaryEltwiseOpModel<AddOp> {};
 
@@ -237,6 +250,18 @@ struct OpModel<LogicalOrOp> : BinaryEltwiseOpModel<LogicalOrOp> {};
 template <>
 struct OpModel<LogicalXorOp> : BinaryEltwiseOpModel<LogicalXorOp> {};
 
+template <>
+struct OpModel<PowOp> : BinaryEltwiseOpModel<PowOp> {};
+
+template <>
+struct OpModel<BitwiseAndOp> : BinaryCompositeOpModel<BitwiseAndOp> {};
+
+template <>
+struct OpModel<BitwiseOrOp> : BinaryCompositeOpModel<BitwiseOrOp> {};
+
+template <>
+struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
+
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//
@@ -281,6 +306,12 @@ struct OpModel<MeanOp> : ReductionOpModel<MeanOp> {};
 
 template <>
 struct OpModel<SumOp> : ReductionOpModel<SumOp> {};
+
+template <>
+struct OpModel<MaxOp> : ReductionOpModel<MaxOp> {};
+
+template <>
+struct OpModel<MinOp> : ReductionOpModel<MinOp> {};
 
 //===----------------------------------------------------------------------===//
 // Named Full Ops
