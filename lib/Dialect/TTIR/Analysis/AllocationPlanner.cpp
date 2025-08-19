@@ -112,21 +112,20 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
     int32_t worstMaxConflictSize = 0;
     bool inContentionGroup = false;
     // TODO total live range duration OR some cumsum of conflict counts
-    // TODO delta b/w unspilled and spilled mem requirements?
+    // (approximate interference graph edge counts)
     IndexT varIndex = -1;
   };
 
   std::vector<SpillPriority> priorities;
   priorities.reserve(freeVarCount);
 
-  // TODO templatize this comparator
-  auto byPriority = [&](const SpillPriority &lhs, const SpillPriority &rhs) {
-    return (lhs.inContentionGroup > rhs.inContentionGroup) ||
-           ((lhs.inContentionGroup == rhs.inContentionGroup) &&
-            ((lhs.worstSize > rhs.worstSize) ||
-             ((lhs.worstSize == rhs.worstSize) &&
-              (lhs.worstMaxConflictSize > rhs.worstMaxConflictSize))));
-  };
+  auto byPriority = make_lexicographical_field_comparator<std::greater<>>(
+      // clang-format off
+    &SpillPriority::inContentionGroup,
+    &SpillPriority::worstSize,
+    &SpillPriority::worstMaxConflictSize
+      // clang-format on
+  );
 
   for (IndexT varIndex = 0; varIndex < varCount; ++varIndex) {
     if (work.bound.contains(varIndex)) {

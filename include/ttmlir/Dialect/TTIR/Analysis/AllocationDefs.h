@@ -19,6 +19,9 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <tuple>
+#include <utility>
+
 namespace mlir::tt::ttir {
 
 // Define some convenience macros local to `Analysis`.
@@ -63,6 +66,50 @@ namespace mlir::tt::ttir {
 template <typename Enum>
 [[nodiscard]] constexpr std::underlying_type_t<Enum> ordinal(Enum e) {
   return llvm::to_underlying(e);
+}
+
+namespace detail {
+template <typename Compare, typename... Fields>
+class lexicographical_field_comparator : Compare {
+public:
+  lexicographical_field_comparator(std::tuple<Fields...> &&fields)
+      : fields(std::move(fields)) {}
+
+  template <typename T>
+  constexpr bool operator()(const T &lhs, const T &rhs) const {
+    using indexes = std::make_index_sequence<sizeof...(Fields)>;
+
+    return compare(lhs, rhs, indexes{});
+  }
+
+private:
+  template <typename T, std::size_t... I>
+  bool compare(const T &lhs, const T &rhs, std::index_sequence<I...>) const {
+    return (static_cast<const Compare &>(*this))(
+        std::tie(lhs.*std::get<I>(fields)...),
+        std::tie(rhs.*std::get<I>(fields)...));
+  }
+
+  std::tuple<Fields...> fields;
+};
+} // namespace detail
+
+/// Helper function for creating a lexicographic comparator
+/// from an ordered list of struct member pointers, e.g
+///
+///   struct Priority {
+///    std::size_t size;
+///    std::int32_t k;
+///   };
+///   auto compare = make_lexicographical_field_comparator<std::less<>>(
+///     &Priority::k,
+///     &Priority::size
+///   );
+///
+template <typename Compare, typename... Fields>
+auto make_lexicographical_field_comparator(Fields... fields) {
+  return detail::lexicographical_field_comparator<Compare, Fields...>{
+      std::make_tuple(fields...)};
 }
 
 /// Syntactic sugar helper for printing MLIR Value %-names with
