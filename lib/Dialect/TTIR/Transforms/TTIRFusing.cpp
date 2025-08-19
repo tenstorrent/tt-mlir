@@ -10,7 +10,6 @@
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -55,6 +54,8 @@ public:
                              [&]() { conv2dOp.getBiasMutable().assign(bias); });
     rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
 
+    // The original conv2d op will be removed by DCE since it's no longer
+    // used.
     return mlir::success();
   }
 
@@ -394,6 +395,7 @@ private:
     if (!conv2dOp || !conv2dOp.getResult().hasOneUse()) {
       return false;
     }
+
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
@@ -418,6 +420,7 @@ private:
             mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
       scaleType = bcastOp.getInput().getType();
     }
+
     // Check if scale shape is with conv2d weight.
     if (!hasValidScaleShape(conv2dOp, scaleType)) {
       return false;
@@ -438,6 +441,7 @@ private:
     if (useDefChain.contains(conv2dOp)) {
       return false;
     }
+
     return true;
   }
 
@@ -633,19 +637,31 @@ public:
     // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
     // to (1, 1, 1, C).
 
-    SmallVector<int64_t> reshapeShape(4, 1);
-    reshapeShape[dimension] = std.getType().getShape()[0];
-    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
-                                         reshapeShape.end());
-    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
-        alpha.getType().getEncoding(), alpha,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
+    Value alphaReshaped = alpha;
+    Value betaReshaped = beta;
 
-    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, beta.getType().getElementType(),
-        beta.getType().getEncoding(), beta,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
+    // Only reshape if alpha/beta don't already have rank 4
+    if (alpha.getType().getRank() != 4) {
+      SmallVector<int64_t> reshapeShape(4, 1);
+      reshapeShape[dimension] = alpha.getType().getShape()[0];
+      SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                           reshapeShape.end());
+      alphaReshaped = utils::createDPSOp<ReshapeOp>(
+          rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+          alpha.getType().getEncoding(), alpha,
+          rewriter.getI32ArrayAttr(reshapeShapeI32));
+    }
+
+    if (beta.getType().getRank() != 4) {
+      SmallVector<int64_t> reshapeShape(4, 1);
+      reshapeShape[dimension] = beta.getType().getShape()[0];
+      SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                           reshapeShape.end());
+      betaReshaped = utils::createDPSOp<ReshapeOp>(
+          rewriter, loc, reshapeShape, beta.getType().getElementType(),
+          beta.getType().getEncoding(), beta,
+          rewriter.getI32ArrayAttr(reshapeShapeI32));
+    }
 
     // alpha * x
     auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
