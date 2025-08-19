@@ -312,10 +312,22 @@ auto getOpSymbol() {
     return ::ttnn::maximum;
   } else if constexpr (std::is_same_v<OpTy, MinimumOp>) {
     return ::ttnn::minimum;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseAndOp>) {
+    return ::ttnn::bitwise_and;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseOrOp>) {
+    return ::ttnn::bitwise_or;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
+    return ::ttnn::bitwise_xor;
+  } else if constexpr (std::is_same_v<OpTy, PowOp>) {
+    return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
     return ::ttnn::where;
   } else if constexpr (std::is_same_v<OpTy, MeanOp>) {
     return ::ttnn::mean;
+  } else if constexpr (std::is_same_v<OpTy, MaxOp>) {
+    return ::ttnn::max;
+  } else if constexpr (std::is_same_v<OpTy, MinOp>) {
+    return ::ttnn::min;
   } else if constexpr (std::is_same_v<OpTy, SumOp>) {
     return ::ttnn::sum;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
@@ -982,6 +994,85 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+template <typename OpTy>
+llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
+    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
+                                               device, inputSpecA, inputSpecB,
+                                               outputMemoryConfig);
+  };
+
+  return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
+                                           inputSpecA, inputSpecB,
+                                           outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 // Explicit template instantiation for BinaryEltwiseOpModel.
 template struct BinaryEltwiseOpModel<AddOp>;
 template struct BinaryEltwiseOpModel<MultiplyOp>;
@@ -999,6 +1090,11 @@ template struct BinaryEltwiseOpModel<LessThanOp>;
 template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
+template struct BinaryEltwiseOpModel<PowOp>;
+// BinaryCompositeOpModel
+template struct BinaryCompositeOpModel<BitwiseAndOp>;
+template struct BinaryCompositeOpModel<BitwiseOrOp>;
+template struct BinaryCompositeOpModel<BitwiseXorOp>;
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
@@ -1184,6 +1280,8 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for ReductionOpModel.
 template struct ReductionOpModel<MeanOp>;
 template struct ReductionOpModel<SumOp>;
+template struct ReductionOpModel<MaxOp>;
+template struct ReductionOpModel<MinOp>;
 
 //===----------------------------------------------------------------------===//
 // Named Full Ops
