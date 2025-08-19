@@ -246,7 +246,7 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait,
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [
        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Eltwise where.";
@@ -254,14 +254,14 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcast
       Eltwise where operation.
     }];
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getOperands();
-        return
-          wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
-                                                                        inputs);
-      }
-    }];
+    // let extraClassDeclaration = [{
+    //   wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+    //     ::mlir::Operation::operand_range inputs = getOperands();
+    //     return
+    //       wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+    //                                                                     inputs);
+    //   }
+    // }];
 }
 
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
