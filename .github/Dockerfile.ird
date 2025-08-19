@@ -27,7 +27,7 @@ RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
 # Install GDB 14.2
 RUN apt update && apt install libmpfr-dev -y && \
     rm -rf /var/cache/apt /var/lib/apt/lists && \
-    wget https://ftp.gnu.org/gnu/gdb/gdb-14.2.tar.gz && \
+    wget 'https://mirrors.ocf.berkeley.edu/gnu/gdb/gdb-14.2.tar.gz' && \
     tar -xvf gdb-14.2.tar.gz && \
     cd gdb-14.2 && \
     ./configure && \
