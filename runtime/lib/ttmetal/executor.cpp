@@ -287,15 +287,16 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
     const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
-    // assume interleaved buffer configs don't have CB config
-    if (bufferDesc->buffer_detail_type() ==
-        target::metal::BufferDetail::MetalBufferInterleaved) {
-      continue;
-    }
     LOG_ASSERT(bufferDesc->buffer_detail_type() ==
                target::metal::BufferDetail::MetalBuffer);
     const target::metal::MetalBuffer *metalBuffer =
         bufferDesc->buffer_detail_as_MetalBuffer();
+
+    // Assume interleaved buffer configs don't have CB config
+    if (metalBuffer->buffer_config_type() ==
+        target::metal::BufferConfig::InterleavedBufferConfig) {
+      continue;
+    }
 
     // skip init if CircularBufferConfig is not present
     if (!metalBuffer->circular_buffer_config()) {

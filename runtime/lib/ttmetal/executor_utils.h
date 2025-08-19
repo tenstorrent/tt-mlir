@@ -101,115 +101,134 @@ private:
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
 inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
+createMeshBufferForShardedMetalBuffer(
+    tt_metal::distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    const target::metal::ShardedBufferConfig *shardedBufferConfig,
+    target::BufferType bufferType,
+    const DeviceAddressValidator &deviceAddressValidator) {
+  const target::metal::ShardSpecBuffer *shardSpecBuffer =
+      shardedBufferConfig->shard_spec_buffer();
+  const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
+
+  CoreRangeSet coreRangeSet =
+      common::toCoreRangeSet(shardSpec->core_range_set());
+  std::array<uint32_t, 2> shardShape = {
+      static_cast<uint32_t>(shardSpec->shard_shape()->y()),
+      static_cast<uint32_t>(shardSpec->shard_shape()->x()),
+  };
+  tt_metal::ShardSpec metalShardSpec(coreRangeSet, shardShape);
+
+  std::array<uint32_t, 2> pageShape = {
+      static_cast<uint32_t>(shardSpecBuffer->page_shape()->y()),
+      static_cast<uint32_t>(shardSpecBuffer->page_shape()->x()),
+  };
+  std::array<uint32_t, 2> tensorShapeInPages = {
+      static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
+      static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
+  };
+  tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
+                                                 tensorShapeInPages);
+
+  LOG_ASSERT(bufferType == target::BufferType::DRAM ||
+             bufferType == target::BufferType::L1);
+  tt_metal::BufferType metalBufferType = bufferType == target::BufferType::DRAM
+                                             ? tt_metal::BufferType::DRAM
+                                             : tt_metal::BufferType::L1;
+  uint32_t address = deviceAddressValidator(refAddress, bufferType);
+
+  auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
+  auto distributedBufferShape =
+      tt_metal::Shape2D{localShardShape.height() * meshDevice->num_rows(),
+                        localShardShape.width() * meshDevice->num_cols()};
+  auto distributedBufferSizeBytes = meshDevice->num_rows() *
+                                    meshDevice->num_cols() *
+                                    shardedBufferConfig->size();
+
+  tt_metal::BufferShardingArgs bufferShardingArgs(
+      metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+
+  auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
+      .page_size = shardedBufferConfig->page_size(),
+      .buffer_type = metalBufferType,
+      .sharding_args = std::move(bufferShardingArgs)};
+
+  auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
+      .global_size = distributedBufferSizeBytes,
+      .global_buffer_shape = distributedBufferShape,
+      .shard_shape = localShardShape,
+      .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
+
+  return tt_metal::distributed::MeshBuffer::create(
+      distributedBufferConfig, localBufferConfig, meshDevice, address);
+}
+
+inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
+createMeshBufferForInterleavedMetalBuffer(
+    tt_metal::distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    const target::metal::InterleavedBufferConfig *interleavedBufferConfig,
+    const DeviceAddressValidator &deviceAddressValidator) {
+
+  auto metalInterleavedBufferConfig =
+      tt::tt_metal::distributed::ShardedBufferConfig{
+          .global_size = interleavedBufferConfig->size(),
+          .global_buffer_shape = tt_metal::Shape2D{1, 1},
+          .shard_shape = tt_metal::Shape2D{1, 1},
+          .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
+
+  // NOTE: constructing BufferShardingArgs with std::nullopt defaults to
+  // interleaved layout.
+  tt_metal::BufferShardingArgs bufferShardingArgs(std::nullopt);
+  LOG_ASSERT(bufferShardingArgs.buffer_layout() ==
+             tt_metal::TensorMemoryLayout::INTERLEAVED);
+  auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
+      .page_size = interleavedBufferConfig->page_size(),
+      .buffer_type = tt_metal::BufferType::DRAM,
+      .sharding_args = std::move(bufferShardingArgs),
+      .bottom_up = std::nullopt};
+
+  uint32_t address =
+      deviceAddressValidator(refAddress, target::BufferType::DRAM);
+  return tt_metal::distributed::MeshBuffer::create(
+      metalInterleavedBufferConfig, localBufferConfig, meshDevice, address);
+}
+
+inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
 createMeshBufferFromBufferRef(
     tt_metal::distributed::MeshDevice *meshDevice,
     const target::metal::BufferRef *bufferRef,
     const DeviceAddressValidator &deviceAddressValidator) {
 
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
+  LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+             target::metal::BufferDetail::MetalBuffer);
+  const target::metal::MetalBuffer *metalBuffer =
+      bufferDesc->buffer_detail_as_MetalBuffer();
 
-  if (bufferDesc->buffer_detail_type() ==
-      target::metal::BufferDetail::MetalBuffer) {
-    const target::metal::MetalBuffer *metalBuffer =
-        bufferDesc->buffer_detail_as_MetalBuffer();
-    const target::metal::ShardedBufferConfig *shardedBufferConfig =
-        metalBuffer->sharded_buffer_config();
-    const target::metal::ShardSpecBuffer *shardSpecBuffer =
-        shardedBufferConfig->shard_spec_buffer();
-    const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
-
-    CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(shardSpec->core_range_set());
-    std::array<uint32_t, 2> shardShape = {
-        static_cast<uint32_t>(shardSpec->shard_shape()->y()),
-        static_cast<uint32_t>(shardSpec->shard_shape()->x()),
-    };
-    tt_metal::ShardSpec metalShardSpec(coreRangeSet, shardShape);
-
-    std::array<uint32_t, 2> pageShape = {
-        static_cast<uint32_t>(shardSpecBuffer->page_shape()->y()),
-        static_cast<uint32_t>(shardSpecBuffer->page_shape()->x()),
-    };
-    std::array<uint32_t, 2> tensorShapeInPages = {
-        static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
-        static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
-    };
-    tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
-                                                   tensorShapeInPages);
-
-    LOG_ASSERT(metalBuffer->buffer_type() == target::BufferType::DRAM ||
-               metalBuffer->buffer_type() == target::BufferType::L1);
-    tt_metal::BufferType bufferType =
-        metalBuffer->buffer_type() == target::BufferType::DRAM
-            ? tt_metal::BufferType::DRAM
-            : tt_metal::BufferType::L1;
-    uint32_t address = deviceAddressValidator(bufferRef->address(),
-                                              metalBuffer->buffer_type());
-
-    auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
-    auto distributedBufferShape =
-        tt_metal::Shape2D{localShardShape.height() * meshDevice->num_rows(),
-                          localShardShape.width() * meshDevice->num_cols()};
-    auto distributedBufferSizeBytes = meshDevice->num_rows() *
-                                      meshDevice->num_cols() *
-                                      shardedBufferConfig->size();
-
-    tt_metal::BufferShardingArgs bufferShardingArgs(
-        metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
-
-    auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
-        .page_size = shardedBufferConfig->page_size(),
-        .buffer_type = bufferType,
-        .sharding_args = std::move(bufferShardingArgs)};
-
-    auto distributedBufferConfig =
-        tt::tt_metal::distributed::ShardedBufferConfig{
-            .global_size = distributedBufferSizeBytes,
-            .global_buffer_shape = distributedBufferShape,
-            .shard_shape = localShardShape,
-            .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
-
-    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
+  if (metalBuffer->buffer_config_type() ==
+      target::metal::BufferConfig::ShardedBufferConfig) {
+    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation,
+              "Creating Sharded Buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
-    return tt_metal::distributed::MeshBuffer::create(
-        distributedBufferConfig, localBufferConfig, meshDevice, address);
+
+    return createMeshBufferForShardedMetalBuffer(
+        meshDevice, bufferRef->address(),
+        metalBuffer->buffer_config_as_ShardedBufferConfig(),
+        metalBuffer->buffer_type(), deviceAddressValidator);
 
   } else {
-
-    // TODO: handle single device only for interleaved
+    // Handle single device only for interleaved
     LOG_ASSERT(meshDevice->num_rows() == 1 && meshDevice->num_cols() == 1,
-               "Interleaved buffer config only supported for single device");
-
-    const target::metal::MetalBufferInterleaved *metalBufferInterleaved =
-        bufferDesc->buffer_detail_as_MetalBufferInterleaved();
-
-    auto metalInterleavedBufferConfig =
-        tt::tt_metal::distributed::ShardedBufferConfig{
-            .global_size =
-                metalBufferInterleaved->interleaved_buffer_config()->size(),
-            .global_buffer_shape = tt_metal::Shape2D{1, 1},
-            .shard_shape = tt_metal::Shape2D{1, 1},
-            .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
-
-    // NOTE: constructing BufferShardingArgs with std::nullopt defaults to
-    // interleaved layout.
-    tt_metal::BufferShardingArgs bufferShardingArgs(std::nullopt);
-    LOG_ASSERT(bufferShardingArgs.buffer_layout() ==
-               tt_metal::TensorMemoryLayout::INTERLEAVED);
-    auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
-        .page_size =
-            metalBufferInterleaved->interleaved_buffer_config()->page_size(),
-        .buffer_type = tt_metal::BufferType::DRAM,
-        .sharding_args = std::move(bufferShardingArgs),
-        .bottom_up = std::nullopt};
-
+               "Interleaved buffers are only supported for single device");
+    LOG_ASSERT(metalBuffer->buffer_type() == target::BufferType::DRAM,
+               "Interleaved buffers are only supported for DRAM");
     LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation,
-              "Creating Interleaved Buffer ",
+              "Creating interleaved buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
-    uint32_t address = deviceAddressValidator(
-        bufferRef->address(), metalBufferInterleaved->buffer_type());
-    return tt_metal::distributed::MeshBuffer::create(
-        metalInterleavedBufferConfig, localBufferConfig, meshDevice, address);
+
+    return createMeshBufferForInterleavedMetalBuffer(
+        meshDevice, bufferRef->address(),
+        metalBuffer->buffer_config_as_InterleavedBufferConfig(),
+        deviceAddressValidator);
   }
 }
 #pragma clang diagnostic pop
@@ -378,24 +397,12 @@ std::vector<std::uint32_t> processKernelArgs(
                  logger::Buffer(buffer->global_id()));
 
       const target::metal::BufferDesc *bufferDesc = buffer->desc();
-      if (bufferDesc->buffer_detail_type() ==
-          target::metal::BufferDetail::MetalBuffer) {
-        const target::metal::MetalBuffer *metalBuffer =
-            bufferDesc->buffer_detail_as_MetalBuffer();
-        argsVec.push_back(deviceAddressValidator(buffer->address(),
-                                                 metalBuffer->buffer_type()));
-      } else if (bufferDesc->buffer_detail_type() ==
-                 target::metal::BufferDetail::MetalBufferInterleaved) {
-        const target::metal::MetalBufferInterleaved *metalBuffer =
-            bufferDesc->buffer_detail_as_MetalBufferInterleaved();
-        argsVec.push_back(deviceAddressValidator(buffer->address(),
-                                                 metalBuffer->buffer_type()));
-      } else {
-        LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-                       target::metal::BufferDetail::MetalBuffer ||
-                   bufferDesc->buffer_detail_type() ==
-                       target::metal::BufferDetail::MetalBufferInterleaved);
-      }
+      LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+                 target::metal::BufferDetail::MetalBuffer);
+      const target::metal::MetalBuffer *metalBuffer =
+          bufferDesc->buffer_detail_as_MetalBuffer();
+      argsVec.push_back(deviceAddressValidator(buffer->address(),
+                                               metalBuffer->buffer_type()));
       break;
     }
     case target::metal::KernelArgType::KernelArgSemaphore: {
