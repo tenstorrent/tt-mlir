@@ -1498,13 +1498,14 @@ public:
 } // namespace
 
 namespace {
-// Conversion pattern for ttir.slice operation.
-class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+// Conversion pattern for ttir.slice_static operation.
+class SliceStaticOpConversionPattern
+    : public OpConversionPattern<ttir::SliceStaticOp> {
 public:
-  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::SliceStaticOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::SliceStaticOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
     Value output = adaptor.getOutput(); // Get the output buffer
@@ -1667,7 +1668,7 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseBinaryOpConversionPattern<ttir::PowOp, linalg::PowFOp>,
       ElementwiseOpConversionPattern<ttir::SqrtOp, linalg::SqrtOp>,
       SoftmaxOpConversionPattern, EmptyOpConversionPattern,
-      PermuteOpConversionPattern, SliceOpConversionPattern,
+      PermuteOpConversionPattern, SliceStaticOpConversionPattern,
       ConstantOpConversionPattern, EmbeddingOpConversionPattern,
       ReluOpConversionPattern>(typeConverter, ctx);
 }
