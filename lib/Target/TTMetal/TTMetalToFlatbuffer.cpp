@@ -336,7 +336,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     if (isSharded) {
 
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
-          shardedBufferConfig = createShardedBufferConfigForL1Memref(
+          shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape);
 
       // only generate CircularBufferConfig for L1 memspace

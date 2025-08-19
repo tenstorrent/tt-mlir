@@ -108,15 +108,15 @@ createMeshBufferFromBufferRef(
 
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
 
-  LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-             target::metal::BufferDetail::MetalBuffer);
-  const target::metal::MetalBuffer *metalBuffer =
-      bufferDesc->buffer_detail_as_MetalBuffer();
-  const target::metal::ShardedBufferConfig *shardedBufferConfig =
-      metalBuffer->sharded_buffer_config();
-  const target::metal::ShardSpecBuffer *shardSpecBuffer =
-      shardedBufferConfig->shard_spec_buffer();
-  const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
+  if (bufferDesc->buffer_detail_type() ==
+      target::metal::BufferDetail::MetalBuffer) {
+    const target::metal::MetalBuffer *metalBuffer =
+        bufferDesc->buffer_detail_as_MetalBuffer();
+    const target::metal::ShardedBufferConfig *shardedBufferConfig =
+        metalBuffer->sharded_buffer_config();
+    const target::metal::ShardSpecBuffer *shardSpecBuffer =
+        shardedBufferConfig->shard_spec_buffer();
+    const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
 
     CoreRangeSet coreRangeSet =
         common::toCoreRangeSet(shardSpec->core_range_set());
@@ -137,14 +137,14 @@ createMeshBufferFromBufferRef(
     tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
                                                    tensorShapeInPages);
 
-  LOG_ASSERT(metalBuffer->buffer_type() == target::BufferType::DRAM ||
-             metalBuffer->buffer_type() == target::BufferType::L1);
-  tt_metal::BufferType bufferType =
-      metalBuffer->buffer_type() == target::BufferType::DRAM
-          ? tt_metal::BufferType::DRAM
-          : tt_metal::BufferType::L1;
-  uint32_t address =
-      deviceAddressValidator(bufferRef->address(), metalBuffer->buffer_type());
+    LOG_ASSERT(metalBuffer->buffer_type() == target::BufferType::DRAM ||
+               metalBuffer->buffer_type() == target::BufferType::L1);
+    tt_metal::BufferType bufferType =
+        metalBuffer->buffer_type() == target::BufferType::DRAM
+            ? tt_metal::BufferType::DRAM
+            : tt_metal::BufferType::L1;
+    uint32_t address = deviceAddressValidator(bufferRef->address(),
+                                              metalBuffer->buffer_type());
 
     auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
     auto distributedBufferShape =
