@@ -1981,7 +1981,9 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
     let hasFolder = 1;
 }
 
-def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
+def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Collective permute op.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -2215,7 +2217,9 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
+def TTNN_PointToPointOp: TTNN_Op<"point_to_point",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Point To Point operation.";
   let description = [{
     Performs point-to-point communication by copying a tensor shard from one device to another

@@ -1714,8 +1714,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
 template <typename OpT>
 std::string getOpRuntimeExpectedErrorMessage(OpT op) {
   auto opName = op->getName().getStringRef();
-  return "opRuntime is not supported for " + opName.str() +
-         " since it requires memory IO.";
+  return "op_runtime is not supported for " + opName.str() +
+         ". Reason: [needs memory IO]";
 }
 
 TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
