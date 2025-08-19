@@ -24,6 +24,11 @@ table ShardedBufferConfig {
   shard_spec_buffer: ShardSpecBuffer;
 }
 
+union BufferConfig {
+  ShardedBufferConfig,
+  InterleavedBufferConfig
+}
+
 table CircularBufferConfig {
   core_range_set: [Dim2dRange];
   total_size: uint64;
@@ -37,19 +42,13 @@ table SystemBuffer {
 
 table MetalBuffer {
   buffer_type: BufferType;
-  sharded_buffer_config: ShardedBufferConfig;
+  buffer_config: BufferConfig;
   circular_buffer_config: CircularBufferConfig;
-}
-
-table MetalBufferInterleaved {
-  buffer_type: BufferType;
-  interleaved_buffer_config: InterleavedBufferConfig;
 }
 
 union BufferDetail {
   SystemBuffer,
-  MetalBuffer,
-  MetalBufferInterleaved
+  MetalBuffer
 }
 
 table BufferDesc {

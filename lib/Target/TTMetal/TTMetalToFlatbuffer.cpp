@@ -327,14 +327,22 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   target::metal::BufferDetail bufferDetailType;
   flatbuffers::Offset<void> bufferDetail;
 
-  if (memref.getMemorySpace()) {
+  if (!memref.getMemorySpace()) {
+    std::vector<int32_t> stride =
+        ttmlir::utils::castContainer<std::vector<int32_t>>(
+            memref.getStridesAndOffset().first);
+
+    bufferDetailType = target::metal::BufferDetail::SystemBuffer;
+    bufferDetail =
+        target::metal::CreateSystemBufferDirect(*cache.fbb, &stride).Union();
+  } else {
     target::BufferType bufferType = toFlatbuffer(
         cache, mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace())
                    .getValue());
-
+    bufferDetailType = target::metal::BufferDetail::MetalBuffer;
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
-    if (isSharded) {
 
+    if (isSharded) {
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape);
@@ -343,11 +351,10 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
               memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
-
-      bufferDetailType = target::metal::BufferDetail::MetalBuffer;
-      bufferDetail = target::metal::CreateMetalBuffer(*cache.fbb, bufferType,
-                                                      shardedBufferConfig,
-                                                      circularBufferConfig)
+      bufferDetail = target::metal::CreateMetalBuffer(
+                         *cache.fbb, bufferType,
+                         target::metal::BufferConfig::ShardedBufferConfig,
+                         shardedBufferConfig.Union(), circularBufferConfig)
                          .Union();
     } else {
       // must be interleaved if not sharded
@@ -355,20 +362,12 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
           interleavedBufferConfig =
               memrefTypeToInterleavedBufferConfigFlatbuffer(
                   cache, memref, device, elementShape);
-      bufferDetailType = target::metal::BufferDetail::MetalBufferInterleaved;
-      bufferDetail = target::metal::CreateMetalBufferInterleaved(
-                         *cache.fbb, bufferType, interleavedBufferConfig)
+      bufferDetail = target::metal::CreateMetalBuffer(
+                         *cache.fbb, bufferType,
+                         target::metal::BufferConfig::InterleavedBufferConfig,
+                         interleavedBufferConfig.Union(), 0)
                          .Union();
     }
-
-  } else {
-    std::vector<int32_t> stride =
-        ttmlir::utils::castContainer<std::vector<int32_t>>(
-            memref.getStridesAndOffset().first);
-
-    bufferDetailType = target::metal::BufferDetail::SystemBuffer;
-    bufferDetail =
-        target::metal::CreateSystemBufferDirect(*cache.fbb, &stride).Union();
   }
 
   Type elementType = memref.getElementType();
