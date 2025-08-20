@@ -349,7 +349,6 @@ public:
     // We are not moving ops in UD chain that are already before the conv2d, as
     // they could have descendants that are also before conv2d but are not in
     // the UD chain.
-
     for (auto *op : udChainSorted) {
       if (op->isBeforeInBlock(conv2dOp)) {
         continue;
