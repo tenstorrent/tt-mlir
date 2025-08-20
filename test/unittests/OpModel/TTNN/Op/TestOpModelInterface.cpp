@@ -712,9 +712,9 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 20480);
-    EXPECT_EQ(peakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(cbSize, 24576);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints for LogicalLeftShift; Error="
            << llvm::toString(constraintsExp.takeError());
