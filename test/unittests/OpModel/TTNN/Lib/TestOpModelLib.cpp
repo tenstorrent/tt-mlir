@@ -1118,7 +1118,7 @@ INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
 
 INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
-                         
+
 INSTANTIATE_TEST_SUITE_P(LogicalLeftShiftTests, OpModelLogicalLeftShiftParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 

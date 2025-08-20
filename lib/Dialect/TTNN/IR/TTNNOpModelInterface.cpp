@@ -759,7 +759,6 @@ LogicalLeftShiftOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
 }
 
-
 //===----------------------------------------------------------------------===//
 // SubtractOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//

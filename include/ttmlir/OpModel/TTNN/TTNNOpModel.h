@@ -260,7 +260,8 @@ template <>
 struct OpModel<BitwiseAndOp> : BinaryCompositeOpModel<BitwiseAndOp> {};
 
 template <>
-struct OpModel<LogicalLeftShiftOp> : BinaryCompositeOpModel<LogicalLeftShiftOp> {};
+struct OpModel<LogicalLeftShiftOp>
+    : BinaryCompositeOpModel<LogicalLeftShiftOp> {};
 
 template <>
 struct OpModel<BitwiseOrOp> : BinaryCompositeOpModel<BitwiseOrOp> {};
