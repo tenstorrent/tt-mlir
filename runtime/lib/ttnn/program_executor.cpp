@@ -4,6 +4,7 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#include "operations/attention/paged_attention.h"
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
@@ -398,6 +399,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    return operations::attention::run(
+        op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
