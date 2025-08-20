@@ -1515,18 +1515,18 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
-  Type elemetType = builder.getBF16Type();
+  Type elementType = builder.getBF16Type();
 
   auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elemetType, BufferType::DRAM,
+      &context, inputShape, elementType, BufferType::DRAM,
       ttcore::GridAttr::get(&context),
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
-  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+  auto input = createEmptyTensor(inputShape, elementType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elemetType,
+  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elementType,
                                           BufferType::SystemMemory,
                                           ttcore::GridAttr::get(&context));
-  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+  auto weight = createEmptyTensor(weightShape, elementType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
   auto outputDtype = ttcore::DataTypeAttr::get(
@@ -1543,12 +1543,18 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
+  Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
+                                      ? *conv2d.getConv2dConfig()
+                                      : Conv2dConfigAttr::get(&context);
+  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+
   auto preparedWeightOutput =
-      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d);
+      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
 
   auto preparedShape = preparedWeightOutput.getShape();
   llvm::SmallVector<int64_t> expectedShape = {1, 1, 147, 64};
 
+  EXPECT_EQ(preparedWeightOutput.getElementType(), elementType);
   EXPECT_EQ(preparedShape.size(), expectedShape.size());
   for (size_t i = 0; i < preparedShape.size(); i++) {
     EXPECT_EQ(preparedShape[i], expectedShape[i]);
@@ -1863,6 +1869,11 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
+  Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
+                                      ? *conv2d.getConv2dConfig()
+                                      : Conv2dConfigAttr::get(&context);
+  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+
   // Now create PrepareConv2dWeightsOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
       &context,
@@ -1875,7 +1886,7 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
 
   // Get expected prepared weights output shape
   auto preparedWeightOutputType =
-      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d);
+      op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
 
   PrepareConv2dWeightsOp prepareConv2dWeights =
       builder.create<PrepareConv2dWeightsOp>(

@@ -507,7 +507,16 @@ public:
   mlir::LogicalResult
   matchAndRewrite(Conv2dOp conv2d,
                   mlir::PatternRewriter &rewriter) const final {
-    if (BlockArgument blockArg = dyn_cast<BlockArgument>(conv2d.getWeight())) {
+    Value weightValue = conv2d.getWeight();
+
+    // Special case for bfp8 weights which don't come directly from
+    // function argument but are created by TypecastOp.
+    if (auto typecast =
+            dyn_cast_if_present<TypecastOp>(weightValue.getDefiningOp())) {
+      weightValue = typecast.getInput();
+    }
+
+    if (BlockArgument blockArg = dyn_cast<BlockArgument>(weightValue)) {
       // Get the function that owns this block argument.
       func::FuncOp owningFunc =
           cast<func::FuncOp>(blockArg.getOwner()->getParentOp());

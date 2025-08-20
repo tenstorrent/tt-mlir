@@ -279,9 +279,9 @@ public:
   static TTNNOperandsWorkarounds
   createPermuteOpOperandWorkaround(mlir::RankedTensorType inputType);
 
-  // Create workarounds for conv2d op operands.
-  static TTNNOperandsWorkarounds
-  createConv2dOpOperandsWorkarounds(bool hasBias);
+  // Create workarounds for conv2d/convtranspose2d op.
+  template <typename T>
+  static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
