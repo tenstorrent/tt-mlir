@@ -13,6 +13,70 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import make_shard_shape
 
 
+def build_matmul_multi(
+    mesh_shape: Tuple[int, int],
+    input_rank: int,
+    cluster_axis: int,
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    do_unshard: bool = False,
+):
+    # Select dims based on axis
+    if cluster_axis == 0:
+        shard_dims_in = [1, 0]
+        shard_dims_wt = [0, -1]
+    else:
+        shard_dims_in = [0, 1]
+        shard_dims_wt = [-1, 0]
+
+    shard_shape_in = make_shard_shape(input_rank, shard_dims_in, mesh_shape)
+    shard_shape_wt = make_shard_shape(input_rank, shard_dims_wt, mesh_shape)
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#ttcore.shard_direction<full_to_shard>",
+        shard_type="#ttcore.shard_type<devices>",
+        shard_shape=shard_shape_in,
+        shard_dims=shard_dims_in,
+    )
+    sharded_in1 = builder.mesh_shard(
+        in1,
+        shard_direction="#ttcore.shard_direction<full_to_shard>",
+        shard_type="#ttcore.shard_type<devices>",
+        shard_shape=shard_shape_wt,
+        shard_dims=shard_dims_wt,
+    )
+    partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+    sharded_result = builder.all_reduce(
+        partial_matmul,
+        reduce_type="#ttcore.reduce_type<sum>",
+        cluster_axis=cluster_axis,
+    )
+    if not do_unshard:
+        return sharded_result
+    else:
+        if mesh_shape[1 - cluster_axis] == 1:
+            # Fully replicated result
+            shard_dims_out = [-1]
+            shard_shape_out = [1]
+            unshard_type = "#ttcore.shard_type<replicate>"
+        else:
+            if cluster_axis == 0:
+                shard_dims_out = [-1, 0]
+            else:
+                shard_dims_out = [0, -1]
+            shard_shape_out = make_shard_shape(input_rank, shard_dims_out, mesh_shape)
+            unshard_type = "#ttcore.shard_type<devices>"
+        return builder.mesh_shard(
+            sharded_result,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type=unshard_type,
+            shard_shape=shard_shape_out,
+            shard_dims=shard_dims_out,
+        )
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -42,54 +106,15 @@ def test_matmul_multi_2d(
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("parallelism across 1 device is meaningless")
 
-    shard_dims_in = [1, 0] if cluster_axis == 0 else [0, 1]
-    shard_dims_wt = [0, -1] if cluster_axis == 0 else [-1, 0]
-
-    shard_shape_in = make_shard_shape(len(shapes[0]), shard_dims_in, mesh_shape)
-    shard_shape_wt = make_shard_shape(len(shapes[1]), shard_dims_wt, mesh_shape)
-
-    if mesh_shape[1 - cluster_axis] == 1:
-        # If the all_reduce result is fully replicated, unshard using the <replicate> type.
-        shard_dims_out = [-1]
-        shard_shape_out = [1]
-        unshard_type = "#ttcore.shard_type<replicate>"
-    else:
-        shard_dims_out = [-1, 0] if cluster_axis == 0 else [0, -1]
-        shard_shape_out = make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
-        unshard_type = "#ttcore.shard_type<devices>"
-
     def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        input = builder._get_golden_tensor(in0)
-        weight = builder._get_golden_tensor(in1)
-        golden_output = torch.matmul(input, weight)
-        builder.set_graph_input_output([input, weight], [golden_output])
-
-        sharded_in0 = builder.mesh_shard(
+        return build_matmul_multi(
+            mesh_shape,
+            len(shapes[0]),
+            cluster_axis,
             in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in,
-            shard_dims=shard_dims_in,
-        )
-        sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_wt,
-            shard_dims=shard_dims_wt,
-        )
-        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
-        reduced = builder.all_reduce(
-            partial_matmul,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=cluster_axis,
-        )
-        return builder.mesh_shard(
-            reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type=unshard_type,
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
+            builder,
+            do_unshard=True,
         )
 
     compile_ttir_to_flatbuffer(
@@ -165,37 +190,19 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         [(256, 128), (128, 128), (256, 128)],
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 def test_matmul_and_binary_op(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
+        unsharded = build_matmul_multi(
+            mesh_shape,
+            len(shapes[0]),
+            1,
             in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
-        )
-        sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(4, 1),
-            shard_dims=(-1, 0),
-        )
-        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
-        reduced = builder.all_reduce(
-            partial_matmul,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        unsharded = builder.mesh_shard(
-            reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 1),
-            shard_dims=(0, -1),
+            builder,
+            do_unshard=True,
         )
         output = builder.add(unsharded, in2)
         return output
@@ -218,35 +225,17 @@ def test_matmul_and_binary_op(
         [(256, 128), (128, 128)],
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
+        unsharded = build_matmul_multi(
+            mesh_shape,
+            len(shapes[0]),
+            1,
             in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
-        )
-        sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(4, 1),
-            shard_dims=(-1, 0),
-        )
-        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
-        reduced = builder.all_reduce(
-            partial_matmul,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        unsharded = builder.mesh_shard(
-            reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 1),
-            shard_dims=(0, -1),
+            builder,
+            do_unshard=True,
         )
         output = builder.neg(unsharded)
         return output
@@ -269,69 +258,32 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         [(256, 128), (128, 128), (256, 128), (128, 128)],
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 def test_matmul_and_binary_op_2(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
-        sharded_in0 = builder.mesh_shard(
+        matmul_0 = build_matmul_multi(
+            mesh_shape,
+            len(shapes[0]),
+            1,
             in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
-        )
-        sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(4, 1),
-            shard_dims=(-1, 0),
+            builder,
+            do_unshard=True,
         )
-        partial_matmul_0 = builder.matmul(sharded_in0, sharded_in1)
-        reduced_0 = builder.all_reduce(
-            partial_matmul_0,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        matmul_0 = builder.mesh_shard(
-            reduced_0,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 1),
-            shard_dims=(0, -1),
-        )
-
-        sharded_in2 = builder.mesh_shard(
+        matmul_1 = build_matmul_multi(
+            mesh_shape,
+            len(shapes[2]),
+            1,
             in2,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
-        )
-        sharded_in3 = builder.mesh_shard(
             in3,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(4, 1),
-            shard_dims=(-1, 0),
+            builder,
+            do_unshard=True,
         )
-        partial_matmul_2 = builder.matmul(sharded_in2, sharded_in3)
-        reduced_2 = builder.all_reduce(
-            partial_matmul_2,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        matmul_2 = builder.mesh_shard(
-            reduced_2,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 1),
-            shard_dims=(0, -1),
-        )
-        output = builder.add(matmul_0, matmul_2)
+        output = builder.add(matmul_0, matmul_1)
         return output
 
     compile_ttir_to_flatbuffer(
