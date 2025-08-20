@@ -86,10 +86,6 @@ Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
-}
-
 static MemoryView
 createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
   return MemoryView{
@@ -611,11 +607,12 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
-  return createNullTensor();
+  return {};
 }
 
 std::optional<tt::runtime::TensorRef>

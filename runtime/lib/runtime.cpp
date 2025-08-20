@@ -674,9 +674,10 @@ std::string getOpLocInfo(OpContext opContextHandle) {
       });
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
-  using RetType = Tensor;
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  using RetType = std::unordered_map<std::uint32_t, Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {

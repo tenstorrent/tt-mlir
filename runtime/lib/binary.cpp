@@ -227,20 +227,26 @@ std::string getMlirAsJson(Flatbuffer binary) {
                          ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
-const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
-                                                     std::string &loc) {
+std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+getDebugInfoGolden(Flatbuffer binary, std::string &loc) {
+  std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+      goldenTensorDeviceMap;
+
   const auto *programs = getBinary(binary)->programs();
   for (const auto *program : *programs) {
     for (const ::tt::target::GoldenKV *goldenKV :
          *program->debug_info()->golden_info()->golden_map()) {
-      if (loc == goldenKV->key()->c_str()) {
-        return goldenKV->value();
+      if (std::string(goldenKV->key()->c_str()) == loc) {
+        for (const ::tt::target::GoldenDeviceTensor *goldenDeviceTensor :
+             *goldenKV->value()) {
+          goldenTensorDeviceMap[goldenDeviceTensor->device()] =
+              goldenDeviceTensor->value();
+        }
       }
     }
   }
 
-  LOG_WARNING("Golden information not found");
-  return nullptr;
+  return goldenTensorDeviceMap;
 }
 
 } // namespace ttnn
@@ -346,20 +352,26 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return getTensorDescs(program->outputs());
 }
 
-const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
-                                                     std::string &loc) {
+std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+getDebugInfoGolden(Flatbuffer binary, std::string &loc) {
+  std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+      goldenTensorDeviceMap;
+
   const auto *programs = getBinary(binary)->programs();
   for (const auto *program : *programs) {
     for (const ::tt::target::GoldenKV *goldenKV :
          *program->debug_info()->golden_info()->golden_map()) {
-      if (loc == goldenKV->key()->c_str()) {
-        return goldenKV->value();
+      if (std::string(goldenKV->key()->c_str()) == loc) {
+        for (const ::tt::target::GoldenDeviceTensor *goldenDeviceTensor :
+             *goldenKV->value()) {
+          goldenTensorDeviceMap[goldenDeviceTensor->device()] =
+              goldenDeviceTensor->value();
+        }
       }
     }
   }
 
-  LOG_WARNING("Golden information not found");
-  return nullptr;
+  return goldenTensorDeviceMap;
 }
 
 } // namespace metal
@@ -731,7 +743,7 @@ Binary::getProgramOutputs(std::uint32_t programIndex) const {
   LOG_FATAL("Unsupported binary format");
 }
 
-const ::tt::target::GoldenTensor *
+std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
 Binary::getDebugInfoGolden(std::string &loc) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
