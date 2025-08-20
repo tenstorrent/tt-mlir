@@ -659,6 +659,23 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addOutputOperandWorkaround(datatypeWorkaround);
 }
 
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds operandWorkaround;
+  operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandWorkarounds emptyWorkaround =
+      TTNNOperandWorkarounds::createEmptyTTNNOperandWorkarounds();
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(emptyWorkaround)
+      .addInputOperandWorkaround(emptyWorkaround)
+      .addInputOperandWorkaround(emptyWorkaround)
+      .addInputOperandWorkaround(operandWorkaround)
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(emptyWorkaround);
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
