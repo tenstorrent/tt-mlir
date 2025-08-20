@@ -3370,8 +3370,41 @@ public:
     Value query = operands[0];
     Value keys = operands[1];
     Value values = operands[2];
-    Value page_table = operands[3];
-    Value update_indices = operands[4];
+    Value page_table = operands[4];
+    Value update_indices = operands[3];
+
+    ArrayRef<int64_t> queryShape =
+        cast<RankedTensorType>(query.getType()).getShape();
+    ArrayRef<int64_t> keysShape =
+        cast<RankedTensorType>(keys.getType()).getShape();
+    ArrayRef<int64_t> valuesShape =
+        cast<RankedTensorType>(values.getType()).getShape();
+
+    if (queryShape.size() == 3) {
+      SmallVector<int64_t> newQueryShape = {1, queryShape[0], queryShape[1],
+                                            queryShape[2]};
+      auto newQueryType = RankedTensorType::get(
+          newQueryShape,
+          cast<RankedTensorType>(query.getType()).getElementType());
+      query = mlir::tt::ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp.getLoc(), newQueryType, query,
+          rewriter.getI32ArrayAttr(SmallVector<int32_t>(newQueryShape.begin(),
+                                                        newQueryShape.end())));
+    }
+
+    SmallVector<int64_t> newKeysShape = {keysShape[1], keysShape[0],
+                                         keysShape[2], keysShape[3]};
+    SmallVector<int64_t> newValuesShape = {valuesShape[1], valuesShape[0],
+                                           valuesShape[2], valuesShape[3]};
+    auto newKeysType = RankedTensorType::get(
+        newKeysShape, cast<RankedTensorType>(keys.getType()).getElementType());
+    auto newValuesType = RankedTensorType::get(
+        newValuesShape,
+        cast<RankedTensorType>(values.getType()).getElementType());
+    keys = mlir::tt::ttir::utils::createDPSOp<ttir::TransposeOp>(
+        rewriter, srcOp.getLoc(), newKeysType, keys, 0, 1);
+    values = mlir::tt::ttir::utils::createDPSOp<ttir::TransposeOp>(
+        rewriter, srcOp.getLoc(), newValuesType, values, 0, 1);
 
     mlir::tt::ttir::EmptyOp emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
         srcOp.getLoc(), operands[0].getType());
