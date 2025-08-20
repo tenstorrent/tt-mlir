@@ -866,6 +866,15 @@ mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
 }
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToDTypeOp
 //===----------------------------------------------------------------------===//
 
