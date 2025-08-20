@@ -3099,7 +3099,7 @@ public:
         rewriter, srcOp.getLoc(), newValuesType, values, 0, 1);
 
     mlir::tt::ttir::EmptyOp emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
-        srcOp.getLoc(), operands[0].getType());
+        srcOp.getLoc(), query.getType());
     rewriter.replaceOpWithNewOp<
         mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
         srcOp, emptyOp.getType(), query, keys, values, page_table,
