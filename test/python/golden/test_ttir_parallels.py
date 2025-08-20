@@ -146,30 +146,33 @@ def test_matmul_multi_2d(
         [(2, 4), (2, 4)],
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
 def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def eltwise_multidevice(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        shard_shape = (mesh_shape[0], mesh_shape[1])
+        # Set shard_dims[n] to -1 if shard_shape[n] == 1, else keep as 0 or 1
+        shard_dims = tuple(-1 if s == 1 else d for s, d in zip(shard_shape, (0, 1)))
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
         )
         sharded_in1 = builder.mesh_shard(
             in1,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
         )
         partial_sum = builder.add(sharded_in0, sharded_in1)
         return builder.mesh_shard(
             partial_sum,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=(2, 4),
-            shard_dims=(0, 1),
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
         )
 
     compile_ttir_to_flatbuffer(
