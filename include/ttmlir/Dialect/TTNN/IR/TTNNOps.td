@@ -2493,6 +2493,15 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        DefaultValuedAttr<F32Attr, "1.0">:$scale);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 #endif
