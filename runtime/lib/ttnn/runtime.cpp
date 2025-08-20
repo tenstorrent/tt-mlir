@@ -118,10 +118,6 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
-static ::tt::runtime::Tensor createNullTensor() {
-  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
-
 static ::tt::runtime::Tensor
 toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
                    bool untilize, bool blocking) {
@@ -928,16 +924,36 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
   if (!tensorRef) {
-    return createNullTensor();
+    return perDeviceOutputTensors;
   }
+
   auto tensor = ::tt::runtime::ttnn::retrieveTensorFromPool(
       programContextHandle, *tensorRef, true);
-  return tensor ? *tensor : createNullTensor();
+  if (!tensor) {
+    return perDeviceOutputTensors;
+  }
+
+  // Assumption: get_device_tensors returns tensors in row major order so each
+  // index of the output list is the logical device id. If you print out the
+  // physical device ids of the TTNN::tensor object, they will be different from
+  // the logical device ids.
+  std::vector<::ttnn::Tensor> singleTensors =
+      ::ttnn::distributed::get_device_tensors(
+          utils::getTTNNTensorFromRuntimeTensor(*tensor));
+  for (size_t i = 0; i < singleTensors.size(); ++i) {
+    const ::ttnn::Tensor &singleTensor = singleTensors[i];
+    perDeviceOutputTensors[i] =
+        utils::createRuntimeTensorFromTTNN(singleTensor, std::nullopt);
+  }
+
+  return perDeviceOutputTensors;
 }
 
 std::optional<tt::runtime::TensorRef>

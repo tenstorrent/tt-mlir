@@ -21,8 +21,14 @@ from builder.base import builder_golden
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
-        super().__init__(ctx, location)
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_shape=(1, 1),
+        golden_check_level=GoldenCheckLevel.AUTOMATIC,
+    ):
+        super().__init__(ctx, location, mesh_shape, golden_check_level)
 
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(

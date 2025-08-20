@@ -49,7 +49,8 @@ def logical_not(
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
     builder.set_graph_input_output(
-        [input_tensor], [golden_output_tensor], override=True
+        [input_tensor],
+        [golden_output_tensor],
     )
     return builder.logical_not(in0, unit_attrs=unit_attrs)
 
@@ -133,7 +134,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
             (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
         )
         output_golden = torch.tan(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
+        builder.set_graph_input_output([input_golden], [output_golden])
         return builder.tan(in0, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
@@ -167,7 +168,7 @@ def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
         error_margin = torch.full(randn_tensor.shape, 0.01)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
+        builder.set_graph_input_output([input_golden], [output_golden])
         return builder.log(in0, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
@@ -193,7 +194,7 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request):
         error_margin = torch.full(randn_tensor.shape, -0.99)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log1p(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
+        builder.set_graph_input_output([input_golden], [output_golden])
         return builder.log1p(in0, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
@@ -270,9 +271,7 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.sqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
+        builder.set_graph_input_output([input_tensor], [golden_output_tensor])
         return builder.sqrt(in0, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
@@ -300,9 +299,7 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
+        builder.set_graph_input_output([input_tensor], [golden_output_tensor])
         return builder.rsqrt(in0, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
@@ -534,9 +531,7 @@ def div(
         dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
         divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
     output_golden = torch.div(dividend_tensor, divisor_tensor)
-    builder.set_graph_input_output(
-        [dividend_tensor, divisor_tensor], [output_golden], override=True
-    )
+    builder.set_graph_input_output([dividend_tensor, divisor_tensor], [output_golden])
     return builder.div(in0, in1, unit_attrs=unit_attrs)
 
 
@@ -640,7 +635,7 @@ def pow(
         randn_base_tensor = torch.abs(randn_base_tensor)
     output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
     builder.set_graph_input_output(
-        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+        [randn_base_tensor, randn_exponent_tensor], [output_golden]
     )
     return builder.pow(in0, in1, unit_attrs=unit_attrs)
 

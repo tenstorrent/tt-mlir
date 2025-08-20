@@ -115,7 +115,6 @@ def test_batch_norm_decomposition(
                 bn_variance_data,
             ],
             [golden_output],
-            override=True,
         )
 
         conv_result = builder.conv2d(
