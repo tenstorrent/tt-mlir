@@ -51,6 +51,7 @@ if enable_ttmetal:
 
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libdevice.so"]
+    runlibs += ["libtt_stl.so"]
 
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
