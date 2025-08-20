@@ -7,30 +7,34 @@ import inspect
 import functools
 import textwrap
 import os
+from typing import Callable
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects import ttcore, ttir, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 from .types import *
 from .kernel_types import *
+from .utils import _discover_dialect_ops
 
 
-def get_supported_nodes():
-    return [
-        # Variables
+class TTKernelCompiler(ast.NodeVisitor):
+    ttkernel_fn_map = _discover_dialect_ops(ttkernel)
+
+    supported_nodes = [
+        ### Variables
         ast.Name,
-        ast.Load,
-        ast.Store,
-        # control-flow
+        # ast.Load,
+        # ast.Store,
+        ### control-flow
         ast.If,
         ast.For,
-        ast.While,
-        ast.Break,
-        ast.Continue,
-        # Literals
+        # ast.While,
+        # ast.Break,
+        # ast.Continue,
+        ### Literals
         ast.Constant,
-        # Expressions
+        ### Expressions
         ast.Attribute,
         ast.Expr,
         ast.IfExp,
@@ -63,12 +67,12 @@ def get_supported_nodes():
         ast.LtE,
         ast.Gt,
         ast.GtE,
-        # Subscripting
+        ### Subscripting
         ast.Subscript,
         ast.Attribute,
         ast.List,
         # Statements
-        ast.Pass,
+        # ast.Pass,
         ast.Assign,
         ast.AugAssign,
         ast.AnnAssign,
@@ -77,68 +81,17 @@ def get_supported_nodes():
         ast.FunctionDef,
         ast.Return,
         ast.arguments,
-        ast.arg,
+        # ast.arg,
     ]
 
-
-class TTKernelCompiler(ast.NodeVisitor):
-    ttkernel_fn_map = {
-        "unary_op_init_common": ttkernel.unary_op_init_common,
-        "binary_op_init_common": ttkernel.binary_op_init_common,
-        "add_tiles_init": ttkernel.add_tiles_init,
-        "get_arg_val": ttkernel.get_arg_val,
-        "cb_wait_front": ttkernel.cb_wait_front,
-        "cb_reserve_back": ttkernel.cb_reserve_back,
-        "cb_push_back": ttkernel.cb_push_back,
-        "cb_pop_front": ttkernel.cb_pop_front,
-        "tile_regs_acquire": ttkernel.tile_regs_acquire,
-        "tile_regs_release": ttkernel.tile_regs_release,
-        "tile_regs_commit": ttkernel.tile_regs_commit,
-        "tile_regs_wait": ttkernel.tile_regs_wait,
-        "pack_tile": ttkernel.pack_tile,
-        "copy_tile": ttkernel.copy_tile,
-        "add_tiles": ttkernel.add_tiles,
-        "get_compile_time_arg_val": (
-            ttkernel.get_compile_time_arg_val,
-            [True, True],
-        ),  # True for arg as attribute
-        "get_write_ptr": ttkernel.get_write_ptr,
-        "get_read_ptr": ttkernel.get_read_ptr,
-        "get_tile_size": ttkernel.get_tile_size,
-        "get_dataformat": ttkernel.get_dataformat,
-        "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
-        "noc_async_read": ttkernel.noc_async_read,
-        "noc_async_read_tile": ttkernel.noc_async_read_tile,
-        "noc_async_write": ttkernel.noc_async_write,
-        "noc_async_write_tile": ttkernel.noc_async_write_tile,
-        "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
-        "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
-        "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
-        "exp_tile_init": ttkernel.exp_tile_init,
-        "exp_tile": ttkernel.exp_tile,
-        "mm_init": ttkernel.mm_init,
-        "matmul_tiles": ttkernel.matmul_tiles,
-        "TensorAccessorArgs": ttkernel.TensorAccessorArgs,
-        "TensorAccessor": ttkernel.TensorAccessor,
-        "tensor_accessor_get_noc_addr": ttkernel.tensor_accessor_get_noc_addr,
-        "tensor_accessor_get_shard_noc_addr": ttkernel.tensor_accessor_get_shard_noc_addr,
-        "tensor_accessor_get_bank_and_offset": ttkernel.tensor_accessor_get_bank_and_offset,
-        "tensor_accessor_is_local_bank": ttkernel.tensor_accessor_is_local_bank,
-        "tensor_accessor_is_local_addr": ttkernel.tensor_accessor_is_local_addr,
-        "tensor_accessor_is_local_page": ttkernel.tensor_accessor_is_local_page,
-        "tensor_accessor_is_local_shard": ttkernel.tensor_accessor_is_local_shard,
-    }
-
-    def __init__(self, name, kernel_type=None, *args, **kwargs):
+    def __init__(self, kernel_type=None, *args, **kwargs):
         assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
-        self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.func_entry = None
         self.symbol_tables = []
-        self.supported_nodes = get_supported_nodes()
         self.kernel_type = kernel_type
 
         self.args = args
@@ -282,7 +235,7 @@ class TTKernelCompiler(ast.NodeVisitor):
                 self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
             )
 
-        func_sym_table = {}
+        # func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=([], []))
         # Supply cb_args as ct_args, use rt_args and ct_args "normally"
         arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
@@ -348,10 +301,13 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Function/Class definitions
     def visit_Return(self, node):
         # TODO: handle more than one return, i.e. tuples, expressions etc.
-        # TODO: need a symbol table in order to return the right thing
         if node.value:
-            self.visit(node.value)
-        func.ReturnOp([])
+            # Visit the return value and return it
+            return_value = self.visit(node.value)
+            func.ReturnOp([return_value])
+        else:
+            # Empty return
+            func.ReturnOp([])
 
     # Control Flow
     def visit_If(self, node):
@@ -463,12 +419,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         #     scf.YieldOp(while_body_bb.arguments)
         #     self.symbol_tables.pop()
         raise NotImplementedError("While loops not supported yet")
-
-    def visit_Break():
-        raise NotImplementedError("Break not supported yet")
-
-    def visit_Continue():
-        raise NotImplementedError("Continue not supported yet")
 
     # Statements
     def visit_Name(self, node):
@@ -617,7 +567,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     # Function calls
-    def visit_Call(self, node):
+    def visit_Call(self, node, func_args=None, output=None):
         def _load_func_arg(func_arg):
             if not func_arg:
                 raise ValueError(f"Function argument not found for {node.func.id}")
@@ -628,6 +578,9 @@ class TTKernelCompiler(ast.NodeVisitor):
                     func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
                 )
             return func_arg
+
+        func_args = [] if func_args is None else func_args
+        output = [] if output is None else output
 
         if not isinstance(node.func, ast.Attribute):
             # print is special case to handle string formatting
@@ -642,14 +595,15 @@ class TTKernelCompiler(ast.NodeVisitor):
             args_as_attr = [False] * len(node.args)
             if type(func) is tuple:
                 func, args_as_attr = func
-            func_args = []
             assert len(node.args) == len(args_as_attr)
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
                 func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
 
-            return func(*func_args)  # type checking will occur downstream
+            func_args.extend(output)
+            print(func_args)
+            return func(*func_args)  # how do i make sure the types are correct?
         else:
             func_args = []
             for arg in node.args:
@@ -1048,7 +1002,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         return var
 
     # Literals
-    def visit_Constant(self, node):
+    def visit_Constant(self, node, tensor_shape=[]):
         as_attr = getattr(node, "_ttkernel_as_attr", False)
         op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
         if isinstance(node.value, bool):
@@ -1070,18 +1024,26 @@ class TTKernelCompiler(ast.NodeVisitor):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code, [])
-
             # Figure out which node to visit. Not using super().visit() in order to pass kwargs.
             method_name = "visit_" + node.__class__.__name__
             visitor = getattr(self, method_name, self.generic_visit)
 
-            return visitor(node, **kwargs)
+            params = inspect.signature(visitor).parameters
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
+            if filtered_kwargs:
+                return visitor(node, **filtered_kwargs)
+            else:
+                return visitor(node)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
 def ttkernel_compile(
-    kernel_type=None, verbose: bool = False, optimize: bool = False, thread_type=""
+    kernel_type=None,
+    verbose: bool = False,
+    optimize: bool = False,
+    thread_type="",
+    Compiler: Callable = TTKernelCompiler,
 ):
     def _decorator(f):
         @functools.wraps(f)
@@ -1101,7 +1063,7 @@ def ttkernel_compile(
                 kwargs["_source_code"] = source_code.splitlines()
                 kwargs["_verbose"] = True
             m = ast.parse(source_code)
-            b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
+            b = Compiler(kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
