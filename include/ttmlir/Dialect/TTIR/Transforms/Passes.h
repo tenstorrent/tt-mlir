@@ -24,6 +24,9 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+template <typename... Dialects>
+std::unique_ptr<Pass> createTTIRHoistTransformForDialects();
+
 } // namespace mlir::tt::ttir
 
 #endif

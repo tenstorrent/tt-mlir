@@ -15,6 +15,10 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/dialect/StablehloOps.h"
+#endif
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -26,16 +30,16 @@ namespace mlir::tt::ttir {
 // Helper function to get ranks of an op's operands
 // we use this to populate attrs which we need to tensor unpacking operations
 // later.
-static llvm::SmallVector<int64_t, 4>
+static llvm::SmallVector<int64_t, 3>
 getOperandTensorRanks(mlir::Operation *op) {
-  llvm::SmallVector<int64_t, 4> ranks;
+  llvm::SmallVector<int64_t, 3> ranks;
 
-  // Iterate over operands (inputs)
+  // Iterate over operands (inputs).
   for (auto operand : op->getOperands()) {
-    // Check if the operand is a tensor
+    // Check if the operand is a tensor.
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      // Add the rank of the tensor (number of dimensions)
+      // Add the rank of the tensor (number of dimensions).
       ranks.push_back(tensorType.getRank());
     }
   }
@@ -62,24 +66,6 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
-// Tag bufferization access options based on operand semantics.
-static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
-                                   mlir::Operation *origOp,
-                                   mlir::OpBuilder &builder) {
-  if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
-    if (dpsOp.isDpsInit(&origOp->getOpOperand(argIdx))) {
-      funcOp.setArgAttr(argIdx, "bufferization.access",
-                        builder.getStringAttr("write"));
-    } else {
-      funcOp.setArgAttr(argIdx, "bufferization.access",
-                        builder.getStringAttr("read"));
-    }
-  } else {
-    funcOp.setArgAttr(argIdx, "bufferization.access",
-                      builder.getStringAttr("read-write"));
-  }
-}
-
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
@@ -87,12 +73,12 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
                                      mlir::ModuleOp targetModule) {
 
-  const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
+  llvm::SmallVector<int64_t, 3> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
   mlir::OpBuilder typeBuilder(opToHoist);
   auto f32Type = mlir::Float32Type::get(context);
 
-  // Convert operands and gather types for function signature
+  // Convert operands and gather types for function signature.
   llvm::SmallVector<mlir::Type> operandTypes;
   llvm::SmallVector<mlir::Value> convertedOperands;
 
@@ -100,12 +86,12 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       if (!tensorType.getElementType().isF32()) {
-        // Create f32 version of tensor type
+        // Create f32 version of tensor type.
         auto f32TensorType = RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding());
         operandTypes.push_back(f32TensorType);
 
-        // Create converted tensor value
+        // Create converted tensor value.
         auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(), f32Type);
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
@@ -121,7 +107,27 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
   }
 
-  // Gather result types for function signature
+  // When hoisting a non-DPS op (e.g. SHLO op), we need to DPS-ify to maintain
+  // calling convention.
+  const bool isDPSOp = mlir::isa<mlir::DestinationStyleOpInterface>(opToHoist);
+  if (!isDPSOp) {
+    // Create empty tensors for each tensor result.
+    for (auto resultType : opToHoist->getResultTypes()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(resultType)) {
+        auto empty = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
+            opToHoist->getLoc(), tensorType.getShape(),
+            tensorType.getElementType());
+        convertedOperands.push_back(empty);
+
+        // Add to function signature.
+        operandTypes.push_back(empty.getType());
+        ranks.push_back(tensorType.getRank());
+      }
+    }
+  }
+
+  // Gather result types for function signature.
   llvm::SmallVector<mlir::Type> resultTypes;
   for (auto result : opToHoist->getResultTypes()) {
     if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
@@ -136,7 +142,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
   }
 
-  // Create function types
+  // Create function types.
   mlir::FunctionType localFuncType =
       mlir::FunctionType::get(context, operandTypes, resultTypes);
   mlir::FunctionType funcType =
@@ -151,7 +157,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
-    // Insert the function and the terminator
+    // Insert the function and the terminator.
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
     targetModule.push_back(hoistedFunc);
@@ -166,23 +172,15 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       newOperands.push_back(block->getArgument(operand.index()));
     }
 
-    // Add bufferization access attributes to function arguments
-    for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
-        tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
-      }
-    }
-
     mlir::IRMapping mapping;
     for (auto operand : llvm::zip(opToHoist->getOperands(), newOperands)) {
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    // Clone the operation but modify its type if needed
+    // Clone the operation, but modify its type if needed.
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update operand types to f32 for tensor types
+    // Update operand types to f32 for tensor types.
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
@@ -194,7 +192,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       }
     }
 
-    // Update result types to f32 for tensor types
+    // Update result types to f32 for tensor types.
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
@@ -207,23 +205,43 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Add an attribute to the function that maps return values to output
-    // arguments
+    // arguments.
+    unsigned outputOperandIdx = opToHoist->getNumOperands();
     if (auto dpsOp =
             mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
-      // Ensure there's only a single output
+      // Ensure there's only a single output.
       assert(dpsOp.getDpsInits().size() == 1 &&
              "Only operations with a single output are supported");
 
-      // Get the index of the output operand
-      unsigned outputIdx =
-          opToHoist->getNumOperands() - dpsOp.getDpsInits().size();
+      // Get the index of the output operand.
+      outputOperandIdx -= dpsOp.getDpsInits().size();
 
       // Store this mapping as an attribute on the function
       hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI64IntegerAttr(outputIdx));
+                           builder.getI64IntegerAttr(outputOperandIdx));
+    } else {
+      // For a non-DPS op, we should have inserted a placeholder output arg at
+      // the end.
+      // Rely on ReenableLostDPS to use the placeholder output arg.
+      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
+                           builder.getI64IntegerAttr(outputOperandIdx));
     }
 
-    // Add a return operation to the function with the operation results
+    // Add bufferization access attributes to function arguments.
+    for (auto [index, value] : llvm::enumerate(hoistedFunc.getArguments())) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
+        if (index < outputOperandIdx) {
+          hoistedFunc.setArgAttr(index, "bufferization.access",
+                                 builder.getStringAttr("read"));
+        } else {
+          hoistedFunc.setArgAttr(index, "bufferization.access",
+                                 builder.getStringAttr("write"));
+        }
+      }
+    }
+
+    // Add a return operation to the function with the operation results.
     builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
                                          clonedOp->getResults());
 
@@ -232,31 +250,22 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
 
-    // Add the function to the module first
+    // Add the function to the module first.
     sourceModule.push_back(localFunc);
-
-    // Now that the function is in the module, add bufferization access
-    // attributes.
-    for (auto arg : llvm::enumerate(localFunc.getArguments())) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
-        tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
-      }
-    }
 
     hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
   }
 
-  // Create the call using already converted inputs
+  // Create the call using already converted inputs.
   mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       opToHoist->getLoc(), localFunc, convertedOperands);
 
-  // Add the hoisted_call attribute
+  // Add the hoisted_call attribute.
   callOp->setAttr(HoistedCallAttr::name,
                   UnitAttr::get(opToHoist->getContext()));
 
-  // Convert results back to original types if needed
+  // Convert results back to original types if needed.
   llvm::SmallVector<mlir::Value> finalResults;
   for (auto [result, callResult] :
        llvm::zip(opToHoist->getResults(), callOp.getResults())) {
@@ -277,10 +286,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
   }
 
-  // Replace original op with the converted results
+  // Replace original op with the converted results.
   opToHoist->replaceAllUsesWith(finalResults);
 
-  // Erase the original operation
+  // Erase the original operation.
   opToHoist->erase();
 }
 
@@ -289,11 +298,17 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 namespace {
 class TTIRHoistAnalyze {
 public:
+  // Data structure to hold all sets of ops to hoist--each op should be hoisted
+  // continguously.  (Currently, we only support sets of size 1).
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
-  TTIRHoistAnalyze(mlir::ModuleOp moduleOp) {
+  TTIRHoistAnalyze(mlir::ModuleOp moduleOp,
+                   llvm::DenseSet<TypeID> dialectTypeIDs) {
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name)) {
+      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name) ||
+          dialectTypeIDs.contains(nestedOp->getDialect()->getTypeID())) {
+        // TODO (#1646): Add support for hoisting sets of multiple ops instead
+        // of single ops.
         llvm::SmallSet<mlir::Operation *, 4> opSet;
         opSet.insert(nestedOp);
         hoistedOps.push_back(opSet);
@@ -345,7 +360,7 @@ public:
 
     auto loc = rootModule->getLoc();
 
-    TTIRHoistAnalyze analysisPass(deviceInnerModule);
+    TTIRHoistAnalyze analysisPass(deviceInnerModule, dialectTypeIDs);
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
@@ -381,7 +396,26 @@ public:
                                cpuInnerModule);
     }
   }
+
+  // TypeIDs for dialects we want to always fallback.
+  llvm::DenseSet<TypeID> dialectTypeIDs;
 };
 } // namespace
+
+template <typename... Dialects>
+std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
+  auto pass = std::make_unique<TTIRHoistTransform>();
+  (pass->dialectTypeIDs.insert(TypeID::get<Dialects>()), ...);
+  return pass;
+}
+
+// Must explicitly instantiate any dialects we want this pass to potentially
+// fallback elsewhere due to template in .cpp file constraints.
+#ifdef TTMLIR_ENABLE_STABLEHLO
+template std::unique_ptr<mlir::Pass>
+createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+#endif
+template std::unique_ptr<mlir::Pass>
+createTTIRHoistTransformForDialects<TTIRDialect>();
 
 } // namespace mlir::tt::ttir
