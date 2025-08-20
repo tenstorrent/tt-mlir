@@ -10,6 +10,8 @@ from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])

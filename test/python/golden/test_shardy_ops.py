@@ -18,6 +18,8 @@ from ttmlir.passes import (
     stablehlo_to_ttir_pipeline,
 )
 
+pytestmark = pytest.mark.frontend("shlo")
+
 
 def sharding_constraint(
     in0: Operand,
