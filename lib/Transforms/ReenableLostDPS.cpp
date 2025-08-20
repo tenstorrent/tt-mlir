@@ -33,9 +33,8 @@ static tensor::EmptyOp findEmptyOp(Value value) {
   // Handle cases where empty op is filled via FillOp--seems to be common
   // pattern in linalg.
   if (auto fillOp = value.getDefiningOp<linalg::FillOp>()) {
-    assert(fillOp.getNumResults() == 1);
-    Value fillDest = fillOp.getResult(0);
-    return fillDest.getDefiningOp<tensor::EmptyOp>();
+    Value fillInput = fillOp.getDpsInitOperand(0)->get();
+    return fillInput.getDefiningOp<tensor::EmptyOp>();
   }
 
   return nullptr;
