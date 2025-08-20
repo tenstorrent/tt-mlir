@@ -355,11 +355,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
-        return tensor.handle.get() == nullptr
-                   ? std::nullopt
-                   : std::optional<tt::runtime::Tensor>(tensor);
+        return tt::runtime::getOpOutputTensor(opContextHandle,
+                                              programContextHandle);
       },
       "Get the output tensor of the op");
   m.def(

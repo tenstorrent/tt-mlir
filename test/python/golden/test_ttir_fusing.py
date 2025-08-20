@@ -5,7 +5,8 @@
 import pytest
 import torch
 from typing import List, Optional
-from builder.base.builder import Operand, Shape
+from builder.base.builder import Operand, Shape, GoldenCheckLevel
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
@@ -66,6 +67,8 @@ def test_batch_norm_decomposition(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
+        builder.set_golden_check_level(GoldenCheckLevel.MANUAL)
+
         # Create input tensor with random data
         input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
 
@@ -103,22 +106,7 @@ def test_batch_norm_decomposition(
             eps=epsilon,
         )
 
-        builder.set_graph_input_output(
-            [
-                input_tensor_data,
-                conv_weight_data,
-                conv_bias_data,
-                conv_result,
-                bn_scale_data,
-                bn_offset_data,
-                bn_mean_data,
-                bn_variance_data,
-            ],
-            [golden_output],
-            override=True,
-        )
-
-        conv_result = builder.conv2d(
+        conv2d_0 = builder.conv2d(
             input_tensor,
             conv_weight,
             conv_bias,
@@ -129,9 +117,12 @@ def test_batch_norm_decomposition(
             groups=groups,
             unit_attrs=unit_attrs,
         )
+        builder.set_operand_golden(
+            conv2d_0, BuilderGoldenTensor({0: conv_result}, (1, 1))
+        )
 
-        return builder.batch_norm(
-            conv_result,
+        batch_norm_0 = builder.batch_norm(
+            conv2d_0,
             bn_scale,
             bn_offset,
             bn_mean,
@@ -141,6 +132,32 @@ def test_batch_norm_decomposition(
             training=training,
             unit_attrs=unit_attrs,
         )
+
+        builder.set_input_goldens(
+            [
+                input_tensor,
+                conv_weight,
+                conv_bias,
+                bn_scale,
+                bn_offset,
+                bn_mean,
+                bn_variance,
+            ],
+            [
+                BuilderGoldenTensor({0: input_tensor_data}, (1, 1)),
+                BuilderGoldenTensor({0: conv_weight_data}, (1, 1)),
+                BuilderGoldenTensor({0: conv_bias_data}, (1, 1)),
+                BuilderGoldenTensor({0: bn_scale_data}, (1, 1)),
+                BuilderGoldenTensor({0: bn_offset_data}, (1, 1)),
+                BuilderGoldenTensor({0: bn_mean_data}, (1, 1)),
+                BuilderGoldenTensor({0: bn_variance_data}, (1, 1)),
+            ],
+        )
+        builder.set_output_goldens(
+            [batch_norm_0], [BuilderGoldenTensor({0: golden_output}, (1, 1))]
+        )
+
+        return batch_norm_0
 
     output = compile_ttir_to_flatbuffer(
         conv2d_batch_norm,
