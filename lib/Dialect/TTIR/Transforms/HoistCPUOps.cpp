@@ -228,14 +228,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Add bufferization access attributes to function arguments.
-    for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
+    for (auto [index, value] : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
-        if (arg.index() < outputOperandIdx) {
-          hoistedFunc.setArgAttr(arg.index(), "bufferization.access",
+              mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
+        if (index < outputOperandIdx) {
+          hoistedFunc.setArgAttr(index, "bufferization.access",
                                  builder.getStringAttr("read"));
         } else {
-          hoistedFunc.setArgAttr(arg.index(), "bufferization.access",
+          hoistedFunc.setArgAttr(index, "bufferization.access",
                                  builder.getStringAttr("write"));
         }
       }
