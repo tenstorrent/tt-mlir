@@ -117,6 +117,8 @@ protected:
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
+      llvm::outs() << "OpModel<" << OpTy::getOperationName()
+                   << ">::getOpRuntime: " << runtimeExp.get() << "\n";
     } else {
       llvm::consumeError(runtimeExp.takeError());
     }
