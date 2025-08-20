@@ -143,6 +143,7 @@ def build_ttir_module(
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
+    golden_check_level: GoldenCheckLevel = GoldenCheckLevel.AUTOMATIC,
 ) -> Tuple[Module, TTIRBuilder]:
     """
     Define a MLIR module specified as a python function.
@@ -222,10 +223,8 @@ def build_ttir_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    # Instantiate builder which is passed as the last argument to
-    # `fn` so the user can use it to build ops.
     mesh_shape = tuple(mesh_dict.values())
-    ttir_builder = TTIRBuilder(ctx, loc, mesh_shape)
+    ttir_builder = TTIRBuilder(ctx, loc, mesh_shape, golden_check_level)
 
     # Default to all f32s
     if inputs_types is None:
@@ -248,32 +247,32 @@ def build_ttir_module(
             for (shape, dtype) in zip(inputs_shapes, inputs_types)
         ]
 
-        # Wrap everything in a mlir module.
         module = Module.create()
         with InsertionPoint(module.body):
-            # Wrap everything in a mlir function.
+
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                # Randomly generate golden tensors for function inputs.
-                input_goldens = []
-                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        ttir_builder._generate_input_golden(
-                            operand, dtype, index
-                        ).tensor
-                    )
+                if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                    input_goldens = []
+                    for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                        input_goldens.append(
+                            ttir_builder._generate_golden_tensor(operand, dtype)
+                        )
+                    ttir_builder.set_input_goldens(inputs, input_goldens)
+
                 result = fn(*inputs, ttir_builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    ttir_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                ttir_builder.set_graph_input_output(input_goldens, output_goldens)
+
+                if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                    outputs = result if hasattr(result, "__iter__") else (result,)
+                    output_goldens = [
+                        ttir_builder._get_golden_tensor(op) for op in outputs
+                    ]
+                    ttir_builder.set_output_goldens(outputs, output_goldens)
+
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
-
         base = fn.__name__ if base is None else base
-
         filename = _get_target_path(output_root, base + "_ttir.mlir", "ttir")
 
         if module_dump:
@@ -299,6 +298,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    golden_check_level: GoldenCheckLevel = GoldenCheckLevel.AUTOMATIC,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -422,6 +422,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             module_dump=module_dump,
             output_root=output_root,
+            golden_check_level=golden_check_level,
         )
     except Exception as e:
         raise TTIRCompileException(e)
@@ -472,6 +473,7 @@ def build_stablehlo_module(
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
+    golden_check_level: GoldenCheckLevel = GoldenCheckLevel.AUTOMATIC,
 ) -> Tuple[Module, StableHLOBuilder]:
     """
     Define a MLIR module specified as a python function.
@@ -546,7 +548,7 @@ def build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc)
+    stablehlo_builder = StableHLOBuilder(ctx, loc, golden_check_level)
 
     # Default to all f32s
     if inputs_types is None:
@@ -584,26 +586,28 @@ def build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                # Randomly generate golden tensors for function inputs.
-                input_goldens = []
-                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        stablehlo_builder._generate_input_golden(
-                            operand, dtype, index
-                        ).tensor
-                    )
+                if stablehlo_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                    input_goldens = []
+                    for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                        input_goldens.append(
+                            stablehlo_builder._generate_golden_tensor(operand, dtype)
+                        )
+
+                    stablehlo_builder.set_input_goldens(inputs, input_goldens)
+
                 result = fn(*inputs, stablehlo_builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    stablehlo_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
+
+                if stablehlo_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                    outputs = result if hasattr(result, "__iter__") else (result,)
+                    output_goldens = [
+                        stablehlo_builder._get_golden_tensor(op) for op in outputs
+                    ]
+                    stablehlo_builder.set_output_goldens(outputs, output_goldens)
+
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
-
         base = fn.__name__ if base is None else base
-
         filename = _get_target_path(output_root, base + "_shlo.mlir", "shlo")
 
         if module_dump:

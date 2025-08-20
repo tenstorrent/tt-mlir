@@ -98,6 +98,7 @@ struct RuntimeCheckedObjectImpl {
   std::shared_ptr<void> handle;
   ::tt::runtime::DeviceRuntime associatedRuntime;
 
+  RuntimeCheckedObjectImpl() = default;
   RuntimeCheckedObjectImpl(std::shared_ptr<void> handle,
                            ::tt::runtime::DeviceRuntime runtime)
       : handle(handle), associatedRuntime(runtime) {}
@@ -276,7 +277,8 @@ struct Binary : public Flatbuffer {
   std::string getMlirAsJson() const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
-  const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+  std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+  getDebugInfoGolden(std::string &loc) const;
   const std::pair<std::uint32_t, std::uint32_t>
   getProgramMeshShape(std::uint32_t programIndex) const;
 
@@ -315,7 +317,7 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
-
+  Tensor() = default;
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),

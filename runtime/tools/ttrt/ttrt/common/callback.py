@@ -120,73 +120,85 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
-
-    if op_golden_tensor is None:
+    op_golden_tensor_map = binary.get_debug_info_golden(loc)
+    if len(op_golden_tensor_map) == 0:
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
 
-    op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
-
-    if op_output_tensor is None:
+    op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
+        op_context, program_context
+    )
+    if len(op_output_tensor_map) == 0:
         logging.debug("Output tensor is empty - skipping golden comparison")
         return
 
-    rt_buffer = op_output_tensor.get_data_buffer()
-    dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-    assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
-    golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
+    # loop through all devices and compare golden tensors
+    device_results = {}
+    for device_id, op_golden_tensor in op_golden_tensor_map.items():
+        if device_id not in op_output_tensor_map:
+            logging.debug(
+                f"Device {device_id} does not have an output tensor - skipping golden comparison"
+            )
+            continue
 
-    output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
-    if callback_runtime_config.save_golden_tensors:
-        torch.save(
+        op_output_tensor = op_output_tensor_map[device_id]
+        rt_buffer = op_output_tensor.get_data_buffer()
+        dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
+        assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
+        golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
+
+        output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+        if callback_runtime_config.save_golden_tensors:
+            torch.save(
+                golden_tensor_torch,
+                f"{callback_runtime_config.artifact_dir}/{loc}_{device_id}_golden.pt",
+            )
+            torch.save(
+                output_tensor_torch,
+                f"{callback_runtime_config.artifact_dir}/{loc}_{device_id}_device.pt",
+            )
+
+        if golden_tensor_torch.shape != output_tensor_torch.shape:
+            logging.debug(
+                "Golden and output tensor shapes do not match - skipping golden comparison"
+            )
+            return
+
+        _, _, cal_pcc, output_str = get_atol_rtol_pcc(
+            golden_tensor_torch, output_tensor_torch, logging
+        )
+
+        logging.debug(f"For device {device_id} at loc={loc}, PCC={cal_pcc}")
+        logging.debug(output_str)
+
+        results = {}
+        results["expected_pcc"] = callback_runtime_config.pcc
+        results["actual_pcc"] = cal_pcc
+        results["atol"] = callback_runtime_config.atol
+        results["rtol"] = callback_runtime_config.rtol
+        results["allclose"] = torch.allclose(
             golden_tensor_torch,
-            f"{callback_runtime_config.artifact_dir}/{loc}_golden.pt",
-        )
-        torch.save(
             output_tensor_torch,
-            f"{callback_runtime_config.artifact_dir}/{loc}_device.pt",
+            atol=callback_runtime_config.atol,
+            rtol=callback_runtime_config.rtol,
         )
+        results["max"] = torch.max(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["mean_absolute_error"] = torch.mean(
+            torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
+        ).item()
+        results["root_mean_square_error"] = torch.sqrt(
+            torch.mean((golden_tensor_torch.float() - output_tensor_torch.float()) ** 2)
+        ).item()
+        results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+            golden_tensor_torch.float().unsqueeze(0),
+            output_tensor_torch.float().unsqueeze(0),
+        ).item()
 
-    if golden_tensor_torch.shape != output_tensor_torch.shape:
-        logging.debug(
-            "Golden and output tensor shapes do not match - skipping golden comparison"
-        )
-        return
+        device_results[device_id] = results
 
-    _, _, cal_pcc, output_str = get_atol_rtol_pcc(
-        golden_tensor_torch, output_tensor_torch, logging
-    )
-
-    logging.debug(f"PCC={cal_pcc}")
-    logging.debug(output_str)
-
-    results = {}
-    results["expected_pcc"] = callback_runtime_config.pcc
-    results["actual_pcc"] = cal_pcc
-    results["atol"] = callback_runtime_config.atol
-    results["rtol"] = callback_runtime_config.rtol
-    results["allclose"] = torch.allclose(
-        golden_tensor_torch,
-        output_tensor_torch,
-        atol=callback_runtime_config.atol,
-        rtol=callback_runtime_config.rtol,
-    )
-    results["max"] = torch.max(
-        torch.abs(golden_tensor_torch - output_tensor_torch)
-    ).item()
-    results["mean_absolute_error"] = torch.mean(
-        torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
-    ).item()
-    results["root_mean_square_error"] = torch.sqrt(
-        torch.mean((golden_tensor_torch.float() - output_tensor_torch.float()) ** 2)
-    ).item()
-    results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-        golden_tensor_torch.float().unsqueeze(0),
-        output_tensor_torch.float().unsqueeze(0),
-    ).item()
-
-    callback_runtime_config.golden_report[loc] = results
+    callback_runtime_config.golden_report[loc] = device_results
 
 
 """

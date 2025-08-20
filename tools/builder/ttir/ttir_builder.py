@@ -21,9 +21,14 @@ from builder.base import builder_golden
 class TTIRBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location, mesh_shape=(1, 1)):
-        super().__init__(ctx, location)
-        self._mesh_shape = mesh_shape
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_shape=(1, 1),
+        golden_check_level=GoldenCheckLevel.AUTOMATIC,
+    ):
+        super().__init__(ctx, location, mesh_shape, golden_check_level)
 
     # ----- Public methods -----
 
@@ -76,18 +81,28 @@ class TTIRBuilder(Builder):
 
     # ----- Private methods ----
 
-    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        dtype = data_type if data_type is not None else self._default_type
-        return self._create_empty_from_tensor_type(
-            shape, self._create_ranked_tensor_type(shape, dtype)
+    # Currently, we do not have shape inference trait in ttir ops, so we use golden function to infer output shape and type.
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_ttir_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = builder_golden.get_golden_function(
+            op_ttir_function, **golden_kwargs
+        )
+        golden_output = op_golden_function(
+            *(organize_golden_args(inputs)), **golden_kwargs
         )
 
-    def _create_empty_from_tensor_type(
-        self, shape: Shape, tensor_type: RankedTensorType
-    ) -> OpView:
+        return golden_output.shape, self._get_type_from_torch_dtype(golden_output.dtype)
+
+    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+
         with self._ctx, self._loc:
-            op = ttir.EmptyOp(tensor_type)
-            self._generate_and_store_random_golden(op)
+            op = ttir.EmptyOp(self._create_ranked_tensor_type(shape, dtype))
             return op
 
     def _organize_eltwise_ttir(
@@ -104,22 +119,10 @@ class TTIRBuilder(Builder):
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         output_type: Optional[Type] = None,
-        output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
     ) -> Any:
-        stack = inspect.stack()
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside this file"
-            )
-
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -130,38 +133,12 @@ class TTIRBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_ttir_function, **golden_kwargs
+            # Create ttir.empty DPS operand.
+            output_shape, output_type = self._get_output_shape_and_type(
+                organize_golden_args, inputs, op_ttir_function, golden_kwargs
             )
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
+            output = self._empty(output_shape, output_type)
 
-            golden = (
-                Golden(golden_output[0])
-                if isinstance(golden_output, Sequence)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
-
-            if output_create_fn:
-                output = output_create_fn(output_shape, output_type)
-            else:
-                output = self._empty(output_shape, output_type)
             id = self._get_next_global_id()
             loc = (
                 self._get_loc_from_str(loc)
@@ -169,28 +146,26 @@ class TTIRBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            if (
-                not isinstance(
-                    organize_ttir_args(inputs, output, output_shape), torch.Tensor
-                )
-                and organize_ttir_args(inputs, output, output_shape) == 0
-            ):
-                op = op_ttir_function(loc=loc, **ttir_kwargs)
-            else:
-                op = op_ttir_function(
-                    *organize_ttir_args(inputs, output, output_shape),
-                    loc=loc,
-                    **ttir_kwargs,
-                )
+            op = op_ttir_function(
+                *organize_ttir_args(inputs, output, output_shape),
+                loc=loc,
+                **ttir_kwargs,
+            )
 
             if unit_attrs is not None:
-                from ttmlir.ir import UnitAttr
-
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+
+            # If automatic golden check is enabled, generate golden output.
+            if self._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_ttir_function, **golden_kwargs
+                )
+                golden_output = op_golden_function(
+                    *(organize_golden_args(inputs)), **golden_kwargs
+                )
+                self.set_operand_golden(op, golden_output)
+
             return op
 
     def _eltwise_proxy(
@@ -4143,7 +4118,6 @@ class TTIRBuilder(Builder):
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (
                 [self._get_type(o)],
                 i[0],
@@ -4199,7 +4173,6 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"reinterpretLayout": reinterpret_layout},
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             unit_attrs=unit_attrs,
         )
@@ -4247,7 +4220,6 @@ class TTIRBuilder(Builder):
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (
                 [self._get_type(o)],
                 i[0],
@@ -4299,7 +4271,6 @@ class TTIRBuilder(Builder):
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (
                 [self._get_type(o)],
                 i[0],

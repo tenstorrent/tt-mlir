@@ -711,6 +711,7 @@ class Run:
                                 )
 
                             if golden_tensor is not None:
+                                golden_tensor = golden_tensor[0]
                                 golden_tensor_torch = golden_tensor_to_torch(
                                     golden_tensor
                                 )
@@ -741,7 +742,9 @@ class Run:
                                 golden_tensor = bin.fbb.get_debug_info_golden(
                                     f"output_{idx}"
                                 )
+
                                 if golden_tensor is not None:
+                                    golden_tensor = golden_tensor[0]
                                     golden_tensor_torch = golden_tensor_to_torch(
                                         golden_tensor
                                     )
