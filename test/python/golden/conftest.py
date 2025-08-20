@@ -6,9 +6,41 @@ import ttrt
 import platform
 from functools import reduce
 import operator
+import os
+import sys
+import subprocess
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "subprocess: mark test to run in separate subprocess for isolation"
+    )
+
+
+def pytest_runtest_protocol(item, nextitem):
+    if item.get_closest_marker("subprocess") and not os.environ.get("IN_SUBPROCESS"):
+        # Run this test in subprocess
+        env = os.environ.copy()
+        env["IN_SUBPROCESS"] = "1"  # Prevent infinite recursion
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{item.fspath}::{item.name}",
+            "-v",
+            "-s",
+            "--tb=short",
+        ]
+
+        result = subprocess.run(cmd, env=env)
+        if result.returncode != 0:
+            pytest.fail(f"Subprocess test {item.name} failed")
+        return True  # Skip normal execution
+    return None  # Continue with normal execution
 
 
 def is_x86_machine():
@@ -39,11 +71,6 @@ def pytest_addoption(parser):
         "--require-exact-mesh",
         action="store_true",
         help="Require exact mesh shape match with the current device (default allows subset)",
-    )
-    parser.addoption(
-        "--require-opmodel",
-        action="store_true",
-        help="Require tests to run only if build has opmodel enabled",
     )
 
 
@@ -80,14 +107,7 @@ def pytest_collection_modifyitems(config, items):
         ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
     )["system_desc"]
 
-    skip_opmodel = pytest.mark.skip(reason="Test requires --require-opmodel flag")
-    require_opmodel = config.getoption("--require-opmodel")
-
     for item in items:
-        # Skip optimizer tests if opmodel flag is missing
-        if not require_opmodel and "optimizer" in str(item.fspath):
-            item.add_marker(skip_opmodel)
-
         # Only check parameterized tests
         if hasattr(item, "callspec"):
             params = item.callspec.params

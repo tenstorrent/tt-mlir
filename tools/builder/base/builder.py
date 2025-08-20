@@ -10,6 +10,7 @@ import torch
 from enum import Enum, auto
 import re
 
+from ttmlir import optimizer_overrides
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
@@ -54,6 +55,8 @@ class Builder:
         self._global_id = -1
         self._id_golden_map = {}
         self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+        self._output_layout_params = {}
+        self._conv2d_config_params = {}
 
     # ----- Public methods -----
 
@@ -134,6 +137,64 @@ class Builder:
 
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
+
+    def set_output_layout_override(
+        self, attributes: Dict[str, str] = {}, op: Operand = None
+    ):
+        """
+        Sets output layout override parameters for a given operation.
+        Parameters
+        ----------
+        attributes : *Dict[str, str]*
+            Dictionary of override attributes
+
+        op : Operand
+            The operation to apply the output layout override to
+        """
+        output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
+        if not op or not attributes:
+            self._output_layout_params["None"] = output_layout_override
+            return
+
+        for key, value in attributes.items():
+            # Dynamically find the setter method
+            setter_name = f"set_{key}_from_str"
+            if hasattr(output_layout_override, setter_name):
+                setter_method = getattr(output_layout_override, setter_name)
+                setter_method(value)
+            else:
+                raise ValueError(f"Invalid override attribute: {key}")
+
+        self._output_layout_params[op.location.name_str] = output_layout_override
+
+    def set_conv2d_config_override(
+        self, configs: Dict[str, str] = {}, op: Operand = None
+    ):
+        """
+        Sets Conv2d configuration override parameters for a given operation.
+        Parameters
+        ----------
+        configs : *Dict[str, str]*
+            Dictionary of configuration overrides
+
+        op : Operand
+            The Conv2d operation to apply the configuration override to
+        """
+        conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
+        if not op or not configs:
+            self._conv2d_config_params["None"] = conv2d_config_override
+            return
+
+        for key, value in configs.items():
+            # Dynamically find the setter method
+            setter_name = f"set_{key}_from_str"
+            if hasattr(conv2d_config_override, setter_name):
+                setter_method = getattr(conv2d_config_override, setter_name)
+                setter_method(value)
+            else:
+                raise ValueError(f"Invalid override attribute: {key}")
+
+        self._conv2d_config_params[op.location.name_str] = conv2d_config_override
 
     # ----- Private methods -----
 
