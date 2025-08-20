@@ -13,7 +13,7 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import make_shard_shape
 
 
-def build_matmul_multi(
+def _build_matmul_k_split_2d(
     mesh_shape: Tuple[int, int],
     input_rank: int,
     cluster_axis: int,
@@ -48,32 +48,21 @@ def build_matmul_multi(
         shard_dims=shard_dims_wt,
     )
     partial_matmul = builder.matmul(sharded_in0, sharded_in1)
-    sharded_result = builder.all_reduce(
+    sharded_result = builder.reduce_scatter(
         partial_matmul,
         reduce_type="#ttcore.reduce_type<sum>",
+        scatter_dim=input_rank - 1,
         cluster_axis=cluster_axis,
     )
     if not do_unshard:
         return sharded_result
     else:
-        if mesh_shape[1 - cluster_axis] == 1:
-            # Fully replicated result
-            shard_dims_out = [-1]
-            shard_shape_out = [1]
-            unshard_type = "#ttcore.shard_type<replicate>"
-        else:
-            if cluster_axis == 0:
-                shard_dims_out = [-1, 0]
-            else:
-                shard_dims_out = [0, -1]
-            shard_shape_out = make_shard_shape(input_rank, shard_dims_out, mesh_shape)
-            unshard_type = "#ttcore.shard_type<devices>"
         return builder.mesh_shard(
             sharded_result,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type=unshard_type,
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape_in,
+            shard_dims=shard_dims_in,
         )
 
 
@@ -88,26 +77,16 @@ def build_matmul_multi(
         [(256, 128), (128, 256)],
     ],
 )
-@pytest.mark.parametrize(
-    "mesh_shape",
-    [
-        (2, 4),
-        (4, 2),
-        (1, 8),
-        (8, 1),
-        (1, 2),
-        (2, 1),
-    ],
-)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
-def test_matmul_multi_2d(
+def test_matmul_k_split_2d(
     shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("parallelism across 1 device is meaningless")
 
     def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return build_matmul_multi(
+        output = _build_matmul_k_split_2d(
             mesh_shape,
             len(shapes[0]),
             cluster_axis,
@@ -116,6 +95,12 @@ def test_matmul_multi_2d(
             builder,
             do_unshard=True,
         )
+
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        golden = torch.matmul(input_0, input_1)
+        builder.set_graph_input_output([input_0, input_1], [golden])
+        return output
 
     compile_ttir_to_flatbuffer(
         matmul_multi,
@@ -131,27 +116,191 @@ def test_matmul_multi_2d(
 @pytest.mark.parametrize(
     "shapes",
     [
-        [(512, 1024), (512, 1024)],
-        [(64, 128), (64, 128)],
-        [(62, 128), (62, 128)],
-        [(60, 128), (60, 128)],
-        [(66, 128), (66, 128)],
-        [(68, 128), (68, 128)],
-        [(64, 124), (64, 124)],
-        [(64, 120), (64, 120)],
-        [(64, 132), (64, 132)],
-        [(64, 136), (64, 136)],
-        [(14, 44), (14, 44)],
-        [(6, 12), (6, 12)],
-        [(2, 4), (2, 4)],
+        [(1024, 32), (32, 512)],
+        [(256, 128), (128, 256)],
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
-    def eltwise_multidevice(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        shard_shape = (mesh_shape[0], mesh_shape[1])
-        # Set shard_dims[n] to -1 if shard_shape[n] == 1, else keep as 0 or 1
-        shard_dims = tuple(-1 if s == 1 else d for s, d in zip(shard_shape, (0, 1)))
+def test_matmul_unary_parallel(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        sharded_matmul_result = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=False,
+        )
+        output = builder.neg(sharded_matmul_result)
+
+        shard_dims_out = [0, 1]
+        shard_shape_out = make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
+        output = builder.mesh_shard(
+            output,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape_out,
+            shard_dims=shard_dims_out,
+        )
+
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        golden = torch.neg(torch.matmul(input_0, input_1))
+        builder.set_graph_input_output([input_0, input_1], [golden])
+
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 512)],
+        [(256, 128), (128, 256), (256, 256)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+def test_matmul_binary_parallel(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        sharded_matmul_result = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=False,
+        )
+
+        shard_dims = [0, 1]
+        shard_shape = make_shard_shape(len(shapes[0]), shard_dims, mesh_shape)
+        sharded_in2 = builder.mesh_shard(
+            in2,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+        sharded_result = builder.add(sharded_matmul_result, sharded_in2)
+        output = builder.mesh_shard(
+            sharded_result,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        golden = torch.add(torch.matmul(input_0, input_1), input_2)
+        builder.set_graph_input_output([input_0, input_1, input_2], [golden])
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 64), (64, 512)],
+        [(256, 128), (128, 256), (256, 64), (64, 256)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+def test_matmul_matmul_binary_parallel(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(
+        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+    ):
+        matmul_0 = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=False,
+        )
+        matmul_1 = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[2]),
+            1,
+            in2,
+            in3,
+            builder,
+            do_unshard=False,
+        )
+        output = builder.add(matmul_0, matmul_1)
+
+        shard_dims_out = [0, 1]
+        shard_shape_out = make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
+        output = builder.mesh_shard(
+            output,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape_out,
+            shard_dims=shard_dims_out,
+        )
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, shard_dims",
+    [
+        [(64, 128), (0, 1)],
+        [(64, 128), (1, 0)],
+        [(32, 32, 32), (0, 1)],
+        [(32, 32, 32), (0, 2)],
+        [(32, 32, 32), (1, 2)],
+        [(32, 32, 32), (2, 0)],
+        [(32, 32, 32, 32), (0, 1)],
+        [(32, 32, 32, 32), (0, 3)],
+        [(32, 32, 32, 32), (1, 3)],
+        [(32, 32, 32, 32), (2, 3)],
+        [(32, 32, 32, 32), (2, 1)],
+        [(32, 32, 32, 32), (3, 2)],
+        [(32, 32, 32, 32), (3, 0)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
+def test_eltwise_parallel(
+    shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request
+):
+    def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
         sharded_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -176,122 +325,8 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         )
 
     compile_ttir_to_flatbuffer(
-        eltwise_multidevice,
-        shapes,
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [(1024, 32), (32, 512), (1024, 512)],
-        [(256, 128), (128, 128), (256, 128)],
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_and_binary_op(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
-):
-    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        unsharded = build_matmul_multi(
-            mesh_shape,
-            len(shapes[0]),
-            1,
-            in0,
-            in1,
-            builder,
-            do_unshard=True,
-        )
-        output = builder.add(unsharded, in2)
-        return output
-
-    compile_ttir_to_flatbuffer(
-        matmul_test,
-        shapes,
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [(1024, 32), (32, 512)],
-        [(256, 128), (128, 128)],
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
-    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        unsharded = build_matmul_multi(
-            mesh_shape,
-            len(shapes[0]),
-            1,
-            in0,
-            in1,
-            builder,
-            do_unshard=True,
-        )
-        output = builder.neg(unsharded)
-        return output
-
-    compile_ttir_to_flatbuffer(
-        matmul_test,
-        shapes,
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [(1024, 32), (32, 512), (1024, 32), (32, 512)],
-        [(256, 128), (128, 128), (256, 128), (128, 128)],
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_and_binary_op_2(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
-):
-    def matmul_test(
-        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
-    ):
-        matmul_0 = build_matmul_multi(
-            mesh_shape,
-            len(shapes[0]),
-            1,
-            in0,
-            in1,
-            builder,
-            do_unshard=True,
-        )
-        matmul_1 = build_matmul_multi(
-            mesh_shape,
-            len(shapes[2]),
-            1,
-            in2,
-            in3,
-            builder,
-            do_unshard=True,
-        )
-        output = builder.add(matmul_0, matmul_1)
-        return output
-
-    compile_ttir_to_flatbuffer(
-        matmul_test,
-        shapes,
+        eltwise_parallel,
+        [shape, shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
