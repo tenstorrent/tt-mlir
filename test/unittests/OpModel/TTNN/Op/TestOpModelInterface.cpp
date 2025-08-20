@@ -675,6 +675,60 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  // Create TTNNLayoutAttr with Int32 data type manually
+  // (CreateTiledLayout only supports FloatType, not IntegerType)
+  auto int32DataType = ttcore::DataType::Int32;
+  auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
+  auto bufferType = BufferType::L1;
+  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  auto memLayout =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
+                                         bufferType, grid, memLayout);
+
+  // Create tensors with the proper Int32 layout
+  auto intType = builder.getIntegerType(32);
+  auto input1Type = createRankedTensorType(tensorShape, intType, int32Layout);
+  auto input2Type = createRankedTensorType(tensorShape, intType, int32Layout);
+  auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
+
+  // Create input tensors using OnesOp with Int32 layout
+  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), input1Type,
+                                       ShapeAttr::get(&context, tensorShape),
+                                       nullptr, nullptr, nullptr, nullptr);
+  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), input2Type,
+                                       ShapeAttr::get(&context, tensorShape),
+                                       nullptr, nullptr, nullptr, nullptr);
+
+  auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
+      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+
+  // Test LogicalLeftShift interface
+  auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 20480);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints for LogicalLeftShift; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(logicalLeftShift.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for LogicalLeftShift; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};

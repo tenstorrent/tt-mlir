@@ -1767,6 +1767,16 @@ def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
     let hasVerifier = 1;
 }
 
+def TTIR_LogicalLeftShiftOp : TTIR_ElementwiseBinaryOp<"logical_left_shift"> {
+    let summary = "Eltwise Logical Left Shift operation";
+    let description = [{
+      The `logical_left_shift` operation performs an elementwise logical left shift
+      on the elements of the first tensor by the corresponding shift amounts in the
+      second tensor.
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Elementwise subtract operation.";
     let description = [{

@@ -285,6 +285,8 @@ auto getOpSymbol() {
     return ::ttnn::subtract;
   } else if constexpr (std::is_same_v<OpTy, LogicalRightShiftOp>) {
     return ::ttnn::logical_right_shift;
+  } else if constexpr (std::is_same_v<OpTy, LogicalLeftShiftOp>) {
+    return ::ttnn::logical_left_shift;
   } else if constexpr (std::is_same_v<OpTy, DivideOp>) {
     return ::ttnn::divide;
   } else if constexpr (std::is_same_v<OpTy, EqualOp>) {
@@ -1092,6 +1094,7 @@ template struct BinaryEltwiseOpModel<PowOp>;
 template struct BinaryCompositeOpModel<BitwiseAndOp>;
 template struct BinaryCompositeOpModel<BitwiseOrOp>;
 template struct BinaryCompositeOpModel<BitwiseXorOp>;
+template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops

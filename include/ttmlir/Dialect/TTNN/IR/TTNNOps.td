@@ -654,6 +654,18 @@ def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and",
     }];
 }
 
+def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shift",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+  let summary = "Eltwise Logical Left Shift operation";
+  let description = [{
+    The `logical_left_shift` operation performs an elementwise logical left shift
+    on the elements of the first tensor by the corresponding shift amounts in the
+    second tensor.
+  }];
+  let hasVerifier = 1;
+}
+
 def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
