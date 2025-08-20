@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -239,15 +240,17 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       analysisInput.tensorL1UsageCap * analysisInput.usableL1CacheSize;
 
   if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Not enough L1 memory. OpModel constraints failed: {0} "
-                 "\n outputLayout: {1}, l1Usage: {2}, "
-                 "producerL1OutputUsage: {3}, tensorUsage: {4}, "
-                 "outputTensorUsage: {5}, cBUsagePeak: {6}",
-                 consumerOp->getName(), outputLayout,
-                 cBUsagePeak + tensorUsage + producersL1OutputUsage,
-                 producersL1OutputUsage, tensorUsage, outputTensorUsage,
-                 cBUsagePeak);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Not enough L1 memory. OpModel constraints failed: {0} "
+        "\n outputLayout: {1}, l1Usage: {2}, "
+        "producerL1OutputUsage: {3}, tensorUsage: {4}, "
+        "outputTensorUsage: {5}, cBUsagePeak: {6}, l1CacheSize100%: {7}",
+        consumerOp->getName(), outputLayout,
+        cBUsagePeak + tensorUsage + producersL1OutputUsage,
+        producersL1OutputUsage, tensorUsage, outputTensorUsage, cBUsagePeak,
+        analysisInput.usableL1CacheSize);
+    consumerOp->dumpPretty();
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Not enough L1 memory for op %s.",
                                    consumerOp->getName().getStringRef().data());
@@ -264,10 +267,22 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         "OpModel constraints valid for input of consumer {0}:\n"
         "OutputLayout: {1}\n"
         "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-        "producerL1OutputUsage: {5}, totalL1Usage: {6}",
+        "producerL1OutputUsage: {5}, totalL1Usage: {6}, l1CacheSize100%: {7}",
         consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
         outputTensorUsage, producersL1OutputUsage,
-        cBUsagePeak + tensorUsage + producersL1OutputUsage);
+        cBUsagePeak + tensorUsage + producersL1OutputUsage,
+        analysisInput.usableL1CacheSize);
+    consumerOp->dumpPretty();
+
+    std::cout << "Upgrading producer op: " << "\n"
+              << "L1 usage: cBUsagePeak: " << cBUsagePeak
+              << ", tensorUsage: " << tensorUsage
+              << ", outputTensorUsage: " << outputTensorUsage
+              << ", producerL1OutputUsage: " << producersL1OutputUsage
+              << ", totalL1Usage: "
+              << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
+              << ", l1CacheSize100%: " << analysisInput.usableL1CacheSize
+              << "\n";
 
     return outputLayout;
   }
@@ -308,10 +323,21 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       "OpModel constraints valid {0}:\n"
       "OutputLayout: {1}\n"
       "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-      "producerL1OutputUsage: {5}, totalL1Usage: {6}",
+      "producerL1OutputUsage: {5}, totalL1Usage: {6}, l1CacheSize100%: {7}",
       consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
       outputTensorUsage, producersL1OutputUsage,
-      cBUsagePeak + tensorUsage + producersL1OutputUsage);
+      cBUsagePeak + tensorUsage + producersL1OutputUsage,
+      analysisInput.usableL1CacheSize);
+  consumerOp->dumpPretty();
+
+  std::cout << "Upgrading op: " << "\n"
+            << "L1 usage: cBUsagePeak: " << cBUsagePeak
+            << ", tensorUsage: " << tensorUsage
+            << ", outputTensorUsage: " << outputTensorUsage
+            << ", producerL1OutputUsage: " << producersL1OutputUsage
+            << ", totalL1Usage: "
+            << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
+            << ", l1CacheSize100%: " << analysisInput.usableL1CacheSize << "\n";
 
   return outputLayout;
 }
