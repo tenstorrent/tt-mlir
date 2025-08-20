@@ -1143,6 +1143,61 @@ def test_max_pool2d(
 
 
 @pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
+    ],
+)
+@pytest.mark.parametrize("shapes", [[(1, 31, 31, 32), (1, 31, 35, 32)]])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_avg_pool2d(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    request,
+):
+    def avg_pool2d(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.avg_pool2d(
+            in0,
+            in1,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        avg_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
     "shapes",
     [
         [

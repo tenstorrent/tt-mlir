@@ -1278,33 +1278,43 @@ public:
     int32_t paddingBottom = std::get<2>(*paddingQuad);
     int32_t paddingRight = std::get<3>(*paddingQuad);
 
-    // Check for asymmetric padding.
-    if (paddingBottom != paddingTop) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for top/bottom";
+    DenseI32ArrayAttr paddingAttr;
+    // If padding is symmetric along both spatial dimensions, we can use the
+    // {height, width} definition of padding.
+    if (paddingBottom == paddingTop && paddingLeft == paddingRight) {
+      paddingAttr = rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
+    } else {
+      // Otherwise pass {top, left, bottom, right}
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {paddingTop, paddingLeft, paddingBottom, paddingRight});
     }
-
-    if (paddingLeft != paddingRight) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for left/right";
-    }
-
-    DenseI32ArrayAttr paddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
     auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
-
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), batchSize,
-        adaptor.getFlattenedCompatInfo().getInputHeight(),
-        adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        /*memory_config=*/nullptr,
-        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-        /* in_place_halo=*/false);
+    if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false, adaptor.getCountIncludePad());
+    } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false);
+    } else {
+      llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+    }
 
     return success();
   }

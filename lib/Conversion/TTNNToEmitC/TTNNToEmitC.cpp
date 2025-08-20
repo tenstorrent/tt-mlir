@@ -584,6 +584,17 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AvgPool2dOp> emitter(
         srcOp, adaptor, rewriter);
 
+    SmallVector<int32_t> padding;
+    if (srcOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[3]));
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getBatchSize()),
@@ -593,9 +604,11 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(
             srcOp.getKernelSizeAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
         emitter.emit(srcOp.getCeilMode()),
-        emitter.emit(/*count_include_pad=*/true),
+        emitter.emit(/*count_include_pad=*/srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
@@ -626,6 +639,17 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dOp> emitter(
         srcOp, adaptor, rewriter);
 
+    SmallVector<int32_t> padding;
+    if (srcOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[3]));
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getBatchSize()),
@@ -635,7 +659,9 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(
             srcOp.getKernelSizeAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
