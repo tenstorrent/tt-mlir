@@ -62,9 +62,9 @@ struct L1InterleavedFallbackAnalysisResult {
 
 // Analysis that runs after spillToDRAM to try upgrading DRAM operations
 // to L1 interleaved when:
-// 1. The operation has exactly one user
-// 2. That user is the immediate next operation in the schedule
-// 3. L1 memory constraints are satisfied
+// 1. The operation has exactly one user.
+// 2. That user is the immediate next operation in the schedule.
+// 3. L1 memory constraints are satisfied.
 //
 class L1InterleavedFallbackAnalysis
     : public TTNNAnalysis<L1InterleavedFallbackAnalysisInput,
@@ -74,23 +74,23 @@ private:
   void analysisImplementation() override;
   bool applyOverrides() override { return false; }
 
-  // Check if operation has L1 interleaved layout available
+  // Check if operation has L1 interleaved layout available.
   bool hasL1InterleavedLegalLayout(Operation *op) const;
 
   // Get L1 interleaved layouts for operation (both tiled and row-major if
-  // available after LegalOpLayoutsAnalysis)
+  // available after LegalOpLayoutsAnalysis).
   std::vector<OpConfig> getL1InterleavedLayoutConfigs(Operation *op) const;
 
-  // Check if operation has exactly one user that is immediate next in schedule
+  // Check if operation has exactly one user that is immediate next in schedule.
   bool hasImmediateConsumer(Operation *op) const;
 
   // Check if upgrading operation to L1 interleaved is safe via single-level
   // recursive validation of producer-consumer chain. Parameters support the
   // recursive check:
   // - upgradedProducerOp & upgradedProducerLayout: when non-null, represents
-  //   the hypothetical upgraded producer we need to validate against
+  //   the hypothetical upgraded producer we need to validate against.
   // - This allows checking if the consumer can handle the upgraded layout
-  //   before committing to the upgrade
+  //   before committing to the upgrade.
   llvm::Expected<TTNNLayoutAttr> checkUpgradeToL1Interleaved(
       Operation *consumerOp, const OpConfig &consumerConfig,
       const Operation *upgradedProducerOp,

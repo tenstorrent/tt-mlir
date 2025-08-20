@@ -23,9 +23,9 @@ namespace mlir::tt::ttnn {
 
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
-  // interleaved
+  // interleaved.
   analysisInput.funcOp->walk([&](Operation *op) {
-    // Skip operations that have the row-major workaround later on in Optimizer
+    // Skip operations that have the row-major workaround later on in Optimizer.
     // TODO(bmalesevic,#3985): remove after this is fixed
     if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
       return;
@@ -47,25 +47,24 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       }
     }
 
-    // Skip if operation doesn't have L1 interleaved layout available
+    // Skip if operation doesn't have L1 interleaved layout available.
     if (!hasL1InterleavedLegalLayout(op)) {
       return;
     }
-    // Skip if operation doesn't use DRAM layout
+    // Skip if operation doesn't use DRAM layout.
     if (!utils::producesDRAMLayout(op)) {
       return;
     }
-    // Skip if operation doesn't have exactly one user
+    // Skip if operation doesn't have exactly one user.
     if (!op->hasOneUse()) {
       return;
     }
-    // Skip if producer is not immediately consumed by consumer
+    // Skip if producer is not immediately consumed by consumer.
     if (!hasImmediateConsumer(op)) {
-      TTMLIR_TRACE(
-          ttmlir::LogComponent::Optimizer,
-          "L1InterleavedFallbackAnalysis: Skipping {} - not singular user or "
-          "not immediately consumed",
-          op->getName());
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - "
+                   "not immediately consumed.",
+                   op->getName());
       return;
     }
     std::vector<OpConfig> opL1InterleavedConfigs =
@@ -73,7 +72,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
 
     bool isCurrentlyTiled = utils::producesTiledTensorLayout(op);
 
-    // Partition configs to prioritize those matching current tiling preference
+    // Partition configs to prioritize those matching current tiling preference.
     std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
                    [isCurrentlyTiled](const OpConfig &config) {
                      bool configTiled = config.outputLayout.isTiled();
@@ -81,7 +80,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    });
 
     // Try both L1 interleaved configs until one works if there are multiple
-    // (rowMajor and tiled)
+    // (rowMajor and tiled).
     for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "=== Start of debug dump for op {} ===",
@@ -128,14 +127,14 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
 }
 
 bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
-  // Get the single user
+  // Get the single user.
   Operation *userOp = *op->getUsers().begin();
   Operation *consumerOp = op->getNextNode();
 
-  // User must not be scheduled at an earlier index than its operand
+  // User must not be scheduled at an earlier index than its operand.
   assert(consumerOp);
 
-  // Check if the user is the immediate next operation in schedule
+  // Check if the user is the immediate next operation in schedule.
   return consumerOp == userOp;
 }
 
@@ -179,7 +178,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     if (operand.getDefiningOp()) {
       if (operand.getDefiningOp() == upgradedProducerOp) {
         // If it's a nested check of update candidate's (producer in this scope)
-        // consumer's storage
+        // consumer's storage.
         inputLayouts.push_back(upgradedProducerLayout);
         continue;
       }
@@ -255,9 +254,9 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // Check if upgrading this operation would cause memory conflicts with its
   // consumer. This is a single-level recursion check:
   // - First call: upgradedProducerOp=nullptr, checks if current op can be
-  // upgraded
+  // upgraded.
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
-  // handle the upgrade
+  // handle the upgrade.
   if (upgradedProducerOp) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
@@ -276,7 +275,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   Operation *nextConsumerOp = *consumerOp->getUsers().begin();
   assert(nextConsumerOp && "Operation must have a consumer");
   // If next consumer has TTNN layout output encoding, verify both operations
-  // can coexist in L1
+  // can coexist in L1.
   if (utils::producesTTNNLayoutEncoding(nextConsumerOp)) {
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);

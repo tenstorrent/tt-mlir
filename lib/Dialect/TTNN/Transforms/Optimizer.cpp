@@ -215,12 +215,12 @@ public:
     ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
     // Map to store only L1 Interleaved legal configs for
-    // L1InterleavedFallbackAnalysis
+    // L1InterleavedFallbackAnalysis.
     llvm::DenseMap<Operation *, std::vector<OpConfig>>
         l1InterleavedLegalConfigs;
 
     // Step 1: Run ScalarDataTypeAnalysis to collect all scalar types used in
-    // the graph
+    // the graph.
     ScalarDataTypeAnalysis scalarDataTypeAnalysis =
         getAnalysis<ScalarDataTypeAnalysis>();
     scalarDataTypeAnalysis.init(
@@ -228,11 +228,11 @@ public:
     auto scalarTypes = scalarDataTypeAnalysis.getResult();
 
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "ScalarDataTypeAnalysis found {0} unique scalar types",
+                 "ScalarDataTypeAnalysis found {0} unique scalar types.",
                  scalarTypes.size());
 
     // Step 2: Run LegalTensorLayoutAnalysis to generate layouts for all tensor
-    // types
+    // types.
     mlir::tt::ttnn::LegalTensorLayoutAnalysis legalTensorLayoutAnalysis =
         getAnalysis<mlir::tt::ttnn::LegalTensorLayoutAnalysis>();
     legalTensorLayoutAnalysis.init(
@@ -258,14 +258,14 @@ public:
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
         // Get all possible layouts for this tensor type
-        // Use layouts from the global analysis instead of regenerating per-op
+        // Use layouts from the global analysis instead of regenerating per-op.
         auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
         bool hasLayoutsForTensorType =
             (tensorLayouts != tensorTypePossibleLayouts.end());
 
         assert(hasLayoutsForTensorType && "No layouts found for tensor type");
 
-        // Run legal layout analysis to select the best layouts
+        // Run legal layout analysis to select the best layouts.
         LegalOpLayoutAnalysis legalOpLayoutAnalysis =
             getChildAnalysis<LegalOpLayoutAnalysis>(op);
         legalOpLayoutAnalysis.init(LegalOpLayoutAnalysisInput(
