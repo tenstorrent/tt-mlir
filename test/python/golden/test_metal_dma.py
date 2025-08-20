@@ -15,6 +15,8 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 from test_utils import Marks, shape_str
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 def compile_dma_test(test_func, shape, request):
 
