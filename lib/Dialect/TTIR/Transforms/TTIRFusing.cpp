@@ -347,6 +347,20 @@ public:
   }
 
 private:
+  static bool isConstant(const llvm::SmallPtrSet<BlockArgument, 4> &constParams,
+                         mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      return constParams.contains(blockArg);
+    }
+
+    if (auto typecastOp = mlir::dyn_cast<TypecastOp>(value.getDefiningOp())) {
+      return isConstant(constParams, typecastOp.getInput());
+    }
+
+    Operation *defOp = value.getDefiningOp();
+    return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
+  }
+
   static std::optional<std::pair<Conv2dOp, mlir::Value>>
   getConv2dAndScale(MultiplyOp multiplyOp) {
     auto lhs = multiplyOp.getLhs();
@@ -373,17 +387,8 @@ private:
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
-    auto isConstant = [&constParams](mlir::Value value) {
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
-        return constParams.contains(blockArg);
-      }
 
-      Operation *defOp = value.getDefiningOp();
-      return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
-    };
-
-    // If weight is not constant, we cannot commute.
-    if (!isConstant(conv2dOp.getWeight())) {
+    if (!isConstant(constParams, scale)) {
       return false;
     }
 
@@ -406,7 +411,9 @@ private:
     SetVector<Value> useDefChain = ttmlir::utils::getUseDefChain(scale);
     SetVector<BlockArgument> useDefChainBlockArgs =
         ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    if (!all_of(useDefChainBlockArgs, isConstant)) {
+    if (!all_of(useDefChainBlockArgs, [&constParams](BlockArgument blockArg) {
+          return isConstant(constParams, blockArg);
+        })) {
       return false;
     }
 
