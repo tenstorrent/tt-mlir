@@ -239,12 +239,10 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceOp requires bfloat16 data type for strided slice.
-// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
-// to Width and Height) are not divisible by tile width and height.
+// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
-    ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
+TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     mlir::ArrayAttr step) {
   // Check if any element in 'step' is greater than 1, indicating a strided
   // slice operation.
@@ -253,40 +251,44 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
     return intAttr.getInt() > 1;
   });
 
-  // Compute Width Index.
-  int64_t idxWidth = begins.size() - 1;
-  // Compute Height Index; 0 if input tensor is 1D.
-  int64_t idxHeight = begins.size() > 1 ? begins.size() - 2 : 0;
-
-  // Determine if workaround for row major layout is required.
-  bool isLayoutWARequired = layoutAttr.isTiled();
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isLayoutWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  isLayoutWARequired &=
-      ((mlir::dyn_cast<mlir::IntegerAttr>(begins[idxWidth]).getInt() %
-            tileWidth !=
-        0) ||
-       (mlir::dyn_cast<mlir::IntegerAttr>(begins[idxHeight]).getInt() %
-            tileHeight !=
-        0));
-
-  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  TTNNOperandWorkarounds bF16Workaround;
   if (isStridedSliceOp) {
-    rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-        ttcore::DataType::BFloat16;
-  }
-  if (!isStridedSliceOp && isLayoutWARequired) {
-    rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+      .addInputOperandWorkaround(bF16Workaround)
+      .addOutputOperandWorkaround(bF16Workaround);
+}
+
+// Factory method to create a set of workarounds for dynamic slice op input
+// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
+// ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
+    mlir::ArrayAttr step) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation. If step is null, assume non-strided operation.
+  bool isStridedSliceOp = false;
+  if (step) {
+    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+      return intAttr.getInt() > 1;
+    });
+  }
+
+  TTNNOperandWorkarounds bF16Workaround;
+  if (isStridedSliceOp) {
+    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
+  TTNNOperandWorkarounds uInt32Workaround;
+  uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(bF16Workaround)
+      .addInputOperandWorkaround(uInt32Workaround)
+      .addInputOperandWorkaround(uInt32Workaround)
+      .addOutputOperandWorkaround(bF16Workaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
@@ -377,35 +379,14 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   mlir::tt::ttcore::DataType dType =
       mlir::tt::ttcore::elementTypeToDataType(elementType);
 
-  if (isa<ttnn::RemainderOp>(op)) {
-    return {};
-  }
-
-  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
-    if (dType == mlir::tt::ttcore::DataType::Float32 ||
-        dType == mlir::tt::ttcore::DataType::BFloat16 ||
-        dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
-        dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
+  if (isa<ttnn::LogicalRightShiftOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt32 ||
+        dType == mlir::tt::ttcore::DataType::Int32) {
       return {};
     }
-    if (dType == mlir::tt::ttcore::DataType::Int32) {
-      // Although TTNN claims to support int32 for Add and Subtract ops,
-      // broadcasting with int32 inputs does not currently work as expected.
-      // As a temporary workaround, we fall back to BFloat16 when input shapes
-      // differ. This should be removed once int32 broadcasting is properly
-      // supported.
-      auto lhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto rhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
-
-      if (lhsType.getShape() != rhsType.getShape()) {
-        return mlir::tt::ttcore::DataType::BFloat16;
-      }
-      return {};
-    }
-    return mlir::tt::ttcore::DataType::BFloat16;
+    return mlir::tt::ttcore::DataType::Int32;
   }
+
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
   if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
@@ -414,14 +395,22 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     }
     return mlir::tt::ttcore::DataType::Int32;
   }
+
   // All remaining binary ops.
-  if (dType == mlir::tt::ttcore::DataType::Float32 ||
-      dType == mlir::tt::ttcore::DataType::BFloat16 ||
-      dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
-      dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
-    return {};
+  // Tracked in :
+  // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
+  if (isa<ttnn::DivideOp, ttnn::PowOp, ttnn::GreaterEqualOp,
+          ttnn::GreaterThanOp, ttnn::LessEqualOp, ttnn::LessThanOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::Float32 ||
+        dType == mlir::tt::ttcore::DataType::BFloat16 ||
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::Float32;
   }
-  return mlir::tt::ttcore::DataType::BFloat16;
+
+  return {};
 }
 
 // Factory method to create a set of workarounds for binary operation operands.
@@ -548,39 +537,47 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
-// Currently, there is more support for conv2d and conv_transpose2d for
-// row-major inputs than there is for tile inputs.
-// There is no single issue in tt-metal for this. This workaround is here
-// to ensure we use the more generally-supported input layout for
-// convolutions in ttnn. For example, here is an issue highlighting
-// some convolutions that will not work when the input is in tile layout,
-// but will work when the input is in row-major layout:
+// Conv2d and ConvTranspose2d are memory intensive operations and until
+// there is a proper solution to handle large inputs ttnn recommends to
+// use row major layout for conv activations. In general case (when optimizer is
+// disabled) we will apply row major layout workaround to activation. When
+// optimizer is enabled this workaround is skipped because from what we observed
+// tile layout for activations works for the models we tested up to now.
+//
+// There is another workaround decompositon for conv2d and conv2d transpose
+// which is run regardless if optimizer is on or off.
+// Purpose of that decomposition is to move weight and bias to host memory
+// in row major layout and rewrite output of conv2d and conv2d transpose to
+// tile layout.
 // https://github.com/tenstorrent/tt-metal/issues/19762
+template <typename T>
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-    bool hasBias) {
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
 
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
-  // Convolution outputs are always in tile layout regardless
-  // of the input layout. We explicitly state this here to
-  // avoid accidentally assigning the output of a convolution
-  // to row major layout just because its input is row major.
-  TTNNOperandWorkarounds outputWorkaround;
-  outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  // If input dtype is BFP_BFloat8, we need to apply a dtype workaround
+  // to bfloat16 before we convert to row major.
+  RankedTensorType inputType = op.getInput().getType();
+  ttcore::DataType inputDataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  if (inputDataType == ttcore::DataType::BFP_BFloat8) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
 
-  TTNNOperandWorkarounds parameterWorkaround;
+  TTNNOperandWorkarounds emptyWorkaround;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addInputOperandWorkaround(parameterWorkaround)
-          .addOutputOperandWorkaround(outputWorkaround);
+          .addInputOperandWorkaround(emptyWorkaround)
+          .addOutputOperandWorkaround(emptyWorkaround);
 
-  if (hasBias) {
-    workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
+  if (op.getBias()) {
+    workaround = workaround.addInputOperandWorkaround(emptyWorkaround);
   }
+
   return workaround;
 }
 
@@ -659,4 +656,12 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(datatypeWorkaround);
 }
+
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
+    ttnn::Conv2dOp op);
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
+    ttnn::ConvTranspose2dOp op);
+
 } // namespace mlir::tt::ttnn::wa

@@ -13,13 +13,13 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -681,17 +681,13 @@ public:
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
+          workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
+          workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
-    }
-    if (repeatFoldingWorkaroundEnabled) {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
-          &getContext());
-      runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());

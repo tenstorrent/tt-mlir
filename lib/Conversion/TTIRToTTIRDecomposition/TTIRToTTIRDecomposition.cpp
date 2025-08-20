@@ -65,7 +65,7 @@ struct IndexToSliceConversionPattern
       }
     }
 
-    auto newOp = rewriter.create<ttir::SliceOp>(
+    auto newOp = rewriter.create<ttir::SliceStaticOp>(
         op.getLoc(), op.getType(), adaptor.getInput(), adaptor.getOutput(),
         rewriter.getArrayAttr(begins), rewriter.getArrayAttr(ends),
         rewriter.getArrayAttr(steps));
@@ -1297,10 +1297,12 @@ private:
     });
 
     auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
     });
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
@@ -1324,11 +1326,22 @@ private:
       // Apply output permutation.
       auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
           originalOutputTy.getShape(), permutation);
-      auto newPool = ttir::utils::createDPSOp<PoolOpType>(
-          rewriter, op.getLoc(), resultPermuteShape,
-          originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
-          input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-          ceilModeAttr);
+      PoolOpType newPool;
+      if constexpr (std::is_same_v<PoolOpType, ttir::AvgPool2dOp>) {
+        newPool = ttir::utils::createDPSOp<PoolOpType>(
+            rewriter, op.getLoc(), resultPermuteShape,
+            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+            ceilModeAttr, /*count_include_pad=*/rewriter.getBoolAttr(true));
+      } else if constexpr (std::is_same_v<PoolOpType, ttir::MaxPool2dOp>) {
+        newPool = ttir::utils::createDPSOp<PoolOpType>(
+            rewriter, op.getLoc(), resultPermuteShape,
+            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+            ceilModeAttr);
+      } else {
+        llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+      }
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
       auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
@@ -1463,9 +1476,9 @@ public:
 };
 } // namespace
 
-// IndexSelectOp is converted to a series of SliceOp and potentially a ConcatOp
-// if the sliced dimension is sliced multiple times. For example, if the input
-// tensor is
+// IndexSelectOp is converted to a series of SliceStaticOp and potentially a
+// ConcatOp if the sliced dimension is sliced multiple times. For example, if
+// the input tensor is
 //    [[[1, 2, 3],
 //      [4, 5, 6],
 //      [7, 8, 9],
@@ -1549,7 +1562,7 @@ public:
       begins[dim] = newBegin;
       ends[dim] = newEnd;
 
-      auto newOp = ttir::utils::createDPSOp<ttir::SliceOp>(
+      auto newOp = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
           rewriter, op.getLoc(), resultShape, inputType.getElementType(),
           inputType.getEncoding(), adaptor.getInput(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),

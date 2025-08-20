@@ -837,9 +837,10 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32)])
-@pytest.mark.parametrize("dims", [[32, 1, 1]])
-def test_repeat(shape: Shape, dims: List[int], request):
+@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)])
+@pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_repeat(shape: Shape, dims: List[int], dtype, request):
     def repeat(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -848,6 +849,7 @@ def test_repeat(shape: Shape, dims: List[int], request):
     compile_ttir_to_flatbuffer(
         repeat,
         [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1132,6 +1134,61 @@ def test_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         max_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
+    ],
+)
+@pytest.mark.parametrize("shapes", [[(1, 31, 31, 32), (1, 31, 35, 32)]])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_avg_pool2d(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    request,
+):
+    def avg_pool2d(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.avg_pool2d(
+            in0,
+            in1,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        avg_pool2d,
         shapes,
         dtypes,
         test_base=request.node.name,
@@ -2355,10 +2412,10 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add | Marks(pytest.mark.run_error),
-        multiply | Marks(pytest.mark.run_error),
-        subtract | Marks(pytest.mark.run_error),
-        eq | Marks(pytest.mark.run_error),
+        add,
+        multiply,
+        subtract,
+        eq,
         ne,
         le,
         lt,
@@ -2781,6 +2838,62 @@ def test_hoisted_dot_general(
         shapes,
         test_base=request.node.name,
         target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+def test_rms_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    request,
+):
+    def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+        builder = inputs[-1]
+        # Extract inputs based on test configuration
+        in0 = inputs[0]
+        weight = None
+        bias = None
+
+        if has_weight and len(inputs) > 1:
+            weight = inputs[1]
+        if has_bias:
+            if has_weight and len(inputs) > 2:
+                bias = inputs[2]
+            elif not has_weight and len(inputs) > 1:
+                bias = inputs[1]
+
+        return builder.rms_norm(
+            in0,
+            normalized_shape=normalized_shape,
+            weight=weight,
+            bias=bias,
+            unit_attrs=unit_attrs,
+        )
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    compile_ttir_to_flatbuffer(
+        rms_norm,
+        shapes,
+        test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

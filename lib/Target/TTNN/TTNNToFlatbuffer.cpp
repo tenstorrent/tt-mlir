@@ -880,6 +880,37 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
       weight, bias, memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
+createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateRMSNormOp(*cache.fbb, input, weight, bias,
+                                             op.getEpsilon().convertToFloat(),
+                                             memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -998,6 +1029,8 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Add;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Multiply;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalRightShiftOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalRightShift;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, SubtractOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Subtract;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, EqualOp>) {
@@ -1652,21 +1685,48 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       op.getUseMulticore(), memoryConfig);
 }
 
+template <typename SliceOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
+  ::tt::target::ttnn::SliceOpType type;
+  ::tt::target::ttnn::SliceOpParams paramsType =
+      ::tt::target::ttnn::SliceOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<SliceOp, SliceDynamicOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceDynamicOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceDynamicOpParams;
+    auto begins = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBegins()));
+    auto ends = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getEnds()));
+    params =
+        ::tt::target::ttnn::CreateSliceDynamicOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else if constexpr (std::is_same_v<SliceOp, SliceStaticOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceStaticOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceStaticOpParams;
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> begins =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache,
+                                                          op.getBegins());
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> ends =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+    params =
+        ::tt::target::ttnn::CreateSliceStaticOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else {
+    llvm_unreachable("Unhandled SliceOp");
+  }
+
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
   auto step =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
 
-  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
-                                           step);
+  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, type, in, out, step,
+                                           paramsType, params);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SortOp>
@@ -1719,11 +1779,29 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  ::flatbuffers::Offset<void> extraParams = 0;
+  ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
+  if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::AvgPool2dExtraParams;
+    extraParams = ::tt::target::ttnn::CreateAvgPool2dExtraParams(
+                      *cache.fbb, op.getCountIncludePad())
+                      .Union();
+  } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dExtraParams;
+    extraParams =
+        ::tt::target::ttnn::CreateMaxPool2dExtraParams(*cache.fbb).Union();
+  } else {
+    llvm_unreachable("unhandled Pool2dOp");
+  }
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getInPlaceHalo());
+      dilation, extraParamsType, extraParams, memoryConfig,
+      toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
+      op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
@@ -1942,6 +2020,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto subtractOp = dyn_cast<SubtractOp>(op); subtractOp) {
     return createOperation(cache, createEltwiseBinaryOp(cache, subtractOp),
+                           debugString, locInfo);
+  }
+  if (auto logicalRightShiftOp = dyn_cast<LogicalRightShiftOp>(op);
+      logicalRightShiftOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryOp(cache, logicalRightShiftOp),
                            debugString, locInfo);
   }
   if (auto divOp = dyn_cast<DivideOp>(op); divOp) {
@@ -2281,9 +2365,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
-  if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
-    return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
-                           locInfo);
+  if (auto sliceStaticOp = dyn_cast<SliceStaticOp>(op); sliceStaticOp) {
+    return createOperation(cache, createSliceOp(cache, sliceStaticOp),
+                           debugString, locInfo);
+  }
+  if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
+    return createOperation(cache, createSliceOp(cache, sliceDynamicOp),
+                           debugString, locInfo);
   }
   if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {
     return createOperation(cache, createSortOp(cache, sortOp), debugString,
@@ -2319,6 +2407,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
     return createOperation(cache, createOp(cache, batchNormOp), debugString,
+                           locInfo);
+  }
+  if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
+    return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
