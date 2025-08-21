@@ -10,7 +10,6 @@
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -66,10 +65,28 @@ private:
       return convOp && !convOp.getBias() && convOp->hasOneUse() &&
              convOp.isBiasCompatible(bias.getType().getShape());
     } else {
-      // For ConvolutionOp, check if bias is null and has one use
-      // ConvolutionOp doesn't have isBiasCompatible method
-      // TODO: Implement isBiasCompatible for ConvolutionOp
-      return convOp && !convOp.getBias() && convOp->hasOneUse();
+      if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+        return false;
+      }
+      auto outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+      auto biasShape = bias.getType().getShape();
+      auto outputShape =
+          mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+              .getShape();
+
+      if (biasShape.size() != outputShape.size() ||
+          biasShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
+        return false;
+      }
+
+      for (size_t i = 0; i < biasShape.size(); ++i) {
+        if (i != static_cast<size_t>(outputFeatureDim) && biasShape[i] != 1) {
+          return false;
+        }
+      }
+
+      return true;
     }
   }
 
@@ -461,12 +478,27 @@ private:
       // For Conv2dOp: shape should be (1, 1, 1, out_channels)
       return scaleType.getRank() == 4 && scaleType.getDimSize(0) == 1 &&
              scaleType.getDimSize(1) == 1 && scaleType.getDimSize(2) == 1 &&
-             scaleType.getDimSize(3) == getOutputChannelSize(convOp);
+             scaleType.getDimSize(3) == convOp.getOutputChannelSize();
     } else {
-      // For ConvolutionOp: shape should be (1, out_channels, 1, 1)
-      return scaleType.getRank() == 4 && scaleType.getDimSize(0) == 1 &&
-             scaleType.getDimSize(1) == getOutputChannelSize(convOp) &&
-             scaleType.getDimSize(2) == 1 && scaleType.getDimSize(3) == 1;
+      auto outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+      auto scaleShape = scaleType.getShape();
+      auto outputShape =
+          mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+              .getShape();
+
+      if (scaleShape.size() != outputShape.size() ||
+          scaleShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
+        return false;
+      }
+
+      for (size_t i = 0; i < scaleShape.size(); ++i) {
+        if (i != static_cast<size_t>(outputFeatureDim) && scaleShape[i] != 1) {
+          return false;
+        }
+      }
+
+      return true;
     }
   }
 
@@ -637,8 +669,7 @@ public:
 
     // Used only paired with convolution
     auto *definingOp = batchNormOp.getOperand().getDefiningOp();
-    if ((!isa_and_present<Conv2dOp>(definingOp) &&
-         !isa_and_present<ConvolutionOp>(definingOp)) ||
+    if ((!isa<Conv2dOp, ConvolutionOp>(definingOp)) ||
         !definingOp->hasOneUse()) {
       return mlir::failure();
     }
