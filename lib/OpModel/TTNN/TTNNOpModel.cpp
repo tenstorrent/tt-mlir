@@ -3455,6 +3455,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 // sgholamiTT: I decided to not promote these helper methods to conversion.hpp
 // for two reasons:
 //   1. There's no other clear usage for them.
@@ -3530,6 +3531,7 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
 }
 
 #undef DISPATCH_TYPE
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints>
 OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
