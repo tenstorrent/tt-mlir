@@ -24,9 +24,6 @@ namespace mlir::tt::ttnn {
 struct MemoryLayoutAnalysisInput {
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
-  // usableL1CacheSize is pre-scaled in Optimizer.cpp by a cap value between
-  // 0.0 and 1.0, where 1.0 means the entire L1 cache can be used by ops.
-  // This cap is set by a flag in the pipeline options.
   unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;

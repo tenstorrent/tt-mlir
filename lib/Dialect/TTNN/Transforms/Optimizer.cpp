@@ -171,6 +171,14 @@ protected:
           "and Memory Layout Analysis. [0.0-1.0]"),
       ::llvm::cl::init(0.8f)};
 
+  // Calculate the usable L1 cache size with capacity scaling.
+  // For analysis purposes, usableL1CacheSize is scaled by a cap value between
+  // 0.0 and 1.0, where 1.0 means the entire L1 cache can be used by ops.
+  // This cap is set by a flag in the pipeline options.
+  unsigned getScaledUsableL1Size(const ttcore::ChipDescAttr &chipDesc) const {
+    return chipDesc.getUsableL1Size() * tensorL1UsageCap;
+  }
+
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
     return std::make_unique<DerivedT>();
@@ -311,7 +319,7 @@ public:
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           &tensorTypePossibleLayouts, legalConfigs,
-          chipDesc.getUsableL1Size() * tensorL1UsageCap, overrideReshardEdges,
+          getScaledUsableL1Size(chipDesc), overrideReshardEdges,
           overrideOutputLayout, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
@@ -501,7 +509,7 @@ public:
             getAnalysis<L1InterleavedFallbackAnalysis>();
         l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
             l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-            chipDesc.getUsableL1Size() * tensorL1UsageCap));
+            getScaledUsableL1Size(chipDesc)));
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
