@@ -243,7 +243,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
