@@ -271,8 +271,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   // checks.
   ShardSolver shardSolver(/*tensorTypePossibleLayouts=*/nullptr, legalConfigs,
                           opL1MemSpecs, l1ChainedOps, usableL1CacheSize,
-                          overrideReshardEdges,
-                          overrideOutputLayout, checkShardCompatible);
+                          overrideReshardEdges, overrideOutputLayout,
+                          checkShardCompatible);
 
   ASSERT_TRUE(shardSolver.resolve());
 

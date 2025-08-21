@@ -35,7 +35,7 @@ public:
       unsigned usableL1CacheSize)
       : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
         legalConfigs(legalConfigs), schedule(&schedule),
-        usableL1CacheSize(usableL1CacheSize){}
+        usableL1CacheSize(usableL1CacheSize) {}
 
   virtual void run() = 0;
 };

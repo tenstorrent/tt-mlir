@@ -128,10 +128,9 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
     if (!possibleL1Layout) {
       llvm::Error error = possibleL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
-      TTMLIR_TRACE(
-          ttmlir::LogComponent::Optimizer,
-          "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
-          errorStr);
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
+                   errorStr);
       continue;
     }
     TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();

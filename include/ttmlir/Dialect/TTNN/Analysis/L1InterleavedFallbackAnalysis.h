@@ -33,7 +33,7 @@ struct L1InterleavedFallbackAnalysisInput {
       const func::FuncOp &funcOp, unsigned usableL1CacheSize)
       : legalL1InterleavedConfigs(legalL1InterleavedConfigs),
         currentConfigs(currentConfigs), funcOp(funcOp),
-        usableL1CacheSize(usableL1CacheSize){}
+        usableL1CacheSize(usableL1CacheSize) {}
 
   bool operator==(const L1InterleavedFallbackAnalysisInput &rhs) const {
     return legalL1InterleavedConfigs == rhs.legalL1InterleavedConfigs &&
