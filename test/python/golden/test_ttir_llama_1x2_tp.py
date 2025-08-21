@@ -12,7 +12,7 @@ from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
-pytestmark = pytest.mark.n300
+pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
 
 # utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):

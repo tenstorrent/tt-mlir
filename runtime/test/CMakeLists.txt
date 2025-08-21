@@ -40,6 +40,7 @@ target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTNN_LIBRARY
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
+    TT_STL_LIBRARY
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main
