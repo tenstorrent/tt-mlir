@@ -66,7 +66,9 @@ def main():
     # Memory Layout Analysis Policy
     obj.set_memory_layout_analysis_policy(MemoryLayoutAnalysisPolicyType.DFSharding)
     print(f"Memory Layout Analysis Policy: {obj.get_memory_layout_analysis_policy()}")
-    obj.set_memory_layout_analysis_policy(MemoryLayoutAnalysisPolicyType.L1Interleaved)
+    obj.set_memory_layout_analysis_policy(
+        MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved
+    )
     print(f"Memory Layout Analysis Policy: {obj.get_memory_layout_analysis_policy()}")
 
     # System Descriptor Path
@@ -80,6 +82,10 @@ def main():
     # Mesh Shape
     obj.set_mesh_shape([1, 2, 3])
     print(f"Mesh Shape: {obj.get_mesh_shape()}")
+
+    # tensorL1UsageCap
+    obj.set_tensor_l1_usage_cap(0.5)
+    print(f"Tensor L1 Usage Cap: {obj.get_tensor_l1_usage_cap()}")
 
     # ----------------------------------------------------------------------------- #
     # Test Input Layout and Output Layout
