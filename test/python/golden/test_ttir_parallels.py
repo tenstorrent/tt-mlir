@@ -15,13 +15,22 @@ from test_utils import shape_str, make_shard_shape
 pytestmark = pytest.mark.frontend("ttir")
 
 
-# Helper function to build a matmul graph with k-split parallelism.
+# Helper function to build a matmul graph with parallelism over the contraction (reduction) dimension.
 # Supports only 2D tensors and mesh shapes.
-#    e. g.[M, N] x [N, K] -> [M, K], where N is the contraction dimension.
+#    e.g. [M, K] x [K, N] -> [M, N], where K is the contraction dimension.
+#    Under this parallelism, the K dimension is split across devices in the mesh.
+#    For example, with mesh_shape=(2, 4):
+#      - The input [M, K] is sharded along K (columns) across devices.
+#      - The weight [K, N] is sharded along K (rows) across devices.
+#      - Each device computes a partial matmul on its shard, then reduce_scatter is used to sum partial results and distribute the output [M, N] across devices.
+#    The sharding looks like:
+#      input:   [M, K/num_shards]  (each device gets a slice of K)
+#      weight:  [K/num_shards, N]  (each device gets a slice of K)
+#      output:  [M, N/num_shards]  (after reduce_scatter, each device gets a slice of N)
 #    TODO: support N-D tensors and mesh shapes.
 # Set do_unshard=True to have this function return a full tensor;
 # otherwise, the output will remain sharded.
-def _build_matmul_k_split_2d(
+def _build_matmul_parallel(
     input: Operand,
     weight: Operand,
     builder: TTIRBuilder,
@@ -98,7 +107,7 @@ def test_matmul_k_split_parallelism(
         pytest.skip("parallelism across 1 device is meaningless")
 
     def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        output = _build_matmul_k_split_2d(
+        output = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -139,7 +148,7 @@ def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        sharded_matmul_result = _build_matmul_k_split_2d(
+        sharded_matmul_result = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -191,7 +200,7 @@ def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        sharded_matmul_result = _build_matmul_k_split_2d(
+        sharded_matmul_result = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -252,14 +261,14 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
-        matmul_0 = _build_matmul_k_split_2d(
+        matmul_0 = _build_matmul_parallel(
             in0,
             in1,
             builder,
             mesh_shape,
             do_unshard=False,
         )
-        matmul_1 = _build_matmul_k_split_2d(
+        matmul_1 = _build_matmul_parallel(
             in2,
             in3,
             builder,
@@ -374,7 +383,7 @@ def test_mixed_device_parallelism_with_unary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        matmul_result = _build_matmul_k_split_2d(
+        matmul_result = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -418,7 +427,7 @@ def test_mixed_device_parallelism_with_binary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        matmul_result = _build_matmul_k_split_2d(
+        matmul_result = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -463,14 +472,14 @@ def test_mixed_device_parallelism_with_dual_matmul(
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
-        matmul_0 = _build_matmul_k_split_2d(
+        matmul_0 = _build_matmul_parallel(
             in0,
             in1,
             builder,
             mesh_shape,
             do_unshard=True,
         )
-        matmul_1 = _build_matmul_k_split_2d(
+        matmul_1 = _build_matmul_parallel(
             in2,
             in3,
             builder,
