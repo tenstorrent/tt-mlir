@@ -260,21 +260,32 @@ jobs:
           current_date=$(date +%Y-%m-%d)
           echo "Setting Work Started date to: $current_date"
           
-          MUTATION="mutation {
+          # Use jq to properly construct the JSON payload to avoid parsing errors
+          MUTATION='mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $dateValue: String!) {
             updateProjectV2ItemFieldValue(input: {
-              projectId: \"${{ env.project_id }}\"
-              itemId: \"${{ steps.get_item_id.outputs.item_id }}\"
-              fieldId: \"${{ env.work_started_field_id }}\"
-              value: { date: \"$current_date\" }
+              projectId: $projectId
+              itemId: $itemId
+              fieldId: $fieldId
+              value: { date: $dateValue }
             }) {
               clientMutationId
             }
-          }"
+          }'
+          
+          JSON_PAYLOAD=$(jq -n \
+            --arg query "$MUTATION" \
+            --arg projectId "${{ env.project_id }}" \
+            --arg itemId "${{ steps.get_item_id.outputs.item_id }}" \
+            --arg fieldId "${{ env.work_started_field_id }}" \
+            --arg dateValue "$current_date" \
+            '{ query: $query, variables: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, dateValue: $dateValue }}')
+          
+          echo "Mutation payload: $JSON_PAYLOAD"
           
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\":\"$MUTATION\"}" \
+            -d "$JSON_PAYLOAD" \
             https://api.github.com/graphql)
           
           echo "GraphQL Response: $RESPONSE"
