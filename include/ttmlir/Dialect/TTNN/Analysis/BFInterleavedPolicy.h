@@ -35,10 +35,9 @@ public:
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize, float tensorL1UsageCap)
+      unsigned usableL1CacheSize)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize,
-                                   tensorL1UsageCap) {}
+                                   schedule, usableL1CacheSize) {}
 
   void run() final;
 
@@ -61,13 +60,6 @@ private:
   // Fetch op's L1 Interleaved layout from legalConfigs.
   bool hasL1BufferType(Operation *op);
   TTNNLayoutAttr getL1InterleavedLayout(Operation *op);
-
-  size_t getAvailableL1CacheSize() const {
-    // tensorL1UsageCap is a value between 0.0 and 1.0, where 1.0 means that the
-    // entire L1 cache can be used by ops. This cap is set by a flag in the
-    // pipeline options.
-    return tensorL1UsageCap * usableL1CacheSize;
-  }
 };
 
 } // namespace mlir::tt::ttnn

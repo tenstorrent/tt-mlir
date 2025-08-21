@@ -58,7 +58,7 @@ void BFInterleavedPolicy::run() {
           TTNNLayoutAttr layout = getL1InterleavedLayout(op);
           uint64_t opOutputL1Usage = utils::getOpOutputL1Usage(layout);
 
-          if (currentL1Usage + opOutputL1Usage <= getAvailableL1CacheSize()) {
+          if (currentL1Usage + opOutputL1Usage <= usableL1CacheSize) {
             allocOfL1Mem = opOutputL1Usage;
             opBufferType = BufferType::L1;
           }

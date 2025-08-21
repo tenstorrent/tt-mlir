@@ -25,7 +25,6 @@ struct MemoryLayoutAnalysisInput {
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
-  float tensorL1UsageCap = 0.0f;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
@@ -36,13 +35,12 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput(
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      unsigned usableL1CacheSize, float tensorL1UsageCap,
+      unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
       MemoryLayoutAnalysisPolicyType policy)
       : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
-        tensorL1UsageCap(tensorL1UsageCap),
         overrideReshardEdges(overrideReshardEdges),
         overrideOutputLayout(overrideOutputLayout), policy(policy) {}
 

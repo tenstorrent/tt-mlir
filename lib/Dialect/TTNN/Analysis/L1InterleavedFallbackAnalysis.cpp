@@ -233,9 +233,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    consumerOp->getName().getStringRef().data());
   }
 
-  bool l1UsageValid =
-      (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
-      analysisInput.tensorL1UsageCap * analysisInput.usableL1CacheSize;
+  bool l1UsageValid = (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
+                      analysisInput.usableL1CacheSize;
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

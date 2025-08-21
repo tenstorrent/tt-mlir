@@ -326,7 +326,7 @@ public:
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const std::vector<OpL1MemSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
-      const unsigned usableL1CacheSize, const float tensorL1UsageCap,
+      const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout =
           {},
@@ -349,7 +349,6 @@ private:
   const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
-  float tensorL1UsageCap;
   ttcore::DeviceAttr deviceAttr;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;

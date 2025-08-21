@@ -310,9 +310,9 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
-          tensorL1UsageCap, overrideReshardEdges, overrideOutputLayout,
-          memoryLayoutAnalysisPolicy));
+          &tensorTypePossibleLayouts, legalConfigs,
+          chipDesc.getUsableL1Size() * tensorL1UsageCap, overrideReshardEdges,
+          overrideOutputLayout, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =
@@ -501,7 +501,7 @@ public:
             getAnalysis<L1InterleavedFallbackAnalysis>();
         l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
             l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-            chipDesc.getUsableL1Size(), tensorL1UsageCap));
+            chipDesc.getUsableL1Size() * tensorL1UsageCap));
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
