@@ -2960,17 +2960,6 @@ protected:
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
-
-    // Test getOpRuntime
-    auto runtimeExp =
-        ttnn::op_model::OpModel<mlir::tt::ttnn::ConstantOp>::getOpRuntime(
-            attr, outputLayout);
-    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
-    if (expectedLegal) {
-      EXPECT_EQ(runtimeExp.get(), 0); // ConstantOp should have 0 runtime
-    } else {
-      llvm::consumeError(runtimeExp.takeError());
-    }
   }
 };
 

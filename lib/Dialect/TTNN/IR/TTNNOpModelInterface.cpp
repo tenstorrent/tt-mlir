@@ -2195,10 +2195,7 @@ ConstantOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 ConstantOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 0);
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<ConstantOp>::getOpRuntime, *this, getValue(),
-      opConfig.outputLayout);
+  return issueErrorForGetOpRuntime(getOperation());
 }
 
 } // namespace mlir::tt::ttnn

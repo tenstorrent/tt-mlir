@@ -30,6 +30,7 @@
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -3510,10 +3511,11 @@ mlir::Type getElementType(mlir::ElementsAttr value) {
   }
 
 // Helper function to dispatch getRawDataFromElementsAttr based on element type
-// (we use this technique since )
+// (we use this technique since from_buffer op in metal is templated over the
+// input vector type.)
 template <typename Func>
-llvm::Expected<OpConstraints> dispatchGetRawData(mlir::ElementsAttr value,
-                                                 Func &&func) {
+auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
+    -> decltype(func(std::declval<std::vector<int32_t>>())) {
   // from_span<T> has template instantiations for the following types:
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
   // The last one is not supported in tt-mlir, so we support the first four:
@@ -3555,13 +3557,6 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
-}
-
-llvm::Expected<size_t>
-OpModel<ConstantOp>::getOpRuntime(mlir::ElementsAttr value,
-                                  TTNNLayoutAttr outputLayout) {
-
-  return 0;
 }
 
 } // namespace mlir::tt::ttnn::op_model
