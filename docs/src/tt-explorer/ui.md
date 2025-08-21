@@ -42,7 +42,7 @@ This button invokes the `execute` function which will compile and execute the mo
 
 ## "Code" Button
 
-![Toolbar highlighting the "execute" button](../images/tt-explorer/execute.png)
+![Toolbar highlighting the "code" button](../images/tt-explorer/code.png)
 
 If the `Generate C++ Code` option is enabled, this button will become available to view and download the C++ code in a window within explorer.
 
