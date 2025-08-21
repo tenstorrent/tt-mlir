@@ -12,6 +12,8 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import make_shard_shape
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 def _build_matmul_k_split_2d(
     mesh_shape: Tuple[int, int],
