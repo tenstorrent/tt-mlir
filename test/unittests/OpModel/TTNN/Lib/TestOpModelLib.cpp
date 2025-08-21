@@ -2194,14 +2194,24 @@ TEST_P(OpModelConv2dParam, Conv2d) {
     llvm::errs() << "\n";
   }
 
-  const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
-      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
-      GetPhysicalGridSize(), builder.getF32Type());
-  const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
-      weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
-      GetPhysicalGridSize(), builder.getF32Type());
-  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
-      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+  const TTNNLayoutAttr inputLayout =
+      params.inputIsTiled
+          ? CreateTiledLayout(inputShape, inputBufferType, inputTensorLayout,
+                              inputVirtualGrid)
+          : CreateRowMajorLayout(inputShape, inputBufferType, inputTensorLayout,
+                                 inputVirtualGrid);
+  const TTNNLayoutAttr weightLayout =
+      params.weightIsTiled
+          ? CreateTiledLayout(weightShape, weightBufferType, weightTensorLayout,
+                              weightVirtualGrid)
+          : CreateRowMajorLayout(weightShape, weightBufferType,
+                                 weightTensorLayout, weightVirtualGrid);
+  const TTNNLayoutAttr outputLayout =
+      params.outputIsTiled
+          ? CreateTiledLayout(outputShape, outputBufferType, outputTensorLayout,
+                              outputVirtualGrid)
+          : CreateRowMajorLayout(outputShape, outputBufferType,
+                                 outputTensorLayout, outputVirtualGrid);
 
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();

@@ -111,8 +111,17 @@ YAML::Node parseYamlFile(const std::string &yamlFilePath) {
 Conv2dParams parseConv2dParams(const YAML::Node &node) {
   // Parse tensor parameters
   auto inputTensor = parseTestTensor(node["input"]);
+  bool inputIsTiled = (node["input_is_tiled"].IsDefined())
+                          ? node["input_is_tiled"].as<bool>()
+                          : false;
   auto weightTensor = parseTestTensor(node["weight"]);
+  bool weightIsTiled = (node["weight_is_tiled"].IsDefined())
+                           ? node["weight_is_tiled"].as<bool>()
+                           : false;
   auto outputTensor = parseTestTensor(node["output"]);
+  bool outputIsTiled = (node["output_is_tiled"].IsDefined())
+                           ? node["output_is_tiled"].as<bool>()
+                           : false;
 
   // Parse scalar parameters
   uint32_t inChannels = node["in_channels"].as<uint32_t>();
@@ -131,10 +140,10 @@ Conv2dParams parseConv2dParams(const YAML::Node &node) {
   // Parse expected result
   auto expectedResult = parseExpectedResult(node["expected_result"]);
 
-  return Conv2dParams(inputTensor, weightTensor, outputTensor, inChannels,
-                      outChannels, batchSize, inputHeight, inputWidth,
-                      kernelSize, stride, padding, dilation, groups,
-                      expectedResult);
+  return Conv2dParams(inputTensor, inputIsTiled, weightTensor, weightIsTiled,
+                      outputTensor, outputIsTiled, inChannels, outChannels,
+                      batchSize, inputHeight, inputWidth, kernelSize, stride,
+                      padding, dilation, groups, expectedResult);
 }
 
 std::vector<Conv2dParams>
