@@ -213,6 +213,9 @@ public:
     ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
         moduleOp->getAttr(ttcore::SystemDescAttr::name));
     ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    std::cout << "L1 size: " << chipDesc.getL1Size() << "\n"
+              << "L1 unreserved base: " << chipDesc.getL1UnreservedBase()
+              << "\n";
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
     // Map to store only L1 Interleaved legal configs for
     // L1InterleavedFallbackAnalysis
@@ -481,36 +484,36 @@ public:
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
       if (l1InterleavedFallbackAnalysisEnabled) {
-      	L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
-          getAnalysis<L1InterleavedFallbackAnalysis>();
-      l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
-          l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-          chipDesc.getUsableL1Size(), tensorL1UsageCap));
-      auto l1InterleavedOpConfigs =
-          l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
+        L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
+            getAnalysis<L1InterleavedFallbackAnalysis>();
+        l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
+            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
+            chipDesc.getUsableL1Size(), tensorL1UsageCap));
+        auto l1InterleavedOpConfigs =
+            l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
-      // Apply L1 interleaved layout changes
-      for (const auto &[op, config] : l1InterleavedOpConfigs) {
-        RankedTensorType tensorType =
-            mlir::cast<RankedTensorType>(op->getResult(0).getType());
-        TTNNLayoutAttr currentLayout =
-            mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+        // Apply L1 interleaved layout changes
+        for (const auto &[op, config] : l1InterleavedOpConfigs) {
+          RankedTensorType tensorType =
+              mlir::cast<RankedTensorType>(op->getResult(0).getType());
+          TTNNLayoutAttr currentLayout =
+              mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
-        assert(currentLayout.getBufferType() == BufferType::DRAM &&
-               "Operation should have DRAM layout before upgrade to L1 "
-               "interleaved");
+          assert(currentLayout.getBufferType() == BufferType::DRAM &&
+                 "Operation should have DRAM layout before upgrade to L1 "
+                 "interleaved");
 
-        TTNNLayoutAttr newLayout = config.outputLayout;
-        assert(newLayout.getBufferType() == BufferType::L1 &&
-               newLayout.getMemLayout().getValue() ==
-                   TensorMemoryLayout::Interleaved &&
-               "New layout must have L1 interleaved memory layout");
+          TTNNLayoutAttr newLayout = config.outputLayout;
+          assert(newLayout.getBufferType() == BufferType::L1 &&
+                 newLayout.getMemLayout().getValue() ==
+                     TensorMemoryLayout::Interleaved &&
+                 "New layout must have L1 interleaved memory layout");
 
-        RankedTensorType newTensorType = RankedTensorType::get(
-            tensorType.getShape(), tensorType.getElementType(), newLayout);
+          RankedTensorType newTensorType = RankedTensorType::get(
+              tensorType.getShape(), tensorType.getElementType(), newLayout);
 
-        op->getResult(0).setType(newTensorType);
-      }
+          op->getResult(0).setType(newTensorType);
+        }
       }
 
       insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
