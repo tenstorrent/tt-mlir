@@ -602,6 +602,17 @@ public:
     auto epsilon = batchNormOp.getEpsilon();
     auto dimension = batchNormOp.getDimension();
 
+    // Validate that scale, offset, mean, and variance are either 1D or 4D
+    // tensors
+    auto isValidRank = [](RankedTensorType type) {
+      return type.getRank() == 1 || type.getRank() == 4;
+    };
+    if (!isValidRank(scale.getType()) || !isValidRank(offset.getType()) ||
+        !isValidRank(mean.getType()) || !isValidRank(variance.getType())) {
+      return rewriter.notifyMatchFailure(
+          batchNormOp, "BatchNorm arguments must be 1D or 4D tensors");
+    }
+
     Location loc = batchNormOp.getLoc();
     RankedTensorType resultType = batchNormOp.getResult().getType();
 
