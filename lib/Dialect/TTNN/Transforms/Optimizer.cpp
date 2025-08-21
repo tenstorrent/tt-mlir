@@ -352,12 +352,28 @@ public:
         // Update the output layout attribute with the new one.
         //
         if (opConfigAnalysis.getResult().contains(op)) {
-          RankedTensorType newTensorType = RankedTensorType::get(
-              tensorShape,
-              opConfigAnalysis.getResult()
-                  .at(op)
-                  .outputLayout.getScalarElementType(),
-              opConfigAnalysis.getResult().at(op).outputLayout);
+          // Preserve quantized element types on the tensor type. For
+          // non-quantized tensors, use the scalar element type implied by the
+          // chosen layout.
+          TTNNLayoutAttr chosenLayout =
+              opConfigAnalysis.getResult().at(op).outputLayout;
+
+          Type originalElementType = tensorType.getElementType();
+          Type newElementType = originalElementType;
+          if (!mlir::isa<mlir::quant::QuantizedType>(originalElementType)) {
+            newElementType = chosenLayout.getScalarElementType();
+          } else {
+            // Sanity: the layout's scalar element type should match the storage
+            // type of the quantized element.
+            auto q =
+                mlir::cast<mlir::quant::QuantizedType>(originalElementType);
+            assert(
+                q.getStorageType() == chosenLayout.getScalarElementType() &&
+                "Layout scalar element type must match quantized storage type");
+          }
+
+          RankedTensorType newTensorType =
+              RankedTensorType::get(tensorShape, newElementType, chosenLayout);
 
           // Update the memory space and layout of the op.
           //

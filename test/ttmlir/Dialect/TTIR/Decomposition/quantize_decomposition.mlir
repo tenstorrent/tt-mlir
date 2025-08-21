@@ -8,7 +8,7 @@ module attributes {} {
     // CHECK: "ttir.constant"
     // CHECK-SAME: value = dense<1.000000e-01> : tensor<1xf32>
     // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<0> : tensor<1xi32>
+    // CHECK-SAME: value = dense<0> : tensor<1xsi32>
     // CHECK: "ttir.quantize_unrolled"
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
     return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
@@ -21,7 +21,7 @@ module attributes {} {
     // CHECK-SAME: -> tensor<3xf32>
     // CHECK: "ttir.constant"
     // CHECK-SAME: 10, 20, 30
-    // CHECK-SAME: -> tensor<3xi32>
+    // CHECK-SAME: -> tensor<3xsi32>
     // CHECK: "ttir.quantize_unrolled"
     // CHECK-SAME: axis = 1 : i32
     %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32:1, {1.000000e-01:10,2.000000e-01:20,3.000000e-01:30}>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32:1, {1.000000e-01:10,2.000000e-01:20,3.000000e-01:30}>>

@@ -30,6 +30,26 @@ public:
 
     auto conv2dOp = components->first;
     auto bias = components->second;
+
+    if (bias.getDefiningOp() &&
+        !bias.getDefiningOp()->isBeforeInBlock(conv2dOp)) {
+
+      // To move bias before conv2d, we need to ensure that all operations
+      // in the UD chain are also moved before conv2dOp.
+
+      SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
+      SetVector<Operation *> udChainOps =
+          ttmlir::utils::filterOperations(udChain.getArrayRef());
+      SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+
+      for (auto *op : udChainSorted) {
+        if (op->isBeforeInBlock(conv2dOp)) {
+          continue;
+        }
+        op->moveBefore(conv2dOp);
+      }
+    }
+
     rewriter.modifyOpInPlace(conv2dOp,
                              [&]() { conv2dOp.getBiasMutable().assign(bias); });
     rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
@@ -43,9 +63,7 @@ private:
   bool isFusable(ttir::Conv2dOp conv2dOp,
                  mlir::TypedValue<mlir::RankedTensorType> bias) const {
     return conv2dOp && !conv2dOp.getBias() && conv2dOp->hasOneUse() &&
-           conv2dOp.isBiasCompatible(bias.getType().getShape()) &&
-           (!bias.getDefiningOp() ||
-            bias.getDefiningOp()->isBeforeInBlock(conv2dOp));
+           conv2dOp.isBiasCompatible(bias.getType().getShape());
   }
 
   std::optional<std::pair<ttir::Conv2dOp, mlir::Value>>
@@ -327,7 +345,14 @@ public:
     SetVector<Operation *> udChainOps =
         ttmlir::utils::filterOperations(udChain.getArrayRef());
     SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+
+    // We are not moving ops in UD chain that are already before the conv2d, as
+    // they could have descendants that are also before conv2d but are not in
+    // the UD chain.
     for (auto *op : udChainSorted) {
+      if (op->isBeforeInBlock(conv2dOp)) {
+        continue;
+      }
       op->moveBefore(conv2dOp);
     }
 
@@ -577,6 +602,17 @@ public:
     auto epsilon = batchNormOp.getEpsilon();
     auto dimension = batchNormOp.getDimension();
 
+    // Validate that scale, offset, mean, and variance are either 1D or 4D
+    // tensors
+    auto isValidRank = [](RankedTensorType type) {
+      return type.getRank() == 1 || type.getRank() == 4;
+    };
+    if (!isValidRank(scale.getType()) || !isValidRank(offset.getType()) ||
+        !isValidRank(mean.getType()) || !isValidRank(variance.getType())) {
+      return rewriter.notifyMatchFailure(
+          batchNormOp, "BatchNorm arguments must be 1D or 4D tensors");
+    }
+
     Location loc = batchNormOp.getLoc();
     RankedTensorType resultType = batchNormOp.getResult().getType();
 
@@ -611,19 +647,31 @@ public:
     // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
     // to (1, 1, 1, C).
 
-    SmallVector<int64_t> reshapeShape(4, 1);
-    reshapeShape[dimension] = std.getType().getShape()[0];
-    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
-                                         reshapeShape.end());
-    auto alphaReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, alpha.getType().getElementType(),
-        alpha.getType().getEncoding(), alpha,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
+    Value alphaReshaped = alpha;
+    Value betaReshaped = beta;
 
-    auto betaReshaped = utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, reshapeShape, beta.getType().getElementType(),
-        beta.getType().getEncoding(), beta,
-        rewriter.getI32ArrayAttr(reshapeShapeI32));
+    // Only reshape if alpha/beta don't already have rank 4
+    if (alpha.getType().getRank() != 4) {
+      SmallVector<int64_t> reshapeShape(4, 1);
+      reshapeShape[dimension] = alpha.getType().getShape()[0];
+      SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                           reshapeShape.end());
+      alphaReshaped = utils::createDPSOp<ReshapeOp>(
+          rewriter, loc, reshapeShape, alpha.getType().getElementType(),
+          alpha.getType().getEncoding(), alpha,
+          rewriter.getI32ArrayAttr(reshapeShapeI32));
+    }
+
+    if (beta.getType().getRank() != 4) {
+      SmallVector<int64_t> reshapeShape(4, 1);
+      reshapeShape[dimension] = beta.getType().getShape()[0];
+      SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                           reshapeShape.end());
+      betaReshaped = utils::createDPSOp<ReshapeOp>(
+          rewriter, loc, reshapeShape, beta.getType().getElementType(),
+          beta.getType().getEncoding(), beta,
+          rewriter.getI32ArrayAttr(reshapeShapeI32));
+    }
 
     // alpha * x
     auto scaled = utils::createDPSOp<MultiplyOp>(rewriter, loc, input.getType(),
