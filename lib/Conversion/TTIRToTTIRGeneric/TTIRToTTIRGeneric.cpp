@@ -21,6 +21,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <dbg.h>
 
 // ----------------------------------------------------------------------------
 namespace mlir::tt {
@@ -69,6 +70,8 @@ protected:
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    fprintf(stderr, "-- createOptimalLayoutOp: from ");
+    tensorType.dump();
     ArrayRef<int64_t> logicalShape = tensorType.getShape();
 
     Type elementType = tensorType.getElementType();
@@ -97,6 +100,8 @@ protected:
 
     auto resultType =
         mlir::RankedTensorType::get(shardedShape, elementType, layout);
+    fprintf(stderr, "-- createOptimalLayoutOp: to ");
+    resultType.dump();
 
     auto emptyOp =
         rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), resultType);

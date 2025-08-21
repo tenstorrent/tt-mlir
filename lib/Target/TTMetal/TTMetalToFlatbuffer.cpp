@@ -35,6 +35,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <dbg.h>
 #include <memory>
 #include <vector>
 
@@ -345,9 +346,22 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
+  auto hostStridesLayout =
+      mlir::dyn_cast_if_present<ttcore::HostStridesLayoutAttr>(
+          memref.getLayout());
+  std::vector<int32_t> hostStrides;
+  if (hostStridesLayout) {
+    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        hostStridesLayout.getStride());
+  } else {
+    hostStrides = std::vector<int32_t>(shape.size(), 1);
+  }
+  fprintf(stderr, "-- memrefTypeToFlatbuffer: ");
+  dbg(hostStrides);
+
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, toFlatbuffer(cache, dtype), &elementShape,
-      bufferDetailType, bufferDetail);
+      *cache.fbb, &shape, &hostStrides, toFlatbuffer(cache, dtype),
+      &elementShape, bufferDetailType, bufferDetail);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -356,6 +370,11 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
   auto memrefType = mlir::cast<MemRefType>(value.getType());
+  if (auto allocOp = value.getDefiningOp<memref::AllocOp>()) {
+    fprintf(stderr, "-- bufferValueToFlatbuffer: AllocOp\n");
+    fprintf(stderr, "---- Memref ");
+    memrefType.dump();
+  }
   auto bufferDesc =
       cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device);
   return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
@@ -509,6 +528,7 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
       &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
 }
 
+// Do I need to fix this?
 static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
 memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
                                      memref::GlobalOp globalOp) {
@@ -604,6 +624,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     cqBuilder.commands.reserve(entry.getBody().front().getOperations().size());
     entry->walk([&](mlir::Operation *op) {
       if (auto allocOp = dyn_cast_if_present<memref::AllocOp>(op); allocOp) {
+        fprintf(stderr, "-- Module->Flatbuffer: AllocOp\n");
         cqBuilder.appendCommand(
             target::metal::CreateHostAllocCommand(
                 fbb, cache.getOrCreate(allocOp.getResult(),

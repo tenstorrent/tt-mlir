@@ -43,6 +43,22 @@ T alignUp(T ptr, T alignment) {
 }
 
 template <typename T>
+T roundUp(T val, T multiple) {
+  if (multiple == 0) {
+    return val;
+  }
+  return ((val + multiple - 1) / multiple) * multiple;
+}
+
+template <typename Iter>
+auto product(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
+}
+
+template <typename T>
 inline mlir::SmallVector<T> calculateStrides(mlir::ArrayRef<T> shape,
                                              T elementSize = 1) {
   mlir::SmallVector<T> strides(shape.size());

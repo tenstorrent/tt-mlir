@@ -175,6 +175,8 @@ struct TensorDesc {
   std::array<size_t, 2> logicalShape2D = {1, 1};
   std::array<size_t, 2> physicalShape2D = {1, 1};
 
+  std::vector<std::uint32_t> hostStride;
+
   TensorDesc() = default;
 
   TensorDesc(const std::vector<std::uint32_t> &shape,

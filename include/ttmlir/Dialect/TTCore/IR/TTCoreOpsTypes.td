@@ -266,6 +266,26 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
+def TTCore_HostStridesLayoutAttr : TTCore_Attr<"HostStridesLayout", "host_strides", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+  let summary = "Foo";
+  let description = [{
+    Bar.
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$stride);
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `>`";
+  let extraClassDeclaration = [{
+    // Probably needs more info
+    static HostStridesLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> hostShape, ArrayRef<int64_t> dimAlignments);
+    // This is a must have
+    AffineMap getAffineMap() const;
+    // Is this even needed?
+    // Provide strides/offset directly to the MemRef layout interface.
+    ::mlir::LogicalResult getStridesAndOffset(::llvm::ArrayRef<int64_t> shape,
+                                              ::llvm::SmallVectorImpl<int64_t> &strides,
+                                              int64_t &offset) const;
+  }];
+}
+
 def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
@@ -309,7 +329,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32.
+    // Alignment for each logical dim, default is 1x1x...x32x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.

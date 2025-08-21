@@ -43,6 +43,7 @@ namespace mlir::tt::ttir {
 
 // Convert TensorType + MetalLayout into a memref including a Shard/ViewAttr.
 MemRefType getBufferType(Type type, bool isView) {
+  // This participates in one-shot-bufferize, is it relevant?
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   if (!tensorType.getEncoding()) {
     return MemRefType::get(tensorType.getShape(), tensorType.getElementType());

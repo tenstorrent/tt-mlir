@@ -54,6 +54,7 @@ struct ConvertTTIRToTTMetal
     target.addLegalOp<ttir::ViewLayoutOp>();
 
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      // So we don't have a system memory space? Has to be NULL?
       return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });

@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
+#include <cstdlib>
 #include <memory>
 #include <numeric>
 #include <type_traits>
@@ -16,12 +17,30 @@
 
 namespace tt::runtime::utils {
 
-inline std::shared_ptr<void> mallocShared(size_t size) {
-  return std::shared_ptr<void>(std::malloc(size), std::free);
+template <typename T>
+T alignUp(T ptr, T alignment) {
+  return (ptr + alignment - 1) & ~(alignment - 1);
 }
 
-inline std::shared_ptr<void> callocShared(size_t size) {
-  return std::shared_ptr<void>(std::calloc(size, 1u), std::free);
+template <typename T>
+T roundUp(T val, T multiple) {
+  if (multiple == 0) {
+    return val;
+  }
+  return ((val + multiple - 1) / multiple) * multiple;
+}
+
+inline std::shared_ptr<void> mallocShared(size_t size,
+                                          size_t alignment = sizeof(size_t)) {
+  return std::shared_ptr<void>(
+      std::aligned_alloc(alignment, roundUp(size, alignment)), std::free);
+}
+
+inline std::shared_ptr<void> callocShared(size_t size,
+                                          size_t alignment = sizeof(size_t)) {
+  auto buf = mallocShared(size, alignment);
+  memset(buf.get(), 0, roundUp(size, alignment));
+  return buf;
 }
 
 template <typename T>
@@ -140,19 +159,6 @@ template <class... Ts>
 struct overloaded : Ts... {
   using Ts::operator()...;
 };
-
-template <typename T>
-T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
-template <typename T>
-T roundUp(T val, T multiple) {
-  if (multiple == 0) {
-    return val;
-  }
-  return ((val + multiple - 1) / multiple) * multiple;
-}
 
 namespace detail {
 

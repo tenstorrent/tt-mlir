@@ -110,6 +110,7 @@ createMeshBufferFromBufferRef(
 
   LOG_ASSERT(bufferDesc->buffer_detail_type() ==
              target::metal::BufferDetail::MetalBuffer);
+  fprintf(stderr, "---- BufferRef->MeshBuffer: INCOMPLETE!!!\n");
   const target::metal::MetalBuffer *metalBuffer =
       bufferDesc->buffer_detail_as_MetalBuffer();
   const target::metal::ShardedBufferConfig *shardedBufferConfig =

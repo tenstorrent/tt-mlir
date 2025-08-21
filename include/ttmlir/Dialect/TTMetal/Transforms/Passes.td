@@ -7,4 +7,12 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTMetalGenerateStridedHostIO: Pass<"ttmetal-generate-strided-host-io", "::mlir::ModuleOp"> {
+  let summary = "Foo.";
+  let description = [{
+    Bar
+  }];
+  let dependentDialects = ["mlir::tt::ttmetal::TTMetalDialect", "mlir::memref::MemRefDialect"];
+}
+
 #endif

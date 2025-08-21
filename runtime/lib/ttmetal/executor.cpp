@@ -23,6 +23,7 @@
 #include "ttmlir/Version.h"
 
 #include <cstdint>
+#include <dbg.h>
 #include <string>
 #include <unordered_map>
 
@@ -99,11 +100,15 @@ MCQExecutor::MCQExecutor(
     const target::metal::BufferRef *ref = programInputs->Get(inputIndex++);
     std::visit(utils::overloaded{
                    [&](const TensorDesc &) {
+                     fprintf(stderr, "-- MCQExecutor: record host buffer %d\n",
+                             ref->global_id());
                      auto [_, inserted] =
                          hostBuffers.try_emplace(ref->global_id(), input);
                      LOG_ASSERT(inserted);
                    },
                    [&](const MeshBuffer &mesh_buffer) {
+                     fprintf(stderr, "-- MCQExecutor: record mesh buffer %d\n",
+                             ref->global_id());
                      auto [_, inserted] =
                          meshBuffers.try_emplace(ref->global_id(), mesh_buffer);
                      LOG_ASSERT(inserted);
@@ -205,22 +210,32 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type());
+  std::vector<std::uint32_t> hostStrides(bufferDesc->host_strides()->begin(),
+                                         bufferDesc->host_strides()->end());
+  assert(shape.size() == hostStrides.size());
+  std::vector<std::uint32_t> alignedShape(shape.size(), 1u);
+  for (size_t i = 0; i < shape.size(); i++) {
+    alignedShape[i] = utils::roundUp(shape[i], hostStrides[i]);
+  }
+  TensorDesc desc(alignedShape, bufferDesc->data_type());
+  const size_t alignedSize = desc.sizeBytes();
+
+  fprintf(stderr, "-- Exec::HostAlloc: dst %u sz %zu ",
+          command->dst()->global_id(), alignedSize);
+  dbg(shape, hostStrides);
   // Always create an aligned tensor.
-  TensorDesc alignedDesc(shape, desc.stride, desc.itemsize, desc.dataType,
-                         computePhysicalShape2D(desc));
-  const size_t size = alignedDesc.sizeBytes();
-  auto data = utils::mallocShared(size);
+  auto data = utils::mallocShared(alignedSize);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
 
   if (command->data() != nullptr) {
-    assert(command->data()->size() == size);
-    std::memcpy(data.get(), command->data()->data(), size);
+    // Is the size here even right???
+    assert(command->data()->size() == alignedSize);
+    std::memcpy(data.get(), command->data()->data(), alignedSize);
   }
 
-  auto handle = std::make_shared<MetalTensor>(alignedDesc);
+  auto handle = std::make_shared<MetalTensor>(desc);
   auto [_, inserted] = hostBuffers.try_emplace(
       command->dst()->global_id(), std::static_pointer_cast<void>(handle), data,
       DeviceRuntime::TTMetal);
@@ -258,8 +273,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   tt_metal::Program program = tt_metal::CreateProgram();
   program.set_runtime_id(getUniqueProgramRuntimeId());
 
+  fprintf(stderr, "-- Exec::EnqueueProgram:");
   for (const target::metal::KernelConfig *kernelConfig :
        *command->program()->kernels()) {
+    fprintf(stderr, " %s",
+            enchantum::to_string(kernelConfig->type_type()).data());
     const target::metal::KernelSource *kernelSource =
         kernelConfig->kernel_as_KernelSource();
     LOG_ASSERT(kernelSource, "Only source kernels supported for now");
@@ -287,6 +305,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         command->cbs(), deviceAddressValidator, createSemaphore);
     tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
   }
+  fprintf(stderr, "\n");
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
     const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
@@ -326,6 +345,12 @@ void MCQExecutor::execute(
   void *src = hostBuffers.at(command->src()->global_id()).data.get();
   LOG_ASSERT(src);
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
+  const auto desc =
+      std::get<TensorDesc>(hostBuffers.at(command->src()->global_id())
+                               .as<MetalTensor>(DeviceRuntime::TTMetal));
+  fprintf(stderr, "-- Exec::WriteBuffer: src %u sz %zu -> dst %u sz %zu\n",
+          command->src()->global_id(), desc.sizeBytes(),
+          command->dst()->global_id(), meshBuffer->size());
   mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
 }
 
@@ -336,6 +361,12 @@ void MCQExecutor::execute(
   void *dst = hostBuffers.at(command->dst()->global_id()).data.get();
   LOG_ASSERT(dst);
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
+  const auto desc =
+      std::get<TensorDesc>(hostBuffers.at(command->dst()->global_id())
+                               .as<MetalTensor>(DeviceRuntime::TTMetal));
+  fprintf(stderr, "-- Exec::ReadBuffer: src %u sz %zu -> dst %u sz %zu\n",
+          command->src()->global_id(), desc.sizeBytes(),
+          command->dst()->global_id(), meshBuffer->size());
   mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
 }
 
@@ -345,11 +376,16 @@ void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
     meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
         meshDevice, command->ref(), deviceAddressValidator);
   }
+  fprintf(stderr, "-- Exec::CreateBuffer: ref %u sz %zu\n",
+          command->ref()->global_id(),
+          meshBuffers[command->ref()->global_id()]->size());
 }
 
 void MCQExecutor::execute(
     const target::metal::DeallocateBufferCommand *command) {
   ZoneScopedN("DeallocateBufferCommand");
+  fprintf(stderr, "-- Exec::DeallocateBuffer: ref %u\n",
+          command->ref()->global_id());
   auto meshBufferIter = meshBuffers.find(command->ref()->global_id());
   LOG_ASSERT(meshBufferIter != meshBuffers.end(), "Buffer not allocated");
   LOG_ASSERT(meshBufferIter->second != nullptr, "Buffer already deallocated");
@@ -381,6 +417,8 @@ void MCQExecutor::execute(
 }
 
 void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+  fprintf(stderr, "-- Exec::MemrefCopy: src %u -> dst %u\n",
+          command->src()->global_id(), command->dst()->global_id());
   auto srcIt = hostBuffers.find(command->src()->global_id());
   LOG_ASSERT(srcIt != hostBuffers.end());
   auto dstIt = hostBuffers.find(command->dst()->global_id());
@@ -389,6 +427,8 @@ void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
 }
 
 void MCQExecutor::execute(const target::metal::CpuCommand *command) {
+  fprintf(stderr, "-- Exec::Cpu: recording host buffer %d???\n",
+          command->out()->global_id());
   std::vector<std::vector<int64_t>> allSizesAndStrides;
   auto dataFuncPtr =
       std::function<void *(const tt::target::metal::BufferRef *)>(

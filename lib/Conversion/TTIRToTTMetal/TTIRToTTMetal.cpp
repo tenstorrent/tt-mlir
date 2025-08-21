@@ -12,6 +12,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
+#include <dbg.h>
 #include <utility>
 
 namespace mlir::tt::ttmetal {
@@ -195,16 +196,30 @@ public:
     assert((inputMemorySpaceSet != outputMemorySpaceSet) &&
            "expected either input or output to have memory space");
 
+    fprintf(stderr, "-- ToLayoutRewriter\n");
+    fprintf(stderr, "---- MetalLayoutAttr ");
+    op.getLayoutAttr().dump();
+    fprintf(stderr, "---- inputTy ");
+    inputTy.dump();
+    fprintf(stderr, "---- outputTy ");
+    outputTy.dump();
+    static constexpr llvm::StringLiteral hostInfoAttr("host_info");
     // No memoryspace implicitly means host
     if (inputMemorySpace) {
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
-                                                                output);
+      auto newOp = rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(
+          op, input, output);
+      if (auto hostInfo = op.getLayoutAttr()) {
+        newOp->setAttr(hostInfoAttr, hostInfo);
+      }
       // Insert global barrier to ensure the read completes before subsequent
       // ops use it.
       rewriter.create<ttmetal::FinishOp>(op->getLoc());
     } else {
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
-                                                                 output);
+      auto newOp = rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(
+          op, input, output);
+      if (auto hostInfo = op.getLayoutAttr()) {
+        newOp->setAttr(hostInfoAttr, hostInfo);
+      }
     }
     return success();
   }

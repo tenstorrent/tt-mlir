@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <dbg.h>
 #include <fstream>
 #include <numeric>
 
@@ -570,6 +571,84 @@ ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
   return get(getContext(), getAffineMap().compose(g.getAffineMap()));
 }
 
+// Assume device memref wasn't tiled, and the two innermost sizes are the
+// alignment requirements.
+HostStridesLayoutAttr
+HostStridesLayoutAttr::get(mlir::MLIRContext *context,
+                           ArrayRef<int64_t> hostShape,
+                           ArrayRef<int64_t> dimAlignments) {
+  const int64_t hostRank = hostShape.size();
+  assert(hostRank >= 2);
+  assert(hostRank == static_cast<int64_t>(dimAlignments.size()));
+  assert(dimAlignments[hostRank - 1] % TileType::getDefaultShape()[1] == 0);
+  assert(dimAlignments[hostRank - 2] % TileType::getDefaultShape()[0] == 0);
+
+  // llvm::SmallVector<int64_t> strides(hostRank, 1);
+  // int64_t sliceElems = ttmlir::utils::roundUp(hostShape[hostRank - 1],
+  //                                             dimAlignments[hostRank - 1]);
+  // for (int64_t i = -2; i >= -hostRank; i--) {
+  //   const int64_t hostIdx = hostRank + i;
+  //   strides[hostIdx] = sliceElems;
+  //   sliceElems *=
+  //       ttmlir::utils::roundUp(hostShape[hostIdx], dimAlignments[hostIdx]);
+  // }
+
+  // How does the host know the fully aligned logical shape?
+  // - memref.copy requires identical shapes on both sides, so we have to pass
+  // the logical shape.
+  // - strides doesn't include the 'stride' for the entire tensor, there's no
+  // way for the host to know the full size if the outermost dimension was
+  // aligned up.
+  // - Adding an extra 'stride' at the front breaks the contract that the memref
+  // enforce on affine maps, the shapes must have same dimensions.
+  // - WA: pass dimAlignments and let host do the calculation.
+
+  llvm::SmallVector<int64_t> strides(dimAlignments);
+  fprintf(stderr, "-- HostStridesLayoutAttr::get: ");
+  dbg(hostShape, dimAlignments, strides);
+  return HostStridesLayoutAttr::get(context, strides);
+}
+
+mlir::AffineMap HostStridesLayoutAttr::getAffineMap() const {
+  auto *context = getContext();
+  int64_t rank = static_cast<int64_t>(getStride().size());
+  mlir::SmallVector<mlir::AffineExpr> results;
+  results.reserve(static_cast<size_t>(rank + 1));
+
+  // Pass-through each index dimension.
+  for (int64_t i = 0; i < rank; ++i) {
+    results.push_back(getAffineDimExpr(static_cast<unsigned>(i), context));
+  }
+
+  // Last result is the linearized offset using the stored strides.
+  mlir::AffineExpr linear = getAffineConstantExpr(0, context);
+  for (int64_t i = 0; i < rank; ++i) {
+    auto dim = getAffineDimExpr(static_cast<unsigned>(i), context);
+    auto stride =
+        getAffineConstantExpr(getStride()[static_cast<size_t>(i)], context);
+    linear = linear + dim * stride;
+  }
+  results.push_back(linear);
+
+  return mlir::AffineMap::get(static_cast<unsigned>(rank), /*numSymbols=*/0,
+                              results, context);
+}
+
+::mlir::LogicalResult HostStridesLayoutAttr::getStridesAndOffset(
+    ::llvm::ArrayRef<int64_t> shape, ::llvm::SmallVectorImpl<int64_t> &strides,
+    int64_t &offset) const {
+  strides.clear();
+  strides.resize(shape.size(), 0);
+  // Row-major contiguous layout in element units, starting at offset 0.
+  int64_t running = 1;
+  for (int64_t i = static_cast<int64_t>(shape.size()) - 1; i >= 0; --i) {
+    strides[i] = running;
+    running *= std::max<int64_t>(shape[i], 1);
+  }
+  offset = 0;
+  return ::mlir::success();
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -664,6 +743,7 @@ static llvm::SmallVector<int64_t>
 applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
                                      mlir::DenseIntElementsAttr intervals,
                                      llvm::ArrayRef<int64_t> alignments) {
+  fprintf(stderr, "!! applyCollapsedIntervalsAndAlignments\n");
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
@@ -696,17 +776,16 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
     if (end - start == 1) {
       // Single dimension - apply alignment.
       resultShape.push_back(
-          ttmlir::utils::alignUp(shape[start], alignments[start]));
+          ttmlir::utils::roundUp(shape[start], alignments[start]));
     } else if (end > start) {
       // Start by aligning the innermost dimension.
       int64_t collapsedDim =
-          ttmlir::utils::alignUp(shape[end - 1], alignments[end - 1]);
+          ttmlir::utils::roundUp(shape[end - 1], alignments[end - 1]);
 
       // Process remaining dimensions from inner to outer w/ multplication.
       for (int64_t j = end - 2; j >= start; --j) {
-        // For outer dimensions, multiply then align the product.
-        collapsedDim =
-            ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
+        // For outer dimensions, align and then multiply the product.
+        collapsedDim *= ttmlir::utils::roundUp(shape[j], alignments[j]);
       }
 
       resultShape.push_back(collapsedDim);
@@ -720,6 +799,8 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
     resultShape.push_back(ttmlir::utils::alignUp(shape[i], alignments[i]));
   }
 
+  fprintf(stderr, "!! ");
+  dbg(shape, alignments, resultShape);
   return resultShape;
 }
 
@@ -728,6 +809,8 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
+  fprintf(stderr, "-- getPhysicalShape: ");
+  dbg(physicalShape);
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -736,6 +819,8 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
+  fprintf(stderr, "-- getPhysicalShape: ");
+  dbg(physicalShape);
   return physicalShape;
 }
 
@@ -813,44 +898,108 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
                                       getLogicalShape().size());
 }
 
+// When the height of the physical 2D shape is collapsed from multiple logical
+// dimensions, we record two separate alignment requirements:
+// - One for the 2nd last logical dim (intervalEnd), and it's always the height
+// of a tile.
+// - One for the outermost logical dim (intervalStart), it should be the minimum
+// value such that:
+// - After appling both alignments to their corresponding dims, the entire
+// collapsed dim is tile/grid-aligned, depending on the need.
+//
+// For example, tensor<4x43x7> + grid<8x8> + tile<32x32> gives:
+// - Tile-aligned logical shape 4x64x32.
+// - Collapsed physical 2D shape 256x32.
+// - Dim alignments 1x32x32.
+// - Unsharded device shape 256x32.
+// - Grid & shard is 256x32 / 32x32 = 8x1.
+// - Tiled device shape 8x1x1x1x!tile<32x32>.
+// So there will be 8 workers, each handling a shard of a single tile.
+// This achieves high worker utilization, and ensures the majority of the
+// padding are at the end of the tensor buffer so the memory access strides are
+// small.
+//
+// However, this strategy has issues around sharding. Consider the same example
+// as above but with tensor<9x43x7>:
+// - Tile-aligned logical shape 9x64x32.
+// - Collapsed physical 2D shape 576x32.
+// - Dim alignments 4x32x32.
+// - Unsharded device shape [alignUp(9,4)*64]x32=768x32
+// - Grid & shard is 768x32 / 32x32 = 24x1.
+// - Tiled device shape 8x1x3x1x!tile<32x32>.
+// Similar to the example above, both result in 'unnatural' shard shapes like
+// 1x1x!tile<32x32> and 3x1x!tile<32x32>. The 'natual' shard shape is
+// 2x1x!tile<32x32>, which has the potential to save some NoC traffic (e.g.
+// reduction of 4x43x7 -> 4x1x7 is now worker-local).
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
-  llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
+  const int64_t logicalRank = logicalShape.size();
+  const int64_t deviceGridRank = deviceGridShape.size();
+
+  assert(logicalRank >= 2);
+  assert(deviceGridRank == 2);
+  assert(deviceGridRank * 2 ==
+         static_cast<int64_t>(normalizedIntervals.size()));
+
+  llvm::SmallVector<int64_t> dimAlignments(logicalRank, 1);
   // Handle the last two intervals (which will map to tiles) with
   // grid-aware alignments.
-  assert(deviceGridShape.size() >= 2);
-  for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
-       idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
-
-    const int64_t intervalStart = normalizedIntervals[idx * 2];
-    const int64_t intervalEnd = normalizedIntervals[idx * 2 + 1];
-
-    // Calculate collapsed size for this interval.
-    int64_t collapsedSize = 1;
-    for (int64_t j = intervalStart; j < intervalEnd; ++j) {
-      collapsedSize *= logicalShape[j];
-    }
-
-    // Determine which tile dimension corresponds with this interval.
-    const int64_t tileIdx =
-        (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
+  for (int64_t idx = -1; idx >= -2; idx--) {
+    const int64_t tileIdx = tileShape.size() + idx;
     const int64_t tileDim = tileShape[tileIdx];
-    const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
+
+    const int64_t gridIdx = deviceGridRank + idx;
+    const int64_t gridDim = deviceGridShape[gridIdx];
+
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+
+    const int64_t intervalStart = normalizedIntervals[gridIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[gridIdx * 2 + 1] - 1;
+
+    // Calculate collapsed physical height/width for this interval.
+    int64_t collapsedSize = 1;
+    int64_t outermostAlignment = gridAlignmentThreshold;
+    for (int64_t i = intervalEnd; i >= intervalStart; i--) {
+      int64_t dimSize = 0;
+      if (i >= logicalRank - 2) {
+        // Always tile-align the last two dimensions.
+        dimSize = ttmlir::utils::roundUp(logicalShape[i], tileDim);
+      } else {
+        dimSize = logicalShape[i];
+      }
+      collapsedSize *= dimSize;
+      if (i == intervalStart && outermostAlignment % dimSize == 0) {
+        outermostAlignment = 1;
+      } else {
+        outermostAlignment /= std::gcd(outermostAlignment, dimSize);
+      }
+    }
 
     // Determine alignment based on collapsed size.
     // If size > gridAlignmentThreshold, align to grid boundary, else align to
     // tile boundary.
-    int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
+    int64_t alignment = (collapsedSize > gridAlignmentThreshold)
                             ? gridAlignmentThreshold
                             : tileDim;
 
-    // Set alignment on the first dimension of the interval.
-    dimAlignmentsVec[intervalStart] = alignment;
+    // Set alignment on the last dimension of the interval, as we need to align
+    // the innertwo dimensions to tiles first.
+    if (intervalEnd == intervalStart) {
+      dimAlignments[intervalEnd] = alignment;
+    } else {
+      assert(idx == -2);
+      dimAlignments[intervalEnd] = tileDim;
+      dimAlignments[intervalStart] = outermostAlignment;
+    }
   }
-  return dimAlignmentsVec;
+  // There're only 4 possible alignment values: 1, tileDim, deviceGridShape[?],
+  // deviceGridShape[?] * tileDim
+  fprintf(stderr, "!! computeAlignments ");
+  dbg(dimAlignments);
+  return dimAlignments;
 }
 
 // Getter with no intervals or alignments, we calculate them both.
