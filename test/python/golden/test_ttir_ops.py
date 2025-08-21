@@ -2941,7 +2941,9 @@ def test_rms_norm(
         (2, (0, -1)),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1), (1, 2), (2, 1)])
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1), (1, 2), (2, 1)], ids=shape_str
+)
 def test_mesh_shard_devices(
     input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
 ):
@@ -2994,8 +2996,9 @@ def test_mesh_shard_devices(
         (32, 32, 1, 1),
         (128, 256),
     ],
+    ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("all_gather_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_all_gather(
@@ -3049,8 +3052,9 @@ def test_all_gather(
             (1, 1, 32, 64), marks=pytest.mark.run_error
         ),  # https://github.com/tenstorrent/tt-metal/issues/21987
     ],
+    ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_all_reduce(
     test_shape: Shape,
@@ -3098,8 +3102,9 @@ def test_all_reduce(
         pytest.param((1, 1, 128, 256), marks=pytest.mark.run_error),
         pytest.param((1, 1, 256, 128), marks=pytest.mark.run_error),
     ],
+    ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_reduce_scatter(
@@ -3149,8 +3154,9 @@ def test_reduce_scatter(
         (256, 512, 1, 1),
         (1, 256, 512, 1),
     ],
+    ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize(
     "source_target_pairs",
     [
@@ -3203,6 +3209,7 @@ def test_collective_permute(
         (32, 64, 128),
         (8, 8, 64, 64),
     ],
+    ids=shape_str,
 )
 @pytest.mark.parametrize("split_dim", range(4))
 @pytest.mark.parametrize("concat_dim", range(4))
@@ -3263,6 +3270,7 @@ def test_all_to_all(
         (8, 8, 32, 64),
         (10, 10, 30, 60),
     ],
+    ids=shape_str,
 )
 @pytest.mark.parametrize(
     "mesh_shape, replica_groups",

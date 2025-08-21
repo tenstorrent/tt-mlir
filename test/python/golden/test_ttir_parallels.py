@@ -10,7 +10,7 @@ from collections import OrderedDict
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from test_utils import make_shard_shape
+from test_utils import shape_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -86,8 +86,11 @@ def _build_matmul_k_split_2d(
         [(1024, 8), (8, 512)],
         [(256, 128), (128, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)], ids=shape_str
+)
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_matmul_k_split_parallelism(
     shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request
@@ -130,8 +133,9 @@ def test_matmul_k_split_parallelism(
         [(1024, 32), (32, 512)],
         [(256, 128), (128, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
@@ -181,8 +185,9 @@ def test_parallelized_matmul_with_unary_chaining(
         [(1024, 32), (32, 512), (1024, 512)],
         [(256, 128), (128, 256), (256, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
@@ -239,8 +244,9 @@ def test_parallelized_matmul_with_binary_chaining(
         [(1024, 32), (32, 512), (1024, 64), (64, 512)],
         [(256, 128), (128, 256), (256, 64), (64, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_fusion_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
@@ -305,8 +311,11 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         [(32, 32, 32, 32), (3, 2)],
         [(32, 32, 32, 32), (3, 0)],
     ],
+    ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)], ids=shape_str
+)
 def test_parallelized_elementwise_operations(
     shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request
 ):
@@ -359,8 +368,9 @@ def test_parallelized_elementwise_operations(
         [(1024, 32), (32, 512)],
         [(256, 128), (128, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_unary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
@@ -402,8 +412,9 @@ def test_mixed_device_parallelism_with_unary(
         [(1024, 32), (32, 512), (1024, 512)],
         [(256, 128), (128, 256), (256, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_binary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
@@ -444,8 +455,9 @@ def test_mixed_device_parallelism_with_binary(
         [(1024, 32), (32, 512), (1024, 64), (64, 512)],
         [(256, 128), (128, 256), (256, 64), (64, 256)],
     ],
+    ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_dual_matmul(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
