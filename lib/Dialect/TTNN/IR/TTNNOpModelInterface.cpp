@@ -2175,27 +2175,6 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ConstantOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-// template <typename T>
-// std::vector<T> getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
-//   std::vector<T> result;
-//   if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
-//     // Ensure the element type matches T
-//     auto elementType = denseAttr.getType().getElementType();
-//     if ((std::is_same<T, float>::value && elementType.isF32()) ||
-//         (std::is_same<T, double>::value && elementType.isF64()) ||
-//         (std::is_same<T, int32_t>::value && elementType.isInteger(32)) ||
-//         (std::is_same<T, int64_t>::value && elementType.isInteger(64))) {
-//       // Iterate over the elements
-//       for (auto value : denseAttr.getValues<T>()) {
-//         result.push_back(value);
-//       }
-//     }
-//   } else {
-//     assert(false && "Unknown constant value attribute type");
-//   }
-//   return result;
-// }
-
 llvm::Expected<op_model::OpConstraints>
 ConstantOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {

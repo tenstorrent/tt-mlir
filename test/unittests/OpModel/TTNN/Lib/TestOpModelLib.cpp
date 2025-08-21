@@ -15,7 +15,6 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <tuple>
 
@@ -2899,5 +2898,133 @@ const auto batchNormTestValues = ::testing::Values(
 
 INSTANTIATE_TEST_SUITE_P(BatchNormTests, OpModelBatchNormParam,
                          batchNormTestValues);
+
+// ==== ConstantOp Tests ====
+
+template <typename DataType, typename MLIRType>
+class OpModelConstantParam
+    : public OpModelTest,
+      public testing::WithParamInterface<std::tuple<
+          llvm::SmallVector<int64_t>,             // tensor shape
+          std::vector<DataType>,                  // constant data
+          std::function<MLIRType(OpModelTest *)>, // type creator function
+          std::optional<TTNNLayoutAttr>,          // output layout (optional)
+          detail::ExpectedResult                  // expected results
+          >> {
+protected:
+  void RunTest() {
+    auto params = this->GetParam();
+    const auto [tensorShape, constData, typeCreator, outputLayoutOpt,
+                expectedResult] = params;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = expectedResult;
+
+    // Create element type using the provided function
+    MLIRType elementType = typeCreator(this);
+
+    // Create output layout or use default
+    TTNNLayoutAttr outputLayout;
+    if (outputLayoutOpt.has_value()) {
+      outputLayout = outputLayoutOpt.value();
+    } else {
+      // For supported integer types, we need to use specific layout creation
+      // methods
+      if constexpr (std::is_same_v<DataType, int32_t>) {
+        outputLayout = CreateTiledLayoutInt32(tensorShape, BufferType::L1,
+                                              TensorMemoryLayout::Interleaved);
+      } else {
+        outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                         TensorMemoryLayout::Interleaved);
+      }
+    }
+
+    // Create tensor type and dense elements attribute
+    mlir::RankedTensorType tensorType =
+        mlir::RankedTensorType::get(tensorShape, elementType);
+    llvm::ArrayRef<DataType> dataRef(constData);
+    mlir::DenseElementsAttr attr =
+        mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+    // Test getOpConstraints
+    auto constraintsExp =
+        ttnn::op_model::OpModel<mlir::tt::ttnn::ConstantOp>::getOpConstraints(
+            CreateWorkerGrid(), attr, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    // Test getOpRuntime
+    auto runtimeExp =
+        ttnn::op_model::OpModel<mlir::tt::ttnn::ConstantOp>::getOpRuntime(
+            attr, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_EQ(runtimeExp.get(), 0); // ConstantOp should have 0 runtime
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+// Type aliases for different constant data types
+using OpModelConstantInt32Param = OpModelConstantParam<int32_t, mlir::Type>;
+using OpModelConstantUInt16Param = OpModelConstantParam<uint16_t, mlir::Type>;
+using OpModelConstantUInt8Param = OpModelConstantParam<uint8_t, mlir::Type>;
+
+TEST_P(OpModelConstantInt32Param, ConstantOpInt32) { RunTest(); }
+TEST_P(OpModelConstantUInt16Param, ConstantOpUInt16) { RunTest(); }
+TEST_P(OpModelConstantUInt8Param, ConstantOpUInt8) { RunTest(); }
+
+// Test data for ConstantOp with different supported types
+const auto constantOpInt32TestData = testing::Values(
+    // Basic 2x2 i32 tensor with L1 interleaved layout
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 2}, std::vector<int32_t>{1, 2, 3, 4},
+        [](OpModelTest *test) { return test->builder.getI32Type(); },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096}),
+
+    // Larger 32x32 i32 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{32, 32},
+        std::vector<int32_t>(32 * 32, 42), // Fill with value 42
+        [](OpModelTest *test) { return test->builder.getI32Type(); },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096}));
+
+const auto constantOpUInt16TestData = testing::Values(
+    // Basic 2x3x4 u16 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 3, 4},
+        std::vector<uint16_t>{1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
+                              13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(16, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 2048, 2048}));
+
+const auto constantOpUInt8TestData = testing::Values(
+    // Basic u8 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{4, 4},
+        std::vector<uint8_t>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                             16},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(8, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 1024, 1024}));
+
+INSTANTIATE_TEST_SUITE_P(ConstantOpInt32Tests, OpModelConstantInt32Param,
+                         constantOpInt32TestData);
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt16Tests, OpModelConstantUInt16Param,
+                         constantOpUInt16TestData);
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt8Tests, OpModelConstantUInt8Param,
+                         constantOpUInt8TestData);
 
 } // namespace mlir::tt::ttnn::op_model

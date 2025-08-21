@@ -225,6 +225,75 @@ getNullableDataType(TTNNLayoutAttr layout) {
   return conversion::getDataType(layout.getDataType());
 }
 
+/**
+ * @brief Checks if a C++ type T is compatible with a given MLIR type.
+ *
+ * @param elType The type to check.
+ * @return True if the type is compatible, false otherwise.
+ */
+template <typename T>
+bool isCompatibleType(mlir::Type elType) {
+  if constexpr (std::is_same_v<T, float>) {
+    return elType.isF32();
+  } else if constexpr (std::is_same_v<T, double>) {
+    return elType.isF64();
+  } else if constexpr (std::is_same_v<T, int8_t>) {
+    return elType.isInteger(8);
+  } else if constexpr (std::is_same_v<T, int16_t>) {
+    return elType.isInteger(16);
+  } else if constexpr (std::is_same_v<T, int32_t>) {
+    return elType.isInteger(32);
+  } else if constexpr (std::is_same_v<T, int64_t>) {
+    return elType.isInteger(64);
+  } else if constexpr (std::is_same_v<T, uint8_t>) {
+    return elType.isUnsignedInteger(8);
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    return elType.isUnsignedInteger(16);
+  } else if constexpr (std::is_same_v<T, uint32_t>) {
+    return elType.isUnsignedInteger(32);
+  } else if constexpr (std::is_same_v<T, uint64_t>) {
+    return elType.isUnsignedInteger(64);
+  }
+  return false;
+}
+
+/**
+ * @brief This function populates a vector with the data that the ElementsAttr
+ * contains. It checks for type compatibility and handles DenseElementsAttr and
+ * SplatElementsAttr.
+ */
+template <typename T>
+llvm::Expected<std::vector<T>>
+getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
+  std::vector<T> result;
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    if (!isCompatibleType<T>(denseAttr.getType().getElementType())) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch");
+    }
+    // Iterate over the elements
+    for (auto value : denseAttr.getValues<T>()) {
+      result.push_back(value);
+    }
+
+  } else if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(attr)) {
+    // Handle splat attributes, Although this is not expected to be triggered
+    // (since we have other ops to cover splat attributes, such as FullOp,
+    // EmptyOp, etc), we can handle it here to avoid unnecessary failures.
+    if (!isCompatibleType<T>(splatAttr.getType().getElementType())) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch");
+    }
+    auto splatValue = splatAttr.getSplatValue<T>();
+    auto numElements = splatAttr.getType().getNumElements();
+    result.resize(numElements, splatValue);
+  } else {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Unsupported ElementsAttr type");
+  }
+  return result;
+}
+
 template <typename OpTy>
 auto getOpSymbol() {
   if constexpr (std::is_same_v<OpTy, ReluOp>) {
@@ -3385,25 +3454,19 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
-template <typename T>
-std::vector<T> getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
-  std::vector<T> result;
-  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
-    // Ensure the element type matches T
-    auto elementType = denseAttr.getType().getElementType();
-    if ((std::is_same<T, float>::value && elementType.isF32()) ||
-        (std::is_same<T, double>::value && elementType.isF64()) ||
-        (std::is_same<T, int32_t>::value && elementType.isInteger(32)) ||
-        (std::is_same<T, int64_t>::value && elementType.isInteger(64))) {
-      // Iterate over the elements
-      for (auto value : denseAttr.getValues<T>()) {
-        result.push_back(value);
-      }
-    }
-  } else {
-    assert(false && "Unknown constant value attribute type");
+// sgholamiTT: I decided to not promote these helper methods to conversion.hpp
+// for two reasons:
+//   1. There's no other clear usage for them.
+//   2. Some of them are specialized for ConstantOp.
+
+mlir::Type getElementType(mlir::ElementsAttr value) {
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(value)) {
+    return denseAttr.getType().getElementType();
   }
-  return result;
+  if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(value)) {
+    return splatAttr.getType().getElementType();
+  }
+  assert(false && "Unknown constant value attribute type");
 }
 
 ::ttnn::Shape getShape(mlir::ElementsAttr value) {
@@ -3416,62 +3479,55 @@ std::vector<T> getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
   assert(false && "Unknown constant value attribute type");
 }
 
-/*
-enum class DataType {
-    BFLOAT16 = 0,
-    FLOAT32 = 1,
-    UINT32 = 2,
-    BFLOAT8_B = 3, // NS
-    BFLOAT4_B = 4, // NS
-    UINT8 = 5,
-    UINT16 = 6,
-    INT32 = 7,
-    INVALID = 8,
-};
-*/
 ::tt::tt_metal::DataType getDataType(const mlir::ElementsAttr attr) {
-  std::cout << "Printing type" << std::endl;
-  attr.getType().dump();
-  std::cout << std::endl;
-  // type.
-  // auto eltype = type.getElementType();
-  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
-    // Ensure the element type matches T
-    auto elementType = denseAttr.getType().getElementType();
-    ::tt::tt_metal::DataType dtype = ::tt::tt_metal::DataType::INVALID;
-    if (elementType.isBF16()) {
-      dtype = ::tt::tt_metal::DataType::BFLOAT16;
-    } else if (elementType.isF32()) {
-      dtype = ::tt::tt_metal::DataType::FLOAT32;
-    } else if (elementType.isUnsignedInteger(32)) {
-      dtype = ::tt::tt_metal::DataType::UINT32;
-    } else if (elementType.isUnsignedInteger(16)) {
-      dtype = ::tt::tt_metal::DataType::UINT16;
-    } else if (elementType.isUnsignedInteger(8)) {
-      dtype = ::tt::tt_metal::DataType::UINT8;
-    } else if (elementType.isInteger(32)) {
-      dtype = ::tt::tt_metal::DataType::INT32;
-    }
-    assert(dtype != ::tt::tt_metal::DataType::INVALID &&
-           "Unsupported data type");
-    return dtype;
-  } else {
-    assert(false && "Unknown constant value attribute type");
+  ::mlir::Type elType = getElementType(attr);
+  ::tt::tt_metal::DataType dtype = ::tt::tt_metal::DataType::INVALID;
+  if (elType.isBF16()) {
+    dtype = ::tt::tt_metal::DataType::BFLOAT16;
+  } else if (elType.isF32()) {
+    dtype = ::tt::tt_metal::DataType::FLOAT32;
+  } else if (elType.isUnsignedInteger(32)) {
+    dtype = ::tt::tt_metal::DataType::UINT32;
+  } else if (elType.isUnsignedInteger(16)) {
+    dtype = ::tt::tt_metal::DataType::UINT16;
+  } else if (elType.isUnsignedInteger(8)) {
+    dtype = ::tt::tt_metal::DataType::UINT8;
+  } else if (elType.isInteger(32)) {
+    dtype = ::tt::tt_metal::DataType::INT32;
   }
+  assert(dtype != ::tt::tt_metal::DataType::INVALID && "Unsupported data type");
+  return dtype;
 }
 
-/*
-template <typename BufferType>
-    static Tensor invoke(
-        const std::vector<BufferType>& buffer,
-        const Shape& shape,
-        const DataType dtype,
-        const Layout layout,
-        MeshDevice* device,
-        const MemoryConfig& memory_config)
-*/
+// Helper macro to reduce repetition in type dispatch
+#define DISPATCH_TYPE(TYPE_CHECK, CPP_TYPE)                                    \
+  if (elType.TYPE_CHECK) {                                                     \
+    auto rawDataExp = detail::getRawDataFromElementsAttr<CPP_TYPE>(value);     \
+    if (!rawDataExp) {                                                         \
+      return rawDataExp.takeError();                                           \
+    }                                                                          \
+    return func(rawDataExp.get());                                             \
+  }
 
-// ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
+// Helper function to dispatch getRawDataFromElementsAttr based on element type
+// (we use this technique since )
+template <typename Func>
+llvm::Expected<OpConstraints> dispatchGetRawData(mlir::ElementsAttr value,
+                                                 Func &&func) {
+  // from_span<T> has template instantiations for the following types:
+  // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
+  // The last one is not supported in tt-mlir, so we support the first four:
+  ::mlir::Type elType = getElementType(value);
+  DISPATCH_TYPE(isInteger(32), int32_t)
+  DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
+  DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
+  DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+
+  return llvm::createStringError(std::errc::invalid_argument,
+                                 "Unsupported element type for ConstantOp");
+}
+
+#undef DISPATCH_TYPE
 
 llvm::Expected<OpConstraints>
 OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
@@ -3481,31 +3537,21 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  assert(outputLayout != nullptr && "Output layout is required");
-  auto memoryConfig = detail::getNullableMemoryConfig(outputLayout);
-  assert(memoryConfig.has_value() && "Memory config is required");
-  std::cout << "after asserts" << std::endl;
-
-  auto constantOpQuery = [=]() {
-    if (memoryConfig.has_value()) {
+  std::optional<::tt::tt_metal::Layout> metalLayout = std::nullopt;
+  if (outputLayout) {
+    metalLayout = conversion::getPageLayout(outputLayout);
+  }
+  auto func = [&](auto rawData) {
+    auto constantOpQuery = [=]() {
       return ::ttnn::graph::query_op_constraints(
-          ::ttnn::from_buffer, device, getRawDataFromElementsAttr<float>(value),
-          getShape(value), getDataType(value),
-          conversion::getPageLayout(outputLayout), device,
-          memoryConfig.value());
-    } else {
-      return ::ttnn::graph::query_op_constraints(
-          ::ttnn::from_buffer, device, getRawDataFromElementsAttr<float>(value),
-          getShape(value), getDataType(value),
-          conversion::getPageLayout(outputLayout), device,
-          ::tt::tt_metal::MemoryConfig());
-    }
+          ::ttnn::from_buffer, device, rawData, getShape(value),
+          getDataType(value), device, metalLayout,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
+    return operation::getOpConstraints(value.getContext(), deviceGrid,
+                                       constantOpQuery);
   };
-  std::cout << "before calling the getOpConstraints query" << std::endl;
-  auto constraintsExp = operation::getOpConstraints(
-      value.getContext(), deviceGrid, constantOpQuery);
-  std::cout << "after calling the getOpConstraints query" << std::endl;
-  return constraintsExp;
+  return dispatchGetRawData(value, func);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
