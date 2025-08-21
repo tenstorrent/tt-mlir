@@ -121,7 +121,7 @@ def test_matmul_k_split_2d(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_unary_parallel(
+def test_matmul_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -172,7 +172,7 @@ def test_matmul_unary_parallel(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_binary_parallel(
+def test_matmul_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
@@ -229,7 +229,7 @@ def test_matmul_binary_parallel(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_matmul_binary_parallel(
+def test_matmul_matmul_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(
@@ -327,6 +327,149 @@ def test_eltwise_parallel(
     compile_ttir_to_flatbuffer(
         eltwise_parallel,
         [shape, shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# test_mixed_device_* are tests that verify regressions in mixed device parallelism
+# Run a graph with a multi-device op, and a unary op that runs on a single device
+# Refer to https://github.com/tenstorrent/tt-mlir/issues/3058 for more details
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512)],
+        [(256, 128), (128, 256)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
+    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        matmul_result = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=True,
+        )
+
+        output = builder.neg(matmul_result)
+
+        # Golden is computed on a single device
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        golden = torch.neg(torch.matmul(input_0, input_1))
+        builder.set_graph_input_output([input_0, input_1], [golden])
+
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 512)],
+        [(256, 128), (128, 256), (256, 256)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+def test_mixed_device_binary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
+    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        matmul_result = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=True,
+        )
+        output = builder.add(matmul_result, in2)
+
+        # Golden is computed on a single device
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        golden = torch.add(torch.matmul(input_0, input_1), input_2)
+        builder.set_graph_input_output([input_0, input_1, input_2], [golden])
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 64), (64, 512)],
+        [(256, 128), (128, 256), (256, 64), (64, 256)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
+def test_mixed_device_binary_2(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(
+        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+    ):
+        matmul_0 = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[0]),
+            1,
+            in0,
+            in1,
+            builder,
+            do_unshard=True,
+        )
+        matmul_1 = _build_matmul_k_split_2d(
+            mesh_shape,
+            len(shapes[2]),
+            1,
+            in2,
+            in3,
+            builder,
+            do_unshard=True,
+        )
+        output = builder.add(matmul_0, matmul_1)
+
+        # Golden is computed on a single device
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        input_3 = builder._get_golden_tensor(in3)
+        golden = torch.add(
+            torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
+        )
+        builder.set_graph_input_output([input_0, input_1, input_2, input_3], [golden])
+
+        return output
+
+    compile_ttir_to_flatbuffer(
+        matmul_test,
+        shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
