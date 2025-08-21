@@ -2,7 +2,11 @@ name: "Issue Work Started"
 description: "Update issue work started date when Status field changes to In Progress"
 
 on:
-  # Manual trigger for testing
+  # Temporary hack for testing - triggers on any push
+  push:
+    branches: [ feature/issue-work-started-workflow ]
+  
+  # Manual trigger for testing (will be registered after merge to main)
   workflow_dispatch:
     inputs:
       issue_number:
@@ -37,6 +41,10 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # HACK: Hardcoded issue number for testing
+            issue_number="4540"
+            echo "Push trigger - testing with hardcoded issue #$issue_number"
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
