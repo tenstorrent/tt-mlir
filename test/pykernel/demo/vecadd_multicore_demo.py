@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from pykernel.ast import *
+from pykernel.kernel_ast import *
 from pykernel.op import PyKernelOp
-from pykernel.types import *
+from pykernel.kernel_types import *
 
 from math import ceil
 

@@ -216,6 +216,42 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// LogicalRightShiftOp
+//===----------------------------------------------------------------------===//
+
+// LogicalRightShiftOp verifier
+::mlir::LogicalResult mlir::tt::ttir::LogicalRightShiftOp::verify() {
+  RankedTensorType lhsTensorType = getLhs().getType();
+  RankedTensorType rhsTensorType = getRhs().getType();
+  RankedTensorType outputTensorType = getResult().getType();
+
+  // Check that left operand (value to be shifted) has integer element type.
+  auto lhsElemType = lhsTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(lhsElemType)) {
+    return emitOpError()
+           << "Left operand element type must be integer, but got "
+           << lhsElemType;
+  }
+
+  // Check that right operand (shift amount) has integer element type.
+  auto rhsElemType = rhsTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(rhsElemType)) {
+    return emitOpError()
+           << "Right operand element type must be integer, but got "
+           << rhsElemType;
+  }
+
+  // Check that output has integer element type.
+  auto outputElemType = outputTensorType.getElementType();
+  if (!mlir::isa<mlir::IntegerType>(outputElemType)) {
+    return emitOpError() << "Output element type must be integer, but got "
+                         << outputElemType;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ClampTensorOp
 //===----------------------------------------------------------------------===//
 
@@ -1661,11 +1697,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
 
-// SliceOp verification
-::mlir::LogicalResult mlir::tt::ttir::SliceOp::verify() {
+// SliceStaticOp verification
+::mlir::LogicalResult mlir::tt::ttir::SliceStaticOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::mlir::ArrayAttr begins = getBeginsAttr();
@@ -1777,6 +1813,69 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
                            << " of the output tensor: expected size "
                            << expectedDimSize << ", but got "
                            << outputType.getDimSize(i);
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+// SliceDynamicOp verification
+::mlir::LogicalResult mlir::tt::ttir::SliceDynamicOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType beginsType = getBegins().getType();
+  ::llvm::ArrayRef<int64_t> beginsShape = beginsType.getShape();
+  ::mlir::RankedTensorType endsType = getEnds().getType();
+  ::llvm::ArrayRef<int64_t> endsShape = endsType.getShape();
+  ::mlir::ArrayAttr stepAttr = getStepAttr();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Verify that the input is at least 1D tensor.
+  if (inputType.getRank() < 1) {
+    return emitOpError("Input must be at least a 1D tensor");
+  }
+
+  // Verify that begins and ends are 1D tensors.
+  size_t beginsRank = static_cast<size_t>(beginsType.getRank());
+  size_t endsRank = static_cast<size_t>(endsType.getRank());
+  if (beginsRank != 1 || endsRank != 1) {
+    return emitOpError("Begins and ends must be 1D tensors");
+  }
+
+  // Verify that the input rank matches number of elements in begins, ends, and
+  // step.
+  auto inputRank = inputType.getRank();
+
+  if (inputRank != beginsShape[0] || inputRank != endsShape[0] ||
+      (stepAttr && static_cast<size_t>(inputRank) != stepAttr.size())) {
+    return emitOpError("Begins, ends, and step must have the same "
+                       "number of elements as the input tensor rank");
+  }
+
+  // Validate that the output tensor has the same element type as the input
+  // tensor.
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError(
+        "Output tensor must have the same element type as the input tensor");
+  }
+
+  // Verify the output tensor rank.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError(
+        "Output tensor must have the same rank as the input tensor");
+  }
+
+  if (stepAttr) {
+    // Verify that step isn't zero for any dimension.
+    for (auto i = 0; i < inputRank; ++i) {
+      int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[i]).getInt();
+      if (step == 0) {
+        return emitOpError("Step value for dimension " + std::to_string(i) +
+                           " cannot be zero");
+      }
     }
   }
 
@@ -2335,6 +2434,26 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  ToLayoutFoldRedundantPattern(MLIRContext *context)
+      : OpRewritePattern<ToLayoutOp>(context) {
+    setDebugName("ttir.ToLayoutFoldRedundantPattern");
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
+    if (!producerLayoutOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
+                                            op.getOutput());
+    return success();
+  }
+};
+
 static ::mlir::LogicalResult
 verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
                mlir::Type outputTensorOrMemrefTy, bool allowFormatChange,
@@ -2548,7 +2667,7 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
 }
 
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
   patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
     EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
@@ -2559,16 +2678,7 @@ void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     return success();
   });
 
-  // Back to back ToLayoutOp folding, last one wins
-  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
-    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
-    if (!producerLayoutOp) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
-                                            op.getOutput());
-    return success();
-  });
+  patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
@@ -4964,6 +5074,64 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
            << "expected output hidden dimension to be num_heads * "
               "head_size = "
            << expectedHiddenSize << ", got " << outputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::RMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify normalized_shape is valid for the input tensor.
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> normalizedShape = getNormalizedShape();
+
+  // Check that normalized_shape is not empty.
+  if (normalizedShape.empty()) {
+    return emitOpError("normalized_shape cannot be empty");
+  }
+
+  // Check that normalized_shape is not larger than input tensor shape.
+  if (normalizedShape.size() > inputShape.size()) {
+    return emitOpError(
+        "normalized_shape has more dimensions than input tensor");
+  }
+
+  // Check that the trailing dimensions of input match normalized_shape.
+  // For example, if input shape is [2, 3, 4, 5] and normalized_shape is [4, 5],
+  // then we check that input shape's last two dimensions (4, 5) match
+  // normalized_shape.
+  size_t offset = inputShape.size() - normalizedShape.size();
+  for (size_t i = 0; i < normalizedShape.size(); ++i) {
+    if (inputShape[offset + i] != normalizedShape[i]) {
+      return emitOpError("normalized_shape dimensions must match trailing "
+                         "dimensions of input tensor");
+    }
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getShape() != normalizedShape) {
+      return emitOpError("weight tensor shape must match normalized_shape");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getShape() != normalizedShape) {
+      return emitOpError("bias tensor shape must match normalized_shape");
+    }
   }
 
   return success();

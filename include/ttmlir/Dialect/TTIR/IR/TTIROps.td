@@ -1757,6 +1757,16 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
     }];
 }
 
+def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
+    let summary = "Eltwise Logical Right Shift operation";
+    let description = [{
+      The `logical_right_shift` operation performs an elementwise logical right shift
+      on the elements of the first tensor by the corresponding shift amounts in the
+      second tensor.
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Elementwise subtract operation.";
     let description = [{
@@ -2051,6 +2061,58 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
                        F32Attr:$epsilon,
                        I32Attr:$dimension,
                        BoolAttr:$training);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RMSNormOp : TTIR_DPSOp<"rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "RMS normalization operation";
+  let description = [{
+    Performs RMS (Root Mean Square) normalization on the input tensor. This operation
+    normalizes the input tensor by computing the root mean square of elements across
+    the specified dimensions and dividing by that value, optionally scaling and
+    shifting the result.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the normalized
+      result is element-wise multiplied by this weight.
+    - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias is
+      added to the scaled result.
+
+    Attributes:
+    - `normalized_shape` specifies the dimensions over which to normalize. Typically
+      the last few dimensions of the input tensor.
+    - `epsilon` is a small constant added for numerical stability (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The RMS normalized output tensor.
+
+    Example:
+    ```mlir
+      // RMS normalization over last dimension (shape: [2, 4, 8] -> normalize over [8])
+      %result = ttir.rms_norm(%input, %weight, %bias, %output,
+                             normalized_shape = [8], epsilon = 1e-05) :
+            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+
+      // RMS normalization over last two dimensions (shape: [2, 4, 8] -> normalize over [4, 8])
+      %result = ttir.rms_norm(%input, %weight, %bias, %output,
+                             normalized_shape = [4, 8], epsilon = 1e-05) :
+            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<4x8xf32>) -> tensor<2x4x8xf32>
+    ```
+
+    Mathematical definition: rms_norm(x, weight, bias, epsilon) =
+      (x / sqrt(mean(x^2, dims=normalized_dims) + epsilon)) * weight + bias
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$normalized_shape,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3609,6 +3671,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
         - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
         - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
     - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
+    - `count_include_pad` (Boolean): When true, include padding in the average calculation (default: True)
 
     Outputs:
     - `result` (Tensor): Output tensor after average pooling.
@@ -3621,6 +3684,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                        BoolAttr:$ceil_mode,
+                       DefaultValuedAttr<BoolAttr, "true">:$count_include_pad,
                        DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
   let results = (outs AnyRankedTensor:$result);
@@ -3802,14 +3866,14 @@ def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let hasVerifier = 1;
 }
 
-def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
-    let summary = "Tensor slice operation.";
+def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
+    let summary = "Tensor slice operation with constant parameters.";
     let description = [{
-      The `slice` operation extracts a sub-tensor (slice) from the input tensor across one or more dimensions.
+      The `slice_static` operation extracts a sub-tensor (slice) from the input tensor across one or more dimensions.
 
       This operation selects a subset of elements from the input tensor based on the specified begin, end, and
       step indices for each dimension. It's similar to Python's slicing notation `tensor[begin:end:step]` but
-      extended to multiple dimensions.
+      extended to multiple dimensions. The `begins` and `ends` parameters are attributes with fixed values.
 
       Example:
       ```mlir
@@ -3820,7 +3884,7 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
                                       //  [9,  10, 11, 12],
                                       //  [13, 14, 15, 16]]
       %output = ttir.empty() : tensor<2x2xf32>  // Output tensor shape
-      %result = ttir.slice(%input, %output) {
+      %result = ttir.slice_static(%input, %output) {
           begins = [1, 1],  // Start indices for each dimension
           ends = [3, 3],    // End indices for each dimension (exclusive)
           step = [1, 1]     // Step size for each dimension
@@ -3832,7 +3896,7 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
       // Extract elements with a step of 2
       %input = ... : tensor<5xf32>  // Input tensor with values: [1, 2, 3, 4, 5]
       %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.slice(%input, %output) {
+      %result = ttir.slice_static(%input, %output) {
           begins = [0],  // Start index
           ends = [5],    // End index (exclusive)
           step = [2]     // Step size
@@ -3861,6 +3925,70 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
+    let summary = "Tensor slice operation with dynamic parameters.";
+    let description = [{
+      The `slice_dynamic` operation extracts a sub-tensor (slice) from the input tensor across one or more dimensions.
+
+      This operation selects a subset of elements from the input tensor based on the specified begin, end, and
+      step indices for each dimension. It's similar to Python's slicing notation `tensor[begin:end:step]` but
+      extended to multiple dimensions. The `begins` and `ends` parameters are tensor inputs determined at runtime.
+
+      Example:
+      ```mlir
+      // Extract a 2x2 slice from a 4x4 tensor with dynamic begin/end indices
+      %input = ... : tensor<4x4xf32>  // Input tensor with values:
+                                      // [[1,  2,  3,  4],
+                                      //  [5,  6,  7,  8],
+                                      //  [9,  10, 11, 12],
+                                      //  [13, 14, 15, 16]]
+      %begins = ... : tensor<2xi32>   // Tensor with values [1, 1]
+      %ends = ... : tensor<2xi32>     // Tensor with values [3, 3]
+      %output = ttir.empty() : tensor<2x2xf32>  // Output tensor shape
+      %result = ttir.slice_dynamic(%input, %begins, %ends, %output) {
+          step = [1, 1]     // Step size for each dimension
+      } : tensor<4x4xf32>, tensor<2xi32>, tensor<2xi32>, tensor<2x2xf32> -> tensor<2x2xf32>
+      // Result:
+      // [[6,  7],
+      //  [10, 11]]
+
+      // Extract elements with a step of 2 using dynamic indices
+      %input = ... : tensor<5xf32>    // Input tensor with values: [1, 2, 3, 4, 5]
+      %begins = ... : tensor<1xi32>   // Tensor with values [0]
+      %ends = ... : tensor<1xi32>     // Tensor with values [5]
+      %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
+      %result = ttir.slice_dynamic(%input, %begins, %ends, %output) {
+          step = [2]        // Step size
+      } : tensor<5xf32>, tensor<1xi32>, tensor<1xi32>, tensor<3xf32> -> tensor<3xf32>
+      // Result: [1, 3, 5]
+      ```
+
+      Inputs:
+      - `input` (Tensor): The input tensor to slice.
+      - `begins` (Tensor): The starting indices for the slice in each dimension.
+      - `ends` (Tensor): The ending indices (exclusive) for the slice in each dimension.
+
+      Attributes:
+      - `step` (Array of Integer): The step sizes for the slice in each dimension.
+
+      Outputs:
+      - `result` (Tensor): The sliced tensor.
+
+      Note: The `begins` and `ends` tensors must have the same length as the rank of the input tensor.
+      The output tensor shape may contain dynamic dimensions when slice parameters are runtime-determined.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends,
+                         AnyRankedTensor:$output,
+                         OptionalAttr<I32ArrayAttr>:$step);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -1105,6 +1105,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_BatchNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRef = opContext.type_as_RMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1363,6 +1367,16 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_BatchNormOp()->running_var(),
                   opContext.type_as_BatchNormOp()->weight(),
                   opContext.type_as_BatchNormOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRefs = {opContext.type_as_RMSNormOp()->input()};
+    if (opContext.type_as_RMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->weight());
+    }
+    if (opContext.type_as_RMSNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {

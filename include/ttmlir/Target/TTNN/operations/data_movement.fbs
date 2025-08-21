@@ -48,12 +48,32 @@ table ReshapeOp {
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 
-table SliceOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+enum SliceOpType : uint32 {
+  SliceStaticOp,
+  SliceDynamicOp
+}
+
+table SliceStaticOpParams {
   begins: [int64];
   ends: [int64];
+}
+
+table SliceDynamicOpParams {
+  begins: tt.target.ttnn.TensorRef;
+  ends: tt.target.ttnn.TensorRef;
+}
+
+union SliceOpParams {
+  SliceStaticOpParams,
+  SliceDynamicOpParams
+}
+
+table SliceOp {
+  type: SliceOpType;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   step: [int64];
+  params: SliceOpParams;
 }
 
 table SortOp {

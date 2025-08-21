@@ -81,8 +81,8 @@ public:
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
               ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
                                                   "_prepare_conv2d_weight"),
-              getPreparedWeightsType(conv2dOp), conv2dOp.getWeight(),
-              inputMemConfigAttr,
+              getPreparedWeightsType(conv2dOp, conv2dConfig),
+              conv2dOp.getWeight(), inputMemConfigAttr,
               rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
               rewriter.getStringAttr("OIHW"), conv2dOp.getInChannelsAttr(),
               conv2dOp.getOutChannelsAttr(), conv2dOp.getBatchSizeAttr(),
@@ -119,6 +119,11 @@ public:
         if (conv2dOp.getBias()) {
           conv2dOp.getBiasMutable().assign(prepareConv2dBiasOp);
         }
+
+        // Since we are updating the weight and bias output dtype we must
+        // update the conv2d config attr as well, since metal uses it to
+        // determine if weight and bias are already prepared.
+        conv2dOp.setConv2dConfigAttr(conv2dConfig);
       });
     });
 
@@ -132,10 +137,13 @@ public:
   }
 
 private:
-  ::mlir::RankedTensorType getPreparedWeightsType(ttnn::Conv2dOp conv2dOp) {
+  ::mlir::RankedTensorType
+  getPreparedWeightsType(ttnn::Conv2dOp conv2dOp,
+                         ttnn::Conv2dConfigAttr conv2dConfig) {
     // We use graph capture to retrieve the output type of the PrepareConv2dOp
     // for now until metal exposes an API.
-    return op_model::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
+    return op_model::getPreparedConv2dWeightsOutputTensor(&conv2dOp,
+                                                          conv2dConfig);
   }
 
   ::mlir::RankedTensorType getPreparedBiasType(ttnn::Conv2dOp conv2dOp,
@@ -153,8 +161,8 @@ private:
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
 
-    return mlir::RankedTensorType::get(oldType.getShape(),
-                                       oldType.getElementType(), newLayout);
+    return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
+                                       newLayout);
     ;
   }
 };

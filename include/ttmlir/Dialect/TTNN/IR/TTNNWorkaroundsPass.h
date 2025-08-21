@@ -243,9 +243,11 @@ public:
 
   // Create workarounds for slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
-                                   mlir::ArrayAttr begins,
-                                   mlir::ArrayAttr step);
+  createSliceStaticOpOperandsWorkarounds(mlir::ArrayAttr step);
+
+  // Create workarounds for dynamic slice op operands.
+  static TTNNOperandsWorkarounds
+  createSliceDynamicOpOperandsWorkarounds(mlir::ArrayAttr step);
 
   // Workaround for tensor creation that is modeled as ConstantOp in TTNN
   // dialect.
@@ -277,9 +279,9 @@ public:
   static TTNNOperandsWorkarounds
   createPermuteOpOperandWorkaround(mlir::RankedTensorType inputType);
 
-  // Create workarounds for conv2d op operands.
-  static TTNNOperandsWorkarounds
-  createConv2dOpOperandsWorkarounds(bool hasBias);
+  // Create workarounds for conv2d/convtranspose2d op.
+  template <typename T>
+  static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();

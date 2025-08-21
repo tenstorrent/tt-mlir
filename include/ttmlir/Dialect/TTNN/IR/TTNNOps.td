@@ -558,6 +558,16 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+def TTNN_LogicalRightShiftOp: TTNN_ElementwiseBinaryOp<"logical_right_shift">{
+  let summary = "Eltwise Logical Right Shift operation";
+  let description = [{
+    The `logical_right_shift` operation performs an elementwise logical right shift
+    on the elements of the first tensor by the corresponding shift amounts in the
+    second tensor.
+  }];
+  let hasVerifier = 1;
+}
+
 def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
     let summary = "Eltwise subtract.";
     let description = [{
@@ -628,7 +638,9 @@ def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and"> {
+def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -642,7 +654,9 @@ def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and"> {
     }];
 }
 
-def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or"> {
+def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -656,7 +670,9 @@ def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or"> {
     }];
 }
 
-def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_xor"> {
+def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_xor",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise bitwise XOR.";
     let description = [{
         Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
@@ -700,7 +716,7 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
 }
 
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -715,7 +731,9 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder", [Explicate
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
+def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -748,7 +766,8 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
+class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic,
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let summary = "Reduction op.";
   let description = [{
     Reduction op.
@@ -770,18 +789,14 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
   let hasVerifier = 1;
 }
 
-def TTNN_SumOp : TTNN_ReductionOp<"sum",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{
       Sum reduction op.
     }];
 }
 
-def TTNN_MeanOp : TTNN_ReductionOp<"mean",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
   let summary = "Mean reduction op.";
   let description = [{
     Mean reduction op.
@@ -1219,13 +1234,14 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
   }];
 }
 
-def TTNN_SliceOp: TTNN_Op<"slice",
+def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      indices for each dimension. The `begins` and `ends` parameters are attributes with fixed values.
+      Maps to ttnn::slice.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -1237,12 +1253,34 @@ def TTNN_SliceOp: TTNN_Op<"slice",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-            getResult().getType().getEncoding());
-        ::mlir::ArrayAttr begins = getBegins();
         ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceOpOperandsWorkarounds(layoutAttr, begins, step);
+            createSliceStaticOpOperandsWorkarounds(step);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
+    let summary = "Dynamic slice op.";
+    let description = [{
+      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
+      indices for each dimension. Maps to ttnn::slice.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends,
+                         OptionalAttr<I32ArrayAttr>:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::ArrayAttr step = getStepAttr();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceDynamicOpOperandsWorkarounds(step);
       }
     }];
 
@@ -1298,7 +1336,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights",
+    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1326,7 +1365,8 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias",
+    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$bias_tensor,
@@ -1439,9 +1479,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
+        return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
     }];
 }
@@ -1531,18 +1569,63 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
+        return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
     }];
 }
 
-class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
-    let summary = "Generic pooling op.";
+def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [HasMemoryConfigTrait, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
+  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
+  let description = [{
+    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
+
+    Example:
+      // 3x3 input tensor
+      input: [[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]]
+      kernel_height: 2
+      kernel_width: 2
+      stride_height: 1
+      stride_width: 1
+      dilation_height: 1
+      dilation_width: 1
+      output: [[3, 4],
+               [6, 7]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
+                         BoolAttr:$ceil_mode,
+                         BoolAttr:$in_place_halo,
+                         DefaultValuedAttr<BoolAttr, "true">:$count_include_pad);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasMemoryConfigTrait]
+      > {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
-      Generic pooling op.
+      Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -1570,37 +1653,8 @@ class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
     let hasVerifier = 1;
 }
 
-def TTNN_AvgPool2dOp : TTNN_PoolingOp<"avg_pool2d"> {
-  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
-  let description = [{
-    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
-
-    Example:
-      // 3x3 input tensor
-      input: [[1, 2, 3],
-              [4, 5, 6],
-              [7, 8, 9]]
-      kernel_height: 2
-      kernel_width: 2
-      stride_height: 1
-      stride_width: 1
-      dilation_height: 1
-      dilation_width: 1
-      output: [[3, 4],
-               [6, 7]]
-  }];
-}
-
-def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
-    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
-    let description = [{
-      Applies a 2D max pooling over an input signal composed of several input planes.
-    }];
-}
-
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Batch normalization op.";
     let description = [{
       Batch normalization operation over each channel on input tensor.
@@ -1614,6 +1668,28 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, HasMemoryConfigTrait]> {
+    let summary = "RMS normalization op.";
+    let description = [{
+      RMS (Root Mean Square) normalization operation over the input tensor.
+      Normalizes the input by computing the root mean square of elements and
+      dividing by that value, optionally scaling and shifting the result.
+
+      This operation performs normalization over the last dimension of the input tensor,
+      matching the TTNN runtime implementation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1688,7 +1764,9 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1705,7 +1783,9 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1775,7 +1855,8 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait,
+  DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1813,7 +1894,9 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
-def TTNN_FullOp : TTNN_CreationOp<"full"> {
+def TTNN_FullOp : TTNN_CreationOp<"full",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -1823,7 +1906,7 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
     Example:
       %0 = "ttnn.full"() <{
         dtype = #ttcore.supportedDataTypes<u32>,
-        fill_value = 3 : i32,
+        fill_value = 7 : i32,
         layout = #ttnn.layout<tile>,
         shape = #ttnn.shape<64x128>
       }> : () -> tensor<64x128xui32>
