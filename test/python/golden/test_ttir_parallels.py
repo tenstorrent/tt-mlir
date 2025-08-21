@@ -18,7 +18,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # Helper function to build a matmul graph with k-split parallelism.
 # Supports only 2D tensors and mesh shapes.
 #    e. g.[M, N] x [N, K] -> [M, K], where N is the contraction dimension.
-#    ToDo: support N-D tensors and mesh shapes.
+#    TODO: support N-D tensors and mesh shapes.
 # Set do_unshard=True to have this function return a full tensor;
 # otherwise, the output will remain sharded.
 def _build_matmul_k_split_2d(
