@@ -258,6 +258,7 @@ jobs:
         if: steps.check_status.outputs.should_update == 'true'
         run: |
           current_date=$(date +%Y-%m-%d)
+          echo "Setting Work Started date to: $current_date"
           
           MUTATION="mutation {
             updateProjectV2ItemFieldValue(input: {
@@ -276,10 +277,67 @@ jobs:
             -d "{\"query\":\"$MUTATION\"}" \
             https://api.github.com/graphql)
           
+          echo "GraphQL Response: $RESPONSE"
+          
           ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
           if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
             echo "GraphQL Error: $ERRORS"
             exit 0
-          else
-            echo "Work Started field updated to $current_date"
           fi
+          
+          # Check if mutation was successful
+          CLIENT_MUTATION_ID=$(echo "$RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.clientMutationId')
+          if [[ -n "$CLIENT_MUTATION_ID" && "$CLIENT_MUTATION_ID" != "null" ]]; then
+            echo "✅ Work Started field successfully updated to $current_date"
+            echo "Mutation ID: $CLIENT_MUTATION_ID"
+          else
+            echo "❌ Mutation may have failed - no clientMutationId returned"
+            echo "Full response: $RESPONSE"
+          fi
+
+      - name: Verify Work Started Field Update
+        if: steps.check_status.outputs.should_update == 'true'
+        run: |
+          source $GITHUB_ENV
+          
+          echo "Verifying Work Started field was updated..."
+          
+          # Query to get the current Work Started field value
+          VERIFY_QUERY='query($itemId: ID!) {
+            node(id: $itemId) {
+              ... on ProjectV2Item {
+                fieldValues(first: 20) {
+                  nodes {
+                    ... on ProjectV2ItemFieldDateValue {
+                      field {
+                        ... on ProjectV2Field {
+                          id
+                          name
+                        }
+                      }
+                      date
+                    }
+                  }
+                }
+              }
+            }
+          }'
+          
+          JSON_PAYLOAD=$(jq -n \
+            --arg query "$VERIFY_QUERY" \
+            --arg itemId "${{ steps.get_item_id.outputs.item_id }}" \
+            '{ query: $query, variables: { itemId: $itemId }}')
+          
+          VERIFY_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD" \
+            https://api.github.com/graphql)
+          
+          echo "Verification response: $VERIFY_RESPONSE"
+          
+          WORK_STARTED_VALUE=$(echo "$VERIFY_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
+                              '.data.node.fieldValues.nodes[] | 
+                               select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
+          
+          echo "Current Work Started field value: $WORK_STARTED_VALUE"
