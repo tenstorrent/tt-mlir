@@ -21,6 +21,9 @@ struct L1InterleavedFallbackAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalL1InterleavedConfigs;
   llvm::DenseMap<Operation *, OpConfig> currentConfigs;
   func::FuncOp funcOp;
+  // usableL1CacheSize is pre-scaled in Optimizer.cpp by a cap value between
+  // 0.0 and 1.0, where 1.0 means the entire L1 cache can be used by ops.
+  // This cap is set by a flag in the pipeline options.
   unsigned usableL1CacheSize = 0;
 
   L1InterleavedFallbackAnalysisInput()

@@ -19,9 +19,6 @@ protected:
   std::vector<L1ChainConfig> *l1ChainConfigs;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
-  // usableL1CacheSize is previously scaled by a value between 0.0
-  // and 1.0, where 1.0 means that the entire L1 cache can be used by
-  // ops. This cap is set by a flag in the pipeline options.
   unsigned usableL1CacheSize = 0;
   ttcore::DeviceAttr deviceAttr;
 
