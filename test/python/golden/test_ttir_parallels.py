@@ -15,46 +15,51 @@ from test_utils import make_shard_shape
 pytestmark = pytest.mark.frontend("ttir")
 
 
+# Helper function to build a matmul graph with k-split parallelism.
+# Supports only 2D tensors and mesh shapes.
+#    e. g.[M, N] x [N, K] -> [M, K], where N is the contraction dimension.
+#    ToDo: support N-D tensors and mesh shapes.
+# Set do_unshard=True to have this function return a full tensor;
+# otherwise, the output will remain sharded.
 def _build_matmul_k_split_2d(
-    mesh_shape: Tuple[int, int],
-    input_rank: int,
-    cluster_axis: int,
-    in0: Operand,
-    in1: Operand,
+    input: Operand,
+    weight: Operand,
     builder: TTIRBuilder,
+    mesh_shape: Tuple[int, int],
+    parallelize_axis: int = 1,
     do_unshard: bool = False,
 ):
-    # Select dims based on axis
-    if cluster_axis == 0:
+    # Shard the contraction dimension (dimension 1 for input, dimension 0 for weight) along the specified parallelization axis.
+    if parallelize_axis == 0:
         shard_dims_in = [1, 0]
         shard_dims_wt = [0, -1]
     else:
         shard_dims_in = [0, 1]
         shard_dims_wt = [-1, 0]
 
-    shard_shape_in = make_shard_shape(input_rank, shard_dims_in, mesh_shape)
-    shard_shape_wt = make_shard_shape(input_rank, shard_dims_wt, mesh_shape)
+    shard_shape_in = make_shard_shape(2, shard_dims_in, mesh_shape)
+    shard_shape_wt = make_shard_shape(2, shard_dims_wt, mesh_shape)
 
-    sharded_in0 = builder.mesh_shard(
-        in0,
+    sharded_input = builder.mesh_shard(
+        input,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
         shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape_in,
         shard_dims=shard_dims_in,
     )
-    sharded_in1 = builder.mesh_shard(
-        in1,
+    sharded_weight = builder.mesh_shard(
+        weight,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
         shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape_wt,
         shard_dims=shard_dims_wt,
     )
-    partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+    partial_matmul = builder.matmul(sharded_input, sharded_weight)
     sharded_result = builder.reduce_scatter(
         partial_matmul,
         reduce_type="#ttcore.reduce_type<sum>",
-        scatter_dim=input_rank - 1,
-        cluster_axis=cluster_axis,
+        scatter_dim=1,
+        cluster_axis=parallelize_axis,
     )
     if not do_unshard:
         return sharded_result
@@ -68,6 +73,7 @@ def _build_matmul_k_split_2d(
         )
 
 
+# Test matmul with k-split parallelism
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -89,12 +95,11 @@ def test_matmul_k_split_2d(
 
     def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
         output = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            cluster_axis,
             in0,
             in1,
             builder,
+            mesh_shape,
+            cluster_axis,
             do_unshard=True,
         )
 
@@ -128,12 +133,10 @@ def test_matmul_unary_chaining(
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
         sharded_matmul_result = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=False,
         )
         output = builder.neg(sharded_matmul_result)
@@ -179,12 +182,10 @@ def test_matmul_binary_chaining(
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         sharded_matmul_result = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=False,
         )
 
@@ -238,21 +239,17 @@ def test_matmul_matmul_binary_chaining(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
         matmul_0 = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=False,
         )
         matmul_1 = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[2]),
-            1,
             in2,
             in3,
             builder,
+            mesh_shape,
             do_unshard=False,
         )
         output = builder.add(matmul_0, matmul_1)
@@ -353,12 +350,10 @@ def test_eltwise_parallel(
 def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=True,
         )
 
@@ -394,12 +389,10 @@ def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], re
 def test_mixed_device_binary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=True,
         )
         output = builder.add(matmul_result, in2)
@@ -438,21 +431,17 @@ def test_mixed_device_binary_2(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
         matmul_0 = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[0]),
-            1,
             in0,
             in1,
             builder,
+            mesh_shape,
             do_unshard=True,
         )
         matmul_1 = _build_matmul_k_split_2d(
-            mesh_shape,
-            len(shapes[2]),
-            1,
             in2,
             in3,
             builder,
+            mesh_shape,
             do_unshard=True,
         )
         output = builder.add(matmul_0, matmul_1)
