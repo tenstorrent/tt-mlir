@@ -2,16 +2,16 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // CHECK-LABEL: func.func @trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @trace_0_matmul_with_bias
   // CHECK: "ttnn.matmul"
   // CHECK: "ttnn.add"(%0, %arg2)
 
-  // CHECK-LABEL: func.func @run_and_capture_trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @run_and_capture_trace_0_matmul_with_bias
   // CHECK: "ttnn.write_tensor"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
-  // CHECK-LABEL: func.func @execute_trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @execute_trace_0_matmul_with_bias
   // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func @matmul_with_bias(
