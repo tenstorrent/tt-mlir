@@ -516,6 +516,11 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
       }]>,
+      // %tx = ttir.dma %src<#map>?, %dst<#map>? core[%c0, %c1] mcast[%c2, %c3]
+      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "AffineMapAttr": $dstAffineMap, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, mcastStartIndex, mcastShape);
+      }]>,
       // %tx = ttir.dma %src, %dst<#map>
       OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
       [{
