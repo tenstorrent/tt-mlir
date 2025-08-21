@@ -63,7 +63,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (!hasImmediateConsumer(op)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - "
-                   "not immediately consumed.",
+                   "consumer not scheduled immediately after.",
                    op->getName());
       return;
     }
