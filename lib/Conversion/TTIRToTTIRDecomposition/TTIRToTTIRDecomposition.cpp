@@ -454,8 +454,8 @@ public:
         rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), weight, kernelPermutation);
-    // If bias is provided, we need to permute it the same way as weights
-    // Could use reshape instead of permute, but permute is more general
+
+    // If bias is provided, it needs to be reshaped to match the expected shape
     Value biasValue = adaptor.getBias();
     if (biasValue) {
       auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
@@ -515,8 +515,6 @@ public:
           adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
           dilationAttr, groupsAttr);
     } else {
-      // If bias is provided, we need to reshape it to match the expected TTNN
-      // format
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), outputType, Value(input), Value(weight),
           biasValue, strideAttr, paddingAttr, dilationAttr, groupsAttr,
