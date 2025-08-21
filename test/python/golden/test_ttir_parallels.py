@@ -149,7 +149,7 @@ def test_parallelized_matmul_with_unary_chaining(
         output = builder.neg(sharded_matmul_result)
 
         shard_dims_out = [0, 1]
-        shard_shape_out = make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
+        shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
         output = builder.mesh_shard(
             output,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
@@ -200,7 +200,7 @@ def test_parallelized_matmul_with_binary_chaining(
         )
 
         shard_dims = [0, 1]
-        shard_shape = make_shard_shape(len(shapes[0]), shard_dims, mesh_shape)
+        shard_shape = make_shard_shape(2, shard_dims, mesh_shape)
         sharded_in2 = builder.mesh_shard(
             in2,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -269,7 +269,7 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         output = builder.add(matmul_0, matmul_1)
 
         shard_dims_out = [0, 1]
-        shard_shape_out = make_shard_shape(len(shapes[0]), shard_dims_out, mesh_shape)
+        shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
         output = builder.mesh_shard(
             output,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
