@@ -227,7 +227,7 @@ public:
 
     moduleOp->walk([&](func::FuncOp func) {
       // Filter out all const-eval functions.
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      if (ttmlir::utils::isConstEvalFunc(func) || func.isDeclaration()) {
         return;
       }
 
@@ -307,7 +307,7 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      if (ttmlir::utils::isConstEvalFunc(func) || func.isDeclaration()) {
         return;
       }
 

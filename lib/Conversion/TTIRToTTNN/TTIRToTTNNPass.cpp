@@ -40,6 +40,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
+    target.addLegalOp<ttcore::LoadCachedOp>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<quant::QuantDialect>();
 

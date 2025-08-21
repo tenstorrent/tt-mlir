@@ -2,6 +2,7 @@ add_mlir_extension_library(TTMLIRTransforms
         ConstEvalHoist.cpp
         ReenableLostDPS.cpp
         RemoveReturnValues.cpp
+        TagConstEvalOps.cpp
         WrapAffineFor.cpp
 
         ADDITIONAL_HEADER_DIRS

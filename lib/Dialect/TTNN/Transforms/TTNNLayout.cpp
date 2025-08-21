@@ -11,8 +11,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -516,6 +518,14 @@ private:
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
+        return true;
+      }
+
+      auto funcOp = mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+      if (ttcore::isConstOrParamArg(arg, funcOp) ||
+          ttmlir::utils::isConstEvalFunc(funcOp)) {
+        // If the argument is a constant or a parameter, it should be on host.
         return true;
       }
     }

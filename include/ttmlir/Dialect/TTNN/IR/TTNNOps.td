@@ -72,6 +72,8 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast",

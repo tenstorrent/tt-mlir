@@ -24,7 +24,7 @@ void DFShardingPolicy::run() {
   func::FuncOp funcToProcess = nullptr;
 
   rootOp->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
+    if (ttmlir::utils::isConstEvalFunc(func) || func.isDeclaration()) {
       return;
     }
 

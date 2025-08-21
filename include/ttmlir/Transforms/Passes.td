@@ -122,6 +122,33 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
+def TagConstEvalOps : Pass<"tag-const-eval-ops", "::mlir::ModuleOp"> {
+  let summary = "Tag all operations in const_eval functions with ttir.should_hoist attribute";
+  let description = [{
+    This pass finds all functions marked with the {const_eval} attribute and tags
+    all operations within those functions with the {ttir.should_hoist} attribute.
+    This is useful for identifying operations that should be hoisted for optimization.
+
+    Example:
+    ```mlir
+    func.func @main_const_eval_51(%arg0: tensor<1024xbf16>, %arg1: tensor<1024xbf16>) -> tensor<1024xbf16> attributes {const_eval} {
+      %0 = tensor.empty() : tensor<1024xbf16>
+      %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<1024xbf16>, tensor<1024xbf16>, tensor<1024xbf16>) -> tensor<1024xbf16>
+      return %1 : tensor<1024xbf16>
+    }
+    ```
+
+    Becomes:
+    ```mlir
+    func.func @main_const_eval_51(%arg0: tensor<1024xbf16>, %arg1: tensor<1024xbf16>) -> tensor<1024xbf16> attributes {const_eval} {
+      %0 = tensor.empty() : tensor<1024xbf16> {ttir.should_hoist}
+      %1 = "ttir.add"(%arg0, %arg1, %0) {ttir.should_hoist} : (tensor<1024xbf16>, tensor<1024xbf16>, tensor<1024xbf16>) -> tensor<1024xbf16>
+      return %1 : tensor<1024xbf16>
+    }
+    ```
+  }];
+}
+
 def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::FuncOp"> {
   let summary = "Wrap single AffineFor operations with outer dummy loops for GPU conversion.";
   let description = [{

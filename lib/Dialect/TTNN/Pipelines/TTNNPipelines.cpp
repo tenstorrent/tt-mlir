@@ -165,25 +165,37 @@ void createTTIRToTTNNBackendPipeline(
   quantOptions.targetBitWidth = options.quantBitWidth;
   devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
-  createTTNNPipelineLoweringPasses(devicePm, options);
-  if (options.enableFusing) {
-    devicePm.addPass(tt::ttnn::createTTNNFusing());
-  }
-  createTTNNPipelineWorkaroundPass(devicePm, options);
+  // Add pass to hoist constant evaluation.
   if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
+    pm.addPass(transforms::createConstEvalHoistTransform());
+    // Tag all ops in const_eval functions with ttir.should_hoist attribute
+    pm.addPass(transforms::createTagConstEvalOps());
+    // Create CPUModuleOp to wrap hoisted ops (if any).
+    pm.addPass(ttir::createTTIRHoistTransform());
   }
-  createTTNNPipelineAnalysisPasses(devicePm, options);
+
+  OpPassManager &devicePm1 =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  createTTNNPipelineLoweringPasses(devicePm1, options);
+  if (options.enableFusing) {
+    devicePm1.addPass(tt::ttnn::createTTNNFusing());
+  }
+  createTTNNPipelineWorkaroundPass(devicePm1, options);
+  // if (options.enableConstEval) {
+  // devicePm.addPass(transforms::createConstEvalHoistTransform());
+  //}
+  createTTNNPipelineAnalysisPasses(devicePm1, options);
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
   // split during the analysis passes.
   if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
+    devicePm1.addPass(transforms::createConstEvalHoistTransform());
   }
-  createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  createTTNNPipelineLayoutDecompositionPass(devicePm1, options);
   if (options.enableTrace) {
-    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+    devicePm1.addPass(tt::ttnn::createTTNNTraceHoistTransform());
   }
-  createTTNNPipelineDeallocPass(devicePm, options);
+  createTTNNPipelineDeallocPass(devicePm1, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;

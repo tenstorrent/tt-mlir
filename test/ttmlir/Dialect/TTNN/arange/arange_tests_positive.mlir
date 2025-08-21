@@ -18,8 +18,8 @@ module attributes {} {
     %4 = "ttir.reshape"(%0, %3) <{shape = [1 : i32, 1 : i32, 1024 : i32]}> : (tensor<1024xi32>, tensor<1x1x1024xi32>) -> tensor<1x1x1024xi32>
     // Verify that the arange is op in IR is before both reshape ops
     // CHECK: "ttnn.arange"
-    // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.reshape"
+    // CHECK: reshape
+    // CHECK: reshape
     return %2, %4: tensor<1x1024x1xi32>, tensor<1x1x1024xi32>
   }
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -19,6 +20,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "llvm/Support/Casting.h"
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -1746,6 +1748,46 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   return nullptr;
+}
+
+::llvm::LogicalResult
+mlir::tt::ttnn::ToLayoutOp::canonicalize(mlir::tt::ttnn::ToLayoutOp op,
+                                         mlir::PatternRewriter &rewriter) {
+  // Check if the input is an empty operation that can be folded
+  ttnn::EmptyOp inputEmptyOp = op.getInput().getDefiningOp<ttnn::EmptyOp>();
+
+  if (!inputEmptyOp || !inputEmptyOp.getResult().hasOneUse()) {
+    return failure();
+  }
+
+  TTNNLayoutAttr opLayoutAttr =
+      mlir::dyn_cast<TTNNLayoutAttr>(op.getType().getEncoding());
+
+  if (opLayoutAttr.getBufferType() != BufferType::SystemMemory) {
+    // Create new EmptyOp with ToLayoutOp's result type and updated attributes
+    // replaceOpWithNewOp already handles replacing the op, so we don't need
+    // additional replaceOp call
+    rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+        op, op.getType(), inputEmptyOp.getShapeAttr(),
+        op.getDtypeAttr() ? op.getDtypeAttr() : inputEmptyOp.getDtypeAttr(),
+        op.getLayoutAttr() ? op.getLayoutAttr() : inputEmptyOp.getLayoutAttr(),
+        inputEmptyOp.getDevice(),
+        op.getMemoryConfigAttr() ? op.getMemoryConfigAttr()
+                                 : inputEmptyOp.getMemoryConfigAttr());
+  } else {
+    // Replace op
+    rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
+        op, op.getType(), inputEmptyOp.getShapeAttr(),
+        op.getDtypeAttr() ? op.getDtypeAttr() : inputEmptyOp.getDtypeAttr(),
+        op.getLayoutAttr() ? op.getLayoutAttr() : inputEmptyOp.getLayoutAttr(),
+        /*device=*/nullptr,
+        /*memoryConfig=*/nullptr);
+  }
+
+  // Erase the old EmptyOp
+  rewriter.eraseOp(inputEmptyOp);
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
