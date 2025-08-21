@@ -67,44 +67,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
-    std::vector<OpConfig> opL1InterleavedConfigs =
-        getL1InterleavedLayoutConfigs(op);
-
-    bool isCurrentlyTiled = utils::producesTiledTensorLayout(op);
-
-    // Partition configs to prioritize those matching current tiling preference.
-    std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
-                   [isCurrentlyTiled](const OpConfig &config) {
-                     bool configTiled = config.outputLayout.isTiled();
-                     return configTiled == isCurrentlyTiled;
-                   });
-
-    // Try both L1 interleaved configs until one works if there are multiple
-    // (rowMajor and tiled).
-    for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "=== Start of debug dump for op {} ===",
-                   op->getName().getStringRef().data());
-      llvm::Expected<TTNNLayoutAttr> possibleL1Layout =
-          checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
-                                      /*upgradedProducerOp=*/nullptr,
-                                      /*upgradedProducerLayout=*/nullptr);
-
-      if (!possibleL1Layout) {
-        llvm::Error error = possibleL1Layout.takeError();
-        std::string errorStr = llvm::toString(std::move(error));
-        TTMLIR_TRACE(
-            ttmlir::LogComponent::Optimizer,
-            "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
-            errorStr);
-        continue;
-      }
-      TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
-      assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayout &&
-             "Expected output layout to match the one in OpConfig");
-      analysisResult.upgradedConfigs[op] = opL1InterleavedConfig;
-      break;
-    }
+    tryUpgradeToL1Interleaved(op);
   });
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
@@ -136,6 +99,47 @@ bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
 
   // Check if the user is the immediate next operation in schedule.
   return consumerOp == userOp;
+}
+
+void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
+  std::vector<OpConfig> opL1InterleavedConfigs =
+      getL1InterleavedLayoutConfigs(op);
+
+  bool isCurrentlyTiled = utils::producesTiledTensorLayout(op);
+
+  // Partition configs to prioritize those matching current tiling preference.
+  std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
+                 [isCurrentlyTiled](const OpConfig &config) {
+                   bool configTiled = config.outputLayout.isTiled();
+                   return configTiled == isCurrentlyTiled;
+                 });
+
+  // Try both L1 interleaved configs until one works if there are multiple
+  // (rowMajor and tiled).
+  for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "=== Start of debug dump for op {} ===",
+                 op->getName().getStringRef().data());
+    llvm::Expected<TTNNLayoutAttr> possibleL1Layout =
+        checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
+                                    /*upgradedProducerOp=*/nullptr,
+                                    /*upgradedProducerLayout=*/nullptr);
+
+    if (!possibleL1Layout) {
+      llvm::Error error = possibleL1Layout.takeError();
+      std::string errorStr = llvm::toString(std::move(error));
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::Optimizer,
+          "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
+          errorStr);
+      continue;
+    }
+    TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
+    assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayout &&
+           "Expected output layout to match the one in OpConfig");
+    analysisResult.upgradedConfigs[op] = opL1InterleavedConfig;
+    break;
+  }
 }
 
 llvm::Expected<TTNNLayoutAttr>

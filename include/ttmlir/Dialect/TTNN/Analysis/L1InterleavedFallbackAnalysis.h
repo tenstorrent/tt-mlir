@@ -80,6 +80,10 @@ private:
   // Check if operation has exactly one user that is immediate next in schedule.
   bool hasImmediateConsumer(Operation *op) const;
 
+  // Try to upgrade an operation to L1 interleaved layout by testing available
+  // L1 configurations and selecting the first one that passes validation.
+  void tryUpgradeToL1Interleaved(Operation *op);
+
   // Check if upgrading operation to L1 interleaved is safe via single-level
   // recursive validation of producer-consumer chain. Parameters support the
   // recursive check:

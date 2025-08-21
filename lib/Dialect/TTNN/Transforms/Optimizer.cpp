@@ -505,28 +505,7 @@ public:
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
-        // Apply L1 interleaved layout changes
-        for (const auto &[op, config] : l1InterleavedOpConfigs) {
-          RankedTensorType tensorType =
-              mlir::cast<RankedTensorType>(op->getResult(0).getType());
-          TTNNLayoutAttr currentLayout =
-              mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-
-          assert(currentLayout.getBufferType() == BufferType::DRAM &&
-                 "Operation should have DRAM layout before upgrade to L1 "
-                 "interleaved");
-
-          TTNNLayoutAttr newLayout = config.outputLayout;
-          assert(newLayout.getBufferType() == BufferType::L1 &&
-                 newLayout.getMemLayout().getValue() ==
-                     TensorMemoryLayout::Interleaved &&
-                 "New layout must have L1 interleaved memory layout");
-
-          RankedTensorType newTensorType = RankedTensorType::get(
-              tensorType.getShape(), tensorType.getElementType(), newLayout);
-
-          op->getResult(0).setType(newTensorType);
-        }
+        applyL1InterleavedLayoutChanges(l1InterleavedOpConfigs);
       }
 
       insertRowMajorLayouts(func, chipDesc.getUsableL1Size());
@@ -843,6 +822,33 @@ private:
           memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
         }
       }
+    }
+  }
+
+  // Apply L1 interleaved layout changes to operations that have been upgraded
+  // from DRAM to L1 interleaved layout by L1InterleavedFallbackAnalysis.
+  void applyL1InterleavedLayoutChanges(
+      const llvm::DenseMap<Operation *, OpConfig> &l1InterleavedOpConfigs) {
+    for (const auto &[op, config] : l1InterleavedOpConfigs) {
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      TTNNLayoutAttr currentLayout =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      assert(currentLayout.getBufferType() == BufferType::DRAM &&
+             "Operation should have DRAM layout before upgrade to L1 "
+             "interleaved");
+
+      TTNNLayoutAttr newLayout = config.outputLayout;
+      assert(newLayout.getBufferType() == BufferType::L1 &&
+             newLayout.getMemLayout().getValue() ==
+                 TensorMemoryLayout::Interleaved &&
+             "New layout must have L1 interleaved memory layout");
+
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorType.getShape(), tensorType.getElementType(), newLayout);
+
+      op->getResult(0).setType(newTensorType);
     }
   }
 
