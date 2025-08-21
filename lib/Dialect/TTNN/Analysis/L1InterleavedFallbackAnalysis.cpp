@@ -161,12 +161,6 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   mlir::tt::ttcore::lookupDevice(consumerOp);
 
   uint32_t numOperands = consumerOp->getNumOperands();
-  // Discard DPS operand since it's not used in runtime.
-  // TODO(odjuricic,#2088): Remove once fix this on MLIR / runtime side.
-  if (auto dpsOp = llvm::dyn_cast<DestinationStyleOpInterface>(consumerOp)) {
-    numOperands = dpsOp.getNumDpsInputs();
-  }
-
   std::vector<TTNNLayoutAttr> inputLayouts;
   inputLayouts.reserve(numOperands);
   uint64_t producersL1OutputUsage = 0;
