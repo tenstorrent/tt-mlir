@@ -200,22 +200,20 @@ jobs:
           source $GITHUB_ENV
           
           # Query to get the current Status field value
-          QUERY='query($projectId: ID!, $itemId: ID!) {
-            node(id: $projectId) {
-              ... on ProjectV2 {
-                item(id: $itemId) {
-                  fieldValues(first: 20) {
-                    nodes {
-                      ... on ProjectV2ItemFieldSingleSelectValue {
-                        field {
-                          ... on ProjectV2SingleSelectField {
-                            id
-                            name
-                          }
+          QUERY='query($itemId: ID!) {
+            node(id: $itemId) {
+              ... on ProjectV2Item {
+                fieldValues(first: 20) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      field {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
                         }
-                        name
-                        optionId
                       }
+                      name
+                      optionId
                     }
                   }
                 }
@@ -225,9 +223,8 @@ jobs:
           
           JSON_PAYLOAD=$(jq -n \
             --arg query "$QUERY" \
-            --arg projectId "$project_id" \
             --arg itemId "${{ steps.get_item_id.outputs.item_id }}" \
-            '{ query: $query, variables: { projectId: $projectId, itemId: $itemId }}')
+            '{ query: $query, variables: { itemId: $itemId }}')
           
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
@@ -243,7 +240,7 @@ jobs:
           
           # Extract Status field value using both field ID and name for accuracy
           STATUS_VALUE=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
-                         '.data.node.item.fieldValues.nodes[] | 
+                         '.data.node.fieldValues.nodes[] | 
                           select(.field.id==$status_field_id or .field.name=="Status") | .name')
           
           if [[ "$STATUS_VALUE" == "In Progress" ]]; then
