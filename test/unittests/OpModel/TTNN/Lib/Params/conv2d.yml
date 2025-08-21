@@ -4,16 +4,19 @@ conv2d_params_0:
     memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
+  input_is_tiled: true
   weight:
     shape: [64, 3, 7, 7]
     memory_layout: interleaved
     buffer_type: system_memory
     # virtual_grid: [7, 8]
+  weight_is_tiled: false
   output:
     shape: [1, 1, 12544, 64]
     memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
+  output_is_tiled: true
   in_channels: 3
   out_channels: 64
   batch_size: 1
@@ -36,16 +39,19 @@ conv2d_params_1:
     memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
+  input_is_tiled: false
   weight:
     shape: [64, 3, 9, 7]
     # memory_layout: interleaved
     buffer_type: system_memory
     # virtual_grid: [7, 8]
+  weight_is_tiled: false
   output:
     shape: [1, 1, 12544, 64]
     memory_layout: interleaved
     buffer_type: dram
     # virtual_grid: [7, 8]
+  output_is_tiled: false
   in_channels: 3
   out_channels: 64
   batch_size: 1

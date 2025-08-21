@@ -35,8 +35,11 @@ struct ExpectedResult {
 
 struct Conv2dParams {
   detail::TestTensor input;
+  bool inputIsTiled = false;
   detail::TestTensor weight;
+  bool weightIsTiled = false;
   detail::TestTensor output;
+  bool outputIsTiled = false;
   uint32_t inChannels;
   uint32_t outChannels;
   uint32_t batchSize;
@@ -49,17 +52,20 @@ struct Conv2dParams {
   uint32_t groups;
   detail::ExpectedResult expectedResult;
 
-  Conv2dParams(detail::TestTensor input, detail::TestTensor weight,
-               detail::TestTensor output, uint32_t inChannels,
-               uint32_t outChannels, uint32_t batchSize, uint32_t inputHeight,
-               uint32_t inputWidth, llvm::SmallVector<int32_t> kernelSize,
+  Conv2dParams(detail::TestTensor input, bool inputIsTiled,
+               detail::TestTensor weight, bool weightIsTiled,
+               detail::TestTensor output, bool outputIsTiled,
+               uint32_t inChannels, uint32_t outChannels, uint32_t batchSize,
+               uint32_t inputHeight, uint32_t inputWidth,
+               llvm::SmallVector<int32_t> kernelSize,
                llvm::SmallVector<int32_t> stride,
                llvm::SmallVector<int32_t> padding,
                llvm::SmallVector<int32_t> dilation, uint32_t groups,
                detail::ExpectedResult expectedResult)
-      : input(std::move(input)), weight(std::move(weight)),
-        output(std::move(output)), inChannels(inChannels),
-        outChannels(outChannels), batchSize(batchSize),
+      : input(std::move(input)), inputIsTiled(inputIsTiled),
+        weight(std::move(weight)), weightIsTiled(weightIsTiled),
+        output(std::move(output)), outputIsTiled(outputIsTiled),
+        inChannels(inChannels), outChannels(outChannels), batchSize(batchSize),
         inputHeight(inputHeight), inputWidth(inputWidth),
         kernelSize(std::move(kernelSize)), stride(std::move(stride)),
         padding(std::move(padding)), dilation(std::move(dilation)),
