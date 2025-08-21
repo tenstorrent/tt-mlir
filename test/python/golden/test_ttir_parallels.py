@@ -73,7 +73,9 @@ def _build_matmul_k_split_2d(
         )
 
 
-# Test matmul with k-split parallelism
+# Test matmul with k-split parallelism across different mesh configurations.
+# Verifies that matrix multiplication can be parallelized by splitting the
+# contraction dimension across multiple devices.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -87,7 +89,7 @@ def _build_matmul_k_split_2d(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
-def test_matmul_k_split_2d(
+def test_matmul_k_split_parallelism(
     shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request
 ):
     if mesh_shape[cluster_axis] == 1:
@@ -120,6 +122,8 @@ def test_matmul_k_split_2d(
     )
 
 
+# Test parallelized matmul with unary operation chaining.
+# Performs matmul with k-split parallelism followed by a parallelized unary operation.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -128,7 +132,7 @@ def test_matmul_k_split_2d(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_unary_chaining(
+def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -169,6 +173,8 @@ def test_matmul_unary_chaining(
     )
 
 
+# Test parallelized matmul with binary operation chaining.
+# Performs matmul with k-split parallelism followed by adding a third tensor.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -177,7 +183,7 @@ def test_matmul_unary_chaining(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_binary_chaining(
+def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
@@ -224,6 +230,9 @@ def test_matmul_binary_chaining(
     )
 
 
+# Test parallelized matmul fusion with binary operation chaining.
+# Performs two independent parallelized matmul operations and combines their results
+# using a parallelized add operation.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -232,7 +241,7 @@ def test_matmul_binary_chaining(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_matmul_matmul_binary_chaining(
+def test_parallelized_matmul_fusion_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(
@@ -276,6 +285,9 @@ def test_matmul_matmul_binary_chaining(
     )
 
 
+# Test parallelized element-wise operations across different tensor dimensions.
+# Verifies that element-wise operations can be parallelized by sharding tensors
+# across different dimensions and mesh configurations.
 @pytest.mark.parametrize(
     "shape, shard_dims",
     [
@@ -295,7 +307,7 @@ def test_matmul_matmul_binary_chaining(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)])
-def test_eltwise_parallel(
+def test_parallelized_elementwise_operations(
     shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request
 ):
     def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -334,11 +346,13 @@ def test_eltwise_parallel(
     )
 
 
-# test_mixed_device_* are tests that verify regressions in mixed device parallelism
-# Run a graph with a multi-device op, and a unary op that runs on a single device
-# Refer to https://github.com/tenstorrent/tt-mlir/issues/3058 for more details
+# Mixed device parallelism tests verify regressions in mixed device parallelism.
+# These tests run graphs with multi-device operations followed by single-device operations.
+# Refer to https://github.com/tenstorrent/tt-mlir/issues/3058 for more details.
 
 
+# Test mixed device parallelism with unary operation.
+# Performs parallelized matmul followed by single-device unary operation.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -347,7 +361,9 @@ def test_eltwise_parallel(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
+def test_mixed_device_parallelism_with_unary(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_k_split_2d(
             in0,
@@ -378,6 +394,8 @@ def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], re
     )
 
 
+# Test mixed device parallelism with binary operation.
+# Performs parallelized matmul followed by single-device binary operation.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -386,7 +404,9 @@ def test_mixed_device_unary(shapes: List[Shape], mesh_shape: Tuple[int, int], re
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_mixed_device_binary(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
+def test_mixed_device_parallelism_with_binary(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_k_split_2d(
             in0,
@@ -416,6 +436,8 @@ def test_mixed_device_binary(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
+# Test mixed device parallelism with dual matmul and binary operation.
+# Performs two parallelized matmuls followed by single-device binary operation.
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -424,7 +446,7 @@ def test_mixed_device_binary(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)])
-def test_mixed_device_binary_2(
+def test_mixed_device_parallelism_with_dual_matmul(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(
