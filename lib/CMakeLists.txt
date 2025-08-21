@@ -31,6 +31,7 @@ set(TTMLIR_LIBS
 set(SHARDY_LIBS)
 if (TTMLIR_ENABLE_STABLEHLO)
   list(APPEND SHARDY_LIBS
+    SdyCommonFileUtils
     SdyDialect
     SdyRegister
     SdyTransformsPropagationOpShardingRuleBuilder
@@ -47,7 +48,6 @@ if (TTMLIR_ENABLE_STABLEHLO)
     SdyTransformsCommonOpProperties
     SdyTransformsCommonShardingWalker
     SdyTransformsPropagationDebuggingSourceSharding
-    SdyCommonFileUtils
     SdyTransformsExportPasses
     SdyTransformsImportPasses
     SdyTransformsPasses
