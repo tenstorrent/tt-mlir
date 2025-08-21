@@ -337,20 +337,13 @@ public:
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     // Check if this pattern is applicable.
-    llvm::outs() << "Checking if MultiplyOp can be fused with "
-                 << ConvOpType::getOperationName() << ": \n";
     auto components = getConvAndScale(multiplyOp);
     if (!components) {
-      llvm::outs() << "MultiplyOp cannot be fused with "
-                   << ConvOpType::getOperationName() << ": \n";
       return mlir::failure();
     }
 
     ConvOpType convOp = components->first;
     Value scaleValue = components->second;
-
-    llvm::outs() << "Found " << ConvOpType::getOperationName()
-                 << " with scale: \n";
 
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale = createReshapedScale(
@@ -394,18 +387,7 @@ private:
   getConvAndScale(MultiplyOp multiplyOp) {
     auto lhs = multiplyOp.getLhs();
     auto rhs = multiplyOp.getRhs();
-    // Add debug output to help diagnose pattern matching
-    if (!lhs.getDefiningOp()) {
-      llvm::outs() << "LHS has no defining op\n";
-    }
-    if (!rhs.getDefiningOp()) {
-      llvm::outs() << "RHS has no defining op\n";
-    }
 
-    if (lhs.getDefiningOp() && rhs.getDefiningOp()) {
-      llvm::outs() << "LHS type: " << lhs.getDefiningOp()->getName() << "\n";
-      llvm::outs() << "RHS type: " << rhs.getDefiningOp()->getName() << "\n";
-    }
     ConvOpType lhsConv = lhs.getDefiningOp<ConvOpType>();
     ConvOpType rhsConv = rhs.getDefiningOp<ConvOpType>();
     if (isCommutable(lhsConv, rhs)) {
@@ -414,9 +396,7 @@ private:
     if (isCommutable(rhsConv, lhs)) {
       return std::make_pair(rhsConv, lhs);
     }
-    llvm::outs() << "MultiplyOp cannot be fused with "
-                 << ConvOpType::getOperationName()
-                 << " - no matching conv op found \n";
+
     return std::nullopt;
   }
 
@@ -425,11 +405,6 @@ private:
                            mlir::TypedValue<RankedTensorType> scale) {
     // Conv should only have one use and that use should be a multiply op.
     if (!convOp || !convOp.getResult().hasOneUse()) {
-      if (convOp) {
-        llvm::outs() << ConvOpType::getOperationName()
-                     << " has more than one use: \n";
-      }
-      llvm::outs() << ConvOpType::getOperationName() << " is null\n";
       return false;
     }
     mlir::func::FuncOp funcOp =
@@ -438,12 +413,10 @@ private:
         mlir::tt::ttcore::getConstsAndParams(funcOp);
     auto isConstant = [&constParams](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
-        llvm::outs() << "Checking if block argument is constant: \n";
         return constParams.contains(blockArg);
       }
 
       Operation *defOp = value.getDefiningOp();
-      llvm::outs() << "Checking if defining operation is constant: \n";
       return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
     };
 
@@ -457,11 +430,6 @@ private:
     }
     // Check if scale shape is with conv weight.
     if (!hasValidScaleShape(convOp, scaleType)) {
-      llvm::outs() << "Scale shape is not valid for "
-                   << ConvOpType::getOperationName() << ": ["
-                   << scaleType.getDimSize(0) << ", " << scaleType.getDimSize(1)
-                   << ", " << scaleType.getDimSize(2) << ", "
-                   << scaleType.getDimSize(3) << "]\n";
       return false;
     }
 
@@ -475,15 +443,12 @@ private:
     // If there are block arguments in use def chain that are not
     // constants we cannot commute.
     if (!all_of(useDefChainBlockArgs, isConstant)) {
-      llvm::outs() << "Scale chain is not const-evalable: \n";
       return false;
     }
 
     // Since we want to move the scale chain before convOp we want to make
     // sure that the scale chain does not contain convOp.
     if (useDefChain.contains(convOp)) {
-      llvm::outs() << "Scale chain contains " << ConvOpType::getOperationName()
-                   << ": \n";
       return false;
     }
     return true;
