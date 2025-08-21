@@ -13,7 +13,12 @@ from conftest import x86_only
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from test_utils import Marks, shape_str, make_shard_shape
+from test_utils import (
+    Marks,
+    shape_str,
+    make_shard_shape,
+    shard_wrap_factory,
+)
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -3007,7 +3012,6 @@ def test_all_gather(
     all_gather_dim: int,
     cluster_axis: int,
     request,
-    shard_wrap_factory,
 ):
     if all_gather_dim >= len(test_shape):
         pytest.skip("all_gather_dim is out of range")
@@ -3021,11 +3025,11 @@ def test_all_gather(
             cluster_axis=cluster_axis,
         )
 
-    input_shape, test_fn = shard_wrap_factory(all_gather)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_gather)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3061,7 +3065,6 @@ def test_all_reduce(
     mesh_shape: Tuple[int, int],
     cluster_axis: int,
     request,
-    shard_wrap_factory,
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("CCL across 1 device is meaningless")
@@ -3074,11 +3077,11 @@ def test_all_reduce(
             cluster_axis=cluster_axis,
         )
 
-    input_shape, test_fn = shard_wrap_factory(all_reduce)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_reduce)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3113,7 +3116,6 @@ def test_reduce_scatter(
     scatter_dim: int,
     cluster_axis: int,
     request,
-    shard_wrap_factory,
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("CCL across 1 device is meaningless")
@@ -3132,11 +3134,11 @@ def test_reduce_scatter(
             cluster_axis=cluster_axis,
         )
 
-    input_shape, test_fn = shard_wrap_factory(reduce_scatter)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3177,7 +3179,6 @@ def test_collective_permute(
     mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
     request,
-    shard_wrap_factory,
 ):
     max_id = reduce(operator.mul, mesh_shape, 1)
     if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
@@ -3189,11 +3190,11 @@ def test_collective_permute(
             source_target_pairs=source_target_pairs,
         )
 
-    input_shape, test_fn = shard_wrap_factory(collective_permute)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_permute)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3232,7 +3233,6 @@ def test_all_to_all(
     mesh_shape,
     replica_groups,
     request,
-    shard_wrap_factory,
 ):
     split_count = len(replica_groups[0])
     if split_dim >= len(test_shape):
@@ -3249,11 +3249,11 @@ def test_all_to_all(
             replica_groups=replica_groups,
         )
 
-    input_shape, test_fn = shard_wrap_factory(all_to_all)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_to_all)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3289,7 +3289,6 @@ def test_collective_broadcast(
     mesh_shape: Tuple[int, int],
     replica_groups,
     request,
-    shard_wrap_factory,
 ):
     def collective_broadcast(sharded_in: Operand, builder: TTIRBuilder):
         return builder.collective_broadcast(
@@ -3297,11 +3296,11 @@ def test_collective_broadcast(
             replica_groups=replica_groups,
         )
 
-    input_shape, test_fn = shard_wrap_factory(collective_broadcast)
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
 
     compile_ttir_to_flatbuffer(
-        test_fn,
-        [input_shape],
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
