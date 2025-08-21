@@ -165,9 +165,7 @@ def shard_wrap_factory(test_shape, mesh_shape, test_fn):
 
     # Take the last `rank_mesh` dims as sharded dims
     shard_dims = list(range(rank_in - rank_mesh, rank_in))
-    shard_shape = [1] * rank_in
-    for d, factor in zip(shard_dims, mesh_shape):
-        shard_shape[d] = factor
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
 
     full_input_shape = list(test_shape)
     for d, factor in zip(shard_dims, mesh_shape):
