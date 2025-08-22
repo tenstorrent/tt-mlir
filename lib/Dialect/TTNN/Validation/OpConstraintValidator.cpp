@@ -233,11 +233,12 @@ OpConstraintValidator::validateConstraintsWithAllLayouts(
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();
 
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints failed: {} :: {}, consumerConfig.outputLayout: {}",
-        consumerOp->getName(), llvm::toStringWithoutConsuming(error),
-        consumerConfig.outputLayout);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints failed: {} @ {} :: {}, "
+                 "consumerConfig.outputLayout: {}",
+                 consumerOp->getName(), consumerOp->getLoc(),
+                 llvm::toStringWithoutConsuming(error),
+                 consumerConfig.outputLayout);
 
     return llvm::Expected<TTNNLayoutAttr>(std::move(error));
   }
