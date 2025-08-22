@@ -10,7 +10,6 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
-#include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "ttnn/operations/experimental/ccl/reduce_scatter_async/reduce_scatter.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
@@ -41,9 +40,9 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   ::ttnn::Tensor out;
   if (RuntimeContext::instance().getCurrentFabricConfig() ==
       FabricConfig::DISABLED) {
-    out = ::ttnn::reduce_scatter(
-        input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
-        outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
+    // out = ::ttnn::reduce_scatter(
+    //     input, scatterDimension, clusterAxis, meshDevice, reduceType,
+    //     numLinks, outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
   } else {
     std::vector<::ttnn::GlobalSemaphore> semaphores;
     auto from_semaphore = ::ttnn::global_semaphore::create_global_semaphore(
