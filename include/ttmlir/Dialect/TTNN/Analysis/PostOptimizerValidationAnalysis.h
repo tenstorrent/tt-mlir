@@ -94,8 +94,10 @@ struct OperationValidationResult {
 
   // Check if any specific output properties changed
   bool hasOutputPropertyChanges() const {
-    return outputLayoutChange.has_value() || outputMemoryLayoutChange.has_value() ||
-           outputBufferTypeChange.has_value() || outputDataTypeChange.has_value();
+    return outputLayoutChange.has_value() ||
+           outputMemoryLayoutChange.has_value() ||
+           outputBufferTypeChange.has_value() ||
+           outputDataTypeChange.has_value();
   }
 };
 
@@ -181,7 +183,7 @@ private:
 
   // Process fallback configurations for a failed operation
   void processFallbackConfigurations(
-      OpConstraintValidator &validator, Operation *operation,
+      Operation *operation,
       const std::vector<TTNNLayoutAttr> &originalInputLayouts,
       const OpConfig &config, OperationValidationResult &opResult);
 

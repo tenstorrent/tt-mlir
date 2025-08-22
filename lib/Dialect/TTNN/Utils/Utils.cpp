@@ -250,24 +250,9 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
     shapeStr += std::to_string(shape[i]);
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-               "convertTTNNLayoutToRowMajor: Input layout: {}, shape: [{}]",
-               layout, shapeStr);
-
   Type elementType =
       utils::getElementType(context, Layout::RowMajor, layout.getDataType());
-
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-               "convertTTNNLayoutToRowMajor: Original element type: {}, "
-               "Row-major element type: {}",
-               layout.getElementType(), elementType);
-
   TTNNLayoutAttr result = layout.withElementType(elementType, shape);
-
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "convertTTNNLayoutToRowMajor: Result layout: {}, result.getLayout()={}",
-      result, static_cast<int>(result.getLayout()));
 
   return result;
 }

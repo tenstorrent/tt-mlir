@@ -250,11 +250,14 @@ OpConstraintValidator::validateConstraintsWithAllLayouts(
                outputLayout, static_cast<int>(outputLayout.getLayout()),
                static_cast<int>(outputLayout.getDataType()));
 
-  if (consumerConfig.outputLayout &&
+  if (options_.compareOutputLayout && consumerConfig.outputLayout &&
       outputLayout != consumerConfig.outputLayout) {
     std::string message = "Output layout mismatch: backend returned layout "
                           "doesn't match requested consumer layout";
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Consumer config output layout: {}, backend output layout: {}",
+                 consumerConfig.outputLayout, outputLayout);
     return llvm::createStringError("[Optimizer] " + message);
   }
 

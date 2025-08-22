@@ -41,11 +41,15 @@ public:
   // Options for controlling validation behavior
   struct ValidationOptions {
     // If true, calls report_fatal_error for non-OpModel ops
-    bool fatalErrorOnUnsupportedOp = false;
+    bool fatalErrorOnUnsupportedOp;
+
+    // If true, compare provided output layout with backend output layout.
+    bool compareOutputLayout;
 
     ValidationOptions() = default;
-    ValidationOptions(bool fatalOnUnsupported)
-        : fatalErrorOnUnsupportedOp(fatalOnUnsupported) {}
+    ValidationOptions(bool fatalOnUnsupported, bool compareOutput = true)
+        : fatalErrorOnUnsupportedOp(fatalOnUnsupported),
+          compareOutputLayout(compareOutput) {}
   };
 
   // Factory method to create validator with specific options

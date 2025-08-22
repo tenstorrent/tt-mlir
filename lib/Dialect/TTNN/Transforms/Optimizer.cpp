@@ -318,6 +318,16 @@ public:
     if (postOptimizerValidationEnabled) {
       postOptimizerValidationAnalysis.init(
           PostOptimizerValidationAnalysisInput(opConfigAnalysis.getResult()));
+      if (postOptimizerValidationAnalysis.getResult().operationsFailed > 0) {
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::Optimizer,
+            "Post-optimizer validation found {} operations that failed "
+            "validation",
+            postOptimizerValidationAnalysis.getResult().operationsFailed);
+
+        signalPassFailure();
+        return;
+      }
     }
 
     // Pure application of determined grid sizes to the operations.
@@ -1198,10 +1208,10 @@ private:
                                TTNNLayoutAttr actualOutputLayout,
                                TTNNLayoutAttr expectedOutputLayout) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                  "Applying output layout revert for operation {}: "
-                  "actual layout {}, expected layout {}",
-                  operation->getName(), actualOutputLayout,
-                  expectedOutputLayout);
+                 "Applying output layout revert for operation {}: "
+                 "actual layout {}, expected layout {}",
+                 operation->getName(), actualOutputLayout,
+                 expectedOutputLayout);
 
     if (operation->getNumResults() != 1) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

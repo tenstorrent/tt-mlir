@@ -80,8 +80,8 @@ void PostOptimizerValidationAnalysis::analysisImplementation() {
             operation->getName(), operation->getLoc());
       } else {
         // Original config failed, try fallback configurations
-        processFallbackConfigurations(validator, operation, inputLayouts,
-                                      config, opResult);
+        processFallbackConfigurations(operation, inputLayouts, config,
+                                      opResult);
       }
 
       // Store the operation result
@@ -104,7 +104,7 @@ bool PostOptimizerValidationAnalysis::applyOverrides() {
 }
 
 void PostOptimizerValidationAnalysis::processFallbackConfigurations(
-    OpConstraintValidator &validator, Operation *operation,
+    Operation *operation,
     const std::vector<TTNNLayoutAttr> &originalInputLayouts,
     const OpConfig &config, OperationValidationResult &opResult) {
 
@@ -141,6 +141,13 @@ void PostOptimizerValidationAnalysis::processFallbackConfigurations(
       ttmlir::LogComponent::Optimizer,
       "Testing fallback combinations for operation {} at {} with {} operands",
       operation->getName(), operation->getLoc(), originalInputLayouts.size());
+
+  // Don't compare output layout in this context - let backend decide. However,
+  // we will send output config to the validator to ensure DRAM Interleaved
+  // memory layout.
+  OpConstraintValidator validator =
+      OpConstraintValidator::create(OpConstraintValidator::ValidationOptions(
+          /*fatalOnUnsupported=*/false, /*compareOutput=*/false));
 
   // Try all combinations using recursive approach
   std::function<bool(size_t, std::vector<TTNNLayoutAttr> &, bool)>
@@ -358,16 +365,20 @@ void PostOptimizerValidationAnalysis::recordSuccessfulCombination(
     }
 
     // Check for memory layout changes
-    if (originalOutputLayout.getMemLayout() != actualOutputLayout.getMemLayout()) {
-      opResult.outputMemoryLayoutChange = actualOutputLayout.getMemLayout().getValue();
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Backend changed output memory layout: {} -> {}",
-                   static_cast<int>(originalOutputLayout.getMemLayout().getValue()),
-                   static_cast<int>(actualOutputLayout.getMemLayout().getValue()));
+    if (originalOutputLayout.getMemLayout() !=
+        actualOutputLayout.getMemLayout()) {
+      opResult.outputMemoryLayoutChange =
+          actualOutputLayout.getMemLayout().getValue();
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::Optimizer,
+          "Backend changed output memory layout: {} -> {}",
+          static_cast<int>(originalOutputLayout.getMemLayout().getValue()),
+          static_cast<int>(actualOutputLayout.getMemLayout().getValue()));
     }
 
     // Check for buffer type changes
-    if (originalOutputLayout.getBufferType() != actualOutputLayout.getBufferType()) {
+    if (originalOutputLayout.getBufferType() !=
+        actualOutputLayout.getBufferType()) {
       opResult.outputBufferTypeChange = actualOutputLayout.getBufferType();
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Backend changed output buffer type: {} -> {}",
@@ -376,7 +387,8 @@ void PostOptimizerValidationAnalysis::recordSuccessfulCombination(
     }
 
     // Check for data type changes
-    if (originalOutputLayout.getDataType() != actualOutputLayout.getDataType()) {
+    if (originalOutputLayout.getDataType() !=
+        actualOutputLayout.getDataType()) {
       opResult.outputDataTypeChange = actualOutputLayout.getDataType();
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Backend changed output data type: {} -> {}",
@@ -396,8 +408,14 @@ PostOptimizerValidationAnalysis::testFallbackCombination(
 
   // For all fallbacks, don't constrain output layout - let backend decide
   OpConfig testConfig = originalConfig;
+
+  // We want to force fallback to spill output tensor to DRAM Interleaved
+  // anyway.
+  testConfig.outputLayout = originalConfig.outputLayout;
   testConfig.outputLayout =
-      TTNNLayoutAttr{}; // Let backend choose output layout
+      testConfig.outputLayout.withBufferType(BufferType::DRAM);
+  testConfig.outputLayout =
+      testConfig.outputLayout.withMemoryLayout(TensorMemoryLayout::Interleaved);
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t\tInput layout {}: {} ", i,
