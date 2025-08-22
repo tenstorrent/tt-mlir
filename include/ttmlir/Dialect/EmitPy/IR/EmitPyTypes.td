@@ -5,10 +5,11 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD
 #define TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD
 
+include "ttmlir/Dialect/EmitPy/IR/EmitPyBase.td"
+
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
-include "ttmlir/Dialect/EmitPy/IR/EmitPyBase.td"
 
 //===----------------------------------------------------------------------===//
 // EmitPy type definitions
