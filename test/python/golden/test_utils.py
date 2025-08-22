@@ -104,7 +104,8 @@ def make_shard_shape(
     List[int]
         Shard shape, where each element represents the number of shards along that dimension
     """
-    assert len(shard_dims) == len(mesh_shape)
+    if len(shard_dims) != len(mesh_shape):
+        raise RuntimeError("shard_dims and mesh_shape must have same length")
     shard_shape = [1] * tensor_rank
     for mesh_axis, tensor_dim in enumerate(shard_dims):
         if tensor_dim >= 0:
