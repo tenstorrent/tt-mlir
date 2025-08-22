@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -258,6 +259,10 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  cBUsagePeak + tensorUsage + producersL1OutputUsage,
                  producersL1OutputUsage, tensorUsage, outputTensorUsage,
                  cBUsagePeak);
+    consumerOp->dumpPretty();
+    std::cout << "Op wouldn't fit, totalL1Usage: "
+              << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
+              << ", l1CacheSize: " << analysisInput.usableL1CacheSize << "\n";
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Not enough L1 memory for op %s.",
                                    consumerOp->getName().getStringRef().data());
@@ -278,7 +283,17 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
         outputTensorUsage, producersL1OutputUsage,
         cBUsagePeak + tensorUsage + producersL1OutputUsage);
+    consumerOp->dumpPretty();
 
+    std::cout << "Upgrading consumer! op: "
+              << "\n"
+              << "L1 usage: cBUsagePeak: " << cBUsagePeak
+              << ", tensorUsage: " << tensorUsage
+              << ", outputTensorUsage: " << outputTensorUsage
+              << ", producerL1OutputUsage: " << producersL1OutputUsage
+              << ", totalL1Usage: "
+              << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
+              << ", l1CacheSize: " << analysisInput.usableL1CacheSize << "\n";
     return outputLayout;
   }
 
@@ -322,7 +337,17 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
       outputTensorUsage, producersL1OutputUsage,
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
+  consumerOp->dumpPretty();
 
+  std::cout << "Upgrading op: "
+            << "\n"
+            << "L1 usage: cBUsagePeak: " << cBUsagePeak
+            << ", tensorUsage: " << tensorUsage
+            << ", outputTensorUsage: " << outputTensorUsage
+            << ", producerL1OutputUsage: " << producersL1OutputUsage
+            << ", totalL1Usage: "
+            << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
+            << ", l1CacheSize: " << analysisInput.usableL1CacheSize << "\n";
   return outputLayout;
 }
 

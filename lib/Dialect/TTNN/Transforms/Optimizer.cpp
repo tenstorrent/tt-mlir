@@ -221,6 +221,9 @@ public:
     ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
         moduleOp->getAttr(ttcore::SystemDescAttr::name));
     ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    std::cout << "L1 size: " << chipDesc.getL1Size() << "\n"
+              << "L1 unreserved base: " << chipDesc.getL1UnreservedBase()
+              << "\n";
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
     // Map to store only L1 Interleaved legal configs for
     // L1InterleavedFallbackAnalysis.
