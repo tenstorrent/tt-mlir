@@ -9,7 +9,6 @@
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 #include "ttnn/operations/experimental/ccl/all_gather_async/all_gather_async.hpp"
 
@@ -36,9 +35,9 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
 
   if (RuntimeContext::instance().getCurrentFabricConfig() ==
       FabricConfig::DISABLED) {
-    out = ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice,
-                             numLinks, outputMemoryConfig, std::nullopt,
-                             std::nullopt, ::ttnn::ccl::Topology::Linear);
+    // out = ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice,
+    //                          numLinks, outputMemoryConfig, std::nullopt,
+    //                          std::nullopt, ::ttnn::ccl::Topology::Linear);
   } else {
 
     std::vector<::ttnn::GlobalSemaphore> semaphores;
