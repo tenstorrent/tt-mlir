@@ -120,7 +120,11 @@ class ShardWrapperData:
     test_fn: Callable[[Any, Any], Any]
 
 
-def shard_wrap_factory(test_shape, mesh_shape, test_fn):
+def shard_wrap_factory(
+    test_shape: Sequence[int],
+    mesh_shape: Sequence[int],
+    test_fn: Callable,
+) -> ShardWrapperData:
     """
     Creates a sharding wrapper for test functions.
 
