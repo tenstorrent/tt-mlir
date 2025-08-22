@@ -30,6 +30,7 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -293,13 +294,24 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
-  // Read relevant information from binary
-  const auto *binarySystemDescRoot =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
-  if (binarySystemDescRoot->schema_hash()->string_view() !=
-      ::tt::target::common::system_desc_bfbs_schema_hash) {
+  auto systemDesc =
+      SystemDescAttr::getFromTargetSystemDesc(context, buffer.get());
+  if (failed(systemDesc)) {
     diagFn() << "system desc schema mismatch, please collect a system desc "
                 "with a runtime compiled with the same schema version";
+    return failure();
+  }
+  return systemDesc;
+}
+
+mlir::FailureOr<SystemDescAttr>
+SystemDescAttr::getFromTargetSystemDesc(MLIRContext *context,
+                                        void *systemDesc) {
+  // Read relevant information from binary
+  const auto *binarySystemDescRoot =
+      ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
+  if (binarySystemDescRoot->schema_hash()->string_view() !=
+      ::tt::target::common::system_desc_bfbs_schema_hash) {
     return failure();
   }
 
