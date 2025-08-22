@@ -54,7 +54,8 @@ public:
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
     rewriter.replaceAllOpUsesWith(srcOp, convOp);
-
+    // The original conv2d op will be removed by DCE since it's no longer
+    // used.
     return mlir::success();
   }
 
@@ -403,7 +404,6 @@ private:
   getConvAndScale(MultiplyOp multiplyOp) {
     auto lhs = multiplyOp.getLhs();
     auto rhs = multiplyOp.getRhs();
-
     ConvOpType lhsConv = lhs.getDefiningOp<ConvOpType>();
     ConvOpType rhsConv = rhs.getDefiningOp<ConvOpType>();
     if (isCommutable(lhsConv, rhs)) {
@@ -412,7 +412,6 @@ private:
     if (isCommutable(rhsConv, lhs)) {
       return std::make_pair(rhsConv, lhs);
     }
-
     return std::nullopt;
   }
 
@@ -444,6 +443,7 @@ private:
             mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
       scaleType = bcastOp.getInput().getType();
     }
+
     // Check if scale shape is with conv weight.
     if (!hasValidScaleShape(convOp, scaleType)) {
       return false;
@@ -467,6 +467,7 @@ private:
     if (useDefChain.contains(convOp)) {
       return false;
     }
+
     return true;
   }
 
