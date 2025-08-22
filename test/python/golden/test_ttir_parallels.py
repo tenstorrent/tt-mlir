@@ -286,6 +286,14 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
             shard_shape=shard_shape_out,
             shard_dims=shard_dims_out,
         )
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        input_3 = builder._get_golden_tensor(in3)
+        golden = torch.add(
+            torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
+        )
+        builder.set_graph_input_output([input_0, input_1, input_2, input_3], [golden])
         return output
 
     compile_ttir_to_flatbuffer(
@@ -344,13 +352,18 @@ def test_parallelized_elementwise_operations(
             shard_dims=shard_dims,
         )
         partial_sum = builder.add(sharded_in0, sharded_in1)
-        return builder.mesh_shard(
+        output = builder.mesh_shard(
             partial_sum,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
         )
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        golden = torch.add(input_0, input_1)
+        builder.set_graph_input_output([input_0, input_1], [golden])
+        return output
 
     compile_ttir_to_flatbuffer(
         eltwise_parallel,

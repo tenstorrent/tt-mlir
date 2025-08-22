@@ -4,20 +4,13 @@
 
 import pytest
 from functools import wraps
-from typing import Callable, Sequence
+from typing import Callable, List, Sequence
 
 from dataclasses import dataclass
 
+from builder.base.builder import Operand, Shape
+from builder.ttir.ttir_builder import TTIRBuilder
 from ttmlir.ir import *
-from ttmlir.passes import (
-    tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
-    ttnn_to_flatbuffer_file,
-    ttir_to_ttmetal_backend_pipeline,
-    ttmetal_to_flatbuffer_file,
-    translate_to_cpp,
-    MLIRModuleLogger,
-)
 
 
 class Marks:
@@ -110,8 +103,8 @@ def make_shard_shape(
 class ShardWrapperData:
     """Container for sharding wrapper results with better type safety."""
 
-    input_shape: List[int]
-    test_fn: Callable[[Any, Any], Any]
+    input_shape: Shape
+    test_fn: Callable
 
 
 def shard_wrap_factory(
@@ -170,7 +163,7 @@ def shard_wrap_factory(
         full_input_shape[d] *= factor
 
     @wraps(test_fn)  # keep original name for debugging
-    def wrapped_fn(in0, builder):
+    def wrapped_fn(in0: Operand, builder: TTIRBuilder):
         try:
             # sharding
             in_shard = builder.mesh_shard(
