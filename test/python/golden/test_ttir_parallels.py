@@ -40,21 +40,21 @@ def _build_matmul_parallel(
 ):
     # Shard the contraction dimension (dimension 1 for input, dimension 0 for weight) along the specified parallelization axis.
     if parallelize_axis == 0:
-        shard_dims_in = [1, 0]
+        shard_dims_inout = [1, 0]
         shard_dims_wt = [0, -1]
     else:
-        shard_dims_in = [0, 1]
+        shard_dims_inout = [0, 1]
         shard_dims_wt = [-1, 0]
 
-    shard_shape_in = make_shard_shape(2, shard_dims_in, mesh_shape)
+    shard_shape_inout = make_shard_shape(2, shard_dims_inout, mesh_shape)
     shard_shape_wt = make_shard_shape(2, shard_dims_wt, mesh_shape)
 
     sharded_input = builder.mesh_shard(
         input,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
         shard_type="#ttcore.shard_type<devices>",
-        shard_shape=shard_shape_in,
-        shard_dims=shard_dims_in,
+        shard_shape=shard_shape_inout,
+        shard_dims=shard_dims_inout,
     )
     sharded_weight = builder.mesh_shard(
         weight,
@@ -77,8 +77,8 @@ def _build_matmul_parallel(
             sharded_result,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in,
-            shard_dims=shard_dims_in,
+            shard_shape=shard_shape_inout,
+            shard_dims=shard_dims_inout,
         )
 
 
