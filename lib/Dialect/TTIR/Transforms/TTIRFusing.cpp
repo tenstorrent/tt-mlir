@@ -655,11 +655,10 @@ public:
 
     // Used only paired with convolution
     auto *definingOp = batchNormOp.getOperand().getDefiningOp();
-    if ((!isa<Conv2dOp, ConvolutionOp>(definingOp)) ||
+    if (!definingOp || (!isa<Conv2dOp, ConvolutionOp>(definingOp)) ||
         !definingOp->hasOneUse()) {
       return mlir::failure();
     }
-
     // get all attributes
     auto scale = batchNormOp.getScale();
     auto offset = batchNormOp.getOffset();
