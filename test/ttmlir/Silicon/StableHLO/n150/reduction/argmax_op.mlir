@@ -10,7 +10,6 @@ module @module_argmax attributes {} {
     // CHECK-LABEL: func.func public @argmax_torch_2d(
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x1x32128xbf16
     // CHECK-SAME: -> tensor<1x1x1xui32
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i64>
@@ -32,7 +31,6 @@ module @module_argmax attributes {} {
     // CHECK-LABEL: func.func public @argmax_jax_3d(
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x32x32xbf16
     // CHECK-SAME: -> tensor<1x1x32xui32
     %0 = stablehlo.iota dim = 2 : tensor<1x32x32xi32>
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
@@ -57,7 +55,6 @@ module @module_argmax attributes {} {
     // CHECK-LABEL: func.func public @argmax_torch_4d(
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x128x64xbf16
     // CHECK-SAME: -> tensor<1x1x128xui32
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i64>
