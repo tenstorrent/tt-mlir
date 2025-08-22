@@ -330,7 +330,7 @@ private:
 };
 
 template <typename ConvOpType>
-class Conv2dWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
+class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
@@ -363,8 +363,7 @@ public:
     Value scaleValue = components->second;
 
     // Reshape scale to match weight dimensions and pre-multiply weights.
-    Value reshapedScale = createReshapedScale(
-        rewriter, convOp.getLoc(), scaleValue, convOp.getWeight().getType());
+    Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
     // Get UD chain starting from the reshaped scale. This chain will be
     // moved before the convOp to ensure that weight scale can be
@@ -502,17 +501,6 @@ private:
     }
   }
 
-  // Helper to get output channel size, handling both Conv2dOp and ConvolutionOp
-  static int64_t getOutputChannelSize(ConvOpType convOp) {
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      return convOp.getOutputChannelSize();
-    } else {
-      // For ConvolutionOp, get output channels from weight tensor
-      auto weightShape = convOp.getWeight().getType().getShape();
-      return weightShape[0]; // Assuming OIHW format
-    }
-  }
-
   // There are two cases we want to handle here:
   // 1. Input scale is a constant tensor that only neeeds reshaping
   // 2. Input scale is a broadcast operation that needs reshaping
@@ -524,10 +512,12 @@ private:
   // and then we create new broadcast operation with the new reshaped scale
   // which broadcasts the reshaped scale to the shape of the weight tensor.
   static Value createReshapedScale(mlir::PatternRewriter &rewriter,
-                                   Location loc, Value scaleValue,
-                                   RankedTensorType weightType) {
+                                   Value scaleValue, ConvOpType convOp) {
     // If scaleValue is broadcast operation we want to reshape its input.
     // Otherwise we reshape the scaleValue itself.
+    Location loc = scaleValue.getLoc();
+    RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(convOp.getWeight().getType());
     Value reshapeInput = scaleValue;
     if (auto bcastOp = mlir::dyn_cast_if_present<BroadcastOp>(
             scaleValue.getDefiningOp())) {
@@ -544,7 +534,16 @@ private:
     // Swap first and last dimensions.
     assert(newShape.size() == 4 &&
            "Scale tensor must have 4 dimensions for reshaping.");
-    std::swap(newShape[0], newShape[3]);
+
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      std::swap(newShape[0], newShape[3]);
+    } else {
+      auto outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+      auto kernelOutputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getKernelOutputFeatureDimension();
+      std::swap(newShape[outputFeatureDim], newShape[kernelOutputFeatureDim]);
+    }
     // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
@@ -574,30 +573,16 @@ private:
                                    Location loc, Value weightValue,
                                    Value reshapedScale) {
     // Create a multiplication of the weights by the reshaped scale.
-    // For ConvolutionOp, reshape scale from (1,c,1,1) to (c,1,1,1) to match
-    // weight format
-    Value finalScale = reshapedScale;
-    if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
-      auto scaleType = mlir::cast<RankedTensorType>(reshapedScale.getType());
-      SmallVector<int64_t> newScaleShape = {scaleType.getDimSize(1), 1, 1, 1};
-      SmallVector<int32_t> newScaleShapeI32(newScaleShape.begin(),
-                                            newScaleShape.end());
-
-      finalScale = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_scale_reshape"),
-          newScaleShape, scaleType.getElementType(), scaleType.getEncoding(),
-          reshapedScale, rewriter.getI32ArrayAttr(newScaleShapeI32));
-    }
     return utils::createDPSOp<MultiplyOp>(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
         mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
-        finalScale);
+        reshapedScale);
   }
 };
 
 // Instantiate the template for both Conv2dOp and ConvolutionOp
-using Conv2dWithMultiply = Conv2dWithMultiplyTemplate<Conv2dOp>;
-using ConvolutionWithMultiply = Conv2dWithMultiplyTemplate<ConvolutionOp>;
+using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
+using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
 // Tag all block arguments which are direct inputs to Conv2dOp with
 // discardable attribute. This is used during Layouting to check if
