@@ -64,3 +64,18 @@ table NamedFullOp {
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
+
+enum NamedFullLikeOpType: uint32 {
+  Zeros,
+  Ones,
+}
+
+table NamedFullLikeOp {
+  type: NamedFullLikeOpType;
+  input: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType = null;
+  layout: tt.target.TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

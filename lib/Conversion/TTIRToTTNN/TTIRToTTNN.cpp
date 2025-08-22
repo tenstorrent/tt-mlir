@@ -160,6 +160,53 @@ public:
 } // namespace
 
 namespace {
+template <typename TTIRType, typename TTNNType>
+class NamedFullLikeConversionPattern : public OpConversionPattern<TTIRType> {
+public:
+  using OpConversionPattern<TTIRType>::OpConversionPattern;
+  using OpAdaptor = typename TTIRType::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(TTIRType op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get ttnn::TTNNLayoutAttr of the result type
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get data type, tensor layout, device and memory config
+    //
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+
+    // Device only exists if memLayout is *not* null
+    //
+    auto device =
+        memLayout ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+                  : nullptr;
+
+    // MemoryConfigAttr only exists if memLayout is *not* null
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        memLayout ? ttnn::MemoryConfigAttr::get(
+                        op.getContext(), memLayout,
+                        ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                        std::nullopt)
+                  : nullptr;
+
+    rewriter.replaceOpWithNewOp<TTNNType>(
+        op, this->getTypeConverter()->convertType(op.getType()), op.getInput(),
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
 public:
   using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
@@ -1832,6 +1879,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       .add<TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
+           NamedFullLikeConversionPattern<ttir::ZerosLikeOp, ttnn::ZerosLikeOp>,
+           NamedFullLikeConversionPattern<ttir::OnesLikeOp, ttnn::OnesLikeOp>,
            FullOpConversionPattern,
            ToLayoutOpConversionPattern,
            QuantizationOpConversionPattern<ttir::QuantizeUnrolledOp, ttnn::QuantizeOp>,

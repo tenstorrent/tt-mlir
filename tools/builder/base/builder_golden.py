@@ -2251,6 +2251,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor creation
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
+    ttir.ZerosLikeOp: torch.zeros_like,
+    ttir.OnesLikeOp: torch.ones_like,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,

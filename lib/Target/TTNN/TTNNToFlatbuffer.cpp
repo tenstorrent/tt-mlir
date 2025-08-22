@@ -467,6 +467,40 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
       *cache.fbb, type, shape, dtype, layout, device, memoryConfig, output);
 }
 
+template <typename OpTy>
+::flatbuffers::Offset<::tt::target::ttnn::NamedFullLikeOp>
+createNamedFullLikeOp(FlatbufferObjectCache &cache, OpTy op) {
+  ::tt::target::ttnn::NamedFullLikeOpType type;
+  if constexpr (std::is_same_v<OpTy, ttnn::ZerosLikeOp>) {
+    type = ::tt::target::ttnn::NamedFullLikeOpType::Zeros;
+  } else if constexpr (std::is_same_v<OpTy, ttnn::OnesLikeOp>) {
+    type = ::tt::target::ttnn::NamedFullLikeOpType::Ones;
+  } else {
+    static_assert(ttmlir::utils::always_false<OpTy>(),
+                  "Unsupported NamedFullLikeOp type");
+  }
+
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getOutputDtype());
+
+  ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
+      toFlatbuffer(cache, op.getLayout());
+
+  flatbuffers::Offset<::tt::target::DeviceRef> device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateNamedFullLikeOp(
+      *cache.fbb, type, input, dtype, layout, device, memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
   auto a = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2012,6 +2046,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
     return createOperation(cache, createNamedFullOp(cache, onesOp), debugString,
                            locInfo);
+  }
+  if (auto zerosLikeOp = dyn_cast<ZerosLikeOp>(op); zerosLikeOp) {
+    return createOperation(cache, createNamedFullLikeOp(cache, zerosLikeOp),
+                           debugString, locInfo);
+  }
+  if (auto onesLikeOp = dyn_cast<OnesLikeOp>(op); onesLikeOp) {
+    return createOperation(cache, createNamedFullLikeOp(cache, onesLikeOp),
+                           debugString, locInfo);
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseBinaryOp(cache, addOp),
