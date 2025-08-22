@@ -407,12 +407,8 @@ private:
       return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
     };
 
-    // If weight is not constant, we cannot commute.
-    if (!isConstant(conv2dOp.getWeight())) {
-      return false;
-    }
-
     RankedTensorType scaleType = scale.getType();
+
     // If scale is comming from broadcast then we want to use the input type
     // to the broadcast to check the shape.
     if (auto bcastOp =
@@ -431,6 +427,9 @@ private:
     SetVector<Value> useDefChain = ttmlir::utils::getUseDefChain(scale);
     SetVector<BlockArgument> useDefChainBlockArgs =
         ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+
+    // If there are block arguments in use def chain that are not
+    // constants we cannot commute.
     if (!all_of(useDefChainBlockArgs, isConstant)) {
       return false;
     }
