@@ -649,7 +649,9 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: ubuntu-latest
+    runs-on:
+      - n150
+      - in-service
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
