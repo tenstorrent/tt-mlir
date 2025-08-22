@@ -16,6 +16,61 @@
 
 namespace mlir::tt::ttnn {
 
+// Calculate distance between two data types (lower = more similar)
+static double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to) {
+  if (from == to) return 0.0;
+
+  // Define data type similarity groups
+  // Group 1: Integer types (closest to each other)
+  bool fromIsInt = (from == ttcore::DataType::Int32 || from == ttcore::DataType::UInt32);
+  bool toIsInt = (to == ttcore::DataType::Int32 || to == ttcore::DataType::UInt32);
+
+  // Group 2: Floating point types
+  bool fromIsFloat = (from == ttcore::DataType::Float32 || from == ttcore::DataType::BFloat16);
+  bool toIsFloat = (to == ttcore::DataType::Float32 || to == ttcore::DataType::BFloat16);
+
+  if (fromIsInt && toIsInt) {
+    // Both integers: Int32 <-> UInt32 is close
+    return 1.0;
+  }
+  if (fromIsFloat && toIsFloat) {
+    // Both floating point: Float32 <-> BFloat16 is close
+    return 1.5;
+  }
+  // Cross-category changes are more expensive
+  return 3.0;
+}
+
+// Calculate distance between two layouts
+static double calculateLayoutDistance(Layout from, Layout to) {
+  if (from == to) return 0.0;
+  // RowMajor <-> Tile conversion
+  return 2.0;
+}
+
+// Calculate total distance for a layout transformation
+static double calculateLayoutTransformDistance(TTNNLayoutAttr from, TTNNLayoutAttr to) {
+  double distance = 0.0;
+
+  // Add data type distance
+  distance += calculateDataTypeDistance(from.getDataType(), to.getDataType());
+
+  // Add layout distance
+  distance += calculateLayoutDistance(from.getLayout(), to.getLayout());
+
+  // Add memory layout distance (if different)
+  if (from.getMemLayout() != to.getMemLayout()) {
+    distance += 1.0;
+  }
+
+  // Add buffer type distance (if different)
+  if (from.getBufferType() != to.getBufferType()) {
+    distance += 4.0;
+  }
+
+  return distance;
+}
+
 void PostOptimizerValidationAnalysis::analysisImplementation() {
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                "Running post-optimizer validation analysis");
@@ -149,45 +204,77 @@ void PostOptimizerValidationAnalysis::processFallbackConfigurations(
       OpConstraintValidator::create(OpConstraintValidator::ValidationOptions(
           /*fatalOnUnsupported=*/false, /*compareOutput=*/false));
 
-  // Try all combinations using recursive approach
-  std::function<bool(size_t, std::vector<TTNNLayoutAttr> &, bool)>
-      testCombinations;
-  testCombinations = [&](size_t operandIdx,
-                         std::vector<TTNNLayoutAttr> &currentLayouts,
-                         bool hasTransformed) -> bool {
-    if (operandIdx == operandFallbacks.size()) {
-      // Base case: test this combination if it has at least one transformed
-      // layout
-      if (!hasTransformed) {
-        return false;
-      }
+  // Distance-based BFS: test combinations by total distance, starting from minimal
+  struct CombinationCandidate {
+    std::vector<TTNNLayoutAttr> layouts;
+    double totalDistance;
+  };
 
-      auto result =
-          testFallbackCombination(validator, operation, config, currentLayouts);
-      if (result.success) {
-        // Record the successful combination
-        recordSuccessfulCombination(originalInputLayouts, currentLayouts,
-                                    result, config, opResult);
-        return true;
+  // Generate all possible combinations and calculate their distances
+  std::vector<CombinationCandidate> allCombinations;
+
+  std::function<void(size_t, std::vector<TTNNLayoutAttr>&, double)> generateAllCombinations;
+  generateAllCombinations = [&](size_t operandIdx, std::vector<TTNNLayoutAttr>& current, double currentDistance) {
+    if (operandIdx == operandFallbacks.size()) {
+      // Only include combinations that have at least one change
+      if (currentDistance > 0.0) {
+        allCombinations.push_back({current, currentDistance});
       }
-      return false;
+      return;
     }
 
     // Try each fallback for current operand
     for (size_t i = 0; i < operandFallbacks[operandIdx].size(); ++i) {
-      currentLayouts[operandIdx] = operandFallbacks[operandIdx][i];
-      bool isTransformed = (i > 0); // Index 0 is original layout
+      current[operandIdx] = operandFallbacks[operandIdx][i];
 
-      if (testCombinations(operandIdx + 1, currentLayouts,
-                           hasTransformed || isTransformed)) {
-        return true; // Found working combination
+      double addedDistance = 0.0;
+      if (i > 0) { // Not original layout
+        addedDistance = calculateLayoutTransformDistance(
+            originalInputLayouts[operandIdx], operandFallbacks[operandIdx][i]);
       }
+
+      generateAllCombinations(operandIdx + 1, current, currentDistance + addedDistance);
     }
-    return false;
   };
 
-  std::vector<TTNNLayoutAttr> testLayouts(originalInputLayouts.size());
-  bool foundWorkingConfig = testCombinations(0, testLayouts, false);
+  std::vector<TTNNLayoutAttr> current(originalInputLayouts.size());
+  generateAllCombinations(0, current, 0.0);
+
+  // Sort combinations by total distance (ascending)
+  std::sort(allCombinations.begin(), allCombinations.end(),
+            [](const CombinationCandidate& a, const CombinationCandidate& b) {
+              return a.totalDistance < b.totalDistance;
+            });
+
+  bool foundWorkingConfig = false;
+  double maxDistanceToTest = 0.0;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Generated {} combinations, testing by distance", allCombinations.size());
+
+  // Test combinations in order of increasing distance
+  for (const auto& candidate : allCombinations) {
+    // Early termination: if we found a solution and current distance is higher, stop
+    if (foundWorkingConfig && candidate.totalDistance > maxDistanceToTest) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Stopping search - found solution at distance {}, current distance {}",
+                   maxDistanceToTest, candidate.totalDistance);
+      break;
+    }
+
+    auto result = testFallbackCombination(validator, operation, config, candidate.layouts);
+    if (result.success) {
+      // Found optimal solution with minimal distance
+      recordSuccessfulCombination(originalInputLayouts, candidate.layouts, result, config, opResult);
+      foundWorkingConfig = true;
+      maxDistanceToTest = candidate.totalDistance;
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Found optimal solution with distance {}", candidate.totalDistance);
+      // Continue testing combinations with the same distance to see if there are multiple solutions
+      // but stop when distance increases
+    }
+  }
 
   if (!foundWorkingConfig) {
     analysisResult.operationsFailed++;
@@ -319,6 +406,10 @@ void PostOptimizerValidationAnalysis::recordSuccessfulCombination(
     }
 
     InputOperandChange change(i, originalLayout);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Recording operand {} change: {} -> {}", i, originalLayout,
+                 transformedLayout);
 
     // Detect layout changes
     if (originalLayout.getLayout() != transformedLayout.getLayout()) {

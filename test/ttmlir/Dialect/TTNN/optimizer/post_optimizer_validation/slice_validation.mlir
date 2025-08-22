@@ -18,10 +18,10 @@ module attributes {} {
 
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-    // CHECK: "ttnn.slice"
+    // CHECK: "ttnn.slice_static"
     // CHECK: "ttnn.to_layout"
 
-    %1 = "ttnn.slice"(%arg0) <{
+    %1 = "ttnn.slice_static"(%arg0) <{
       begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
       ends = [1 : i32, 1 : i32, 64 : i32, 64 : i32],
       step = [1 : i32, 1 : i32, 2 : i32, 2 : i32]
