@@ -88,10 +88,12 @@ public:
                          bool isOutput, SmallVector<Value> coreIndex = {},
                          SmallVector<Value> mcastShape = {}) {
 
-    AffineMapAttr srcIndexingMap =
-        isOutput ? nullptr : AffineMapAttr::get(*operandIndexingMap);
-    AffineMapAttr dstIndexingMap =
-        isOutput ? AffineMapAttr::get(*operandIndexingMap) : nullptr;
+    AffineMapAttr srcIndexingMap = (!isOutput && operandIndexingMap)
+                                       ? AffineMapAttr::get(*operandIndexingMap)
+                                       : nullptr;
+    AffineMapAttr dstIndexingMap = (isOutput && operandIndexingMap)
+                                       ? AffineMapAttr::get(*operandIndexingMap)
+                                       : nullptr;
 
     return builder
         .create<ttir::DMAOp>(loc, src, srcIndexingMap, dst, dstIndexingMap,
@@ -175,13 +177,14 @@ public:
     builder.create<scf::IfOp>(
         loc, mcastArgs.conditions[0],
         [&](OpBuilder &builder, Location loc) {
+          bool isOutput = false;
           Value gatherMemTx =
-              createDMA(builder, loc, src, dst, operandIndexingMap, false);
+              createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
           builder.create<ttir::DMAWaitOp>(loc, gatherMemTx);
           builder.create<ttir::SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                                 mcastVolumeVal, zero);
           Value mcastMemTx =
-              createDMA(builder, loc, dst, dst, std::nullopt, false,
+              createDMA(builder, loc, dst, dst, std::nullopt, isOutput,
                         mcastArgs.mcastCoreIndex, mcastArgs.mcastShape);
           builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
           builder.create<ttir::SemaphoreSetOp>(loc, senderFinishedSemaphore,
@@ -204,14 +207,6 @@ public:
                          ttcore::GridAttr grid, ttcore::DeviceAttr device,
                          AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput, MutableArrayRef<Region> regions) {
-
-    auto genUnicastDMA = [&](OpBuilder &builder, Location loc, Value src,
-                             Value dst, AffineMap operandIndexingMap) {
-      Value memTx =
-          createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
-      builder.create<ttir::DMAWaitOp>(loc, memTx);
-    };
-
     if (isOutput) {
       // Wait for compute.
       builder.create<ttir::AwaitOp>(loc, blockOperand);
@@ -220,20 +215,17 @@ public:
     if (isStream(genericOperand)) {
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
-      if (isOutput) {
-        // assume output stream is unicast
-        genUnicastDMA(builder, loc, src, dst, operandIndexingMap);
+      SmallVector<ttcore::IteratorType> mcastIterators =
+          calculateMcastIterators(grid, device, operandIndexingMap,
+                                  iteratorTypes);
+      bool isMcast = !mcastIterators.empty();
+      if (isMcast) {
+        createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
+                             mcastIterators, regions);
       } else {
-        SmallVector<ttcore::IteratorType> mcastIterators =
-            calculateMcastIterators(grid, device, operandIndexingMap,
-                                    iteratorTypes);
-        bool isMcast = !mcastIterators.empty();
-        if (isMcast) {
-          createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
-                               mcastIterators, regions);
-        } else {
-          genUnicastDMA(builder, loc, src, dst, operandIndexingMap);
-        }
+        Value memTx =
+            createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
+        builder.create<ttir::DMAWaitOp>(loc, memTx);
       }
     }
 
