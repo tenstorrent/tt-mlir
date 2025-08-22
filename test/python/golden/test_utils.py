@@ -2,20 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import inspect
-import subprocess
-import torch
 import pytest
 from functools import wraps
-from typing import Callable, List, Optional, Tuple, Union, Literal, Dict, Sequence
+from typing import Callable, Sequence
 
 from dataclasses import dataclass
-from typing import Callable, Any
 
-from ttmlir.dialects import func
 from ttmlir.ir import *
-from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
     ttir_to_ttnn_backend_pipeline,
