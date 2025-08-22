@@ -65,6 +65,7 @@ union OpType {
   MeshShardOp,
   MorehCumSumOp,
   NamedFullOp,
+  NamedFullLikeOp,
   PadOp,
   PermuteOp,
   PointToPointOp,

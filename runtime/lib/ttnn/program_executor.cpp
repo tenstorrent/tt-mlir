@@ -20,6 +20,7 @@
 #include "operations/creation/constant.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
+#include "operations/creation/full_like.h"
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
@@ -176,6 +177,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     return operations::creation::run(op->type_as_NamedFullOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::NamedFullLikeOp: {
+    return operations::creation::run(op->type_as_NamedFullLikeOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     return operations::creation::run(op->type_as_FullOp(), getContext());

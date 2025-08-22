@@ -94,8 +94,7 @@ public:
     if (std::find(attributeNames.begin(), attributeNames.end(),
                   ttmlir::utils::g_outputDtypeAttrName) ==
         attributeNames.end()) {
-      return op->emitOpError(
-          "Operation must define output data type attribute.");
+      return op->emitOpError("must define output data type attribute.");
     }
 
     // Retrieve output layout.
@@ -114,14 +113,14 @@ public:
           ttmlir::utils::g_outputDtypeAttrName);
       if (!outputDTypeAttr) {
         return op->emitOpError(
-            "Output data type attribute is not defined for op "
+            "output data type attribute is not defined for op "
             "that has output layout attribute.");
       }
 
       // Compare output data type attribute with output tensor data type.
       if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
         return op->emitOpError()
-               << "Output tensor layout data type "
+               << "output tensor layout data type "
                << DataTypeEnumToString(outputLayoutAttr.getDataType())
                << " must match output data type attribute "
                << DataTypeEnumToString(outputDTypeAttr.getValue());

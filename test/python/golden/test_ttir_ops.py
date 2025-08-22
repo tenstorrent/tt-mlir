@@ -2899,3 +2899,32 @@ def test_rms_norm(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 128),
+        (2, 4, 64),
+        (3, 7),
+    ],
+)
+@pytest.mark.parametrize("type", ["zeros", "ones"])
+def test_full_like(shape: Shape, type: str, request):
+    def full_like(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        if type == "zeros":
+            return builder.zeros_like(in0, unit_attrs=unit_attrs)
+        elif type == "ones":
+            return builder.ones_like(in0, unit_attrs=unit_attrs)
+        else:
+            raise ValueError(f"Unsupported type: {type}")
+
+    compile_ttir_to_flatbuffer(
+        full_like,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )

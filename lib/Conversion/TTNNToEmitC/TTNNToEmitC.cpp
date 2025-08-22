@@ -1627,6 +1627,42 @@ public:
 };
 } // namespace
 
+// Named FullLikeOp conversion pattern for operations like ttnn::zeros_like or
+// ttnn::ones_like
+namespace {
+template <typename SourceOp>
+class NamedFullLikeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getOutputDtype()),
+        emitter.emit(srcOp.getLayout()),
+        emitter.template emit<
+            ::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // FullOp conversion pattern
 //
 namespace {
@@ -2513,6 +2549,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EmptyOpConversionPattern,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
+               NamedFullLikeOpConversionPattern<mlir::tt::ttnn::ZerosLikeOp>,
+               NamedFullLikeOpConversionPattern<mlir::tt::ttnn::OnesLikeOp>,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,

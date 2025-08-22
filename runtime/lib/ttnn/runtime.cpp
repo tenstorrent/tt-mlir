@@ -981,6 +981,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NamedFullOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::NamedFullLikeOp: {
+    tensorRef = opContext.type_as_NamedFullLikeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::FullOp: {
     tensorRef = opContext.type_as_FullOp()->out();
     break;
@@ -1433,6 +1437,10 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullLikeOp: {
+    tensorRefs = {opContext.type_as_NamedFullLikeOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::FuncCallOp: {
