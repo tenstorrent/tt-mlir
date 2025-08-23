@@ -33,26 +33,18 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   ::ttnn::Tensor out;
 
-  if (RuntimeContext::instance().getCurrentFabricConfig() ==
-      FabricConfig::DISABLED) {
-    // out = ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice,
-    //                          numLinks, outputMemoryConfig, std::nullopt,
-    //                          std::nullopt, ::ttnn::ccl::Topology::Linear);
-  } else {
+  std::vector<::ttnn::GlobalSemaphore> semaphores;
+  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
+      &meshDevice,
+      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
+                              tt::tt_metal::SubDeviceId{0}),
+      0, tt::tt_metal::BufferType::L1));
 
-    std::vector<::ttnn::GlobalSemaphore> semaphores;
-    semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
-        &meshDevice,
-        meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                                tt::tt_metal::SubDeviceId{0}),
-        0, tt::tt_metal::BufferType::L1));
-
-    out = ::ttnn::experimental::all_gather_async(
-        input, allGatherDim, clusterAxis, meshDevice,
-        ::ttnn::ccl::Topology::Linear, semaphores, std::nullopt,
-        outputMemoryConfig, std::make_optional(static_cast<size_t>(numLinks)),
-        std::nullopt);
-  }
+  out = ::ttnn::experimental::all_gather_async(
+      input, allGatherDim, clusterAxis, meshDevice,
+      ::ttnn::ccl::Topology::Linear, semaphores, std::nullopt,
+      outputMemoryConfig, std::make_optional(static_cast<size_t>(numLinks)),
+      std::nullopt);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
