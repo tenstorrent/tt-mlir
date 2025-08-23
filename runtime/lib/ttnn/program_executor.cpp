@@ -147,9 +147,9 @@ void ProgramExecutor::execute() {
 void ProgramExecutor::sampleDeviceDRAM(::ttnn::MeshDevice &meshDevice) {
 
   // Get memory view for device index 0
-  ::tt::runtime::Device device(
-      std::shared_ptr<void>(&meshDevice, [](void *) {}), DeviceRuntime::TTNN);
-  auto memory_view = getMemoryView(device);
+  //::tt::runtime::Device device(
+  //    std::shared_ptr<void>(&meshDevice, [](void *) {}), DeviceRuntime::TTNN);
+  auto memory_view = getMemoryView(context->getDeviceHandle());;
   auto dram_memory_view = memory_view[tt::runtime::MemoryBufferType::DRAM];
 
   LOG_INFO(
