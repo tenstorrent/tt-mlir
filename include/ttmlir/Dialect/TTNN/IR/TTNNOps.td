@@ -2129,7 +2129,7 @@ def TTNN_PermuteOp : TTNN_Op<"permute",
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return
           wa::TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
-            getInput().getType()
+            getInput().getType(), getPermutation()
           );
       }
     }];
