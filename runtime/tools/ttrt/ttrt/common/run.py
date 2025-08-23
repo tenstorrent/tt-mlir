@@ -625,11 +625,8 @@ class Run:
                         )
 
                     if self["--fabric-config"] is not None:
-                        val = parse_fabric_config(self["--fabric-config"])
                         ttrt.runtime.set_fabric_config(
-                            val
-                            if val != ttrt.runtime.FabricConfig.DISABLED
-                            else ttrt.runtime.FabricConfig.FABRIC_1D
+                            parse_fabric_config(self["--fabric-config"])
                         )
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(mesh_options)
@@ -1195,7 +1192,7 @@ class Run:
 
                     if self["--fabric-config"] is not None:
                         ttrt.runtime.set_fabric_config(
-                            ttrt.runtime.FabricConfig.FABRIC_1D
+                            ttrt.runtime.FabricConfig.DISABLED
                         )
 
         self.logging.debug(f"executing ttnn binaries")
