@@ -6,6 +6,8 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRUtils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -138,6 +140,15 @@ private:
 };
 } // namespace
 
+class TosaToTTIRReshapeOpConversionPattern
+    : public OpConversionPattern<tosa::ReshapeOp> {
+  using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
+  using Adaptor = tosa::ReshapeOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
+
 namespace {
 class TosaToTTIRClampOpConversionPattern
     : public OpConversionPattern<tosa::ClampOp> {
@@ -150,6 +161,17 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    llvm::SmallVector<int32_t> newShape(outputType.getShape());
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
+    ttir::utils::replaceOpWithNewDPSOp(rewriter, srcOp, outputType,
+                                       adaptor.getInput1(), newShapeAttr);
+    return success();
+  }
+};
+
+void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
     FloatAttr minValAttr;
     FloatAttr maxValueAttr;
 
@@ -402,6 +424,18 @@ static void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addShapeOpsConversionPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
+}
+
+void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
+                                                RewritePatternSet &patterns,
+                                                TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+  
 static void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
@@ -435,6 +469,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
