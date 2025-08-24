@@ -2520,6 +2520,92 @@ public:
 };
 } // namespace
 
+namespace {
+class WriteTensorOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WriteTensorOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::WriteTensorOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::WriteTensorOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BeginTraceCaptureOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BeginTraceCaptureOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::BeginTraceCaptureOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BeginTraceCaptureOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class EndTraceCaptureOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::EndTraceCaptureOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::EndTraceCaptureOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::EndTraceCaptureOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class CaptureOrExecuteTraceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::CaptureOrExecuteTraceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CaptureOrExecuteTraceOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CaptureOrExecuteTraceOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ExecuteTraceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ExecuteTraceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ExecuteTraceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ExecuteTraceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -2697,6 +2783,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
+
+  // Trace ops
+  //
+  patterns.add<WriteTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<BeginTraceCaptureOpConversionPattern>(typeConverter, ctx);
+  patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
 
   // Arith ops
   //
