@@ -9,14 +9,11 @@
 
 namespace mlir::tt::ttir {
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {
-  Option<bool> removeDeadValuesEnabled{
-      *this, "enable-remove-dead-values",
-      llvm::cl::desc("Enable --remove-dead-values optimization pass."),
-      llvm::cl::init(true)};
   Option<bool> arithDialectConversionsEnabled{
       *this, "enable-arith-to-stablehlo",
       llvm::cl::desc("Enable Arith to StableHLO conversion pass."),
@@ -30,13 +27,63 @@ struct StableHLOToTTIRPipelineOptions
       // This pass will convert stablehlo.composite ops into func.call ops so
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
+  // Flag-style option for enabling aggressive simplification
+  Option<bool> enableAggressiveSimplification{
+      *this, "enable-aggressive-simplification",
+      llvm::cl::desc("Enable aggressive simplification of StableHLO operations "
+                     "before conversion."),
+      llvm::cl::init(false)};
+  //
+  Option<bool> enableCPUFallback{
+      *this, "enable-cpu-fallback",
+      llvm::cl::desc("Enable partial conversion and fallback any unconverted "
+                     "ops instead of a full conversion."),
+      llvm::cl::init(false)};
+};
+#endif
+
+// Options for the TTIR to NVVM backend pipeline.
+struct TTIRToNVVMPipelineOptions
+    : public PassPipelineOptions<TTIRToNVVMPipelineOptions> {
+  // Chip version of GPU to target.
+  Option<std::string> chip{*this, "chip", llvm::cl::desc("GPU chip to target."),
+                           llvm::cl::init("sm_50")};
+
+  // PTX version to target.
+  Option<std::string> features{*this, "features",
+                               llvm::cl::desc("GPU features to target."),
+                               llvm::cl::init("+ptx60")};
+
+  Option<int64_t> optLevel{*this, "opt-level",
+                           llvm::cl::desc("Optimization level."),
+                           llvm::cl::init(2)};
 };
 
+struct LinalgToLLVMPipelineOptions
+    : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
+  // TODO (#1634): We might want some more options to say lower through affine
+  // loops instead of scf directly, etc. which could be new options.
+  Option<bool> cleanupOutputEnabled{
+      *this, "enable-optimization-passes",
+      llvm::cl::desc("Enable cleanup passes (canonicalize, SCC, CSE, "
+                     "SymbolDCE) after basic lowering is finished."),
+      llvm::cl::init(true)};
+};
+
+#ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
+#endif
 
-/// Registers all pipelines for the TTIR dialect. Currently,
-/// this includes only the "stablehlo-to-ttir-pipeline".
+void createTTIRToNVVMPipeline(OpPassManager &manager,
+                              const TTIRToNVVMPipelineOptions &options);
+
+void createLinalgToLLVMPipeline(OpPassManager &pm,
+                                const LinalgToLLVMPipelineOptions &options);
+void createTTIRToCPUPipeline(OpPassManager &manager,
+                             const LinalgToLLVMPipelineOptions &options);
+
+/// Registers all pipelines for the TTIR dialect.
 void registerTTIRPipelines();
 } // namespace mlir::tt::ttir
 

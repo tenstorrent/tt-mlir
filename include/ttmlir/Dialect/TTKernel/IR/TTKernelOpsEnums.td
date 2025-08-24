@@ -8,67 +8,14 @@
 include "mlir/IR/EnumAttr.td"
 
 def TTKernel_ThreadTypeNoc : I32EnumAttrCase<"Noc", 0, "noc">;
-def TTKernel_ThreadTypeTensix : I32EnumAttrCase<"Tensix", 1, "tensix">;
+def TTKernel_ThreadTypeCompute : I32EnumAttrCase<"Compute", 1, "compute">;
 def TTKernel_ThreadTypeEthernet : I32EnumAttrCase<"Ethernet", 2, "ethernet">;
 
 def TTKernel_ThreadType : I32EnumAttr<"ThreadType", "TTKernel ThreadTypes",
                            [
                             TTKernel_ThreadTypeNoc,
-                            TTKernel_ThreadTypeTensix,
+                            TTKernel_ThreadTypeCompute,
                             TTKernel_ThreadTypeEthernet,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttkernel";
-}
-
-def TTKernel_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
-def TTKernel_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
-def TTKernel_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
-def TTKernel_MathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
-
-def TTKernel_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
-                           [
-                            TTKernel_MathFidelityLoFi,
-                            TTKernel_MathFidelityHiFi2,
-                            TTKernel_MathFidelityHiFi3,
-                            TTKernel_MathFidelityHiFi4,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttkernel";
-}
-
-def TTKernel_UnpackToDestFp32 : I32EnumAttrCase<"UnpackToDestFp32", 0, "unpack_to_dest_fp32">;
-def TTKernel_Default : I32EnumAttrCase<"Default", 1, "default">;
-
-def TTKernel_UnpackToDestMode : I32EnumAttr<"UnpackToDestMode", "TT UnpackToDestMode",
-                           [
-                            TTKernel_UnpackToDestFp32,
-                            TTKernel_Default,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttkernel";
-}
-
-
-def TTKernel_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
-def TTKernel_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
-
-def TTKernel_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
-                           [
-                            TTKernel_NocIndexNoc0,
-                            TTKernel_NocIndexNoc1,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttkernel";
-}
-
-def TTKernel_Sender : I32EnumAttrCase<"Sender", 0, "sender">;
-def TTKernel_Receiver : I32EnumAttrCase<"Receiver", 1, "receiver">;
-
-def TTKernel_EthType : I32EnumAttr<"EthType", "TT EthType",
-                           [
-                            TTKernel_Sender,
-                            TTKernel_Receiver,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";
@@ -169,6 +116,20 @@ def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
                            TTKernel_ReduceDimCol,
                            TTKernel_ReduceDimScalar,
                            TTKernel_ReduceDimNone
+                         ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+def TTKernel_ArgTypeCBPort : I32EnumAttrCase<"CBPort", 0, "cb_port">;
+def TTKernel_ArgTypeBufferAddress : I32EnumAttrCase<"BufferAddress", 1, "buffer_address">;
+def TTKernel_ArgTypeSemaphore : I32EnumAttrCase<"Semaphore", 2, "semaphore">;
+
+def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
+                         [
+                           TTKernel_ArgTypeCBPort,
+                           TTKernel_ArgTypeBufferAddress,
+                           TTKernel_ArgTypeSemaphore
                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";

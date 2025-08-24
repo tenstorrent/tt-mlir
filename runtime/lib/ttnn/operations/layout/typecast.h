@@ -5,7 +5,7 @@
 #ifndef RUNTIME_LIB_TTNN_OPERATIONS_LAYOUT_TYPECAST_H
 #define RUNTIME_LIB_TTNN_OPERATIONS_LAYOUT_TYPECAST_H
 
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::layout {

@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module @jit_eltwise_add attributes {} {
   func.func private @add_impl(%arg0: tensor<13x21x3xf32>, %arg1: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {
     %0 = stablehlo.add %arg0, %arg1 : tensor<13x21x3xf32>
@@ -10,7 +11,7 @@ module @jit_eltwise_add attributes {} {
     %results = stablehlo.composite "jit_eltwise_add.my_add" %arg0, %arg1 {
         decomposition = @add_impl
     } : (tensor<13x21x3xf32>, tensor<13x21x3xf32>) -> tensor<13x21x3xf32>
-    // CHECK: %[[C:.*]] = call @add_impl
+    // CHECK: = "ttir.add"
     return %results : tensor<13x21x3xf32>
   }
 }

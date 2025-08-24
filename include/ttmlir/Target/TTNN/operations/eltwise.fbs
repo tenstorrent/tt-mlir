@@ -1,0 +1,282 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table EltwiseOpWithFloatParams {
+  parameter: float;
+}
+
+enum EltwiseBinaryOpType: uint32 {
+  Add,
+  Multiply,
+  LogicalRightShift,
+  Subtract,
+  Equal,
+  NotEqual,
+  GreaterEqual,
+  GreaterThan,
+  LessEqual,
+  LessThan,
+  Divide,
+  LogicalAnd,
+  LogicalOr,
+  LogicalXor
+}
+
+table EltwiseBinaryOp {
+  type: EltwiseBinaryOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: tt.target.ttnn.TensorRef;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+enum EltwiseBinaryCompositeOpType: uint32 {
+  Maximum,
+  Minimum,
+  Remainder,
+  Scatter,
+  Pow,
+  Atan2,
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
+  LogicalLeftShift
+}
+
+table EltwiseBinaryCompositeOp {
+  type: EltwiseBinaryCompositeOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+enum EltwiseQuantizationOpType: uint32 {
+  Quantize,
+  Dequantize,
+  Requantize
+}
+
+table PerTensorScale {
+  scale: float;
+}
+
+table PerAxisScale {
+  scale: tt.target.ttnn.TensorRef;
+}
+
+union QuantizationScale {
+  PerTensorScale,
+  PerAxisScale,
+}
+
+table PerTensorZeroPoint {
+  zero_point: int32;
+}
+
+table PerAxisZeroPoint {
+  zero_point: tt.target.ttnn.TensorRef;
+}
+
+union QuantizationZeroPoint {
+  PerTensorZeroPoint,
+  PerAxisZeroPoint,
+}
+
+table QuantizeDequantizeOpParams {
+  scale: QuantizationScale;
+  zero_point: QuantizationZeroPoint;
+}
+
+table RequantizeOpParams {
+  in_scale: QuantizationScale;
+  in_zero_point: QuantizationZeroPoint;
+  out_scale: QuantizationScale;
+  out_zero_point: QuantizationZeroPoint;
+}
+
+union EltwiseQuantizationOpParams {
+  QuantizeDequantizeOpParams,
+  RequantizeOpParams
+}
+
+table EltwiseQuantizationOp {
+  type: EltwiseQuantizationOpType;
+  in: tt.target.ttnn.TensorRef;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+  params: EltwiseQuantizationOpParams;
+}
+
+table EltwiseTernaryWhereOp {
+  first: tt.target.ttnn.TensorRef;
+  second: tt.target.ttnn.TensorRef;
+  third: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+enum EltwiseUnaryOpType: uint32 {
+  Abs,
+  Ceil,
+  Cos,
+  Floor,
+  Gelu,
+  IsFinite,
+  LogicalNot,
+  Neg,
+  Relu,
+  Sqrt,
+  Rsqrt,
+  Sigmoid,
+  Sin,
+  Reciprocal,
+  Sign,
+  Tan,
+  Tanh,
+  Atan,
+  Exp,
+  Erf,
+  Erfc,
+  Log,
+  Expm1,
+  LeakyRelu,
+  BitwiseNot
+}
+
+union EltwiseUnaryOpParams {
+  EltwiseOpWithFloatParams
+}
+
+table EltwiseUnaryOp {
+  type: EltwiseUnaryOpType;
+  in: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+  params: EltwiseUnaryOpParams;
+}
+
+enum EltwiseUnaryCompositeOpType: uint32 {
+  Cbrt,
+  ClampScalar,
+  ClampTensor,
+  Log1p
+}
+
+table ClampScalarOpParams {
+  min: float;
+  max: float;
+}
+
+table ClampTensorOpParams {
+  min: tt.target.ttnn.TensorRef;
+  max: tt.target.ttnn.TensorRef;
+}
+
+union EltwiseUnaryCompositeOpParams {
+  ClampScalarOpParams,
+  ClampTensorOpParams
+}
+
+table EltwiseUnaryCompositeOp {
+  type: EltwiseUnaryCompositeOpType;
+  in: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+  params: EltwiseUnaryCompositeOpParams;
+}
+
+// These unary ops have a corresponding LLK
+// and can be fused with for example matmul
+// However they may or may not have an exposed op API
+enum UnaryOpType: uint32 {
+  Exp,
+  Recip,
+  Gelu,
+  Relu,
+  Sqrt,
+  Sigmoid,
+  Log,
+  Tanh,
+  Log2,
+  Log10,
+  Sin,
+  Cos,
+  Abs,
+  AbsInt32,
+  Sign,
+  Square,
+  Eqz,
+  Nez,
+  Gtz,
+  Ltz,
+  Gez,
+  Lez,
+  ReluMax,
+  ReluMin,
+  Power,
+  LeakyRelu,
+  Elu,
+  Exp2,
+  Heaviside,
+  Expm1,
+  Signbit,
+  Asin,
+  Acos,
+  Rsqrt,
+  Relu6,
+  Atan,
+  Erf,
+  Erfc,
+  Isinf,
+  Isposinf,
+  Isneginf,
+  Isnan,
+  LogicalNotUnary,
+  Isfinite,
+  Erfinv,
+  I0,
+  I1,
+  Tan,
+  Rsub,
+  Rdiv,
+  Silu,
+  Softplus,
+  Identity,
+  Neg,
+  AddUnarySfpu,
+  SubUnarySfpu,
+  MulUnarySfpu,
+  DivUnarySfpu,
+  IdentityUint32,
+  UnaryNe,
+  UnaryGt,
+  UnaryLt,
+  TiledProd,
+  Typecast,
+  BitwiseXor,
+  BitwiseNot,
+  BitwiseAnd,
+  BitwiseOr,
+  RightShift,
+  Floor,
+  Ceil,
+  Round,
+  LeftShift,
+  Remainder,
+  Fmod,
+  Dropout,
+  Fill,
+  PreluSfpu,
+  ZeroPoint
+}
+
+table UnaryWithParam {
+  op_type: UnaryOpType;
+  params: [double];
+}

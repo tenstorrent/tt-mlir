@@ -1,0 +1,48 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table AllGatherOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  all_gather_dim: int32;
+  cluster_axis: uint32;
+  num_links: uint32;
+}
+
+table CollectivePermuteOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  source_target_pairs: [int64];
+}
+
+table MeshShardOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  shard_direction: tt.target.ttnn.MeshShardDirection;
+  shard_type: tt.target.ttnn.MeshShardType;
+  shard_shape: [int64];
+  shard_dims: [int64];
+}
+
+table ReduceScatterOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  scatter_dim: int32;
+  reduce_type: uint32;
+  cluster_axis: uint32;
+  num_links: uint32;
+}
+
+table PointToPointOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  send_coord: [uint32];
+  receive_coord: [uint32];
+  accum_tensor: tt.target.ttnn.TensorRef;
+}

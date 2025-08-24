@@ -2,35 +2,31 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "to_device.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "operations/layout/to_device.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
+
 void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   LOG_ASSERT(op->device(), "ToDeviceOp must have a device");
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(inputTensor.is_allocated());
-  DEBUG_ASSERT(utils::isOnHost(inputTensor),
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.getTTNNTensorAndValidate(op->in());
+  DEBUG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->in()),
                "Calling ttnn::to_device on a device tensor");
-  std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
-  if (op->memcfg()) {
-    memoryConfig =
-        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
-  }
-  DeviceVariant targetDevice =
-      context.getTargetDevice(op->device()->global_id());
-  ::ttnn::Tensor out = std::visit(
-      [&](auto &&targetDevice) -> ::ttnn::Tensor {
-        return ::ttnn::to_device(inputTensor, &(targetDevice.get()),
-                                 memoryConfig);
-      },
-      targetDevice);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ::ttnn::Tensor out =
+      ::ttnn::to_device(inputTensor, &targetDevice, memoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
-
 } // namespace tt::runtime::ttnn::operations::layout

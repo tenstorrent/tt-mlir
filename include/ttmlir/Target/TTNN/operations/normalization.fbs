@@ -1,0 +1,32 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table SoftmaxOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dimension: int32;
+}
+
+table BatchNormOp {
+  input: tt.target.ttnn.TensorRef;
+  running_mean: tt.target.ttnn.TensorRef;
+  running_var: tt.target.ttnn.TensorRef;
+  training: bool;
+  epsilon: float;
+  momentum: float;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table RMSNormOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  epsilon: float;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

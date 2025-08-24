@@ -1,11 +1,18 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
-        LegalGridAnalysis.cpp
-        OpConfigAnalysis.cpp
-        MemoryLayoutAnalysis.cpp
-        L1ChainConfig.cpp
+        BFInterleavedPolicy.cpp
+        Conv2dConfigSearchSpace.cpp
         DFShardingPolicy.cpp
-        L1InterleavedPolicy.cpp
+        GreedyL1InterleavedPolicy.cpp
+        L1ChainConfig.cpp
+        L1InterleavedFallbackAnalysis.cpp
+        LegalOpConfigAnalysis.cpp
+        LegalOpLayoutAnalysis.cpp
+        LegalTensorLayoutAnalysis.cpp
+        MemoryLayoutAnalysis.cpp
+        OpConfigAnalysis.cpp
+        ScalarDataTypeAnalysis.cpp
         ShardSolver.cpp
+        TensorLayouts.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -13,8 +20,11 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
+        TTNNOpModelLib
 
-        LINK_LIBS
+        LINK_LIBS PUBLIC
         MLIRScheduler
+        TTMLIRTTNNUtils
+        TTNNOpModelLib
         )

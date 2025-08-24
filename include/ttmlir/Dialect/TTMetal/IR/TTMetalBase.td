@@ -31,7 +31,7 @@ def TTMetal_Dialect : Dialect {
       "::mlir::tensor::TensorDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::ttcore::TTCoreDialect"
     ];
 }
 

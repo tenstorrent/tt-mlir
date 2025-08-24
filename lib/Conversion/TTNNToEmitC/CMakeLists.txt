@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTNNToEmitC
+add_mlir_conversion_library(TTMLIRTTNNToEmitC
   TTNNToEmitC.cpp
   TTNNToEmitCPass.cpp
 
@@ -9,6 +9,7 @@ add_mlir_library(TTMLIRTTNNToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
+  MLIRTTTransforms
   MLIRIR
   MLIRPass
   MLIRSCFToEmitC

@@ -1,0 +1,10 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table ConcatenateHeadsOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

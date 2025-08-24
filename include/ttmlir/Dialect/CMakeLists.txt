@@ -1,5 +1,12 @@
-add_subdirectory(TT)
+add_subdirectory(TTCore)
 add_subdirectory(TTIR)
 add_subdirectory(TTNN)
 add_subdirectory(TTMetal)
 add_subdirectory(TTKernel)
+add_subdirectory(SFPI)
+add_subdirectory(LLVM)
+add_subdirectory(EmitPy)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+  add_subdirectory(StableHLO)
+endif()

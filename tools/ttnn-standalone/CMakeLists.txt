@@ -4,7 +4,37 @@ project(ttnn-standalone CXX)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# set(CMAKE_VERBOSE_MAKEFILE on)
+add_library(TTNNCompileSo SHARED compile_so.cpp)
+set_target_properties(TTNNCompileSo PROPERTIES
+    PUBLIC_HEADER compile_so.hpp
+)
+
+install(
+  TARGETS TTNNCompileSo
+  COMPONENT TTNNStandalone
+  PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
+)
+
+install(
+  PROGRAMS
+    run
+    ci_compile_dylib.py
+  DESTINATION tools/ttnn-standalone
+  COMPONENT TTNNStandalone
+)
+
+install(
+  FILES
+    CMakeLists.txt
+    README.md
+    ttnn-precompiled.hpp
+    ttnn-standalone.cpp
+    workarounds.hpp
+    compile_so.hpp
+    compile_so.cpp
+  DESTINATION tools/ttnn-standalone
+  COMPONENT TTNNStandalone
+)
 
 if(DEFINED ENV{CONFIG})
     message(STATUS "CONFIG is set, CMAKE_BUILD_TYPE being set to $ENV{CONFIG}")
@@ -14,73 +44,83 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Handle env:ARCH_NAME
-#
-# Due to ttmetal's folder structure, we need to do some overriding for ARCH_NAME (e.g. wormhole_b0 -> wormhole)
-#
-if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
-  set(ARCH_NAME "grayskull")
-  set(ARCH_EXTRA_DIR "grayskull")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "wormhole_b0")
-  set(ARCH_NAME "wormhole")
-  set(ARCH_EXTRA_DIR "wormhole/wormhole_b0_defines")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "blackhole")
-  set(ARCH_NAME "blackhole")
-  set(ARCH_EXTRA_DIR "blackhole")
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(WARNING "Not using the Clang compiler!")
 else()
-  message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
+  message(STATUS "Found Clang-${CLANG_VERSION_MAJOR} here: ${CMAKE_CXX_COMPILER}")
+  if(CLANG_VERSION_MAJOR LESS 17)
+    message(WARNING "Clang version is less than 17!")
+  endif()
 endif()
 
-# Find clang 17
-#
-find_program(CLANG_17 clang++-17)
-if(CLANG_17)
-    message(STATUS "Found Clang-17 here: ${CLANG_17}")
-    set(CMAKE_CXX_COMPILER "${CLANG_17}")
+# TT_METAL_HOME env variable needs to be set
+if(NOT DEFINED ENV{TT_METAL_HOME})
+    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
+    return()
+endif()
+
+# Metal dir variables
+set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+if(DEFINED ENV{TT_METAL_LIB})
+  set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
 else()
-    message(WARNING "Clang++-17 not found!!!")
+  set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
 endif()
 
-if("$ENV{TT_METAL_HOME}" STREQUAL "")
-    message(FATAL_ERROR "TT_METAL_HOME is not set")
+if (DEFINED ENV{CPM_SOURCE_CACHE})
+  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
+else()
+  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
 endif()
-if("$ENV{ARCH_NAME}" STREQUAL "")
-    message(FATAL_ERROR "ARCH_NAME is not set")
-endif()
-
-message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
+message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 # Directories to search for headers
 #
 set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
-    $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
-    $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/1e1af177d4ab0ef660f105434fd1017c4d1f8c17/include/magic_enum
-    $ENV{TT_METAL_HOME}/.cpmcache/boost_core/e679bef5c160cf29d0f37d549881dc5f5a58c332/include
+    ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
+    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
+    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
+    ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
+    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
 
     # Metalium
-    $ENV{TT_METAL_HOME}
-    $ENV{TT_METAL_HOME}/tt_metal
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
+    ${METAL_SRC_DIR}
+    ${METAL_SRC_DIR}/tt_metal
+    ${METAL_SRC_DIR}/tt_metal/api
+    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
+    ${METAL_SRC_DIR}/tt_metal/hw/inc
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
+    ${METAL_SRC_DIR}/tt_metal/include
+    ${METAL_SRC_DIR}/tt_stl
+    ${METAL_SRC_DIR}/tt_stl/tt_stl
+    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
+    ${METAL_SRC_DIR}/tt_metal/third_party/enchantum
+    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
+    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 
     # TTNN
-    $ENV{TT_METAL_HOME}/ttnn/cpp
-    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
-    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
+    ${METAL_SRC_DIR}/ttnn
+    ${METAL_SRC_DIR}/ttnn/api
+    ${METAL_SRC_DIR}/ttnn/core
+    ${METAL_SRC_DIR}/ttnn/cpp
+    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
 )
 
 # Link directories
 #
 set(LINK_DIRS
-    $ENV{TT_METAL_HOME}-build/lib
+    ${METAL_LIB_DIR}
 )
 
 # Libraries to link
@@ -88,19 +128,8 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
-    yaml-cpp
-    pthread
-
-    # The below libs have been added to tt-metal repo at some point, but are not
-    # currently needed by the targets here - leaving them commented here for
-    # reference
-    #
-    # nng
-    # uv
-
-    # TTNN
-    # _ttnn  # Why doesn't this work?
-    $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+    tt_stl
+    ${METAL_LIB_DIR}/_ttnncpp.so
 )
 
 # Compile definitions
@@ -117,6 +146,9 @@ set(COMPILE_DEFS
 
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
+set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
+set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
 target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
@@ -132,12 +164,21 @@ target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
 #  \__,_| \__, ||_||_||_.__/
 #         |___/
 
+if(NOT EXISTS "ttnn-dylib.cpp")
+    file(TOUCH "ttnn-dylib.cpp")
+endif()
 add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
 set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
+set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
+set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
+  target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
+endif()
 
-target_precompile_headers(ttnn-dylib PRIVATE ttnn-dylib.hpp)
+target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

@@ -8,5 +8,6 @@ add_mlir_dialect_library(MLIRTTMetalDialect
 
         DEPENDS
         MLIRTTMetalOpsIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
+        MLIRSupport
         )

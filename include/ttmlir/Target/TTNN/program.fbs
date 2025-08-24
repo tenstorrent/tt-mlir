@@ -1,286 +1,97 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/ccl.fbs";
+include "ttmlir/Target/TTNN/operations/get_device.fbs";
+include "ttmlir/Target/TTNN/operations/conv.fbs";
+include "ttmlir/Target/TTNN/operations/cpu.fbs";
+include "ttmlir/Target/TTNN/operations/creation.fbs";
+include "ttmlir/Target/TTNN/operations/data_movement.fbs";
+include "ttmlir/Target/TTNN/operations/deallocate.fbs";
+include "ttmlir/Target/TTNN/operations/eltwise.fbs";
+include "ttmlir/Target/TTNN/operations/embedding.fbs";
+include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
+include "ttmlir/Target/TTNN/operations/layout.fbs";
+include "ttmlir/Target/TTNN/operations/load_cached.fbs";
+// ANCHOR: adding_an_op_matmul_fbs_include
+include "ttmlir/Target/TTNN/operations/matmul.fbs";
+// ANCHOR_END: adding_an_op_matmul_fbs_include
+include "ttmlir/Target/TTNN/operations/mlir_native.fbs";
+include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
+include "ttmlir/Target/TTNN/operations/normalization.fbs";
+include "ttmlir/Target/TTNN/operations/pool.fbs";
+include "ttmlir/Target/TTNN/operations/rand.fbs";
+include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/trace.fbs";
+include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
 namespace tt.target.ttnn;
 
-table GetDeviceOp {
-  mesh: Dim2d;
-  chip_ids: [uint32];
-  out: tt.target.DeviceRef;
-}
-
-table ToMemoryConfigOp {
-  in0: tt.target.TensorRef;
-  memcfg: MemoryConfigDesc;
-  out: tt.target.TensorRef;
-}
-
-table ToLayoutOp {
-  in: tt.target.TensorRef;
-  layout: tt.target.TensorLayout;
-  dtype: tt.target.DataType = null;
-  memcfg: tt.target.MemoryConfigDesc;
-  device: tt.target.DeviceRef;
-  out: tt.target.TensorRef;
-}
-
-table TypecastOp {
-  in: tt.target.TensorRef;
-  dtype: tt.target.DataType;
-  out: tt.target.TensorRef;
-}
-
-table ToDeviceOp {
-  in: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
-}
-
-table FromDeviceOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-}
-
-table EmptyOp {
-  shape: [int64];
-  dtype: DataType;
-  layout: TensorLayout;
-  num_shards: uint32;
-  device: tt.target.DeviceRef;         // optional
-  memcfg: tt.target.MemoryConfigDesc;  // optional
-  strategy: tt.target.DistributionStrategy;
-  out: tt.target.TensorRef;
-}
-
-table FullOp {
-  device: tt.target.DeviceRef;
-  fill_value: float;
-  num_shards: uint32;
-  strategy: tt.target.DistributionStrategy;
-  out: tt.target.TensorRef;
-}
-
-table ArangeOp {
-  start: float;
-  end: float;
-  step: float;
-  dtype: tt.target.DataType = null; // optional
-  device: tt.target.DeviceRef; // optional
-  memcfg: tt.target.MemoryConfigDesc;  // optional
-  out: tt.target.TensorRef;
-}
-
-enum EltwiseOpType: uint32 {
-  Add,
-  Multiply,
-  Subtract,
-  Relu,
-  GreaterEqual,
-  Sqrt,
-  Div,
-  Sigmoid,
-  Reciprocal,
-  Exp,
-  Maximum,
-  Abs,
-  Neg,
-  Rsqrt,
-  Typecast,
-  Equal,
-  NotEqual,
-  LessEqual,
-  LessThan,
-  GreaterThan,
-  LogicalAnd,
-  LogicalOr,
-  LogicalNot,
-  Cbrt,
-  Minimum,
-  Ceil,
-  Sin,
-  Cos,
-  Log,
-  Log1p,
-  Expm1,
-  Sign,
-  Remainder,
-  IsFinite,
-  Floor,
-  Where,
-  Gelu,
-  LogicalXor,
-  Clamp,
-  LeakyRelu,
-  Scatter
-}
-
-table ClampOpParams {
-  min: float;
-  max: float;
-}
-
-table EltwiseOpWithFloatParams {
-  parameter: float;
-}
-
-union EltwiseOpParams {
-  ClampOpParams,
-  EltwiseOpWithFloatParams,
-}
-
-table EltwiseOp {
-  type: EltwiseOpType;
-  ins: [tt.target.TensorRef];
-  out: tt.target.TensorRef;
-  params: EltwiseOpParams;
-}
-
-enum ReductionOpType: uint32 {
-  Sum,
-  Mean,
-  Max,
-}
-
-table ReductionOp {
-  type: ReductionOpType;
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  dim_arg: [int32];
-  keep_dim: bool;
-}
-
-table EmbeddingOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-}
-
-table SoftmaxOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  dimension: int32;
-}
-
-table TransposeOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  dim0: int32;
-  dim1: int32;
-}
-
-table ConcatOp {
- inputs: [tt.target.TensorRef];
- out: tt.target.TensorRef;
- dim: int32;
-}
-
-table ReshapeOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  shape: [int32];
-}
-
-table SliceOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  begins: [int64];
-  ends: [int64];
-  step: [int64];
-}
-
-table LinearOp {
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-}
-
-// ANCHOR: adding_an_op_matmul_fbs
-table MatmulOp {
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-}
-// ANCHOR_END: adding_an_op_matmul_fbs
-
-table Conv2dOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
-  in_channels: uint32;
-  out_channels: uint32;
-  batch_size: uint32;
-  input_height: uint32;
-  input_width: uint32;
-  kernel_height: uint32;
-  kernel_width: uint32;
-  stride_height: uint32;
-  stride_width: uint32;
-  padding_height: uint32;
-  padding_width: uint32;
-  dilation_height: uint32;
-  dilation_width: uint32;
-  groups: uint32;
-}
-
-table MaxPool2dOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
-  batch_size: uint32;
-  input_height: uint32;
-  input_width: uint32;
-  channels: uint32;
-  kernel_height: uint32;
-  kernel_width: uint32;
-  stride_height: uint32;
-  stride_width: uint32;
-  dilation_height: uint32;
-  dilation_width: uint32;
-  ceil_mode: bool;
-  padding_height: uint32;
-  padding_width: uint32;
-}
-
-table DeallocateOp {
-  in: tt.target.TensorRef;
-  force: bool;
-}
-
-table AllGatherOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  dim: uint32;
-  num_links: uint32;
-}
-
 union OpType {
-  GetDeviceOp,
-  ToMemoryConfigOp,
-  ToLayoutOp,
-  TypecastOp,
-  ToDeviceOp,
-  FromDeviceOp,
-  EmptyOp,
-  FullOp,
-  EltwiseOp,
-  LinearOp,
-  MatmulOp,
-  ReductionOp,
-  EmbeddingOp,
-  SoftmaxOp,
-  TransposeOp,
-  Conv2dOp,
-  ConcatOp,
-  ReshapeOp,
-  SliceOp,
-  MaxPool2dOp,
-  DeallocateOp,
   AllGatherOp,
   ArangeOp,
+  BatchNormOp,
+  BeginTraceCaptureOp,
+  CaptureOrExecuteTraceOp,
+  CollectivePermuteOp,
+  ConcatOp,
+  ConcatenateHeadsOp,
+  ConstantOp,
+  Conv2dOp,
+  ConvTranspose2dOp,
+  CpuOp,
+  DeallocateOp,
+  EltwiseBinaryCompositeOp,
+  EltwiseBinaryOp,
+  EltwiseQuantizationOp,
+  EltwiseTernaryWhereOp,
+  EltwiseUnaryCompositeOp,
+  EltwiseUnaryOp,
+  EmbeddingBackwardOp,
+  EmbeddingOp,
+  EmptyOp,
+  EndTraceCaptureOp,
+  ExecuteTraceOp,
+  FillCacheOp,
+  FromDeviceOp,
+  FullOp,
+  FuncCallOp,
+  GetDeviceOp,
+  LinearOp,
+  LoadCachedOp,
+  // ANCHOR: adding_an_op_matmul_fbs_op_type
+  MatmulOp,
+  // ANCHOR_END: adding_an_op_matmul_fbs_op_type
+  MeshShardOp,
+  MorehCumSumOp,
+  NamedFullOp,
+  PadOp,
+  PermuteOp,
+  PointToPointOp,
+  Pool2dOp,
+  PrepareConv2dBiasOp,
+  PrepareConv2dWeightsOp,
+  RandOp,
+  ReductionArgMaxOp,
+  ReductionOp,
+  ReductionProdOp,
+  ReduceScatterOp,
+  RepeatInterleaveOp,
+  RepeatOp,
+  RMSNormOp,
+  ReshapeOp,
+  SliceOp,
+  SoftmaxOp,
+  SortOp,
+  ToDeviceOp,
+  ToDTypeOp,
+  ToLayoutOp,
+  ToMemoryConfigOp,
+  TransposeOp,
+  TypecastOp,
+  UpdateCacheOp,
+  UpsampleOp,
+  WriteTensorOp
 }
 
 table Operation {
@@ -294,5 +105,9 @@ table Program {
   inputs: [TensorRef];
   outputs: [TensorRef];
   operations: [Operation];
+  dylibs: [DynamicLib];
   debug_info: DebugInfo;
+  // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
+  private: bool;
+  mesh_shape: Dim2d;
 }

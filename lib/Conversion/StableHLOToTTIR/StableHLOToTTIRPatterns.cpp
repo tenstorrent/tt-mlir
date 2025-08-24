@@ -2,38 +2,133 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
+
+#include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Traits.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
 
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributeInterfaces.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Support/LLVM.h"
-
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
-#include <llvm/ADT/APFloat.h>
-#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/IR/ValueRange.h>
-#include <mlir/Support/LogicalResult.h>
-#include <stablehlo/dialect/StablehloOps.h>
-
 using namespace mlir;
 using namespace mlir::tt;
 
-namespace {
+// Typical initialization values for reduction ops.
+enum TypicalInitReductionValue {
+  NEG_INF, // It is also used for minimum integer value.
+  ZERO,
+};
 
+// Check if the constant op is initialized with the desired init value.
+static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
+                           TypicalInitReductionValue desired) {
+  if (initValueOp.getValueAttr().size() != 1) {
+    return false;
+  }
+
+  float desiredF32;
+  double desiredF64;
+  uint16_t desiredBF16;
+  int32_t desiredI32;
+  int64_t desiredI64;
+  bool desiredI1;
+  if (desired == TypicalInitReductionValue::NEG_INF) {
+    desiredF32 = -std::numeric_limits<float>::infinity();
+    desiredF64 = -std::numeric_limits<double>::infinity();
+    desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+    desiredI32 = std::numeric_limits<int32_t>::min();
+    desiredI64 = std::numeric_limits<int64_t>::min();
+    desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::ZERO) {
+    desiredF32 = 0.0;
+    desiredF64 = 0.0;
+    desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+    desiredI32 = 0;
+    desiredI64 = 0;
+    desiredI1 = false;
+  } else {
+    return false;
+  }
+
+  // Comparing actual bits in case of bfloat16.
+  if (initValueOp.getResult().getType().getElementType().isBF16()) {
+    // Collect the values into a vector
+    std::vector<mlir::Attribute> values;
+    for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+      values.push_back(
+          initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+    }
+
+    auto denseValues = ::mlir::DenseElementsAttr::get(
+        initValueOp.getValueAttr().getShapedType(), values);
+    uint16_t bfloatBits =
+        static_cast<uint16_t>(*denseValues.getRawData().data());
+    return bfloatBits == desiredBF16;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF32()) {
+    return *initValueOp.getValue().value_begin<float>() == desiredF32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF64()) {
+    return *initValueOp.getValue().value_begin<double>() == desiredF64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
+    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
+    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
+    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  }
+
+  return false;
+}
+
+// Helper function to find the TTIR constant defining op by traversing through
+// operations that preserve constant semantics (ReshapeOp, BroadcastOp, and
+// TypecastOp).
+static ttir::ConstantOp getConstantValueDefiningOp(Value value) {
+  Operation *valueDef = value.getDefiningOp();
+
+  // equivalent to valueDef != nullptr && isa<...>(valueDef)
+  while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::TypecastOp>(
+      valueDef)) {
+    valueDef = valueDef->getOperand(0).getDefiningOp();
+  }
+  return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
+}
+
+namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIROpDefaultConversionPattern
@@ -47,21 +142,16 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp,
-        TypeRange(
-            this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
+
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceOp> {
 
@@ -72,7 +162,8 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -87,14 +178,34 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::MinOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::MinOp>(srcOp, adaptor,
+                                                            rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::MulOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
+                                                             rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
+          srcOp, adaptor, rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceOrOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
+    if (isArgMax(srcOp, adaptor, rewriter)) {
+      return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
-                                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
-                                   ConversionPatternRewriter &rewriter) const {
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::ReduceOp &srcOp,
+                          mlir::stablehlo::ReduceOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (!srcOp.getBody().hasOneBlock()) {
       return rewriter.notifyMatchFailure(
           srcOp,
@@ -107,6 +218,27 @@ private:
           "Expecting StableHLO Reduce OP to have a body operation defined.");
     }
 
+    mlir::Operation &innerOp = srcOp.getBody().front().front();
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp) ||
+        mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
+      bool allOperandsAreBoolean = std::all_of(
+          srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+            return mlir::cast<RankedTensorType>(operand.getType())
+                       .getElementTypeBitWidth() == 1;
+          });
+      // Stablehlo (unlike other dialects) has single op for both logical and
+      // bitwise operation. Data type is used to distinguish between logical and
+      // bitwise operation. If the datatype is boolean then it is a logical
+      // operation; otherwise it is bitwise operation. This check ensure that
+      // the inputs are boolean as tt-metal only supports logical operations.
+      if (!allOperandsAreBoolean) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "stablehlo.reduce for stablehlo.and/stablehlo.or operator is only "
+            "supported for logical operator.");
+      }
+    }
+
     return success();
   }
 
@@ -117,29 +249,401 @@ private:
                           ConversionPatternRewriter &rewriter) const {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes().front()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[0])));
+    // Can't reuse the original dimensions attribute because it uses i64 type.
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
 
-    // If someone changes definition of TTIR_ReductionOp this constant will
-    // become outdated, but I currently see no way to get this info (without
-    // manually constructing the adaptor for dest OP).
-    const std::size_t ttirReduceOpOperandsCount = 2;
-    mlir::ArrayAttr operandConstraints =
-        rewriter.getArrayAttr(SmallVector<Attribute>(
-            ttirReduceOpOperandsCount, rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile)));
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getInputs().front(),
+                                               /*keep_dim=*/false, dimArg);
 
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, outputType, adaptor.getInputs().front(), outputTensor,
-        false /* keep_dim */, dimArg, operandConstraints);
+    return success();
+  }
+
+  LogicalResult
+  matchAndRewriteInternalArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
+
+    // Can't reuse the original dimensions attribute because it uses i64 type.
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
+
+    // stablehlo.reduce op generates two results; the first output is maximum
+    // value which is not consumed in subsequent graph and the second out is the
+    // index of maximum value which is consumend in subsequent graph. On other
+    // hand ttir.argmax generates one result only.
+    // So 'rewriter.replaceOpWithNewOp' will not work due to difference in
+    // number of outputs.
+    // We are creating the new ttir op explicitly here, then replace the
+    // original op uses with the new op, and finally, erase the original op
+    // explicitly.
+    ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
+        srcOp->getLoc(), outputType, adaptor.getInputs().front(), outputTensor,
+        false /* keep_dim */, dimArg);
+
+    srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  // This function verify all the required conditions to convert stablehlo
+  // reduce op to TTIR argmax op
+  // 1. Two inputs values ot the op.
+  //   a. first input is the input tensor.
+  //   b. second input is defined with stablehlo.iota
+  // 2. Two init values
+  //   a. first init value is -inf (for float) or int_min (for integer input)
+  //   b. second init value is 0
+  // 3. Two results generated; the first result is maximum value which is not
+  //    consumed in subsequent graph and the second result is index of maximum
+  //    value which is consumend in subsequent graph.
+  // 4. One block in reducer body.
+  // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
+  //    different pattern. So pattern matching is performed separately.
+  bool isArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                ConversionPatternRewriter &rewriter) const {
+    if (!hasValidArgMaxInputs(srcOp.getInputs())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxOutputs(srcOp.getResults())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxInitValues(srcOp.getInitValues())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxReducerBody(srcOp.getBody())) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Validate the inputs.
+  bool hasValidArgMaxInputs(mlir::OperandRange inputs) const {
+    if (inputs.size() != 2) {
+      return false;
+    }
+
+    mlir::Value val = inputs.back();
+    auto *op = val.getDefiningOp();
+
+    // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
+    while (op) {
+      if (isa<mlir::stablehlo::IotaOp>(op)) {
+        return true;
+      }
+
+      if (isa<mlir::stablehlo::BroadcastInDimOp, mlir::stablehlo::ReshapeOp>(
+              op)) {
+        val = op->getOperand(0);
+        op = val.getDefiningOp();
+        continue;
+      }
+
+      return false;
+    }
+
+    return false;
+  }
+
+  // Validate the outputs.
+  bool hasValidArgMaxOutputs(mlir::ResultRange results) const {
+    if (results.size() != 2) {
+      return false;
+    }
+
+    if (!results.front().getUsers().empty() ||
+        results.back().getUsers().empty()) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate initialization values.
+  bool hasValidArgMaxInitValues(mlir::OperandRange initValues) const {
+    if (initValues.size() != 2) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.front(),
+                         TypicalInitReductionValue::NEG_INF)) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.back(), TypicalInitReductionValue::ZERO)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate reducer body.
+  bool hasValidArgMaxReducerBody(mlir::Region &body) const {
+    auto &blocks = body.getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+
+    auto &operations = blocks.front().getOperations();
+    if (operations.empty()) {
+      return false;
+    }
+
+    mlir::Operation &firstOp = operations.front();
+
+    // Torch and Jax ArgMax patterns are different.
+    if (verifyTorchOpArgMaxPattern(firstOp)) {
+      return true;
+    }
+    if (verifyJaxOpArgMaxPattern(firstOp)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // Pattern match the ops for tt-torch ArgMax op.
+  // The pattern is as follows:
+  //  stablehlo.compare (GE)
+  //  stablehlo.select / stablehlo.maximum
+  //  stablehlo.compare
+  //  stablehlo.min
+  //  stablehlo.select
+  //  stablehlo.select
+  //  stablehlo.return
+  bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp compareOp =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GE) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp, mlir::stablehlo::MaxOp>(
+            op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::MinOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Pattern match the ops for tt-xla ArgMax op.
+  // There are two potential patterns, one is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare
+  // stablehlo.or
+  // stablehlo.compare
+  // stablehlo.compare
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select
+  // stablehlo.select
+  // stablehlo.return
+  //
+  // The other pattern is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare (EQ)
+  // stablehlo.compare (LT)
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select / stablehlo.maximum
+  // stablehlo.select
+  // stablehlo.return
+  bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp compareOp0 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    if (compareOp0.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GT) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp compareOp1 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    op = op->getNextNode();
+    if (!op) {
+      return false;
+    }
+    if (isa<mlir::stablehlo::OrOp>(op)) {
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
+    }
+    if (isa<mlir::stablehlo::CompareOp>(op)) {
+      if (compareOp1.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::EQ) {
+        return false;
+      }
+      mlir::stablehlo::CompareOp compareOp2 =
+          mlir::cast<mlir::stablehlo::CompareOp>(op);
+      if (compareOp2.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::LT) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op) &&
+          !isa_and_nonnull<mlir::stablehlo::MaxOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  // Verify that the init value is defined by a constant op and initialize with
+  // desired value.
+  bool verifyInitValue(mlir::Value val,
+                       TypicalInitReductionValue desired) const {
+    Operation *initValue = val.getDefiningOp();
+    while (initValue->getOpOperands().size() == 1) {
+      initValue = initValue->getOpOperand(0).get().getDefiningOp();
+    }
+    if (!isa<mlir::stablehlo::ConstantOp>(initValue)) {
+      return false;
+    }
+
+    mlir::stablehlo::ConstantOp initValueOp =
+        mlir::cast<mlir::stablehlo::ConstantOp>(initValue);
+
+    if (!checkInitValue(initValueOp, desired)) {
+      return false;
+    }
+    return true;
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRDotGeneralOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
+  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
+                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
+        srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
+        adaptor.getDotDimensionNumbers().getLhsBatchingDimensions(),
+        adaptor.getDotDimensionNumbers().getLhsContractingDimensions(),
+        adaptor.getDotDimensionNumbers().getRhsBatchingDimensions(),
+        adaptor.getDotDimensionNumbers().getRhsContractingDimensions());
 
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -149,52 +653,48 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    ::mlir::RankedTensorType outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    auto input = Value(adaptor.getOperand());
-    auto transposes = getPermutationTransposes(adaptor.getPermutation().vec());
+    // The stablehlo.transpose and ttir.permute have the same semantics.
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PermuteOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getPermutation());
 
-    for (auto transposeDims : transposes) {
-      auto dim0 = std::get<0>(transposeDims);
-      auto dim1 = std::get<1>(transposeDims);
-
-      auto inputType = mlir::cast<RankedTensorType>(input.getType());
-      auto outputShape = inputType.getShape().vec();
-      std::swap(outputShape[dim0], outputShape[dim1]);
-
-      auto outputType = RankedTensorType::get(
-          outputShape, inputType.getElementType(), inputType.getEncoding());
-
-      auto outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputShape, outputType.getElementType());
-
-      input = rewriter.create<mlir::tt::ttir::TransposeOp>(
-          srcOp.getLoc(), outputType, input, outputTensor,
-          rewriter.getSI32IntegerAttr(dim0), rewriter.getSI32IntegerAttr(dim1),
-          rewriter.getArrayAttr(
-              SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                     rewriter.getAttr<OperandConstraintAttr>(
-                                         OperandConstraint::AnyDeviceTile))));
-    }
-    rewriter.replaceOp(srcOp, input);
     return success();
   }
+};
+} // namespace
 
-private:
-  std::vector<std::tuple<int64_t, int64_t>>
-  getPermutationTransposes(std::vector<int64_t> permutation) const {
-    std::vector<std::tuple<int64_t, int64_t>> transposes;
-    for (uint32_t i = 0; i < permutation.size(); i++) {
-      while (i != permutation[i]) {
-        transposes.push_back(
-            std::make_tuple(permutation[i], permutation[permutation[i]]));
-        std::swap(permutation[i], permutation[permutation[i]]);
-      }
-    }
+namespace {
 
-    return transposes;
+class StableHLOToBatchNormOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormInferenceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
+                  mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
+        adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
+        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
+    return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReshapeOp> {
   using OpConversionPattern<mlir::stablehlo::ReshapeOp>::OpConversionPattern;
@@ -206,161 +706,19 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    std::vector<int32_t> new_shape_i32;
-    for (int64_t dim : outputType.getShape()) {
-      new_shape_i32.push_back(static_cast<int32_t>(dim));
-    }
-    ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getOperand(), outputTensor, new_shape_attr,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
-    return success();
-  }
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(outputType.getShape()));
 
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::TransposeOp &srcOp,
-                     mlir::stablehlo::TransposeOp::Adaptor &adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    if (adaptor.getPermutation().size() != 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR supports only two dimensional transposeOp.");
-    }
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), newShapeAttr);
 
     return success();
   }
 };
+} // namespace
 
-class StableHLOToTTIRDotGeneralOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
-  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
-                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // This is a basic version that can only work for cases that can be directly
-    // converted to matmul. The op should be extended as other ops such as
-    // ttir.permute and ttir.broadcast_in_dim become available.
-
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::DotGeneralOp &srcOp,
-                     mlir::stablehlo::DotGeneralOp::Adaptor &adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
-        adaptor.getDotDimensionNumbers();
-
-    if (dimensions.getLhsContractingDimensions().size() != 1 ||
-        dimensions.getRhsContractingDimensions().size() != 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "LHS and RHS must have exactly 1 contracting dimension each. "
-          "Received LHS contracting dims: " +
-              std::to_string(dimensions.getLhsContractingDimensions().size()) +
-              ", RHS contracting dims: " +
-              std::to_string(dimensions.getRhsContractingDimensions().size()));
-    }
-
-    // Use negative indexing to determine if this is a valid matmul since math
-    // is done over the final two dimensions.
-    int64_t lhsContractingDim = dimensions.getLhsContractingDimensions()[0] -
-                                srcOp.getLhs().getType().getRank();
-    int64_t rhsContractingDim = dimensions.getRhsContractingDimensions()[0] -
-                                srcOp.getRhs().getType().getRank();
-
-    if (lhsContractingDim != -1) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only support contracting dimensions that correspond to valid "
-                 "matmuls. LHS contracting dimension must be " +
-                     std::to_string(srcOp.getLhs().getType().getRank() - 1) +
-                     ". Got " + std::to_string(lhsContractingDim));
-    }
-
-    if (rhsContractingDim != -2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only support contracting dimensions that correspond to valid "
-                 "matmuls. RHS contracting dimension must be " +
-                     std::to_string(srcOp.getRhs().getType().getRank() - 2) +
-                     ". Got " + std::to_string(rhsContractingDim));
-    }
-
-    if (dimensions.getLhsBatchingDimensions() !=
-        dimensions.getRhsBatchingDimensions()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "LHS and RHS must have same batching dimensions.");
-    }
-
-    // For the RHS, all dimensions which are not the row and column dimensions
-    // must be 1 OR they must be equal to the corresponding dimension in the
-    // LHS. If the RHS has less dimensions than the LHS we will assume that the
-    // missing dimensions are 1.
-
-    auto lhsShape = srcOp.getLhs().getType().getShape().vec();
-    auto rhsShape = srcOp.getRhs().getType().getShape().vec();
-
-    if (rhsShape.size() > lhsShape.size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "RHS must not be a higher rank than LHS.");
-    }
-
-    while (rhsShape.size() < lhsShape.size()) {
-      rhsShape.insert(rhsShape.begin(), 1);
-    }
-
-    // Need only to check dims to the left of dim -2 on the RHS
-    bool allOnes = true;
-    bool mismatchedDims = false;
-    for (int32_t i = rhsShape.size() - 3; i >= 0; i--) {
-      if (rhsShape[i] != 1) {
-        allOnes = false;
-      }
-
-      if (rhsShape[i] != lhsShape[i]) {
-        mismatchedDims = true;
-      }
-    }
-
-    if (mismatchedDims && !allOnes) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "All dimensions in the RHS that are not the row and column "
-                 "dimensions must be 1 OR they must all be equal to the "
-                 "corresponding dimensions in the LHS.");
-    }
-
-    return success();
-  }
-};
-
+namespace {
 class StableHLOToTTIRGetDimensionSizeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GetDimensionSizeOp> {
 
@@ -373,7 +731,7 @@ public:
                   mlir::stablehlo::GetDimensionSizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     IntegerType intType = IntegerType::get(getContext(), 32);
-    RankedTensorType outputType = RankedTensorType::get({1}, intType);
+    RankedTensorType outputType = RankedTensorType::get({}, intType);
     mlir::OpBuilder builder(getContext());
     IntegerAttr dimension_attr = builder.getIntegerAttr(
         intType, static_cast<int32_t>(srcOp.getDimension()));
@@ -384,7 +742,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConstantOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
 
@@ -395,129 +755,187 @@ public:
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
+    // Check legality of the conversion.
+    if (failed(checkConversionLegality(srcOp, rewriter))) {
+      return failure();
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto convertedType =
+        getTypeConverter()->convertType(srcOp.getResult().getType());
+    auto outputType = cast<mlir::RankedTensorType>(convertedType);
 
-    mlir::ElementsAttr valueAttr = getValueAttr(srcOp.getValue());
+    // In case value attr is scalar we need to convert it to 1D tensor.
+    ElementsAttr newValueAttr = getValueAttr(srcOp.getValue());
+    if (!newValueAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expected DenseElementsAttr or DenseResourceElementsAttr");
+    }
 
+    // Replace with ttir.constant.
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
-                                                            valueAttr);
+                                                            newValueAttr);
+
     return success();
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
-                                   ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getValue().getShapedType().getShape().empty() &&
+  ElementsAttr getValueAttr(ElementsAttr valueAttr) const {
+    // Shape is not empty, so we can return the value as is.
+    if (!valueAttr.getShapedType().getShape().empty()) {
+      return valueAttr;
+    }
+
+    auto valueShapedType = cast<mlir::ShapedType>(
+        getTypeConverter()->convertType(valueAttr.getType()));
+    if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(valueAttr)) {
+      llvm::SmallVector<mlir::Attribute> values(
+          denseAttr.getValues<mlir::Attribute>());
+      return mlir::DenseElementsAttr::get(valueShapedType, values);
+    }
+
+    if (auto resourceAttr =
+            dyn_cast<mlir::DenseResourceElementsAttr>(valueAttr)) {
+      // Rebuild with new type + same resource handle.
+      return mlir::DenseResourceElementsAttr::get(valueShapedType,
+                                                  resourceAttr.getRawHandle());
+    }
+
+    return nullptr;
+  }
+
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::ConstantOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
         !srcOp.getValue().getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
+      return rewriter.notifyMatchFailure(
+          srcOp, "ttir.constant only supports DenseElementsAttr or "
+                 "DenseResourceElementsAttr with int or float types.");
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRQuantizeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::UniformQuantizeOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::UniformQuantizeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::UniformQuantizeOp srcOp,
+                  mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
+
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+    // Call the Quantize op if the input type is float.
+    if (mlir::isa<FloatType>(inputType.getElementType())) {
+      return matchAndRewriteInternal<mlir::tt::ttir::QuantizeOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
+
+    // Call the Requantize op if the input type is quantized
+    // per-tensor/per-axis.
+    if (mlir::isa<mlir::quant::UniformQuantizedType,
+                  mlir::quant::UniformQuantizedPerAxisType>(
+            inputType.getElementType())) {
+      return matchAndRewriteInternal<mlir::tt::ttir::RequantizeOp>(
+          srcOp, adaptor, rewriter);
+    }
+
+    return failure();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::UniformQuantizeOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    // Expect a single input/output.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Expected a single input/output.");
+    }
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Get the element type of the output tensor.
+    if (!isa<mlir::quant::QuantizedType>(outputType.getElementType())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expected output element type to be quant.uniform");
     }
 
     return success();
   }
 
-  // Rebuilding value of constant op for following cases.
-  // 1. Scalar values: TTNN does not support scalar types. So they are converted
-  //    1-D tensors.
-  // 2. Boolean tensor: TTNN does not support boolean data. So they are
-  //    converted to bfloat16 tensors.
-  // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor.
-  // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
-  //    to 32 bit tensor.
-  mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
-    Type elementType = valueAttr.getElementType();
-    size_t bitWidth = elementType.getIntOrFloatBitWidth();
-    bool isTensor = !valueAttr.getShapedType().getShape().empty();
-    bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
-                       bitWidth != 1 && bitWidth != 64;
-    bool isFloatTensor = isTensor && isa<FloatType>(elementType) &&
-                         bitWidth != 1 && bitWidth != 64;
+  template <typename DestOp>
+  LogicalResult
+  matchAndRewriteInternal(mlir::stablehlo::UniformQuantizeOp srcOp,
+                          mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    // Replace the StableHLO UniformQuantizeOp with the TTIR QuantizeOp or
+    // RequantizeOp.
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (isTensor && (isIntTensor || isFloatTensor)) {
-      return valueAttr;
-    }
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperand());
 
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-    if (isa<IntegerType>(elementType)) {
-      switch (bitWidth) {
-      case 1: {
-        return rebuildValueAttr<bool>(valueAttr, 1);
-      }
-      case 8: {
-        return rebuildValueAttr<int8_t>(valueAttr, 8);
-      }
-      case 16: {
-        return rebuildValueAttr<int16_t>(valueAttr, 16);
-      }
-      case 32: {
-        return rebuildValueAttr<int32_t>(valueAttr, 32);
-      }
-      case 64: {
-        return rebuildValueAttr<int64_t>(valueAttr, 32);
-      }
-      default: {
-        assert(false && "Unsupported integer type.");
-      }
-      }
-    }
-    if (isa<FloatType>(elementType)) {
-      // Convert 64 bit floating point numbers to 32 bit floating point numbers.
-      if (bitWidth == 64) {
-        std::vector<mlir::APFloat> floatValues;
-        for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
-          float fl = static_cast<float>(value.convertToDouble());
-          mlir::APFloat input = mlir::APFloat(fl);
-          floatValues.emplace_back(input);
-        }
-        return mlir::DenseElementsAttr::get(valueType, floatValues);
-      }
-      // In case of float values llvm has a bug where not all float types are
-      // supported for iterating in DenseElementsAttr, so we have to use a
-      // different constructor.
-      std::vector<mlir::APFloat> floatValues(
-          valueAttr.getValues<mlir::APFloat>().begin(),
-          valueAttr.getValues<mlir::APFloat>().end());
-      return mlir::DenseElementsAttr::get(valueType, floatValues);
-    }
-    assert(false && "Unsupported data type.");
-  }
-
-  // Extract the values (using the given ElementType) and create new data
-  // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, and int64) and tensors (of type boolean and int64).
-  template <typename ElementType>
-  mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
-                                      size_t bitWidth) const {
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-
-    // Create data structure for boolean type with bfloat16.
-    if (bitWidth == 1) {
-      std::vector<mlir::APFloat> booleanValue = {};
-      for (ElementType value : valueAttr.getValues<ElementType>()) {
-        mlir::APFloat input(mlir::APFloat::BFloat(), value);
-        booleanValue.emplace_back(input);
-      }
-      return mlir::DenseElementsAttr::get(valueType, booleanValue);
-    }
-
-    // Create data structure for other types.
-    std::vector<mlir::APInt> IntegerValue = {};
-    for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
-      IntegerValue.emplace_back(input);
-    }
-    return mlir::DenseElementsAttr::get(valueType, IntegerValue);
+    return success();
   }
 };
+} // namespace
 
+namespace {
+class StableHLOToTTIRDequantizeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::UniformDequantizeOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::UniformDequantizeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::UniformDequantizeOp srcOp,
+                  mlir::stablehlo::UniformDequantizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand());
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::UniformDequantizeOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    // Expect a single input/output.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Expected a single input/output.");
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRConvolutionOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
   using OpConversionPattern<
@@ -531,9 +949,6 @@ public:
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     auto dimNums = adaptor.getDimensionNumbers();
     uint64_t numSpatialDims = dimNums.getInputSpatialDimensions().size();
@@ -567,10 +982,10 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConvolutionOp>(
-        srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        mlir::Value(nullptr), outputTensor, windowStridesAttr, paddingAttr,
-        inputDilationAttr, kernelDilationAttr, windowReversalAttr,
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
+        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
+        Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
+        kernelDilationAttr, windowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), dimNums.getInputBatchDimension(),
             dimNums.getInputFeatureDimension(),
@@ -581,79 +996,86 @@ public:
             dimNums.getOutputBatchDimension(),
             dimNums.getOutputFeatureDimension(),
             dimNums.getOutputSpatialDimensions()),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
 
     return success();
   }
 };
+} // namespace
 
+//===----------------------------------------------------------------------===//
+// StableHLOToTTIRReduceWindowOpConversionPattern
+// The lowering is specialized for a few well-structured cases and **does not**
+// handle all valid StableHLO patterns. Current assumptions:
+//  - The body block must contain only `stablehlo.{add,max}` ops followed by a
+//    `stablehlo.return`. Other reductions (e.g., min, multiply) are
+//    unsupported.
+//  - The number of body reduction ops must match the number of inputs.
+//  - The initial values (`init_values`) must be stablehlo.constant ops that are
+//    either zero or negative infinity (NEG_INF). Function arguments or more
+//    complex expressions are not currently supported.
+//  - Mixed dtypes across inputs are supported, but reduction op must match
+//  type.
+//  - `CumSum` lowering only works for single-input/single-output cases and
+//    must satisfy specific window/padding rules (see isCumSum()).
+// This conversion is tailored toward cases like maxpool2d, avgpool2d (via
+// sum+div), and cumulative sum.
+// TODO(anusingh):
+//  - Support initialization via function arguments
+//  - Generalize to other reduction ops
+//  - Extract and match nested operations in reduction blocks
+//===----------------------------------------------------------------------===//
+
+namespace {
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
 
 public:
-  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp) const {
-    if (srcOp.getBody().getBlocks().size() != 1) {
-      return false;
-    }
-
-    // Find constant input(s)
-    Operation *initValue;
-    for (uint64_t i = 0; i < srcOp.getInitValues().size(); i++) {
-      initValue = srcOp.getInitValues()[i].getDefiningOp();
-      while (initValue->getOpOperands().size() == 1) {
-        initValue = initValue->getOpOperand(0).get().getDefiningOp();
-      }
-      if (!isa<stablehlo::ConstantOp>(initValue)) {
-        return false;
-      }
-
-      stablehlo::ConstantOp initValueOp =
-          mlir::cast<stablehlo::ConstantOp>(initValue);
-
-      if (!checkInitValue(initValueOp, TypicalInitReductionValue::NEG_INF)) {
-        return false;
-      }
-    }
-
-    Block &block = *srcOp.getBody().getBlocks().begin();
-    uint32_t opIdx = 0;
-    for (Operation &op : block) {
-      if (opIdx == 0 && !isa<mlir::stablehlo::MaxOp>(op)) {
-        return false;
-      }
-      if (opIdx == 1 && !isa<mlir::stablehlo::ReturnOp>(op)) {
-        return false;
-      }
-      if (opIdx >= 2) {
-        return false; // More than two ops in the block
-      }
-      opIdx++;
-    }
-
-    return true;
-  }
-
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-
-    SmallVector<Value> outputsVec;
-    for (uint32_t i = 0; i < srcOp.getResults().size(); i++) {
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-      outputsVec.push_back(outputTensor);
+    // Check basic structure of the ReduceWindowOp
+    if (!hasValidOpStructure(srcOp)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Invalid structure of reduce window block.");
     }
-    ValueRange outputs = outputsVec;
+
+    // Extract initialization constant value per input.
+    std::optional<llvm::SmallVector<TypicalInitReductionValue>> initValues =
+        extractInitValues(srcOp);
+    if (!initValues) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unable to extract constant initialization value.");
+      ;
+    }
+    if (initValues->size() != srcOp.getInputs().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between inputs and init values.");
+    }
+
+    // Validate block body.
+    Block &block = *srcOp.getBody().getBlocks().begin();
+    auto &operations = block.getOperations();
+    // Collect reduction ops.
+    SmallVector<mlir::Operation *> reductionOps;
+    for (Operation &op : llvm::drop_end(operations, 1)) {
+      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Unsupported reduction body op.");
+      }
+      reductionOps.push_back(&op);
+    }
+    if (!isa<mlir::stablehlo::ReturnOp>(operations.back())) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid last op in the block.");
+    }
+    if (reductionOps.size() != srcOp.getInputs().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between inputs and body ops.");
+    }
 
     auto windowDimensions = adaptor.getWindowDimensionsAttr();
     auto windowStrides = adaptor.getWindowStridesAttr();
@@ -680,135 +1102,345 @@ public:
                        SmallVector<int64_t>(padding_.getValues<int64_t>()))
                  : rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
-
-    auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
-        adaptor.getOperands().size(), rewriter.getAttr<OperandConstraintAttr>(
-                                          OperandConstraint::AnyDeviceTile)));
-
-    mlir::tt::ttir::PoolingMethod poolingMethod;
-    if (isMaxPool(srcOp)) {
-      poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
-    } else {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
+    // Handle cumsum case.
+    if (srcOp.getInputs().size() == 1) {
+      std::optional<int64_t> dimension =
+          isCumSum(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
+      if (dimension) {
+        mlir::RankedTensorType resultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+        ttir::utils::replaceOpWithNewDPSOp<ttir::CumSumOp>(
+            rewriter, srcOp, resultType, adaptor.getInputs()[0],
+            rewriter.getI64IntegerAttr(*dimension));
+        return success();
+      }
     }
-
-    for (Value initValue : adaptor.getInitValues()) {
-      eraseInitValueSubgraph(rewriter, initValue.getDefiningOp());
+    // Build per-input pooling ops.
+    SmallVector<Value> resultVals;
+    for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
+      Value input = adaptor.getInputs()[i];
+      mlir::RankedTensorType resultType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+      TypicalInitReductionValue initVal = (*initValues)[i];
+      mlir::Operation *frontOp = reductionOps[i];
+      ttir::PoolingMethod method;
+      if (isMaxPool(srcOp, initVal, frontOp)) {
+        method = ttir::PoolingMethod::Max;
+      } else if (isSumPool(srcOp, initVal, frontOp)) {
+        std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
+        if (divOp && i == 0) {
+          method = ttir::PoolingMethod::Average;
+          ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+              rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
+              windowDimensions, windowStrides, baseDilations, window_dilations,
+              padding);
+          resultVals.push_back(poolingOp->getResult(0));
+          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp->getResult(0));
+          rewriter.eraseOp(*divOp);
+          continue;
+        }
+        method = ttir::PoolingMethod::Sum;
+      } else {
+        return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
+      }
+      ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+          rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
+          windowDimensions, windowStrides, baseDilations, window_dilations,
+          padding);
+      llvm::append_range(resultVals, poolingOp->getResults());
     }
-
-    rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
-        srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
-        windowDimensions, windowStrides, baseDilations, window_dilations,
-        padding, operandConstraints);
-
+    rewriter.replaceOp(srcOp, resultVals);
     return success();
   }
 
 private:
-  void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
-                              Operation *op) const {
-
-    std::vector<Operation *> opsToErase;
-    opsToErase.push_back(op);
-
-    bool addedOps = true;
-    while (addedOps) {
-      addedOps = false;
-      Operation *currentOp = opsToErase.back();
-
-      for (auto &operand : currentOp->getOpOperands()) {
-        Operation *definingOp = operand.get().getDefiningOp();
-        if (definingOp->hasOneUse() || definingOp->use_empty()) {
-          addedOps = true;
-          opsToErase.push_back(definingOp);
-        }
-      }
+  // Requirements for max pooling.
+  // 1. Front op in the block must be 'max'.
+  // 2. InitValue must be negative infinity.
+  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp,
+                 TypicalInitReductionValue initValue,
+                 mlir::Operation *frontOp) const {
+    if (!isa<mlir::stablehlo::MaxOp>(frontOp)) {
+      return false;
     }
-
-    for (auto &op : opsToErase) {
-      rewriter.eraseOp(op);
+    if (initValue != TypicalInitReductionValue::NEG_INF) {
+      return false;
     }
+    return true;
   }
 
-  // Just to make the code more readable
-  enum TypicalInitReductionValue {
-    NEG_INF, // used for max pooling
-    ZERO,    // used for sum pooling
-  };
-
-  // Using the value enum rather than actual values because of different data
-  // types the init value could be
-  bool checkInitValue(stablehlo::ConstantOp initValueOp,
-                      TypicalInitReductionValue desired) const {
-    if (initValueOp.getValueAttr().size() != 1) {
+  // Requirements for sum pooling.
+  // 1. Front op in the block must be 'add'.
+  // 2. InitValue must be zero.
+  bool isSumPool(mlir::stablehlo::ReduceWindowOp &srcOp,
+                 TypicalInitReductionValue initValue,
+                 mlir::Operation *frontOp) const {
+    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
       return false;
     }
-
-    float desiredF32;
-    double desiredF64;
-    uint16_t desiredBF16;
-    int32_t desiredI32;
-    int64_t desiredI64;
-    if (desired == TypicalInitReductionValue::NEG_INF) {
-      desiredF32 = -std::numeric_limits<float>::infinity();
-      desiredF64 = -std::numeric_limits<double>::infinity();
-      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
-      desiredI32 = std::numeric_limits<int32_t>::min();
-      desiredI64 = std::numeric_limits<int64_t>::min();
-    } else if (desired == TypicalInitReductionValue::ZERO) {
-      desiredF32 = 0.0;
-      desiredF64 = 0.0;
-      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
-      desiredI32 = 0;
-      desiredI64 = 0;
-    } else {
-      return false;
-    }
-
-    // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we acually have I must compare the raw
-    // bits
-    if (initValueOp.getResult().getType().getElementType().isBF16()) {
-      // Collect the values into a vector
-      std::vector<mlir::Attribute> values;
-      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-        values.push_back(
-            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
-      }
-
-      auto denseValues = ::mlir::DenseElementsAttr::get(
-          initValueOp.getValueAttr().getShapedType(), values);
-      uint16_t bfloat_bits =
-          static_cast<uint16_t>(*denseValues.getRawData().data());
-      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
-    } else {
+    if (initValue != TypicalInitReductionValue::ZERO) {
       return false;
     }
 
     return true;
   }
-};
 
+  // This function verifies all the required conditions to convert stablehlo
+  // reduce_window op to TTIR cumsum op and also determine the dimension
+  // attribute along which the cumulative sum will be computed.
+  // The reduce_window op must satisfy the following conditions.
+  // 1. Front op in the block must be 'add'.
+  // 2. InitValue must be zero.
+  // 3. There are no strides or dilations for window-related attributes.
+  // 4. The size of padding attribute is equal to two times input tensor rank.
+  // 5. Padding value must be zero in case of splat vector. Window dimension
+  //    attribute must have all elements equal to one in this case.
+  // 6. Padding attribute have one non-zero element in case of non-splat vector
+  //    and this non-zero element must be equal to size of specified dimension
+  //    minus one.
+  // The dimension attribute is determined in following two ways.
+  // 1. (If padding is splat vector): First dimension in the input tensor shape,
+  //    whose size is 1, is the required dimension.
+  // 2. (If padding is non-splat vector): Window dimension attribute must have
+  //    all elements equal to 1 except one; whose location is the required
+  //    dimension and value must be qual to size of the required dimension.
+  std::optional<int64_t>
+  isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
+           mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+           TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+           DenseI64ArrayAttr padding) const {
+    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
+      return std::nullopt;
+    }
+
+    if (initValue != TypicalInitReductionValue::ZERO) {
+      return std::nullopt;
+    }
+
+    // Verify window-related attributes (strides, dilations)
+    if (!hasValidWindowAttributes(adaptor)) {
+      return std::nullopt;
+    }
+
+    int64_t dimension;
+    // Check input tensor type and padding
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
+      return std::nullopt;
+    }
+
+    return dimension;
+  }
+
+  // Helper function to find the StableHLO constant defining op by traversing
+  // through operations that preserve constant semantics (similar to
+  // getConstantValueDefiningOp).
+  mlir::stablehlo::ConstantOp
+  getStableHLOConstantDefiningOp(Value value) const {
+    Operation *valueDef = value.getDefiningOp();
+
+    // Only traverse through operations that preserve constant semantics
+    while (isa_and_nonnull<mlir::stablehlo::ReshapeOp,
+                           mlir::stablehlo::BroadcastInDimOp,
+                           mlir::stablehlo::ConvertOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+    return mlir::dyn_cast_if_present<mlir::stablehlo::ConstantOp>(valueDef);
+  }
+
+  // Extract the constant initialization value.
+  std::optional<llvm::SmallVector<TypicalInitReductionValue>>
+  extractInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    llvm::SmallVector<TypicalInitReductionValue> initValues;
+    for (auto initValue : srcOp.getInitValues()) {
+      auto constantOp = getStableHLOConstantDefiningOp(initValue);
+      if (!constantOp) {
+        return std::nullopt;
+      }
+      if (checkInitValue(constantOp, TypicalInitReductionValue::NEG_INF)) {
+        initValues.push_back(TypicalInitReductionValue::NEG_INF);
+      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ZERO)) {
+        initValues.push_back(TypicalInitReductionValue::ZERO);
+      } else {
+        return std::nullopt;
+      }
+    }
+    if (initValues.size() != srcOp.getInitValues().size()) {
+      return std::nullopt;
+    }
+    return initValues;
+  }
+
+  // Validate structure of the ReduceWindowOp.
+  // - Body must have exactly one block.
+  // - Block must contain at least one reduction op.
+  // - The number of inputs must equal the number of outputs.
+  bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    auto &blocks = srcOp.getBody().getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+    const auto &ops = blocks.front().getOperations();
+    if (ops.size() < 2) {
+      return false;
+    }
+    if (srcOp.getInputs().size() != srcOp.getResults().size()) {
+      return false;
+    }
+    return true;
+  }
+
+  // Verify that all window-related attributes (strides and dilations) are
+  // either absent or explicitly set to 1 for every dimension. This ensures the
+  // op represents a simple sliding window without dilation or subsampling.
+  bool hasValidWindowAttributes(
+      mlir::stablehlo::ReduceWindowOp::Adaptor adaptor) const {
+    auto verifyAttributes = [](mlir::DenseI64ArrayAttr arrAttr) -> bool {
+      if (!arrAttr) {
+        return true;
+      }
+      return std::all_of(arrAttr.asArrayRef().begin(),
+                         arrAttr.asArrayRef().end(),
+                         [](int value) { return value == 1; });
+    };
+    return verifyAttributes(adaptor.getWindowStridesAttr()) &&
+           verifyAttributes(adaptor.getBaseDilationsAttr()) &&
+           verifyAttributes(adaptor.getWindowDilationsAttr());
+  }
+
+  // Validate input rank, padding shape, and window dimensions to determine
+  // whether this reduce_window can be interpreted as a cumsum along one
+  // dimension.
+  bool hasValidInputAndPadding(mlir::stablehlo::ReduceWindowOp &srcOp,
+                               mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                               int64_t &dimension,
+                               DenseI64ArrayAttr padding) const {
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
+    int64_t inputRank = inputType.getRank();
+    llvm::ArrayRef<int64_t> windowDimensions =
+        adaptor.getWindowDimensionsAttr().asArrayRef();
+
+    // Validate padding size.
+    if (padding.size() != (inputRank * 2)) {
+      return false;
+    }
+
+    // Check for splat padding (all zeroes expected).
+    if (llvm::all_equal(padding.asArrayRef())) {
+      if (padding[0] != 0) {
+        return false;
+      }
+      if (!llvm::all_of(windowDimensions,
+                        [](int value) { return value == 1; })) {
+        return false;
+      }
+      // Determine the dimension using input tensor shape.
+      return findDimensionWithShape(inputType, dimension);
+    }
+
+    // Check non-splat padding and ensure the window dimensions and padding are
+    // consistent and determine the dimension attribute.
+    return validateNonSplatPadding(windowDimensions, padding, inputType,
+                                   dimension);
+  }
+
+  // Finds the first dimension of the input with size == 1.
+  bool findDimensionWithShape(RankedTensorType inputType,
+                              int64_t &dimension) const {
+    dimension = -1;
+    for (int64_t size : inputType.getShape()) {
+      ++dimension;
+      if (size == 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Determine and validate dimension attribute for non-splat padding attribute.
+  bool validateNonSplatPadding(llvm::ArrayRef<int64_t> windowDimensions,
+                               DenseI64ArrayAttr padding,
+                               RankedTensorType inputType,
+                               int64_t &dimension) const {
+    int64_t dimArgValue = -1;
+    int64_t idx = -1;
+
+    // Determine dimension attribute.
+    for (int64_t windowDim : windowDimensions) {
+      ++idx;
+      if (windowDim == 1) {
+        continue;
+      }
+      if (dimArgValue != -1) {
+        return false; // Ensure only one non-1 element.
+      }
+      dimArgValue = windowDim;
+      dimension = idx;
+    }
+
+    // Validate dimension attribute.
+    if (dimArgValue != inputType.getShape()[dimension] || dimArgValue <= 1) {
+      return false;
+    }
+
+    for (int64_t i = 0; i < padding.size(); ++i) {
+      if (i == (dimension * 2)) {
+        if (padding[i] != (dimArgValue - 1)) {
+          return false;
+        }
+      } else if (padding[i] != 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Verify that the output of reduce window op is consumed by division op and
+  // the divisor is initialized with a constant op which is equal to number of
+  // elements in the kernel.
+  std::optional<mlir::Operation *>
+  extractDivisor(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    mlir::Operation *op = *srcOp->getUsers().begin();
+    if (isa_and_nonnull<mlir::stablehlo::BroadcastInDimOp>(op)) {
+      op = *op->getUsers().begin();
+    }
+    if (!isa_and_nonnull<mlir::stablehlo::DivOp>(op)) {
+      return std::nullopt;
+    }
+    mlir::Operation *divOp = op;
+
+    op = op->getOperand(1).getDefiningOp();
+    while (mlir::isa_and_present<mlir::stablehlo::BroadcastInDimOp,
+                                 mlir::stablehlo::ReshapeOp,
+                                 mlir::stablehlo::ConvertOp>(op)) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+
+    auto constantOp =
+        mlir::dyn_cast_if_present<mlir::stablehlo::ConstantOp>(op);
+    if (!constantOp) {
+      return std::nullopt;
+    }
+    if (constantOp.getType().getShape().size()) {
+      return std::nullopt;
+    }
+    auto kernel = srcOp.getWindowDimensions();
+    int64_t kernelSize = 1;
+    for (int64_t element : kernel) {
+      kernelSize *= element;
+    }
+    int64_t divisor =
+        constantOp.getValueAttr().getSplatValue<llvm::APInt>().getZExtValue();
+    if (divisor == kernelSize) {
+      return divOp;
+    }
+    return std::nullopt;
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
   using OpConversionPattern<
@@ -819,35 +1451,73 @@ public:
   matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
                   mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
+    auto inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOperand().getType()));
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg =
-        rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+    if (inputType.getRank() == outputType.getRank()) {
+      // No unsqueeze is needed in this case and this broadcast can be
+      // represented by broadcast op.
+      ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+      ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        Value(adaptor.getOperand()), Value(outputTensor), dimArg,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
+                                                         outputShape);
+
+      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
+          rewriter, srcOp, outputType, adaptor.getOperand(), broadcastShape);
+    } else {
+      // This stablehlo operation cannot be represented by a single TTIR
+      // operation. It has to be split into ttir.reshape followed by a
+      // ttir.broadcast op.
+      SmallVector<int64_t> unsqueezeShape(outputType.getRank(), 1);
+      ::llvm::ArrayRef<int64_t> broadcastInDim =
+          adaptor.getBroadcastDimensions();
+
+      // Since we convert scalars to 1D tensors as a special case,
+      // so check input dimension is not empty.
+      if (!broadcastInDim.empty()) {
+        for (int64_t i = 0; i < inputType.getRank(); i++) {
+          unsqueezeShape[broadcastInDim[i]] = inputType.getDimSize(i);
+        }
+      }
+
+      SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                      unsqueezeShape.end());
+      auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+
+      ttir::ReshapeOp reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp.getLoc(), unsqueezeShape, outputType.getElementType(),
+          outputType.getEncoding(), adaptor.getOperand(), reshapeDimAttr);
+
+      ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
+      ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
+                                                         outputShape);
+
+      ttir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
+          rewriter, srcOp, outputType, reshapeOp, broadcastShape);
+    }
 
     return success();
   }
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::BroadcastInDimOp &srcOp,
-                     mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::BroadcastInDimOp &srcOp,
+                          mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     auto srcType =
@@ -864,7 +1534,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRCompareOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompareOp> {
   using OpConversionPattern<mlir::stablehlo::CompareOp>::OpConversionPattern;
@@ -923,23 +1595,16 @@ private:
     mlir::RankedTensorType outputType =
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp,
-        TypeRange(
-            this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConcatOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
 
@@ -952,8 +1617,8 @@ public:
                   mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -962,30 +1627,18 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
+        rewriter, srcOp, outputType, adaptor.getInputs(),
+        static_cast<int32_t>(adaptor.getDimension()));
 
-    // Replace the original ConcatOp with the destination operation
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
-        srcOp,
-        outputType,          // result type
-        adaptor.getInputs(), // input values
-        Value(outputTensor), // output value
-        rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(adaptor.getDimension())), // dimension
-        rewriter.getArrayAttr( // operand constraints
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
     return success();
   }
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
-                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::ConcatenateOp &srcOp,
+                          mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (srcOp.getInputs().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "ConcatOp must have at least one input.");
@@ -1008,10 +1661,19 @@ private:
     return success();
   }
 };
+} // namespace
 
-template <typename SrcOp, typename DestOp,
+// Class implementing conversion from StableHLO to TTIR logical and bitwise ops.
+// StableHLO has AND, OR, XOR and NOT ops defined in such a way that they do two
+// different things based on type of inputs. In case of booleans, they perform
+// logical version of the op, and in case of integers they perform bitwise
+// version of the op. We made a decision to make those two cases completely
+// distinct ops in TTIR. Thus, a StableHLO `SrcOp` is rewritten to one of
+// `DestOp`s based on operand types.
+namespace {
+template <typename SrcOp, typename LogicalDestOp, typename BitwiseDestOp,
           typename Adaptor = typename SrcOp::Adaptor>
-class StableHLOToTTIROpLogicalOpConversionPattern
+class StableHLOToTTIRLogicalAndBitwiseOpConversionPattern
     : public OpConversionPattern<SrcOp> {
 
   using OpConversionPattern<SrcOp>::OpConversionPattern;
@@ -1020,48 +1682,46 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp,
-        TypeRange(
-            this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+
+    if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
+      ttir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
+          rewriter, srcOp, outputType, adaptor.getOperands());
+    } else {
+      ttir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
+          rewriter, srcOp, outputType, adaptor.getOperands());
+    }
+
     return success();
   }
 
 private:
-  LogicalResult checkBasicLegality(SrcOp srcOp, Adaptor adaptor,
-                                   ConversionPatternRewriter &rewriter) const {
-    if (mlir::cast<RankedTensorType>(srcOp->getOperand(0).getType())
-                .getElementTypeBitWidth() > 1 &&
-        mlir::cast<RankedTensorType>(srcOp->getOperand(1).getType())
-                .getElementTypeBitWidth() > 1) {
-      llvm::errs()
-          << "error: TTIR does not support bitwise logical operation.\n";
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR does not support bitwise logical operation.");
-    }
+  enum StableHLOOpType { kLogical = 0, kBitwise = 1 };
 
-    return success();
+  // Determines stablehlo op type based on its operand types (i.e. their
+  // bit width). This assumes boolean operands are modeled as 1bit wide ints.
+  static StableHLOOpType getStableHLOOpType(const SrcOp &srcOp) {
+    // Checks if all operands are boolean (have bit width equal to 1).
+    bool allOperandsAreBoolean = std::all_of(
+        srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+          return mlir::cast<RankedTensorType>(operand.getType())
+                     .getElementTypeBitWidth() == 1;
+        });
+
+    return allOperandsAreBoolean ? StableHLOOpType::kLogical
+                                 : StableHLOOpType::kBitwise;
   }
 };
+} // namespace
 
-template <typename SrcOpTy>
-LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
-  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value) {
-    return failure();
+template <typename SrcOpT>
+static llvm::ErrorOr<ttcore::ReduceType> getReduceType(SrcOpT srcOp) {
+  if constexpr (!std::is_same<SrcOpT, mlir::stablehlo::AllReduceOp>::value &&
+                !std::is_same<SrcOpT,
+                              mlir::stablehlo::ReduceScatterOp>::value) {
+    return llvm::ErrorOr<ttcore::ReduceType>(
+        std::make_error_code(std::errc::operation_not_supported));
   }
   // Check operations in the first block and determine reduce type for now
   // TODO(wooseoklee): This pattern matching mechanism may need to be updated as
@@ -1069,20 +1729,72 @@ LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
   auto &block = srcOp.getRegion().front();
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
-      reduceType = ReduceType::Sum;
-      return success();
+      return ttcore::ReduceType::Sum;
     }
     if (isa<mlir::stablehlo::MaxOp>(op)) {
-      reduceType = ReduceType::Max;
-      return success();
+      return ttcore::ReduceType::Max;
     }
     if (isa<mlir::stablehlo::MinOp>(op)) {
-      reduceType = ReduceType::Min;
-      return success();
+      return ttcore::ReduceType::Min;
     }
   }
   // Other reduce types are currently not supported
-  return failure();
+  return llvm::ErrorOr<ttcore::ReduceType>(
+      std::make_error_code(std::errc::operation_not_supported));
+}
+
+static LogicalResult
+determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
+                     uint32_t &clusterAxis) {
+  /*
+  We need to figure out what the cluster axis is based on replica_groups.
+  Replica groups define which device axis we are performing the collective
+  communication operation on. It is a 2D vector. Each element in replica_groups
+  contains a list of devices that will perform the collective communication
+  operation with each other. Currently we only support 2D meshes, but this
+  algorithm can be expanded for ND.
+
+  ex.
+  mesh = [2, 4]
+  replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 1, 2, 3) and (4, 5, 6, 7) so
+  cluster_axis = 1 (mesh[1])
+
+  mesh = [2, 4]
+  replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 4), (1, 5), (2, 6), (3, 7)
+  so cluster_axis = 0 (mesh[0])
+
+  */
+  auto replicaGroupsShape = replicaGroups.getType().getShape();
+
+  if (replicaGroupsShape.size() != 2) {
+    // Can only have replica groups of size 2. Otherwise, this is an ill formed
+    // graph and needs to be asserted.
+    return failure();
+  }
+
+  // Case where we have single devices in each replica_group (ie perform
+  // collective communication operation against itself which should be optimized
+  // away). We also assume we are only using our constrained mesh types (ie 1x8,
+  // 1x32 etc) and cannot have (32x1, 8x1).
+  if (replicaGroupsShape[1] != 1) {
+    auto firstElementIt = replicaGroups.begin();
+    auto secondElementIt = firstElementIt + 1;
+
+    clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    return success();
+  }
+
+  // If replicaGroupsShape[1] == 1, then the cluster axis should be set to 0.
+  clusterAxis = 0;
+  return success();
 }
 
 // StalbeHLO spec.md defines following channel type for ccl ops
@@ -1101,6 +1813,7 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
+namespace {
 class StableHLOToTTIRAllReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::AllReduceOp> {
 
@@ -1112,8 +1825,135 @@ public:
                   mlir::stablehlo::AllReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp cannot specify cluster axis.");
+    }
+
+    // Convert reduceType stablehlo attribute into ttir attribute
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
+    if (!reduceType) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp cannot specify reduce type.");
+    }
+
+    // Handle variadic input/output pairs by creating mulitple AllReduceOps.
+    llvm::SmallVector<mlir::Value> allReduceOpResults;
+    for (auto [inputOperand, resultOperand] :
+         llvm::zip_equal(adaptor.getOperands(), srcOp->getResults())) {
+      auto outputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(resultOperand.getType()));
+
+      auto allReduceOp = ttir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
+          rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
+          clusterAxis);
+
+      allReduceOpResults.push_back(allReduceOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, allReduceOpResults);
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::AllReduceOp &srcOp,
+                          mlir::stablehlo::AllReduceOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getOperands().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp must have at least one input/output.");
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRReduceScatterOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReduceScatterOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::ReduceScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
+                  mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify cluster axis.");
+    }
+
+    // Convert reduceType stablehlo attribute into ttir attribute
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
+    if (!reduceType) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify reduce type.");
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0], *reduceType,
+        adaptor.getScatterDimension(), clusterAxis);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRAllGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllGatherOp> {
+  using OpConversionPattern<mlir::stablehlo::AllGatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllGatherOp srcOp,
+                  mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -1122,110 +1962,73 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    SmallVector<Type> ttirTypes;
-    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                      ttirTypes))) {
-      return failure();
-    }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
-    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    for (auto srcAttr : srcAttrs) {
-      StringAttr srcName = srcAttr.getName();
-      if (srcName == "channel_handle") {
-        auto srcChannelHandleAttr =
-            dyn_cast<mlir::stablehlo::ChannelHandleAttr>(srcAttr.getValue());
-        if (!srcChannelHandleAttr) {
-          return failure();
-        }
-
-        // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
-        // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
-        // Consider preserving this information in the future if the attribute
-        // is non-DEVICE_TO_DEVICE values.
-        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
-        if (channelType != kChannelTypeDeviceToDevice) {
-          return failure();
-        }
-
-        IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
-        if (!channelHandleAttr) {
-          return failure();
-        }
-        ttirAttrs.push_back({srcName, channelHandleAttr});
-      } else {
-        ttirAttrs.push_back(srcAttr);
-      }
-    }
-
-    // Algorithm here is to search for the first non-one working dimension
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = 0;
-    for (auto s : replicaGroupsShape) {
-      if (s != 1) {
-        break;
-      }
-      ++dim;
-    }
-    if (dim > replicaGroupsShape.size()) {
-      // all one shape, then select the fastest dim
-      dim = replicaGroupsShape.size();
-    }
-    StringAttr dimName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr dimAttr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-    ttirAttrs.push_back({dimName, dimAttr});
-
-    // Parse computation in region and add it to ttirAttrs
-    ReduceType reduceType;
-    if (failed(getReduceType(srcOp, reduceType))) {
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
       return rewriter.notifyMatchFailure(
-          srcOp, "AllReduceOp cannot specify reduce type.");
+          srcOp, "AllGather cannot specify cluster axis.");
     }
-    StringAttr reduceTypeAttrName =
-        StringAttr::get(this->getContext(), "reduce_type");
-    Attribute reduceTypeAttr = rewriter.getAttr<ReduceTypeAttr>(reduceType);
-    ttirAttrs.push_back({reduceTypeAttrName, reduceTypeAttr});
 
-    StringAttr operationConstraintAttrName =
-        StringAttr::get(this->getContext(), "operand_constraints");
-    Attribute operationConstraintAttr = rewriter.getArrayAttr(
-        SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                               rewriter.getAttr<OperandConstraintAttr>(
-                                   OperandConstraint::AnyDeviceTile)));
-    ttirAttrs.push_back({operationConstraintAttrName, operationConstraintAttr});
-
-    auto ttirAllReduceOp = rewriter.create<mlir::tt::ttir::AllReduceOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
-
-    rewriter.replaceOp(srcOp, ttirAllReduceOp);
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getAllGatherDim(), clusterAxis);
 
     return success();
   }
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::AllReduceOp &srcOp,
-                     mlir::stablehlo::AllReduceOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::AllGatherOp &srcOp,
+                          mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "AllReduceOp must have one input/output for now.");
+          srcOp, "AllGatherOp must have one input/output for now.");
     }
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
+class StableHLOToTTIRCollectivePermuteOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CollectivePermuteOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::CollectivePermuteOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CollectivePermuteOp srcOp,
+                  mlir::stablehlo::CollectivePermuteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getSourceTargetPairs());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -1236,262 +2039,111 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
 
-    const std::string kShardingTarget = "Sharding";
-    const std::string kSPMDFullToShardShapeTarget = "SPMDFullToShardShape";
-    const std::string kSPMDShardToFullShapeTarget = "SPMDShardToFullShape";
-
     auto callTargetName = adaptor.getCallTargetNameAttr();
 
-    // Currently stablehlo.custom_call with following functions from
-    // jax/openxla are supported
-    if (callTargetName != kShardingTarget &&
-        callTargetName != kSPMDFullToShardShapeTarget &&
-        callTargetName != kSPMDShardToFullShapeTarget) {
-      return failure();
+    // There are three call target names that we handle:
+    // 1. `@Sharding` - This is the custom call for sharding
+    // 2. `@SPMDFullToShardShape` - This is the custom call for converting full
+    // shape to shard shape.
+    // 3. `@SPMDShardToFullShape` - This is the custom call for converting
+    // shard shape to full shape.
+    // All @SPMD* calls have @Sharding as their first operand. Therefore, we
+    // skip @Sharding and handle it in the other two cases together.
+    if (callTargetName !=
+            mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName &&
+        callTargetName !=
+            mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName) {
+      return success();
     }
 
-    auto shardingAttr = dyn_cast_or_null<StringAttr>(
-        adaptor.getAttributes().get("mhlo.sharding"));
-    if (!shardingAttr) {
-      return failure();
-    }
-    StringRef shardingStr = shardingAttr.getValue();
-    if (!shardingStr.consume_front("{") || !shardingStr.consume_back("}")) {
-      return failure();
-    }
-    SmallVector<StringRef> shardingStrAttrs;
-    shardingStr.split(shardingStrAttrs, " ");
-    struct ShardAttrValue shardAttrValue;
-    if (failed(parseShardingAttr(rewriter, shardingStrAttrs, shardAttrValue))) {
-      return failure();
+    // Set the shard direction.
+    mlir::tt::ttcore::MeshShardDirection shardDirection =
+        mlir::tt::ttcore::MeshShardDirection::ShardToFull;
+    if (callTargetName ==
+        mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
+      shardDirection = mlir::tt::ttcore::MeshShardDirection::FullToShard;
     }
 
-    if (callTargetName == kSPMDFullToShardShapeTarget) {
-      Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
-      if (!shardingOp) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
-      }
-
-      // TODO(wooseoklee): a bit rough approach here to match output dim
-      shardingOp->getResult(0).setType(srcOp->getResult(0).getType());
-      srcOp.getResult(0).replaceAllUsesWith(shardingOp->getResult(0));
-      rewriter.eraseOp(srcOp);
-    } else if (callTargetName == kSPMDShardToFullShapeTarget) {
-      Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
-      if (!shardingOp) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
-      }
-
-      // Create the output tensor type based on inputs
-      auto outputType = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-
-      // Create an empty output tensor with the computed shape
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-      SmallVector<Type> outputTypes;
-      if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                        outputTypes))) {
-        return failure();
-      }
-
-      shardAttrValue.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
-      if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                   shardAttrValue, rewriter))) {
-        return failure();
-      }
-    } else if (callTargetName == kShardingTarget) {
-      if (shardAttrValue.shardType == mlir::tt::MeshShardType::Manual) {
-        // "manual" sharding indicates match between input/output tensor shape
-        // and no sharding is required.
-        srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
-        rewriter.eraseOp(srcOp);
-      } else {
-        auto *user = *srcOp.getResult(0).user_begin();
-        auto userOp = dyn_cast_or_null<mlir::stablehlo::CustomCallOp>(user);
-        if (!userOp) {
-          return failure();
-        }
-
-        // Create the output tensor type based on inputs
-        auto outputType = mlir::cast<RankedTensorType>(
-            getTypeConverter()->convertType(userOp->getResult(0).getType()));
-
-        // Create an empty output tensor with the computed shape
-        tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-            srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-        SmallVector<Type> outputTypes;
-        if (failed(this->getTypeConverter()->convertTypes(
-                userOp->getResultTypes(), outputTypes))) {
-          return failure();
-        }
-
-        shardAttrValue.shardDirection =
-            mlir::tt::MeshShardDirection::FullToShard;
-        if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                     shardAttrValue, rewriter))) {
-          return failure();
-        }
-      }
+    // We want to extract the mhlo.sharding attribute from the
+    // CustomCallOp.
+    auto opShardingAttr = dyn_cast_if_present<StringAttr>(
+        adaptor.getAttributes().get(mlir::tt::gspmd_utils::kXlaShardingAttr));
+    if (!opShardingAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "@SPMD* custom call is missing mhlo.sharding attribute.");
     }
+
+    // We also want to extract the mhlo.sharding attribute from this op's
+    // @Sharding operand.
+    auto shardingOperand = srcOp->getOperand(0);
+    auto definingOp =
+        shardingOperand.getDefiningOp<mlir::stablehlo::CustomCallOp>();
+    auto operandShardingAttr = definingOp->getAttrOfType<mlir::StringAttr>(
+        mlir::tt::gspmd_utils::kXlaShardingAttr);
+
+    if (!operandShardingAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "@Sharding custom call is missing mhlo.sharding attribute.");
+    }
+
+    // We also extract the shard status from the @Sharding op.
+    auto shardStatusAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+            mlir::tt::ttcore::ShardStatusAttr::name);
+
+    // Insert default sharding status if not present.
+    if (!shardStatusAttr) {
+      shardStatusAttr = mlir::tt::ttcore::ShardStatusAttr::get(
+          getContext(), mlir::tt::ttcore::ShardStatus::Unsharded);
+    }
+
+    // Once extracted, we can generate the GSPMDMeshSharding object.
+    llvm::Expected<mlir::tt::gspmd_utils::GSPMDMeshSharding> gspmdMeshSharding =
+        mlir::tt::gspmd_utils::GSPMDMeshSharding::generate(
+            opShardingAttr.getValue(), operandShardingAttr.getValue(),
+            shardStatusAttr.getValue(), shardDirection);
+    if (auto err = gspmdMeshSharding.takeError()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Error trying to parse GSPMD annotation.");
+    }
+
+    // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+        gspmdMeshSharding->getShardType(),
+        gspmdMeshSharding->getShardDirection(),
+        gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
+
+    // Erase the @Sharding op as well.
+    rewriter.eraseOp(definingOp);
     return success();
   }
 
 private:
-  struct ShardAttrValue {
-    mlir::tt::MeshShardDirection shardDirection;
-    mlir::tt::MeshShardType shardType;
-    bool lastTileDimReplicate;
-    std::vector<int64_t> shardShape;
-  };
-
-  // OpenXLA has its own lexer, but we will use simple string-based parser here
-  // This parsing is mainly based on "Sharding Attribute" section in
-  // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md
-  LogicalResult parseShardingAttr(ConversionPatternRewriter &rewriter,
-                                  SmallVector<StringRef> shardingStrAttrs,
-                                  struct ShardAttrValue &shardAttrValue) const {
-    MeshShardType shardType = mlir::tt::MeshShardType::Manual;
-    bool lastTileDimReplicate = false;
-    for (auto str : shardingStrAttrs) {
-      if (str.contains("replicated")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // replicated: all devices have whole data
-        shardType = mlir::tt::MeshShardType::Replicate;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("maximal")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // maximal: one device has whole data
-        shardType = mlir::tt::MeshShardType::Maximal;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("device=")) {
-        // maximal should followed by "device" to put data on
-        assert(shardType == mlir::tt::MeshShardType::Maximal &&
-               "Fail to parse sharding info.");
-        int64_t d;
-        if (!str.consume_front("device=")) {
-          return failure();
-        }
-        if (str.getAsInteger<int64_t>(10, d)) {
-          return failure();
-        }
-        shardAttrValue.shardShape.push_back(d);
-      } else if (str.contains("manual")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // manual: already sharded, so no action is needed
-        assert(!lastTileDimReplicate &&
-               "last time dim duplicate option shouldn't be set here.");
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("devices=")) {
-        // other: "devices" detail sharding plan
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        shardType = mlir::tt::MeshShardType::Devices;
-        if (!str.consume_front("devices=")) {
-          return failure();
-        }
-        auto [devicesStr, restStr] = str.split("<=");
-        // parse devices ex. [4,2,1]
-        if (!devicesStr.consume_front("[") || !devicesStr.consume_back("]")) {
-          return failure();
-        }
-        SmallVector<StringRef> dimsStr;
-        devicesStr.split(dimsStr, ",");
-        for (auto dim : dimsStr) {
-          int64_t d;
-          if (dim.getAsInteger<int64_t>(10, d)) {
-            return failure();
-          }
-          shardAttrValue.shardShape.push_back(d);
-        }
-      } else if (str.contains("last_tile_dim_replicate")) {
-        assert(shardType == mlir::tt::MeshShardType::Devices &&
-               "Fail to parse sharding info.");
-        // other: replicate last tile dim
-        lastTileDimReplicate = true;
-      }
-    }
-    shardAttrValue.shardType = shardType;
-    shardAttrValue.lastTileDimReplicate = lastTileDimReplicate;
-    return success();
-  }
-
   LogicalResult
-  createMeshShardOp(mlir::stablehlo::CustomCallOp &srcOp,
-                    mlir::stablehlo::CustomCallOp::Adaptor adaptor,
-                    tensor::EmptyOp &outputTensor,
-                    SmallVector<Type> &outputTypes,
-                    ShardAttrValue &shardAttrValue,
-                    ConversionPatternRewriter &rewriter) const {
-
-    auto meshShardOperands = srcOp.getInputsMutable();
-    meshShardOperands.append(ValueRange(outputTensor));
-    SmallVector<NamedAttribute> meshShardAttrs;
-
-    StringAttr shardTypeAttrName = rewriter.getStringAttr("shard_type");
-    Attribute shardTypeAttr =
-        rewriter.getAttr<MeshShardTypeAttr>(shardAttrValue.shardType);
-    meshShardAttrs.push_back({shardTypeAttrName, shardTypeAttr});
-
-    StringAttr shardDirectionAttrName =
-        rewriter.getStringAttr("shard_direction");
-    Attribute shardDirectionAttr =
-        rewriter.getAttr<MeshShardDirectionAttr>(shardAttrValue.shardDirection);
-    meshShardAttrs.push_back({shardDirectionAttrName, shardDirectionAttr});
-
-    StringAttr shardShapeAttrName = rewriter.getStringAttr("shard_shape");
-    if (shardAttrValue.lastTileDimReplicate) {
-      shardAttrValue.shardShape.pop_back();
-    }
-    GridAttr shardShape =
-        GridAttr::get(this->getContext(), shardAttrValue.shardShape);
-    meshShardAttrs.push_back({shardShapeAttrName, shardShape});
-
-    StringAttr operationConstraintAttrName =
-        StringAttr::get(this->getContext(), "operand_constraints");
-    Attribute operationConstraintAttr = rewriter.getArrayAttr(
-        SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                               rewriter.getAttr<OperandConstraintAttr>(
-                                   OperandConstraint::SystemScalar)));
-    meshShardAttrs.push_back(
-        {operationConstraintAttrName, operationConstraintAttr});
-
-    auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
-        srcOp.getLoc(), outputTypes,
-        ValueRange(meshShardOperands.getAsOperandRange()), meshShardAttrs);
-    rewriter.replaceOp(srcOp, meshShardOp);
-
-    return success();
-  }
-
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::CustomCallOp &srcOp,
-                     mlir::stablehlo::CustomCallOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    // Expect single input/output, otherwise do not convert
-    if (adaptor.getInputs().size() != 1 && srcOp->getResults().size() != 1) {
+  checkConversionLegality(mlir::stablehlo::CustomCallOp &srcOp,
+                          mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    // Expect single input/output and at least one use of result.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1 ||
+        srcOp->getResult(0).use_empty()) {
       return failure();
     }
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
 class StableHLOToTTIRSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SliceOp> {
 
@@ -1507,33 +2159,90 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    llvm::SmallVector<int32_t> startIndices(adaptor.getStartIndices());
+    llvm::SmallVector<int32_t> endIndices(adaptor.getLimitIndices());
+    llvm::SmallVector<int32_t> step(adaptor.getStrides());
 
-    std::vector<int32_t> start_indices(adaptor.getStartIndices().begin(),
-                                       adaptor.getStartIndices().end());
-    std::vector<int32_t> end_indices(adaptor.getLimitIndices().begin(),
-                                     adaptor.getLimitIndices().end());
-    std::vector<int32_t> step(adaptor.getStrides().begin(),
-                              adaptor.getStrides().end());
+    ttir::utils::replaceOpWithNewDPSOp<ttir::SliceStaticOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        rewriter.getI32ArrayAttr(startIndices),
+        rewriter.getI32ArrayAttr(endIndices), rewriter.getI32ArrayAttr(step));
 
-    // Replace the original ConcatOp with the destination operation
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceOp>(
-        srcOp,
-        outputType,           // result type
-        adaptor.getOperand(), // input values
-        outputTensor,         // output value
-        rewriter.getI32ArrayAttr(start_indices),
-        rewriter.getI32ArrayAttr(end_indices), rewriter.getI32ArrayAttr(step),
-        rewriter.getArrayAttr( // operand constraints
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
     return success();
   }
 };
+} // namespace
 
+// NOTE: StableHLO Dynamic Slice Op clamps start indices to ensure validity,
+// but we don't. Would add multiple ops (worse perf) and doesn't appear in test
+// models.
+namespace {
+class StableHLOToTTIRDynamicSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DynamicSliceOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::DynamicSliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DynamicSliceOp srcOp,
+                  mlir::stablehlo::DynamicSliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Reshape start indices to 1D tensors for concat op.
+    ValueRange startIndicesRange = adaptor.getStartIndices();
+    SmallVector<Value> startIndicesValues1D;
+    auto startIndexElementType =
+        mlir::cast<RankedTensorType>(startIndicesRange[0].getType())
+            .getElementType();
+    auto singleElementTensorType =
+        RankedTensorType::get({1}, startIndexElementType);
+
+    for (Value startIndex : startIndicesRange) {
+      auto reshapedIndex = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp.getLoc(), singleElementTensorType.getShape(),
+          startIndexElementType, singleElementTensorType.getEncoding(),
+          startIndex, rewriter.getI32ArrayAttr({1}));
+      startIndicesValues1D.push_back(reshapedIndex);
+    }
+    // Create a single 1D tensor from start indices values using concat op.
+    auto startIndicesTensorType = RankedTensorType::get(
+        {static_cast<int64_t>(startIndicesValues1D.size())},
+        startIndexElementType);
+    auto startIndicesTensor =
+        ttir::utils::createDPSOp<mlir::tt::ttir::ConcatOp>(
+            rewriter, srcOp.getLoc(), startIndicesTensorType.getShape(),
+            startIndexElementType, startIndicesTensorType.getEncoding(),
+            startIndicesValues1D, /*dim=*/0);
+
+    // Create a 1D constant tensor with slice_sizes values.
+    auto sliceSizes = srcOp.getSliceSizes();
+    SmallVector<int32_t> sliceSizesInt32(sliceSizes.begin(), sliceSizes.end());
+    auto sliceSizesTensorType = RankedTensorType::get(
+        {static_cast<int64_t>(sliceSizesInt32.size())}, rewriter.getI32Type());
+    auto sliceSizesAttr = mlir::DenseElementsAttr::get(
+        sliceSizesTensorType, llvm::ArrayRef<int32_t>(sliceSizesInt32));
+    auto sliceSizesConstant = rewriter.create<mlir::tt::ttir::ConstantOp>(
+        srcOp.getLoc(), sliceSizesTensorType, sliceSizesAttr);
+
+    // Create an add op that adds the slice sizes to start indices to get end
+    // indices.
+    auto endIndicesTensor = ttir::utils::createDPSOp<mlir::tt::ttir::AddOp>(
+        rewriter, srcOp.getLoc(), startIndicesTensorType.getShape(),
+        startIndexElementType, startIndicesTensorType.getEncoding(),
+        startIndicesTensor, sliceSizesConstant);
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::SliceDynamicOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), startIndicesTensor,
+        endIndicesTensor, ArrayAttr());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
 
@@ -1546,62 +2255,16 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    Value min = adaptor.getMin();
-    Value max = adaptor.getMax();
-    Operation *minDefiningOp = min.getDefiningOp();
-    Operation *maxDefiningOp = max.getDefiningOp();
-    if (minDefiningOp && maxDefiningOp &&
-        isa<mlir::tt::ttir::ConstantOp>(minDefiningOp) &&
-        isa<mlir::tt::ttir::ConstantOp>(maxDefiningOp)) {
-      mlir::ElementsAttr minValAttr =
-          mlir::cast<mlir::tt::ttir::ConstantOp>(minDefiningOp).getValueAttr();
-      mlir::ElementsAttr maxValAttr =
-          mlir::cast<mlir::tt::ttir::ConstantOp>(maxDefiningOp).getValueAttr();
-      if (minValAttr.isSplat() && maxValAttr.isSplat()) {
-        float minValue =
-            minValAttr.getElementType().isInteger()
-                ? static_cast<float>(minValAttr.getSplatValue<int>())
-                : minValAttr.getSplatValue<float>();
-        float maxValue =
-            maxValAttr.getElementType().isInteger()
-                ? static_cast<float>(maxValAttr.getSplatValue<int>())
-                : maxValAttr.getSplatValue<float>();
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
-            srcOp,
-            this->getTypeConverter()->convertType(outputTensor.getType()),
-            Value(adaptor.getOperand()), Value(outputTensor),
-            rewriter.getF32FloatAttr(minValue),
-            rewriter.getF32FloatAttr(maxValue),
-            rewriter.getArrayAttr(
-                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                       rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile))));
 
-        return success();
-      }
-    }
-
-    ttir::MaximumOp maximumOp = rewriter.create<mlir::tt::ttir::MaximumOp>(
-        srcOp->getLoc(), min, adaptor.getOperand(), outputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
-
-    tensor::EmptyOp finalOutputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinimumOp>(
-        srcOp, maximumOp->getResult(0), max, finalOutputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getMin(),
+        adaptor.getMax());
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRGatherOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
   using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
@@ -1615,27 +2278,24 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     auto dimensionNumbers = srcOp.getDimensionNumbers();
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::GatherOp>(
-        srcOp, outputType, adaptor.getOperands()[0],
-        adaptor.getOperands()[1], // Start indices
-        Value(outputTensor), dimensionNumbers.getOffsetDims(),
+    ttir::utils::replaceOpWithNewDPSOp<ttir::GatherOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getOperands()[1], dimensionNumbers.getOffsetDims(),
         dimensionNumbers.getCollapsedSliceDims(),
         dimensionNumbers.getOperandBatchingDims(),
         dimensionNumbers.getStartIndicesBatchingDims(),
         dimensionNumbers.getStartIndexMap(),
-        dimensionNumbers.getIndexVectorDim(), srcOp.getSliceSizesAttr(), false,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        dimensionNumbers.getIndexVectorDim(), srcOp.getSliceSizes(),
+        /*indices_are_sorted=*/false);
+
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SrcIotaOp, typename Adaptor = typename SrcIotaOp::Adaptor>
 class StableHLOToTTIROpIotaOpConversionPattern
     : public OpConversionPattern<SrcIotaOp> {
@@ -1654,8 +2314,8 @@ public:
         1, adaptor.getIotaDimension());
 
     // Dynamic Iota has an output_shape attribute but the output shape is
-    // already known by the result type This is to remove the operand that will
-    // become dead code
+    // already known by the result type This is to remove the operand that
+    // will become dead code
     for (auto operand : adaptor.getOperands()) {
       if (operand.getDefiningOp()) {
         rewriter.eraseOp(operand.getDefiningOp());
@@ -1665,7 +2325,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRScatterOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
 
@@ -1676,17 +2338,12 @@ public:
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
     Value operand = srcOp.getInputs()[0];
-    Value scatterIndices = srcOp.getScatterIndices();
+    Value scatterIndices = adaptor.getScatterIndices();
     Value update = srcOp.getUpdates()[0];
-    mlir::ArrayAttr binaryConstraints = rewriter.getArrayAttr(
-        SmallVector<Attribute>(4, rewriter.getAttr<OperandConstraintAttr>(
-                                      OperandConstraint::AnyDeviceTile)));
     auto updateWindowsDims =
         adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
     auto insertedWindowDims =
@@ -1702,104 +2359,552 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    auto newScatterOp = rewriter.create<mlir::tt::ttir::ScatterOp>(
-        srcOp.getLoc(), outputType, operand, scatterIndices, update,
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(updateWindowsDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(insertedWindowDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(inputBatchingDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(scatterIndicesBatchingDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(scatterDimsToOperandDims)),
-        indexVectorDim, indicesAreSorted, uniqueIndices, outputTensor,
-        binaryConstraints);
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+        rewriter, srcOp, outputType, operand, scatterIndices, update,
+        llvm::SmallVector<int32_t>(updateWindowsDims),
+        llvm::SmallVector<int32_t>(insertedWindowDims),
+        llvm::SmallVector<int32_t>(inputBatchingDims),
+        llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
+        llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
+        indicesAreSorted, uniqueIndices);
 
-    // Replaces with different types do not work and will fail silently, so we
-    // manually set the second operand, since the type changes there from i32 to
-    // i64.
-    newScatterOp.setOperand(
-        1, adaptor.getScatterIndices().getDefiningOp()->getResult(0));
+    return success();
+  }
+};
+} // namespace
 
-    newScatterOp->getRegion(0).takeBody(adaptor.getUpdateComputation());
-    changeRegionTypes(newScatterOp->getRegion(0), *getTypeConverter(),
-                      rewriter);
+namespace {
+// Conversion: stablehlo::SortOp → ttir::SortOp + optional ttir::GatherOp(s)
+//
+// StableHLO's SortOp supports sorting tuples of tensors with an arbitrary
+// comparator function. This pattern lowers such SortOps into TTIR by
+// decomposing them into one or more of the following:
+//   - ttir::SortOp: handles sorting a single tensor and producing sorted tensor
+//                   along with sort indices.
+//   - ttir::GatherOp: reorders other tensors based on the computed indices.
+//
+// This conversion supports three types of SortOps:
+//
+// [1] ValueOnly Sort:
+//     - Only one input (e.g., SortOp(values))
+//     - Lowered to ttir::SortOp producing sorted values
+//     - indices output ignored.
+//     - No gather needed.
+//
+// [2] ValueIndex Sort:
+//     - Two inputs: a value tensor and an index tensor.
+//     - If the second input is a recognized as stablehlo::iota (possibly after
+//       reshape/broadcast), the pattern assumes it's requesting both sorted
+//       values and their original indices.
+//     - Lowered to ttir::SortOp producing both values and indices
+//     - No gather needed.
+//
+// [3] KeyValue Sort:
+//     - Two inputs where the second input is not recognized as iota or
+//       more than two inputs.
+//     - Only the first input is directly sorted.
+//     - The resulting indices are used to reorder all other inputs via
+//       ttir::GatherOp
+//     - This emulates tuple sorting (e.g., SortOp(keys, values, ...)) by
+//       aligning all value tensors with the sorted indices of the key.
+//
+// Key implementation steps:
+// - Determine SortType (ValueOnly, ValueIndex, or KeyValue) based on input
+//   count and type.
+// - Emit ttir::SortOp using only the first input tensor.
+// - If needed, emit one or more ttir::GatherOps to reorder the rest of the
+//   inputs.
+// - Replace the original stablehlo::SortOp with the results of the new
+//   operations.
+// - TTIR GatherOp is based on StableHLO GatherOp which requires full
+//   multi-dimensional index tuples for each index into the input. This is
+//   generated using iota (ArangeOp) tensors for static dimensions and using
+//   ConcatOp to combine them with the index tensor.
+class StableHLOToTTIRSortOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SortOp> {
+  using OpConversionPattern::OpConversionPattern;
 
-    rewriter.replaceOp(srcOp, newScatterOp);
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SortOp srcOp,
+                  mlir::stablehlo::SortOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = srcOp.getLoc();
+    // Get sorting metadata.
+    int64_t sortDim = srcOp.getDimension();
+    bool isStable = srcOp.getIsStable();
+    mlir::FailureOr<bool> isDescending = getSortDirection(srcOp);
+    if (mlir::failed(isDescending)) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Cannot determine sort direction");
+    }
+
+    // Step 1: Type conversion and output tensor preparation for 'values'.
+
+    auto valueType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
+    SmallVector<Type> outputTypes{valueType};
+
+    SmallVector<Value> outputTensors{rewriter.create<ttir::EmptyOp>(
+        loc, valueType.getShape(), valueType.getElementType(),
+        valueType.getEncoding())};
+
+    // Step 2: Determine Sort Type and output tensor preparation for 'indices'.
+
+    SortType sortType;
+    if (isValueIndexSort(srcOp.getInputs())) {
+      sortType = SortType::kValueIndex;
+
+      auto indicesType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
+          loc, indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
+    } else {
+      sortType = (srcOp.getInputs().size() == 1) ? SortType::kValueOnly
+                                                 : SortType::kKeyValue;
+
+      IntegerType indexType = rewriter.getI32Type();
+      RankedTensorType indicesType = RankedTensorType::get(
+          valueType.getShape(), indexType, valueType.getEncoding());
+
+      outputTypes.push_back(indicesType);
+      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
+          loc, indicesType.getShape(), indicesType.getElementType(),
+          indicesType.getEncoding()));
+    }
+
+    // Step 3: Emit SortOp.
+
+    auto sortOp = rewriter.create<ttir::SortOp>(
+        loc, outputTypes, adaptor.getInputs().front(), outputTensors,
+        rewriter.getSI32IntegerAttr(sortDim),
+        rewriter.getBoolAttr(*isDescending), rewriter.getBoolAttr(isStable));
+
+    // Step 4: SortType-specific lowering.
+
+    // SortType::kValueOnly - Replace values output and ingnore indices output.
+    if (sortType == SortType::kValueOnly) {
+      rewriter.replaceOp(srcOp, sortOp.getValues());
+      return success();
+    }
+
+    // SortType::kValueIndex - Replace the source op with values/indices output.
+    if (sortType == SortType::kValueIndex) {
+      rewriter.replaceOp(srcOp, sortOp->getResults());
+      return success();
+    }
+
+    // SortType::kKeyValue — sort additional inputs using indices and GatherOp.
+    Value indices = sortOp.getIndices();
+    auto indicesType = cast<RankedTensorType>(indices.getType());
+    int64_t rank = indicesType.getRank();
+
+    // TTIR GatherOp is based on StableHLO GatherOp which requires full
+    // multi-dimensional index tuples for each index into the input. This is
+    // generated using iota (ArangeOp) tensors for static dimensions and using
+    // ConcatOp to combine them with the index tensor.
+    SmallVector<int64_t> shape(indicesType.getShape());
+    shape.push_back(1);
+    auto expandedType = RankedTensorType::get(
+        shape, indicesType.getElementType(), indicesType.getEncoding());
+
+    // Reshape indices to [*shape, 1]
+    SmallVector<int32_t> reshapeDim(shape.begin(), shape.end());
+    auto reshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, expandedType, indices,
+        rewriter.getI32ArrayAttr(reshapeDim));
+
+    // Generate iota-based index components (for all dims except sorting dim).
+    // Sorted indices is used for sorting dim.
+    SmallVector<Value> toConcat;
+    for (int64_t idx = 0; idx < rank; ++idx) {
+      if (idx == sortDim) {
+        toConcat.push_back(reshape);
+        continue;
+      }
+
+      Value arangeOp = rewriter.create<ttir::ArangeOp>(
+          loc, expandedType, /*start=*/0,
+          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
+      toConcat.push_back(arangeOp);
+    }
+
+    // Concat along new trailing dimension to get [*, rank].
+    shape.back() = rank;
+    auto concatType = RankedTensorType::get(shape, indicesType.getElementType(),
+                                            indicesType.getEncoding());
+    // Concatenate iota(s) with the original indices tensor; this will act as
+    // index tensor for GatherOp.
+    Value concatIndices = ttir::utils::createDPSOp<ttir::ConcatOp>(
+        rewriter, loc, concatType, toConcat, rank);
+
+    // Prepare Gather attributes
+    // collapsedDims specifies which dimensions of the gathered slice should be
+    // "collapsed" (i.e., dropped from the result shape).
+    // Since we're gathering scalar elements (sliceSize = 1 in every dimension),
+    // we collapse all dimensions to get a scalar output at each gather point.
+    // collapsedDims = [0, 1, ..., rank-1]
+    SmallVector<int64_t> collapsedDims(/*size=*/rank);
+    std::iota(collapsedDims.begin(), collapsedDims.end(), /*start_value=*/0);
+
+    // startIndexMap defines how to map each element of a start index vector to
+    // a dimension in the input.
+    // A value of `i` at position `i` means index[i] maps to dimension i in the
+    // input. This is a one-to-one mapping from index vector components to input
+    // dimensions.
+    // startIndexMap = [0, 1, ..., rank-1]
+    SmallVector<int64_t> startIndexMap(/*size=*/rank);
+    std::iota(startIndexMap.begin(), startIndexMap.end(), /*start_value=*/0);
+
+    // These are left empty because we are not using batching in this gather.
+    // - operand_batch_dims: for batching in the input tensor
+    // - start_index_batch_dims: for batching in the start_indices tensor
+    // Since we're gathering without batching semantics, these remain empty.
+    llvm::ArrayRef<int64_t> empty;
+
+    // sliceSizes determines the size of the slice to extract at each index.
+    // Since we are gathering scalars (individual elements), the slice size is 1
+    // in every dimension. e.g., for rank=4 → [1, 1, 1, 1]
+    SmallVector<int64_t> sliceSizes(rank, 1);
+
+    // Collect output values: sorted keys + gathered values
+    SmallVector<Value> results{sortOp.getValues()};
+
+    for (size_t i = 1; i < srcOp.getInputs().size(); ++i) {
+      auto valType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResultTypes()[i]));
+
+      auto gathered = ttir::utils::createDPSOp<ttir::GatherOp>(
+          rewriter, loc, valType, srcOp.getInputs()[i], concatIndices,
+          /*offsetDims=*/empty,
+          /*collapsedSliceDims=*/collapsedDims,
+          /*operandBatchDims=*/empty,
+          /*startIndexBatchDims=*/empty,
+          /*startIndexMap=*/startIndexMap,
+          /*indexVectorDim=*/rank,
+          /*sliceSizes=*/sliceSizes,
+          /*indicesAreSorted=*/false);
+
+      results.push_back(gathered);
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+
+private:
+  enum SortType { kValueOnly = 0, kValueIndex = 1, kKeyValue = 2 };
+
+  bool isValueIndexSort(mlir::OperandRange inputs) const {
+    if (inputs.size() != 2) {
+      return false;
+    }
+
+    Operation *op = inputs.back().getDefiningOp();
+    while (
+        isa_and_nonnull<mlir::stablehlo::BroadcastInDimOp,
+                        mlir::stablehlo::ReshapeOp, mlir::stablehlo::ConvertOp>(
+            op)) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+    return isa_and_nonnull<mlir::stablehlo::IotaOp>(op);
+  }
+
+  mlir::FailureOr<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
+    Block &block = srcOp.getComparator().front();
+    for (auto &op : block.getOperations()) {
+      auto cmpOp = dyn_cast<mlir::stablehlo::CompareOp>(op);
+      if (!cmpOp || !(cmpOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::LT ||
+                      cmpOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::GT)) {
+        continue;
+      }
+      return cmpOp.getComparisonDirection() ==
+             mlir::stablehlo::ComparisonDirection::GT;
+    }
+    return mlir::failure();
+  }
+};
+
+} // namespace
+
+namespace {
+class StableHLOToTTIROpReverseOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReverseOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ReverseOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReverseOp srcOp,
+                  mlir::stablehlo::ReverseOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReverseOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getDimensions());
+
+    return success();
+  }
+};
+} // namespace
+namespace {
+class StableHLOToTTIROpPadOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::PadOp> {
+
+  using OpConversionPattern<mlir::stablehlo::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::PadOp srcOp,
+                  mlir::stablehlo::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
+    }
+
+    ttir::ConstantOp valueDef =
+        getConstantValueDefiningOp(adaptor.getPaddingValue());
+
+    mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
+
+    float value;
+    if (paddingValueAttr.getElementType().isInteger()) {
+      value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
+    } else {
+      value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        rewriter.getDenseI32ArrayAttr(padDim), rewriter.getF32FloatAttr(value));
 
     return success();
   }
 
 private:
-  std::vector<int32_t>
-  convertArrayRefToInt32vector(const llvm::ArrayRef<int64_t> &source) const {
-    std::vector<int32_t> converted;
-    converted.reserve(source.size());
-
-    for (int64_t value : source) {
-      converted.push_back(static_cast<int32_t>(value));
-    }
-
-    return converted;
-  }
-
-  void changeRegionTypes(mlir::Region &region,
-                         const mlir::TypeConverter &typeConverter,
-                         mlir::PatternRewriter &rewriter) const {
-    Block &block = *region.getBlocks().begin();
-    llvm::SmallVector<mlir::BlockArgument, 4> oldArguments(
-        block.getArguments().begin(), block.getArguments().end());
-    llvm::SmallVector<mlir::Value, 4> newArguments;
-
-    // Add new arguments with updated types to the block.
-    for (auto arg : oldArguments) {
-      if (auto newType = typeConverter.convertType(arg.getType())) {
-        mlir::BlockArgument newArg = block.addArgument(newType, arg.getLoc());
-        newArguments.push_back(newArg);
-      } else {
-        newArguments.push_back(arg); // Type didn't change
-      }
-    }
-
-    for (auto it : llvm::zip(oldArguments, newArguments)) {
-      mlir::BlockArgument oldArg = std::get<0>(it);
-      mlir::Value newArg = std::get<1>(it);
-      if (oldArg != newArg) {
-        oldArg.replaceAllUsesWith(newArg);
-      }
-    }
-
-    for (auto arg : oldArguments) {
-      if (!llvm::is_contained(newArguments, arg)) {
-        block.eraseArgument(arg.getArgNumber());
-      }
-    }
-  }
-};
-
-class StableHLOToTTIRReturnOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
-
-  using OpConversionPattern<mlir::stablehlo::ReturnOp>::OpConversionPattern;
-
-public:
   LogicalResult
-  matchAndRewrite(mlir::stablehlo::ReturnOp srcOp,
-                  mlir::stablehlo::ReturnOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
+                          mlir::stablehlo::PadOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::YieldOp>(srcOp,
-                                                         srcOp.getResults());
+    // Due to lack of support by device, we do not support interior padding,
+    // so verify if interior padding is requested and exit early with error.
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      if (eachVal != 0) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Unsupported Interior Padding, only "
+                                           "0 interior padding is supported.");
+      }
+    }
+
+    if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low and High padding dimensions should match.");
+    }
+
+    if (!getConstantValueDefiningOp(adaptor.getPaddingValue())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Padding value cannot be traced back to a constant value "
+                 "which has not been altered mathematically.");
+    }
 
     return success();
   }
 };
+} // namespace
 
-void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
+namespace {
+class StableHLOToTTIRAllToAllOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllToAllOp> {
+  using OpConversionPattern<mlir::stablehlo::AllToAllOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllToAllOp srcOp,
+                  mlir::stablehlo::AllToAllOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllToAllOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getSplitDimension(), adaptor.getConcatDimension(),
+        adaptor.getSplitCount(), adaptor.getReplicaGroups());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRCollectiveBroadcastOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CollectiveBroadcastOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::CollectiveBroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CollectiveBroadcastOp srcOp,
+                  mlir::stablehlo::CollectiveBroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectiveBroadcastOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getReplicaGroups());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRRngOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngOp> {
+  using OpConversionPattern<mlir::stablehlo::RngOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngOp srcOp,
+                  mlir::stablehlo::RngOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
+
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto low = extractConstantScalarAsFloat(adaptor.getA());
+    auto high = extractConstantScalarAsFloat(adaptor.getB());
+
+    if (!low || !high) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unable to extract low and high scalars for random number "
+                 "generator interval.");
+    }
+
+    if (*low >= *high) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expects 'low' value to be < 'high' value.");
+    }
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::RandOp>(
+        srcOp, outputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(outputType.getElementType()),
+        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high));
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::RngOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    // [TODO] Remove this legality check when tt-metal supports other kind of
+    // distribution for random number generation.
+    if (srcOp.getRngDistribution() !=
+        mlir::stablehlo::RngDistribution::UNIFORM) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Unsupported RNG distribution type.");
+    }
+
+    return success();
+  }
+
+  std::optional<float> extractConstantScalarAsFloat(mlir::Value val) const {
+    auto constantOp = getConstantValueDefiningOp(val);
+    if (!constantOp) {
+      return std::nullopt;
+    }
+
+    if (!constantOp.getValueAttr().isSplat()) {
+      return std::nullopt;
+    }
+
+    auto elementType = constantOp.getValueAttr().getElementType();
+    if (!elementType.isIntOrFloat()) {
+      return std::nullopt;
+    }
+
+    float scalarValue = 0.0;
+    if (isa<IntegerType>(elementType)) {
+      scalarValue = static_cast<float>(constantOp.getValueAttr()
+                                           .getSplatValue<llvm::APInt>()
+                                           .getSExtValue());
+    } else {
+      scalarValue = static_cast<float>(constantOp.getValueAttr()
+                                           .getSplatValue<llvm::APFloat>()
+                                           .convertToDouble());
+    }
+
+    return scalarValue;
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOErfOpMHLOConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "mhlo.erf") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Erf op must have exactly one operand and one result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ErfOp>(
+        rewriter, srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        adaptor.getOperands()[0]);
+
+    return success();
+  }
+};
+} // namespace
+
+static void
+addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
@@ -1833,11 +2938,21 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::Expm1Op, mlir::tt::ttir::Expm1Op>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SignOp, mlir::tt::ttir::SignOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::LogisticOp, mlir::tt::ttir::SigmoidOp>>(typeConverter,
+                                                               ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::TanOp, mlir::tt::ttir::TanOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::TanhOp, mlir::tt::ttir::TanhOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 }
 
-void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
-                                               RewritePatternSet &patterns,
-                                               TypeConverter &typeConverter) {
+static void
+addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter, ctx);
@@ -1856,141 +2971,213 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::RemOp, mlir::tt::ttir::RemainderOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ShiftRightLogicalOp,
+      mlir::tt::ttir::LogicalRightShiftOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ShiftLeftOp, mlir::tt::ttir::LogicalLeftShiftOp>>(
+      typeConverter, ctx);
 }
 
-void addReduceOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addReduceOpsConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addTransposeOpsConversionPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter) {
-
-  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
-}
-
-void addMatmulOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }
 
-void addGetDimensionSizeOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
+static void
+addGetDimensionSizeOpsConversionPatterns(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRGetDimensionSizeOpConversionPattern>(
       typeConverter, ctx);
 }
 
-void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter &typeConverter) {
+static void
+addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
-void addBroadcastOpConversionPattern(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+static void addBroadcastOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(typeConverter,
                                                                  ctx);
 }
 
-void addConv2dOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
+static void addConv2dOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConvolutionOpConversionPattern>(typeConverter,
                                                               ctx);
 }
 
-void addReduceWindowOpConversionPattern(MLIRContext *ctx,
-                                        RewritePatternSet &patterns,
-                                        TypeConverter &typeConverter) {
+static void addQuantizeOpsConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  // Add the Quant and Requant ops.
+  patterns.add<StableHLOToTTIRQuantizeOpConversionPattern>(typeConverter, ctx);
+  // Add the Dequant op.
+  patterns.add<StableHLOToTTIRDequantizeOpConversionPattern>(typeConverter,
+                                                             ctx);
+}
+
+static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
                                                                ctx);
 }
 
-void addCompareOpsConversionPatterns(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+static void addCompareOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter, ctx);
 }
 
-void addConcatOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addConcatOpsConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }
 
-void addReshapeOpConversionPattern(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
+static void addTransposeOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
+}
+
+static void addReshapeOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
-void addCCLOpsConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter) {
+static void addCCLOpsConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter,
+                                                                ctx);
+  patterns.add<StableHLOToTTIRCollectivePermuteOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
+  patterns.add<StableHLOToTTIRAllToAllOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRCollectiveBroadcastOpConversionPattern>(
+      typeConverter, ctx);
 }
 
-void addLogicalOpConversionPattern(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
-      mlir::stablehlo::AndOp, mlir::tt::ttir::LogicalAndOp>>(typeConverter,
-                                                             ctx);
-  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
-      mlir::stablehlo::NotOp, mlir::tt::ttir::LogicalNotOp>>(typeConverter,
-                                                             ctx);
-  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
-      mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp>>(typeConverter, ctx);
-  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
-      mlir::stablehlo::XorOp, mlir::tt::ttir::LogicalXorOp>>(typeConverter,
-                                                             ctx);
+static void
+addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRLogicalAndBitwiseOpConversionPattern<
+      mlir::stablehlo::AndOp, mlir::tt::ttir::LogicalAndOp,
+      mlir::tt::ttir::BitwiseAndOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRLogicalAndBitwiseOpConversionPattern<
+      mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp,
+      mlir::tt::ttir::BitwiseOrOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRLogicalAndBitwiseOpConversionPattern<
+      mlir::stablehlo::XorOp, mlir::tt::ttir::LogicalXorOp,
+      mlir::tt::ttir::BitwiseXorOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRLogicalAndBitwiseOpConversionPattern<
+      mlir::stablehlo::NotOp, mlir::tt::ttir::LogicalNotOp,
+      mlir::tt::ttir::BitwiseNotOp>>(typeConverter, ctx);
 }
 
-void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                 TypeConverter &typeConverter) {
+static void addSliceOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addClampOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                 TypeConverter &typeConverter) {
+static void addDynamicSliceOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDynamicSliceOpConversionPattern>(typeConverter,
+                                                               ctx);
+}
+
+static void addClampOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpClampOpConversionPattern>(typeConverter, ctx);
 }
 
-void addGatherOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
+static void addGatherOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRGatherOpConversionPattern>(typeConverter, ctx);
 }
 
-void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::IotaOp>>(
-      typeConverter, ctx);
+static void addIotaOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns
-      .add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::DynamicIotaOp>>(
+      .add<StableHLOToTTIROpIotaOpConversionPattern<mlir::stablehlo::IotaOp>>(
           typeConverter, ctx);
+  patterns.add<
+      StableHLOToTTIROpIotaOpConversionPattern<mlir::stablehlo::DynamicIotaOp>>(
+      typeConverter, ctx);
 }
 
-void addScatterOpConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addScatterOpConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
 }
 
-void addReturnOpConversionPatterns(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
+static void addReverseOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
 
-} // namespace
+static void addPadOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
+}
 
+static void addBatchNormOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+}
+
+static void addRngOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
+}
+
+static void addErfOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOErfOpMHLOConversionPattern>(typeConverter, ctx);
+}
+
+static void addSortOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
+}
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -1998,9 +3185,9 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addQuantizeOpsConversionPattern(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-  addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
-  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addDotGeneralOpConversionPatterns(ctx, patterns, typeConverter);
   addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
@@ -2008,15 +3195,22 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTransposeOpConversionPattern(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
-  addLogicalOpConversionPattern(ctx, patterns, typeConverter);
   addCCLOpsConversionPattern(ctx, patterns, typeConverter);
+  addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addDynamicSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
-  addReturnOpConversionPatterns(ctx, patterns, typeConverter);
+  addReverseOpConversionPattern(ctx, patterns, typeConverter);
+  addPadOpConversionPattern(ctx, patterns, typeConverter);
+  addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
+  addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addErfOpConversionPattern(ctx, patterns, typeConverter);
+  addSortOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

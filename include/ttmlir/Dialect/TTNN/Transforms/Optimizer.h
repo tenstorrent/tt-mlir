@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 
-#include <mlir/Pass/PassRegistry.h>
+#include "mlir/Pass/PassRegistry.h"
 
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
@@ -14,15 +14,20 @@ namespace mlir::tt::ttnn {
 // TTNNOptimizer
 //===----------------------------------------------------------------------===//
 struct TTNNOptimizerOptions {
-  llvm::StringMap<InputLayoutOverrideParams> overrideInputLayout =
-      llvm::StringMap<InputLayoutOverrideParams>();
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
+      llvm::StringMap<InsertMemReconfigParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
+  llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
+      llvm::StringMap<Conv2dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
+  bool l1InterleavedFallbackAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
+  bool rowMajorEnabled = false;
+  float tensorL1UsageCap = 0.8f; // Default to 80% of maximum free space in L1.
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

@@ -1,4 +1,5 @@
-include "Common/types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
@@ -13,7 +14,7 @@ enum EthType : ushort {
 }
 
 enum UnpackToDestMode : uint8 {
-    UnpackToDestFp32,
+    Fp32,
     Default,
 }
 
@@ -21,9 +22,10 @@ table NocConfig {
   noc_index: NocIndex;
 }
 
-table TensixConfig {
+table ComputeConfig {
   math_fidelity: MathFidelity;
   fp32_dest_acc_en: bool;
+  dst_full_sync_en: bool;
   math_approx_mode: bool;
   unpack_to_dest_mode: [UnpackToDestMode];
 }
@@ -33,15 +35,14 @@ table EthernetConfig {
   noc_index: NocIndex;
 }
 
-union KernelConfig {
+union KernelConfigType {
   NocConfig,
-  TensixConfig,
+  ComputeConfig,
   EthernetConfig,
 }
 
 table KernelSource {
   source: string;
-  config: KernelConfig;
 }
 
 enum BinaryType : ushort {
@@ -69,28 +70,42 @@ union Kernel {
   KernelBinary,
 }
 
-table RuntimeArgTensorAddress {
+table KernelArgCBPort {
   operand_idx: uint32;
 }
 
-table RuntimeArgSemaphoreAddress {
+table KernelArgBufferAddress {
+  operand_idx: uint32;
+}
+
+table KernelArgSemaphore {
   initial_value: uint32;
   core_type: CoreType;
 }
 
-union RuntimeArg {
-  RuntimeArgTensorAddress,
-  RuntimeArgSemaphoreAddress,
+union KernelArgType {
+  KernelArgCBPort,
+  KernelArgBufferAddress,
+  KernelArgSemaphore,
 }
 
-table KernelDesc {
+table KernelArg {
+  arg: KernelArgType;
+}
+
+table KernelArgs {
+  rt_args: [KernelArg];
+  ct_args: [KernelArg];
+}
+
+table KernelConfig {
   kernel: Kernel;
   core_range_set: [Dim2dRange];
-  cbs: [CBRef];
-  runtime_args: [RuntimeArg];
+  args: KernelArgs;
+  type: KernelConfigType;
   debug_info: string;
 }
 
 table ProgramDesc {
-  kernels: [KernelDesc];
+  kernels: [KernelConfig];
 }

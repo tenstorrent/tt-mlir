@@ -15,7 +15,7 @@ import lit.formats
 config.name = "TTMLIR-Unit"
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = []
+config.suffixes = [".cpp"]
 
 # is_early; Request to run this suite early.
 config.is_early = True
@@ -39,3 +39,24 @@ if "TEMP" in os.environ:
 # that causes the tests to fail.
 if "HOME" in os.environ:
     config.environment["HOME"] = os.environ["HOME"]
+
+# Propagate testlib env variables.
+for var in ("TTMLIR_TEST_WORKFLOW", "TTMLIR_TEST_SEED"):
+    if var in os.environ:
+        config.environment[var] = os.environ[var]
+
+if "TT_MLIR_HOME" in os.environ:
+    config.environment["TT_MLIR_HOME"] = os.environ["TT_MLIR_HOME"]
+else:
+    raise OSError("TT_MLIR_HOME environment variable is not set")
+
+if "TT_METAL_HOME" in os.environ:
+    config.environment["TT_METAL_HOME"] = os.environ["TT_METAL_HOME"]
+else:
+    raise OSError("TT_METAL_HOME environment variable is not set")
+
+
+# Some optimizer unittests must be run serially. There is no way to that in llvm-lit
+# without running all tests serially which will take a long time. Exclude them and
+# run them in CI separately.
+config.excludes.add("Optimizer")

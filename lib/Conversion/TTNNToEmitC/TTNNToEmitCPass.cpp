@@ -4,6 +4,9 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
+#include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -13,7 +16,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -33,25 +38,37 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](tt::DeviceType type) -> emitc::PointerType {
+    addConversion([ctx](mlir::tt::ttnn::DeviceType type) -> emitc::PointerType {
       return emitc::PointerType::get(
-          emitc::OpaqueType::get(ctx, "ttnn::Device"));
+          emitc::OpaqueType::get(ctx, "ttnn::distributed::MeshDevice"));
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
-      return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
+      return emitc::OpaqueType::get(ctx,
+                                    ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    });
+    addConversion([ctx](mlir::TupleType type) -> emitc::OpaqueType {
+      return emitc::OpaqueType::get(
+          ctx, ttnn_to_emitc::TypeNameV<std::vector<::ttnn::Tensor>>);
     });
   }
 };
 
 struct ConvertTTNNToEmitCPass
-    : public ttnn::impl::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
+    : public mlir::tt::ttnn::impl::ConvertTTNNToEmitCBase<
+          ConvertTTNNToEmitCPass> {
   void runOnOperation() override {
+    mlir::ModuleOp module = getOperation();
+    // Only run conversion on top-level moduleOp.
+    if (module->getParentOp() != nullptr) {
+      return;
+    }
+
     mlir::ConversionTarget target(getContext());
 
     // EmitC is legal, TTNN is illegal
     //
     target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<ttnn::TTNNDialect>();
+    target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
     // mlir::ModuleOp is legal only if no attributes are present on it
     //
@@ -61,7 +78,6 @@ struct ConvertTTNNToEmitCPass
     // Add header imports to front of module
     //
     {
-      mlir::ModuleOp module = getOperation();
       OpBuilder builder(module);
 
       if (module.getBodyRegion().empty()) {
@@ -80,6 +96,17 @@ struct ConvertTTNNToEmitCPass
                                        /*isStandard=*/false);
     }
 
+    // Unwrap device_module into top-level ModuleOp (if present)
+    {
+      OpPassManager pm(ModuleOp::getOperationName());
+      pm.addPass(mlir::tt::ttcore::createTTCoreUnwrapDeviceModulePass());
+
+      if (failed(runPipeline(pm, module))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
     // TTNN -> EmitC
     //
     {
@@ -90,9 +117,13 @@ struct ConvertTTNNToEmitCPass
       //
       populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
           patterns, typeConverter);
+      // Disallow arg attrs on func op
+      //
       target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
         return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-               typeConverter.isLegal(&op.getBody());
+               typeConverter.isLegal(&op.getBody()) &&
+               (!op.getArgAttrs().has_value() ||
+                op.getArgAttrs().value().empty());
       });
       populateReturnOpTypeConversionPattern(patterns, typeConverter);
       target.addDynamicallyLegalOp<func::ReturnOp>(
@@ -107,8 +138,7 @@ struct ConvertTTNNToEmitCPass
 
       // Apply conversion
       //
-      if (failed(applyFullConversion(getOperation(), target,
-                                     std::move(patterns)))) {
+      if (failed(applyFullConversion(module, target, std::move(patterns)))) {
         signalPassFailure();
         return;
       }

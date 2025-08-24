@@ -1,9 +1,9 @@
 add_mlir_public_c_api_library(TTMLIRCAPI
   Dialects.cpp
+  TTCoreAttrs.cpp
   TTKernelTypes.cpp
-  TTAttrs.cpp
-  TTTypes.cpp
   TTNNAttrs.cpp
+  TTTypes.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir-c/
@@ -11,9 +11,9 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   ENABLE_AGGREGATION
 
   LINK_LIBS PUBLIC
+  TTMLIRCompilerStatic
   MLIRIR
   MLIRCAPITransforms
   MLIRSupport
   MLIRTargetCpp
-  TTMLIRStatic
 )

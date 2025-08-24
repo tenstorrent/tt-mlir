@@ -1,0 +1,112 @@
+name: Run Perf Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_forge_fe:
+        description: 'Build tt-forge-fe'
+        required: false
+        type: boolean
+        default: true
+      build_torch:
+        description: 'Build tt-torch'
+        required: false
+        type: boolean
+        default: true
+      build_xla:
+        description: 'Build tt-xla'
+        required: false
+        type: boolean
+        default: true
+      same_branch:
+        description: 'Run on the branch with same name in tt-forge as the current workflow'
+        required: false
+        type: boolean
+      tt_forge_branch:
+        description: 'Branch of tt-forge to run the benchmarks on (empty=main)'
+        required: false
+        type: string
+      test_filter:
+        description: "Only run tests with name that contains"
+        required: false
+        type: string
+      sh-runner:
+        description: "Run on shared runner"
+        required: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    name: 'Run Perf Benchmarks (tt-xla: ${{ inputs.build_xla }}, tt-torch: ${{ inputs.build_torch }}, tt-forge-fe: ${{ inputs.build_forge_fe }})'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: set-inputs
+        run: |
+          if [ "${{ inputs.same_branch }}" == 'true' ]; then
+            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            if [ -z "${{ inputs.tt_forge_branch }}" ]; then
+              echo "ref=main" >> $GITHUB_OUTPUT
+            else
+              echo "ref=${{ inputs.tt_forge_branch }}" >> $GITHUB_OUTPUT
+            fi
+          fi
+      - name: Get mlir sha
+        id: get-mlir-sha
+        run: |
+          mlir_sha=$(git rev-parse HEAD)
+          echo "Building with ttmlir sha: $mlir_sha"
+          echo "TT-MLIR build sha: $mlir_sha" >> $GITHUB_STEP_SUMMARY
+          echo "mlir_sha=$mlir_sha" >> $GITHUB_OUTPUT
+      - name: Trigger XLA build
+        if: ${{ inputs.build_xla }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Triggering tt-xla build"
+          gh workflow run perf-bench-tt-forge.yml --ref main --repo tenstorrent/tt-xla \
+            -f mlir_override=${{ steps.get-mlir-sha.outputs.mlir_sha }} \
+            -f tt_forge_branch=${{ steps.set-inputs.outputs.ref }} \
+            -f test_filter=${{ inputs.test_filter || '' }} \
+            -f sh-runner=${{ inputs.sh-runner || false }}
+          sleep 3
+          url=$(gh run list --workflow=perf-bench-tt-forge.yml --limit 1 --repo tenstorrent/tt-xla --json url | jq -r '.[0].url')
+          echo "TT-XLA build triggered: $url"
+          echo "TT-XLA build triggered: $url" >> $GITHUB_STEP_SUMMARY
+      - name: Trigger Forge-fe build
+        if: ${{ inputs.build_forge_fe }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Triggering tt-forge-fe build"
+          gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-forge-fe \
+            -f mlir_override=${{ steps.get-mlir-sha.outputs.mlir_sha }} \
+            -f tt_forge_branch=${{ steps.set-inputs.outputs.ref }} \
+            -f test_filter=${{ inputs.test_filter || '' }} \
+            -f sh-runner=${{ inputs.sh-runner || false }}
+          sleep 3
+          url=$(gh run list --workflow=perf-benchmark.yml --limit 1 --repo tenstorrent/tt-forge-fe --json url | jq -r '.[0].url')
+          echo "TT-FORGE-FE build triggered: $url"
+          echo "TT-FORGE-FE build triggered: $url" >> $GITHUB_STEP_SUMMARY
+      - name: Trigger Torch build
+        if: ${{ inputs.build_torch }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Triggering tt-torch build"
+          gh workflow run perf-benchmark.yml --ref main --repo tenstorrent/tt-torch \
+            -f mlir_override=${{ steps.get-mlir-sha.outputs.mlir_sha }} \
+            -f tt_forge_branch=${{ steps.set-inputs.outputs.ref }} \
+            -f test_filter=${{ inputs.test_filter || '' }} \
+            -f sh-runner=${{ inputs.sh-runner || false }}
+          sleep 3
+          url=$(gh run list --workflow=perf-benchmark.yml --limit 1 --repo tenstorrent/tt-torch --json url | jq -r '.[0].url')
+          echo "TT-TORCH build triggered: $url"
+          echo "TT-TORCH build triggered: $url" >> $GITHUB_STEP_SUMMARY

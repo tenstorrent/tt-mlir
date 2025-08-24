@@ -1,0 +1,100 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table ConcatOp {
+ inputs: [tt.target.ttnn.TensorRef];
+ out: tt.target.ttnn.TensorRef;
+ dim: int32;
+ memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table PadOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  padding: [uint32];
+  value: float;
+  use_multicore: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table PermuteOp {
+  in: tt.target.ttnn.TensorRef;
+  permutation: [int64];
+  memory_config: tt.target.ttnn.MemoryConfig;
+  pad_value: float;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table RepeatInterleaveOp {
+  input: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  repeats: uint32;
+  dim: int32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table RepeatOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  repeat_dims: [int64];
+}
+
+table ReshapeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  shape: [int32];
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+enum SliceOpType : uint32 {
+  SliceStaticOp,
+  SliceDynamicOp
+}
+
+table SliceStaticOpParams {
+  begins: [int64];
+  ends: [int64];
+}
+
+table SliceDynamicOpParams {
+  begins: tt.target.ttnn.TensorRef;
+  ends: tt.target.ttnn.TensorRef;
+}
+
+union SliceOpParams {
+  SliceStaticOpParams,
+  SliceDynamicOpParams
+}
+
+table SliceOp {
+  type: SliceOpType;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  step: [int64];
+  params: SliceOpParams;
+}
+
+table SortOp {
+  in: tt.target.ttnn.TensorRef;
+  dim: int8;
+  descending: bool;
+  stable: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  outputs: [tt.target.ttnn.TensorRef];
+}
+
+table TransposeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim0: int32;
+  dim1: int32;
+}
+
+table WriteTensorOp {
+  host_tensor: tt.target.ttnn.TensorRef;
+  device_tensor: tt.target.ttnn.TensorRef;
+  blocking: bool;
+  cq_id: uint32;
+}

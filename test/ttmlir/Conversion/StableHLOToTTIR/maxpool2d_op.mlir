@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 func.func public @test_maxpool2d(%arg0: tensor<1x128x128x32xbf16>) -> tensor<1x64x64x32xbf16> {
   %0 = stablehlo.constant dense<0xFF80> : tensor<bf16>
   %1 = stablehlo.broadcast_in_dim %0, dims = [] : (tensor<bf16>) -> tensor<bf16>
@@ -8,7 +9,7 @@ func.func public @test_maxpool2d(%arg0: tensor<1x128x128x32xbf16>) -> tensor<1x6
     %3 = stablehlo.maximum %arg2, %arg3 : tensor<bf16>
     stablehlo.return %3 : tensor<bf16>
   }) : (tensor<1x128x128x32xbf16>, tensor<bf16>) -> tensor<1x64x64x32xbf16>
-  // CHECK: %[[C:.*]] = tensor.empty[[C:.*]]
-  // CHECK: %[[C:.*]] = "ttir.pooling"[[C:.*]]
+  // CHECK: = ttir.empty
+  // CHECK: = "ttir.pooling"
   return %2 : tensor<1x64x64x32xbf16>
 }

@@ -1,4 +1,5 @@
 name: "[internal] Collect workflow data"
+run-name: "Collect data for run_id ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}"
 
 on:
   workflow_run:

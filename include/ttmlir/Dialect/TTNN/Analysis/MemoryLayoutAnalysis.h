@@ -5,33 +5,47 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/DenseSet.h"
+
+#include <vector>
 
 namespace mlir::tt::ttnn {
 
 struct MemoryLayoutAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+  const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
-  std::unordered_set<Edge> overrideReshardEdges;
+  llvm::DenseSet<Edge> overrideReshardEdges;
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
+
   MemoryLayoutAnalysisPolicyType policy;
 
-  MemoryLayoutAnalysisInput() : legalLayouts() {}
+  MemoryLayoutAnalysisInput() : legalConfigs() {}
 
   MemoryLayoutAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Edge> &overrideReshardEdges,
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
       MemoryLayoutAnalysisPolicyType policy)
-      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges), policy(policy) {}
+      : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
+        legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
+        overrideReshardEdges(overrideReshardEdges),
+        overrideOutputLayout(overrideOutputLayout), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
-    return legalLayouts == rhs.legalLayouts;
+    return legalConfigs == rhs.legalConfigs;
   }
 
   bool operator!=(const MemoryLayoutAnalysisInput &rhs) const {
@@ -40,18 +54,20 @@ struct MemoryLayoutAnalysisInput {
 };
 
 struct MemoryLayoutAnalysisResult {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
-  std::unordered_set<Edge> memReconfigEdges;
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
+  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
+  std::vector<Operation *> spillToDramOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalLayouts(), memReconfigEdges(), schedule() {}
+      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
-      const std::unordered_set<Edge> &memReconfigEdges)
-      : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges) {}
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
+      const std::vector<Operation *> &spillToDramOps)
+      : legalConfigs(legalConfigs), memReconfigEntryMap(memReconfigEntryMap),
+        spillToDramOps(spillToDramOps) {}
 };
 
 // Analyze and determine which parts of the model graph can be pushed to L1

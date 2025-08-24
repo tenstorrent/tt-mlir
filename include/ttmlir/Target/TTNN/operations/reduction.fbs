@@ -1,0 +1,35 @@
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+enum ReductionOpType: uint32 {
+  Sum,
+  Mean,
+  Max,
+  Min,
+}
+
+table ReductionOp {
+  type: ReductionOpType;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim_arg: [int32];
+  keep_dim: bool;
+}
+
+table ReductionArgMaxOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim: int32 = null;
+  keep_dim: bool;
+  use_multicore: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table ReductionProdOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim_arg: int64 = null;
+  keep_dim: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

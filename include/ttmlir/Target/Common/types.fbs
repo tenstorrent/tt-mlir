@@ -29,6 +29,16 @@ enum DataType: uint16 {
   UInt32,
   UInt16,
   UInt8,
+  Int32,
+
+  // Unsupported data types
+  // Special handling is required if a user/frontend attempts to create or retrieve a tensor with these data types
+  Float64,
+  Int64,
+  UInt64,
+  Int16,
+  Int8,
+  Bool
 }
 
 enum OOBVal: ushort {
@@ -47,17 +57,7 @@ enum MemorySpace: ushort {
 }
 
 enum ChipCapability: uint32 (bit_flags) {
-  PCIE,
   HostMMIO,
-}
-
-enum TensorMemoryLayout: ushort {
-  None,
-  Interleaved,
-  SingleBank,
-  HeightSharded,
-  WidthSharded,
-  BlockSharded,
 }
 
 enum TensorLayout: ushort {
@@ -74,90 +74,10 @@ enum BufferType: ushort {
   Trace,
 }
 
-// TODO (#620): Add other fields like core_ranges, shard orientation etc.
-table ShardSpec {
-  shard_shape: [int64];
-}
-
-table MemoryConfigDesc {
-  tensor_memory_layout: TensorMemoryLayout;
-  buffer_type: BufferType;
-  shard_spec: ShardSpec;
-}
-
-table ReplicateTensor {
-  replication_factor: uint32;
-}
-
-table ShardTensor {
-  shard_dim: uint32;
-}
-
-table ShardTensor2D {
-  shard_mesh: Dim2d;
-}
-
-table AllGatherTensor {
-
-}
-
-union DistributedTensorConfig {
-  ReplicateTensor,
-  ShardTensor,
-  ShardTensor2D,
-  AllGatherTensor
-}
-
-table DistributionStrategy {
-  strategy: DistributedTensorConfig;
-}
-
-table MemoryDesc {
-  shape: [int];
-  tile_shape: Dim2d;
-  data_type: DataType;
-  memory_space: MemorySpace;
-  memory_layout: TensorMemoryLayout;
-  size: uint64;
-}
-
-table LayoutDesc {
-  stride: [int];
-  oob_val: OOBVal;
-  core_range_set: [Dim2dRange];
-  memory_desc: MemoryDesc;
-  strategy: DistributionStrategy;
-}
-
-table TensorDesc {
-  shape: [int];
-  layout: LayoutDesc;
-}
-
-table CBDesc {
-  port: uint32;
-  memory_desc: MemoryDesc;
-  page_size: uint64;
-  num_buffers: uint64;
-}
-
-table TensorRef {
-  global_id: uint32;
-  address: uint64;
-  size: uint64;
-  desc: TensorDesc;
-}
-
-table CBRef {
-  global_id: uint32;
-  tensor_ref: TensorRef;
-  address: uint64;
-  desc: CBDesc;
-}
-
 table ChipDesc {
   arch: Arch;
   grid_size: Dim2d;
+  coord_translation_offsets: Dim2d;
   l1_size: uint64;
   num_dram_channels: uint32;
   dram_channel_size: uint64;
@@ -168,10 +88,12 @@ table ChipDesc {
   erisc_l1_unreserved_base: uint32;
   dram_unreserved_base: uint32;
   dram_unreserved_end: uint32;
-  physical_cores: ChipPhysicalCores;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
+  dst_register_size_tiles: uint32;
   num_cbs: uint32;
+  num_compute_threads: uint32;
+  num_datamovement_threads: uint32;
 }
 
 struct ChipCoord {
@@ -188,15 +110,7 @@ struct ChipChannel {
   ethernet_core_coord1: Dim2d;
 }
 
-table ChipPhysicalCores {
-  worker: [Dim2d];
-  dram: [Dim2d];
-  eth: [Dim2d];
-  eth_inactive: [Dim2d];
-}
-
-enum CPURole: uint8
-{
+enum CPURole: uint8 {
   Host,
   Device,
 }
@@ -230,4 +144,14 @@ enum MathFidelity : uint8 {
   HiFi2 = 2,
   HiFi3 = 3,
   HiFi4 = 4,
+}
+
+table DynamicLib {
+  dylib_id: uint32;
+  raw_file: [uint8];
+}
+
+table MLIR {
+  name: string;
+  source: string;
 }

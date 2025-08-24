@@ -8,10 +8,9 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
     LINK_LIBS PUBLIC
     MLIRTTNNDialect
     MLIRTTIRDialect
-    MLIRTTDialect
+    MLIRTTCoreDialect
     MLIRTTKernelDialect
     MLIRTTNNTransforms
     TTMLIRTTNNToEmitC
+    MLIRQuantDialect
 )
-
-target_include_directories(TTNNTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

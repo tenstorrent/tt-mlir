@@ -4,9 +4,13 @@
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
@@ -23,13 +27,16 @@ void registerTTNNToFlatbuffer() {
       },
       [](DialectRegistry &registry) {
         // clang-format off
-        registry.insert<mlir::tt::TTDialect,
+        registry.insert<mlir::tt::ttcore::TTCoreDialect,
                         mlir::tt::ttnn::TTNNDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
                         mlir::func::FuncDialect,
-                        mlir::emitc::EmitCDialect
+                        mlir::emitc::EmitCDialect,
+                        mlir::LLVM::LLVMDialect,
+                        mlir::quant::QuantDialect
                         >();
         // clang-format on
+        registerAllToLLVMIRTranslations(registry);
       });
 }
 

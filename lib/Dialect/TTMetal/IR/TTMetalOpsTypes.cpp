@@ -15,6 +15,7 @@ using namespace mlir::tt::ttmetal;
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalAttrInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.cpp.inc"
 
 void TTMetalDialect::registerTypes() {

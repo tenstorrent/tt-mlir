@@ -7,7 +7,6 @@
 
 include "ttmlir/Dialect/TTKernel/IR/TTKernelBase.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsEnums.td"
-include "ttmlir/Dialect/TTKernel/IR/TTKernelAttrInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // TTKernel type definitions
@@ -18,91 +17,32 @@ class TTKernel_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-class TTKernel_Attr<string name, string attrMnemonic, list<Trait> traits = [],
-                   string baseCppClass = "::mlir::Attribute">
-    : AttrDef<TTKernel_Dialect, name, traits, baseCppClass> {
-  let mnemonic = attrMnemonic;
-  let attrName = "ttkernel." # attrMnemonic;
-}
-
-def TTKernel_TensixConfigAttr: TTKernel_Attr<"TensixConfig", "tensix_config", [TTKernel_KernelConfigInterface]> {
-  let summary = "TT TensixConfig attribute";
-  let description = [{
-    TT compute_desc attribute
-  }];
-  let parameters = (ins "MathFidelity":$math_fidelity,
-                        "bool":$fp32_dest_acc_en,
-                        "bool":$math_approx_mode,
-                        ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode);
-  let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
-
-  let extraClassDeclaration = [{
-    static TensixConfigAttr get(::mlir::MLIRContext *context){
-      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false, {UnpackToDestMode::Default});
-    };
-
-    ThreadType getThreadType() const { return ThreadType::Tensix; }
-  }];
-}
-
-def TTKernel_NocConfigAttr: TTKernel_Attr<"NocConfig", "noc_config", [TTKernel_KernelConfigInterface]> {
-  let summary = "TT NocConfig attribute";
-  let description = [{
-    TT noc_config attribute
-  }];
-  let parameters = (ins "NocIndex":$noc_index);
-  let assemblyFormat = "`<` $noc_index `>`";
-  let extraClassDeclaration = [{
-    ThreadType getThreadType() const { return ThreadType::Noc; }
-  }];
-}
-
-def TTKernel_EthernetConfigAttr: TTKernel_Attr<"EthernetConfig", "ethernet_config", [TTKernel_KernelConfigInterface]> {
-  let summary = "TT EthernetConfig attribute";
-  let description = [{
-    TT ethernet_config attribute
-  }];
-  let parameters = (ins "EthType":$eth_type,
-                        "NocIndex":$noc_index);
-  let assemblyFormat = "`<` $eth_type`,` $noc_index `>`";
-  let extraClassDeclaration = [{
-    ThreadType getThreadType() const { return ThreadType::Ethernet; }
-  }];
-}
-
-def TTKernel_KernelConfigAttr : AnyAttrOf<[TTKernel_TensixConfigAttr, TTKernel_NocConfigAttr, TTKernel_EthernetConfigAttr]>;
-
-def TTKernel_KernelConfigArrayAttr : TypedArrayAttrBase<TTKernel_KernelConfigAttr, "">;
-
 def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     let summary = "TTKernel cb";
     let description = "Circular buffer type in TTKernel dialect";
-    let parameters = (ins "CBPort":$port,
-                          "uint64_t":$address,
-                          "MemRefType":$memref,
-                          "uint64_t":$page_size,
-                          "uint64_t":$num_buffers);
-    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers `>`";
+    let parameters = (ins "MemRefType":$memref);
+    let assemblyFormat = "`<` $memref `>`";
 
     let extraClassDeclaration = [{
-        static CBType get(::mlir::MLIRContext *context,
-                              CBPort port,
-                              uint64_t address,
-                              MemRefType memref) {
-          uint64_t numBuffers = 1;
-          uint64_t pageSize = 0;
-          if (::mlir::isa<::mlir::tt::TileType>(memref.getElementType())) {
-            pageSize = ::mlir::cast<::mlir::tt::TileType>(memref.getElementType()).getSizeBytes();
-          } else {
-            pageSize = memref.getShape().back() * (memref.getElementType().getIntOrFloatBitWidth() / 8);
-          }
-          return CBType::get(context, port, address, memref, pageSize, numBuffers);
-        }
-
         ::llvm::ArrayRef<int64_t> getShape() const {
           return getMemref().getShape();
         }
+
+        int64_t getNumElements() const {
+          return getMemref().getNumElements();
+        }
+
+        int64_t getNumTiles() const {
+          assert(mlir::isa<mlir::tt::ttcore::TileType>(getMemref().getElementType()) &&
+                 "getNumTiles only supports tile element type");
+          return getNumElements();
+        }
     }];
+}
+
+def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
+  let summary = "TTKernel semaphore";
+  let description = "Semaphore type in TTKernel dialect";
 }
 
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
@@ -132,6 +72,71 @@ def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
 def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     let summary = "TTKernel l1 address pointer";
     let description = "L1 pointer address type in TTKernel dialect";
+}
+
+def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
+    let summary = "TTKernel InterleavedAddrGenFast type";
+    let description = "InterleavedAddrGenFast type in TTKernel dialect";
+}
+
+def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
+  let summary = "TensorAccessorArgs type";
+  let description = "TensorAccessor args type that stores compile + runtime information";
+}
+
+def TTKernel_TensorAccessor : TTKernel_Type<"TensorAccessor", "TensorAccessor"> {
+  let summary = "TensorAccessor type";
+  let description = "Accessor that encapsulates logic to access tensor information";
+}
+
+def TTKernel_TensorAccessorPageMapping : TTKernel_Type<"TensorAccessorPageMapping", "PageMapping"> {
+  let summary = "TensorAccessor PageMapping struct";
+  let description = "TensorAccessor struct that holds bank_id and bank_page_offset";
+}
+
+def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
+    let summary = "TTKernel compute data format type";
+    let description = "Data format type in TTKernel dialect";
+}
+
+class TTKernel_Attr<string name, string attrMnemonic, list<Trait> traits = [],
+                   string baseCppClass = "::mlir::Attribute">
+    : AttrDef<TTKernel_Dialect, name, traits, baseCppClass> {
+  let mnemonic = attrMnemonic;
+  let attrName = "ttkernel." # attrMnemonic;
+}
+
+def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
+  let summary = "Kernel argument.";
+  let description = [{
+  }];
+  let parameters = (ins "ArgType":$arg_type, "size_t":$operand_index,
+                        DefaultValuedParameter<"bool", "true">:$is_uniform);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let extraClassDeclaration = [{
+    static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index) {
+      return ArgAttr::get(context, argType, index, true);
+    }
+  }];
+}
+
+def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
+  let summary = "Kernel argument specification.";
+  let description = [{
+    A list of argument attibutes, of which form the argument specification for this kernel.
+  }];
+  let parameters = (ins OptionalArrayRefParameter<"ArgAttr">:$rt_args,
+                        OptionalArrayRefParameter<"ArgAttr">:$ct_args);
+  let assemblyFormat = "`<` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
+
+  let extraClassDeclaration = [{
+    static ArgSpecAttr setArgSpec(func::FuncOp func, ArgSpecAttr argSpec);
+    // Returns the appended argument index.
+    static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg);
+    // Returns the appended argument index.
+    static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg);
+  }];
 }
 
 #endif

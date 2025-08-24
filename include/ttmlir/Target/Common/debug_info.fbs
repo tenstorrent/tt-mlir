@@ -1,4 +1,4 @@
-include "Common/types.fbs";
+include "ttmlir/Target/Common/types.fbs";
 
 namespace tt.target;
 
@@ -19,13 +19,9 @@ table GoldenInfo {
   golden_map: [GoldenKV];
 }
 
-table MLIR {
-  name: string;
-  source: string;
-}
 
 table DebugInfo {
-  mlir: MLIR;
   cpp: string;
+  mlir_stages: [MLIR];
   golden_info: GoldenInfo;
 }

@@ -3,8 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
+
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 
@@ -19,35 +24,52 @@ void L1ChainConfig::resolve() {
 }
 
 ShardSolver L1ChainConfig::resolveWithSolver(
-    const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-        &legalLayouts,
+    const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
+    const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     unsigned usableL1CacheSize,
-    const std::unordered_set<Edge> &overrideReshardEdges) {
+    const llvm::DenseSet<Edge> &overrideReshardEdges,
+    const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout) {
   assert(state == L1ChainState::Built);
 
   // Reconcile adjacent shard specs.
   // Generate reshard specs where needed.
   //
-  ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
-                          usableL1CacheSize, overrideReshardEdges);
-  state = L1ChainState::Resolved;
+  ShardSolver shardSolver(tensorTypePossibleLayouts, legalConfigs, opL1MemSpecs,
+                          l1ChainedOps, usableL1CacheSize, overrideReshardEdges,
+                          overrideOutputLayout);
+
+  state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;
 
   return shardSolver;
 }
 
 void L1ChainConfig::complete(
-    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
-    std::unordered_set<Edge> &memReconfigEdges) {
+    const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
+    llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
   assert(state == L1ChainState::Resolved);
   for (auto &opL1MemSpec : opL1MemSpecs) {
-    auto legalLayoutsIter = selectedOpLayout.find(opL1MemSpec.op);
-    assert(legalLayoutsIter != selectedOpLayout.end());
+    auto legalConfigsIter = selectedOpConfig.find(opL1MemSpec.op);
+    assert(legalConfigsIter != selectedOpConfig.end());
 
-    opL1MemSpec.layout = legalLayoutsIter->second;
+    opL1MemSpec.config = legalConfigsIter->second;
   }
 
-  this->memReconfigEdges.swap(memReconfigEdges);
+  this->memReconfigEntryMap.swap(memReconfigEntryMap);
   state = L1ChainState::Completed;
+}
+
+void L1ChainConfig::complete() {
+  assert(state == L1ChainState::Resolved);
+  state = L1ChainState::Completed;
+}
+
+void L1ChainConfig::merge(L1ChainConfig &other) {
+  assert(getState() == other.getState());
+  opL1MemSpecs.insert(opL1MemSpecs.end(), other.opL1MemSpecs.begin(),
+                      other.opL1MemSpecs.end());
+  l1ChainedOps.insert(other.l1ChainedOps.begin(), other.l1ChainedOps.end());
+  memReconfigEntryMap.insert(other.memReconfigEntryMap.begin(),
+                             other.memReconfigEntryMap.end());
 }
 
 } // namespace mlir::tt::ttnn

@@ -6,7 +6,10 @@
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN dialect definition.
@@ -22,7 +25,7 @@ def TTNN_Dialect : Dialect {
     }];
     let cppNamespace = "::mlir::tt::ttnn";
 
-    // let useDefaultTypePrinterParser = 1;
+    let useDefaultTypePrinterParser = 1;
     let useDefaultAttributePrinterParser = 1;
     let extraClassDeclaration = [{
         void registerTypes();
@@ -35,7 +38,7 @@ def TTNN_Dialect : Dialect {
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::ttcore::TTCoreDialect"
     ];
 }
 
@@ -44,6 +47,12 @@ def TTNN_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, !listconcat(traits, [TTNN_OpModelInterface])>;
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckBFloat8BTrait, TTNN_WorkaroundInterface] # traits>;
+
+class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface] # traits>;
+
+class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface] # traits>;
 
 #endif

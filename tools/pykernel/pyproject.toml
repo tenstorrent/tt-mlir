@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip", "ninja"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pykernel"
+description = "Python Endpoint to write TT-Metal Kernels"
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" }
+]
+requires-python = ">=3.8"
+keywords = ["pykernel", "tt-metal", "kernel", "machine learning", "tenstorrent"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+dynamic = ["dependencies", "version", "readme"]
+
+[project.urls]
+Homepage = "https://docs.tenstorrent.com/tt-mlir/"
+Documentation = "https://docs.tenstorrent.com/tt-mlir/pykernel.html"
+Repository = "https://github.com/tenstorrent/tt-mlir"
+Issues = "https://github.com/tenstorrent/tt-mlir/issues"
+
+[tool.cibuildwheel]
+build = "cp310-manylinux_x86_64*"
+skip = "*-musllinux_*"
+build-verbosity = 2

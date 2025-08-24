@@ -6,20 +6,13 @@
 #include "mlir/CAPI/Support.h"
 #include "ttmlir-c/TTAttrs.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-namespace mlir::tt {
+using namespace mlir::tt::ttcore;
 
 MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
                              uint32_t dataType) {
   return wrap(TileType::get(unwrap(ctx),
-                            SmallVector<std::int64_t>{height, width},
-                            static_cast<tt::DataType>(dataType)));
+                            llvm::SmallVector<std::int64_t>{height, width},
+                            static_cast<DataType>(dataType)));
 }
-
-MlirType ttmlirTTDeviceTypeGet(MlirContext ctx, MlirAttribute deviceAttr) {
-  return wrap(DeviceType::get(unwrap(ctx),
-                              mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
-}
-
-} // namespace mlir::tt

@@ -3,16 +3,28 @@ if [ -z "${TTMLIR_TOOLCHAIN_DIR}" ]; then
   export TTMLIR_TOOLCHAIN_DIR="/opt/ttmlir-toolchain"
 fi
 
+if [ ! -z "${_ACTIVATE_ECHO_TOOLCHAIN_DIR_AND_EXIT}" ]; then
+  echo -n "${TTMLIR_TOOLCHAIN_DIR}"
+  exit 0
+fi
+
 # Step 2: Check if TTMLIR_VENV_DIR is already set, if not, set it to the venv directory inside TTMLIR_TOOLCHAIN_DIR
 if [ -z "${TTMLIR_VENV_DIR}" ]; then
   export TTMLIR_VENV_DIR="${TTMLIR_TOOLCHAIN_DIR}/venv"
 fi
 
-[ -f $TTMLIR_VENV_DIR/bin/activate ] && source $TTMLIR_VENV_DIR/bin/activate
+if [ -f $TTMLIR_VENV_DIR/bin/activate ]; then
+  source $TTMLIR_VENV_DIR/bin/activate
+elif [ -z "${_ACTIVATE_SUPPRESS_INIT_WARNING}" ]; then
+  echo "WARNING: venv not found - ${TTMLIR_VENV_DIR}/bin/activate"
+  echo "  tt-mlir might not be fully/correctly configured, have you run environment setup?"
+  echo "  For more information refer to: https://docs.tenstorrent.com/tt-mlir/getting-started.html"
+fi
+
 export TTMLIR_ENV_ACTIVATED=1
-export PATH="$(pwd)/build/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
+export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
-export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal-build"
+export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal/build"
 export TT_MLIR_HOME="$(pwd)"
-export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
-export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
+export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
+export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}"  # These paths are needed for tracy (profiling)

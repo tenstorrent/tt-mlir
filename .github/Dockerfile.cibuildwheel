@@ -1,0 +1,54 @@
+FROM quay.io/pypa/manylinux_2_34_x86_64
+SHELL ["/bin/bash", "-c"]
+
+# Force dnf to stop being mean
+RUN FILES=(/etc/yum.repos.d/almalinux*.repo) && \
+    sed --in-place -e 's/^mirrorlist=/# mirrorlist=/g' -e "s/^# baseurl=/baseurl=/" "${FILES[@]}"
+
+# Install dependencies
+RUN dnf check-update || true
+RUN dnf install --refresh -y epel-release
+RUN dnf config-manager --set-enabled crb
+
+RUN dnf install --refresh -y \
+    gcc-c++ make cmake ninja-build pkgconf-pkg-config ccache \
+    clang lld \
+    git wget curl jq sudo patch unzip \
+    hwloc-devel tbb-devel capstone-devel \
+    yaml-cpp-devel boost-devel libcurl-devel \
+    pandoc doxygen graphviz lcov perf \
+    xz
+
+RUN dnf clean all
+
+# Install Ninja
+ENV NINJA_VERSION="1.11.1"
+ENV NINJA_URL="https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
+ENV NINJA_ZIP="ninja-linux.zip"
+
+RUN curl -L -o "${NINJA_ZIP}" "${NINJA_URL}"
+RUN unzip "${NINJA_ZIP}" -d /usr/local/bin/
+RUN chmod +x /usr/local/bin/ninja
+RUN rm -f "${NINJA_ZIP}"
+
+# Create a directory for the build and toolchain
+ENV PROJECT_NAME=tt-mlir
+ENV BUILD_DIR=/home/build
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+RUN echo "Building $PROJECT_NAME"
+
+RUN mkdir -p $BUILD_DIR && \
+    mkdir -p $TTMLIR_TOOLCHAIN_DIR
+
+# Copy the project to the container
+ADD . $BUILD_DIR/$PROJECT_NAME
+
+# Build the toolchain
+WORKDIR $BUILD_DIR/$PROJECT_NAME
+
+# Show last 2 commits
+RUN git log -2
+
+RUN cmake -B env/build env && \
+    cmake --build env/build

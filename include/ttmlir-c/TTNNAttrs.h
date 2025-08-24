@@ -12,11 +12,48 @@
 extern "C" {
 #endif
 
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx,
-                                                            int64_t *offset,
-                                                            size_t offsetSize,
-                                                            int64_t *size,
-                                                            size_t sizeSize);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreCoordAttrGet(MlirContext ctx,
+                                                            uint64_t y,
+                                                            uint64_t x);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNCoreRangeSetAttrGet(MlirContext ctx, MlirAttribute *coreRangesAttrs,
+                              size_t coreRangesAttrsSize);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNUnaryWithParamAttr(MlirContext ctx, uint32_t opTypeEnum,
+                             MlirAttribute *params, size_t paramsSize);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNMatmulMultiCoreReuseProgramConfigAttr(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t perCoreM, uint64_t perCoreN);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNMatmulMultiCoreReuseMultiCastProgramConfigAttr(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
+    uint64_t perCoreN, bool transposeMcast, MlirAttribute fusedActivation,
+    bool fuseBatch);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
+    uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
+    bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
+    uint64_t numGlobalCbReceivers, bool untilizeOut);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTNNMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttrGet(
+    MlirContext ctx, uint64_t in0BlockW, uint64_t perCoreM, uint64_t perCoreN,
+    MlirAttribute fusedActivation);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeAttrGet(
+    MlirContext ctx, MlirAttribute startCoord, MlirAttribute endCoord);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeArrayAttrGet(
     MlirContext ctx, MlirAttribute *coreRangeAttrs, size_t coreRangeAttrsSize);
@@ -30,8 +67,10 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTensorMemoryLayoutAttrGet(
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTNNBufferTypeAttrGet(MlirContext ctx, uint32_t bufferType);
 
-MLIR_CAPI_EXPORTED MlirAttribute
-ttmlirTTNNShardSpecAttrGet(MlirContext ctx, MlirAttribute shardShapeAttr);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNShardSpecAttrGet(
+    MlirContext ctx, MlirAttribute coreRangeSetAttr, MlirAttribute shapeAttr,
+    MlirAttribute shardOrientationAttr, MlirAttribute shardModeAttr,
+    MlirAttribute physicalShardShapeAttr);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
     MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,

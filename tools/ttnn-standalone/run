@@ -1,12 +1,22 @@
 #!/bin/bash
 
-set -e  # exit on error
+# Exit on error
+set -e
+
+# Allow running only from the script directory
+script_dir=$(dirname "$(realpath "$0")")
+if [ "$(pwd)" != ${script_dir} ]; then
+  echo "Error: must run from ${script_dir}"
+  exit 1
+fi
+
+# Build
 echo "==================== BUILDING TTNN STANDALONE ==================="
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
 cmake --build build -- ttnn-standalone
 echo "================ FINISH BUILDING TTNN STANDALONE ================"
-set +e  # unset exit on error
 
+# Run
 echo "==================== RUNNING TTNN STANDALONE ===================="
 ./build/ttnn-standalone
 echo "================= FINISH RUNNING TTNN STANDALONE ================"

@@ -5,18 +5,19 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_TTIROPSINTERFACES_H
 #define TTMLIR_DIALECT_TTIR_IR_TTIROPSINTERFACES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
-namespace mlir {
-namespace tt {
-namespace ttir {
+namespace mlir::tt::ttir {
+
 namespace detail {
-mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
+mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
 } // namespace detail
-} // namespace ttir
-} // namespace tt
-} // namespace mlir
+
+std::pair<mlir::MemRefType, mlir::AffineMap> applyViews(mlir::Operation *op);
+
+} // namespace mlir::tt::ttir
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h.inc"
 

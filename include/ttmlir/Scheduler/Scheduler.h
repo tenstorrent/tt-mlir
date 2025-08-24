@@ -21,7 +21,11 @@ public:
   Scheduler(const Scheduler &scheduler);
 
   // Method to get the next set of schedulable operations
-  llvm::SmallVector<mlir::Operation *> getScheduleableOps();
+  llvm::SmallVector<mlir::Operation *> getSchedulableOps();
+
+  // Method to check if an operation is either a TTIR op or a
+  // TTNN scheduleable op.
+  bool isTTSchedulableOp(mlir::Operation *op);
 
   // Method to check if an operation can be scheduled
   bool canSchedule(mlir::Operation *op);
@@ -39,13 +43,17 @@ public:
   bool hasUnscheduledOps() const;
 
 private:
-  // Map of scheduled operations
+  // Map of scheduled operations.
   llvm::DenseSet<mlir::Operation *> scheduledOpsMap;
-  // Operation schedule in order of execution
+
+  // Operation schedule in order of execution.
   llvm::SmallVector<mlir::Operation *> schedule;
-  // Set of unscheduled operations
-  llvm::DenseSet<mlir::Operation *> unscheduledOps;
-  // Map of dependencies
+
+  // Vector of all operations in deterministic order.
+  llvm::SmallVector<mlir::Operation *> opsWithinFuncOp;
+
+  // Map of dependencies. Dependencies are the operations that must be scheduled
+  // before the given operation.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
       dependencies;
 };

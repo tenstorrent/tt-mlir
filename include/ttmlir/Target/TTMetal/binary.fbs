@@ -1,13 +1,37 @@
-include "Common/types.fbs";
-include "Common/version.fbs";
-include "Common/debug_info.fbs";
-include "command.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/version.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTMetal/command.fbs";
+include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
+///////////////////////////////
+// TODO(#3127): Commonize TensorRef and types somehow with TTNN
+// These are needed for compatibility with ttrt which inspects this info from the binary
+table MemoryDesc {
+  data_type: DataType;
+}
+
+table LayoutDesc {
+  memory_desc: MemoryDesc;
+}
+
+table TensorDesc {
+  shape: [int];
+  mesh_shape: [int32];
+  layout: LayoutDesc;
+}
+
+table TensorRef {
+  size: uint64;
+  desc: TensorDesc;
+}
+///////////////////////////////
+
 table DeviceProgram {
-  inputs: [TensorRef];
-  outputs: [TensorRef];
+  inputs: [BufferRef];
+  outputs: [BufferRef];
   command_queues: [CommandQueue];
 }
 
@@ -17,13 +41,19 @@ table Program {
   outputs: [TensorRef];
   device_programs: [DeviceProgram];
   debug_info: DebugInfo;
+  // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
+  private: bool;
+  mesh_shape: Dim2d;
 }
 
 table TTMetalBinary {
   version: Version;
+  schema_hash: string;
   ttmlir_git_hash: string;
   system_desc: SystemDesc;
+  mlir: MLIR;
   programs: [Program];
+  dylibs: [DynamicLib];
 }
 
 root_type TTMetalBinary;

@@ -6,40 +6,30 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 
 def TTIROpInterface : OpInterface<"TTIROp"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
-        Return the constraints on the operands of this operation.
-      }],
-      /*retTy=*/"::mlir::ArrayAttr",
-      /*methodName=*/"getOperandConstraints",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
         Get the device of the current scope.
       }],
-      /*retTy=*/"::mlir::tt::SystemDescAttr",
+      /*retTy=*/"::mlir::tt::ttcore::SystemDescAttr",
       /*methodName=*/"getSystemDesc",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeSystemDesc($_op);"
+      /*defaultImplementation=*/"return ::mlir::tt::ttcore::getCurrentScopeSystemDesc($_op);"
     >,
     InterfaceMethod<
       /*desc=*/[{
         Get the device of the current scope.
       }],
-      /*retTy=*/"::mlir::tt::DeviceAttr",
+      /*retTy=*/"::mlir::tt::ttcore::DeviceAttr",
       /*methodName=*/"getDevice",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
+      /*defaultImplementation=*/"return ::mlir::tt::ttcore::lookupDevice($_op);"
     >,
     InterfaceMethod<
       /*desc=*/[{
@@ -64,63 +54,123 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   ];
 }
 
-def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
+def TTIR_GenericParent : OpInterface<"GenericParent"> {
   let cppNamespace = "::mlir::tt::ttir";
 
-  let dependentTraits = [AttrSizedOperandSegments];
-
   let verify = [{
-    return detail::verifyBroadcastable($_op);
+    return detail::verifyGenericParent($_op);
   }];
 }
 
-def TTIR_GenericRegionOpInterface : OpInterface<"GenericRegionOp"> {
+def TTIR_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
   let cppNamespace = "::mlir::tt::ttir";
+}
 
+def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_ElementwiseTernary : OpInterface<"ElementwiseTernary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
-        Return a pair of indexingMaps and iteratorTypes for the given GenericRegionOp.
-        Where:
-        indexingMaps: a list of AffineMapAttr, one AffineMapAttr per each input and
-                      output view. Such AffineMapAttr specifies the mapping between
-                      the loops and the indexing within each view. It effectively
-                      defines how the op can legally be parallelized.
-        iteratorTypes: an ArrayAttr specifying the type of the enclosing loops. Each
-                       element of the list represents an iterator of one of the
-                       following types, parallel and reduction.
+        Get the input of the view op.
       }],
-      /*retTy=*/"std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr>",
-      /*methodName=*/"getIndexingMaps",
-      /*args=*/(ins "::mlir::Builder &":$builder),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
+      /*retTy=*/"mlir::Value",
+      /*methodName=*/"getInput"
     >,
     InterfaceMethod<
       /*desc=*/[{
-        Rewrite self into the generic region block using the arith and math dialects.
+        Get the result of the view op.
       }],
-      /*retTy=*/"void",
-      /*methodName=*/"buildGenericRegion",
-      /*args=*/(ins "::mlir::OpBuilder &":$op_builder,
-                         "::mlir::Block*":$block),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
+      /*retTy=*/"mlir::Value",
+      /*methodName=*/"getResult"
     >,
-    StaticInterfaceMethod<
+    InterfaceMethod<
       /*desc=*/[{
-        Return if the given operands have the same rank.
+        Recursively apply view interface ops until a shard layout is reached.
+        Returns a pair of the underlying memref with shard layout and an
+        affine map that describes a view over this memref.
+      }],
+      /*retTy=*/"std::pair<mlir::MemRefType, mlir::AffineMap>",
+      /*methodName=*/"applyViews",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ttir::applyViews($_op);"
+    >,
+  ];
+}
+
+def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface denotes which op operand indices require their operands to be
+        sourced from the destination register.  It is primarily used by the
+        insert-dst-register-access pass to autogenerate copynests to and from dst.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+  ];
+}
+
+def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface method performs the rewrite of the op using quantized operands.
+        The method returns a nullptr if the op cannot be rewritten in quantized form given the operands.
+      }],
+      /*retTy=*/"mlir::Operation *",
+      /*methodName=*/"rewriteWithQuantizedInputs",
+      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$sourceOperands, "mlir::ValueRange":$outputOperands),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return nullptr;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface method denotes that an op can be rewritten to accept quantized inputs.
+        The quant-dequant pattern pass uses this function to verify basic legality; that the op can be rewritten
+        in quantized form given the operands passed in as parameters.
       }],
       /*retTy=*/"bool",
-      /*methodName=*/"sameRank",
-      /*args=*/(ins "::mlir::OperandRange":$operands),
+      /*methodName=*/"isQuantizedRewriteFavorable",
+      /*args=*/(ins "ArrayRef<mlir::Value>":$sourceOperands),
       /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return llvm::all_equal(llvm::map_range(operands, [](Value operand) {
-          return mlir::cast<RankedTensorType>(operand.getType()).getRank();
-        }));
-      }]
-    >
+      /*defaultImplementation=*/"return true;"
+    >,
+  ];
+}
+
+def TTIR_DMAOpInterface : OpInterface<"DMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface allows querying the common aspects of
+    DMA(Read|Write)Ops ; mostly that they have two memref-like
+    operands.
+  }];
+  let methods = [
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getSrc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getDst">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getSrcMutable">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
+    InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
   ];
 }
 

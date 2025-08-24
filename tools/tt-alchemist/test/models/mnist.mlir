@@ -1,0 +1,1 @@
+../../../../test/ttmlir/models/mnist.mlir

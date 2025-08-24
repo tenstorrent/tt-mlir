@@ -28,17 +28,48 @@ def TTKernel_Dialect : Dialect {
     }];
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
+      "::mlir::memref::MemRefDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::ttcore::TTCoreDialect"
     ];
 }
 
 //===----------------------------------------------------------------------===//
-// Base TTKernel operation definition.
+// TTKernel Traits.
+//===----------------------------------------------------------------------===//
+
+class TTKernel_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+def TTKernel_FPUOpTrait : TTKernel_Trait<"TTKernelFPUOpTrait", []>;
+
+def TTKernel_SFPUOpTrait : TTKernel_Trait<"TTKernelSFPUOpTrait", []>;
+
+def TTKernel_InitOpTrait : TTKernel_Trait<"TTKernelInitOpTrait", []>;
+
+def TTKernel_UnaryOpTrait : TTKernel_Trait<"TTKernelUnaryOpTrait", []>;
+
+def TTKernel_BinaryOpTrait : TTKernel_Trait<"TTKernelBinaryOpTrait", []>;
+
+def TTKernel_TernaryOpTrait : TTKernel_Trait<"TTKernelTernaryOpTrait", []>;
+
+//===----------------------------------------------------------------------===//
+// Base TTKernel operation definitions.
 //===----------------------------------------------------------------------===//
 
 class TTKernel_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTKernel_Dialect, mnemonic, traits>;
+
+class TTKernel_FPUOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_FPUOpTrait] # traits>;
+
+class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait] # traits>;
+
+class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_InitOpTrait] # traits>;
+
 
 #endif

@@ -1,0 +1,42 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table FromDeviceOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table ToDeviceOp {
+  in: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table ToDTypeOp {
+  in: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table ToLayoutOp {
+  in: tt.target.ttnn.TensorRef;
+  layout: tt.target.TensorLayout;
+  dtype: tt.target.DataType = null;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table ToMemoryConfigOp {
+  in0: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table TypecastOp {
+  in: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.ttnn.TensorRef;
+}

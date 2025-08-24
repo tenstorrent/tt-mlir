@@ -7,7 +7,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
@@ -16,69 +16,62 @@
 
 namespace mlir::tt::ttkernel {
 
-static bool insideDispatchOpRegion(mlir::Operation *op) {
+static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
 
   if (!parentOp) {
     return false;
   }
 
-  if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
+  if (dyn_cast_if_present<ttmetal::EnqueueProgramOp>(parentOp)) {
     return true;
   }
 
-  if (dyn_cast_or_null<func::FuncOp>(parentOp) &&
-      dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
+  if (dyn_cast_if_present<func::FuncOp>(parentOp) &&
+      dyn_cast_if_present<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
   }
-  return insideDispatchOpRegion(parentOp);
-}
-
-::mlir::LogicalResult BuiltinOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("KernelOp must be inside of a DispatchOp region");
-  }
-  return success();
+  return insideEnqueueProgramOpRegion(parentOp);
 }
 
 ::mlir::LogicalResult CBPushBackOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("CBPushBackOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "CBPushBackOp must be inside of a EnqueueProgramOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBPopFrontOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("CBPopFrontOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "CBPopFrontOp must be inside of a EnqueueProgramOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBReserveBackOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("CBReserveBackOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "CBReserveBackOp must be inside of a EnqueueProgramOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBWaitFrontOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("CBWaitFrontOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "CBWaitFrontOp must be inside of a EnqueueProgramOp region");
   }
   return success();
 }
 
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  if (tilizedCB.getPort() == scalarCB.getPort()) {
-    return "Input circular buffer port and output circular buffer "
-           "port must be different";
-  }
-  if (mlir::isa<tt::TileType>(scalarCB.getMemref().getElementType())) {
+  if (mlir::isa<ttcore::TileType>(scalarCB.getMemref().getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
   }
-  if (!mlir::isa<tt::TileType>(tilizedCB.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(tilizedCB.getMemref().getElementType())) {
     return "Input to UntilizeOp or Output to TilizeOp must have tile "
            "element type";
   }
@@ -86,8 +79,9 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 }
 
 ::mlir::LogicalResult TilizeInitOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("TilizeInitOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "TilizeInitOp must be inside of a EnqueueProgramOp region");
   }
   std::string err =
       verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
@@ -98,20 +92,34 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 }
 
 ::mlir::LogicalResult UntilizeInitOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("UntilizeInitOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "UntilizeInitOp must be inside of a EnqueueProgramOp region");
+  }
+  auto inputCBType = getCbIn().getType();
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+    return emitOpError("Input to UntilizeInitOp must have tile element type");
+  }
+  return success();
+}
+
+::mlir::LogicalResult TilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "TilizeBlockOp must be inside of a EnqueueProgramOp region");
   }
   std::string err =
-      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+      verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
   if (!err.empty()) {
     return emitOpError(err);
   }
   return success();
 }
 
-::mlir::LogicalResult TilizeBlockOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("TilizeBlockOp must be inside of a DispatchOp region");
+::mlir::LogicalResult ExperimentalTilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("ExperimentalTilizeBlockOp must be inside of a "
+                       "EnqueueProgramOp region");
   }
   std::string err =
       verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
@@ -122,8 +130,9 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 }
 
 ::mlir::LogicalResult UntilizeBlockOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("UntilizeBlockOp must be inside of a DispatchOp region");
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "UntilizeBlockOp must be inside of a EnqueueProgramOp region");
   }
   std::string err =
       verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
@@ -133,9 +142,38 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
-::mlir::LogicalResult ReturnOp::verify() {
-  if (!insideDispatchOpRegion(getOperation())) {
-    return emitOpError("ReturnOp must be inside of a DispatchOp region");
+::mlir::LogicalResult ExperimentalUntilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("ExperimentalUntilizeBlockOp must be inside of a "
+                       "EnqueueProgramOp region");
+  }
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
+  }
+  return success();
+}
+
+::mlir::LogicalResult CBReinterpretShapeOp::verify() {
+  auto inCBType = getInput().getType();
+  auto outCBType = getOutput().getType();
+
+  if (inCBType.getMemref().getElementType() !=
+      outCBType.getMemref().getElementType()) {
+    return emitOpError("input circular buffer element type and output "
+                       "circular buffer element type must be the same");
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult DPrintOp::verify() {
+  StringRef fmt = getFmt();
+  size_t numFormatSpecifiers = fmt.count("{}");
+  if (numFormatSpecifiers != getOperands().size()) {
+    return emitOpError("number of format specifiers must match number of "
+                       "operands");
   }
   return success();
 }

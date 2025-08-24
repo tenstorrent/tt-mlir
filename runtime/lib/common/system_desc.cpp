@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include "tt/runtime/workarounds.h"
+#include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
@@ -11,11 +15,17 @@
 #include <vector>
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
+#include "tt-metalium/allocator.hpp"
+#include "tt-metalium/hal.hpp"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/mesh_device.hpp"
 
 namespace tt::runtime::system_desc {
+
+using HalMemType = ::tt::tt_metal::HalMemType;
+using BufferType = ::tt::tt_metal::BufferType;
+
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
@@ -32,11 +42,11 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
     break;
   }
 
-  throw std::runtime_error("Unsupported arch");
+  LOG_FATAL("Unsupported arch");
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -50,10 +60,22 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
     connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
   };
 
-  for (const ::tt::tt_metal::Device *device : devices) {
+  for (const ::tt::tt_metal::IDevice *device : devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      bool getConnection = true;
+      // Skip on blackhole. When link is down, get_connected_ethernet_core
+      // will throw an exception.
+      // See https://github.com/tenstorrent/tt-mlir/issues/3423 for BH
+      if (workaround::Env::get().blackholeWorkarounds) {
+        getConnection &= device->arch() != ::tt::ARCH::BLACKHOLE;
+      }
+      // See https://github.com/tenstorrent/tt-mlir/issues/3781 for WH
+      getConnection &= device->arch() != ::tt::ARCH::WORMHOLE_B0;
+      if (!getConnection) {
+        continue;
+      }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
@@ -76,92 +98,51 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
   return allConnections;
 }
 
-static void sort(std::vector<::tt::target::Dim2d> &vec) {
-  std::sort(vec.begin(), vec.end(),
-            [](const ::tt::target::Dim2d &a, const ::tt::target::Dim2d &b) {
-              return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
-            });
-}
-
-// Gather all physical cores by type for the device using metal device APIs
-static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
-createChipPhysicalCores(const ::tt::tt_metal::Device *device,
-                        flatbuffers::FlatBufferBuilder &fbb) {
-
-  std::vector<::tt::target::Dim2d> worker_cores, dram_cores, eth_cores,
-      eth_inactive_cores;
-
-  CoreCoord logical_grid_size = device->compute_with_storage_grid_size();
-  for (uint32_t y = 0; y < logical_grid_size.y; y++) {
-    for (uint32_t x = 0; x < logical_grid_size.x; x++) {
-      CoreCoord physical =
-          device->worker_core_from_logical_core(CoreCoord(x, y));
-      worker_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-    }
-  }
-
-  CoreCoord dram_grid_size = device->dram_grid_size();
-  for (uint32_t y = 0; y < dram_grid_size.y; y++) {
-    for (uint32_t x = 0; x < dram_grid_size.x; x++) {
-      CoreCoord physical = device->dram_core_from_logical_core(CoreCoord(x, y));
-      dram_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-    }
-  }
-
-  for (const CoreCoord &logical : device->get_active_ethernet_cores(true)) {
-    CoreCoord physical = device->ethernet_core_from_logical_core(logical);
-    eth_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-  }
-
-  for (const CoreCoord &logical : device->get_inactive_ethernet_cores()) {
-    CoreCoord physical = device->ethernet_core_from_logical_core(logical);
-    eth_inactive_cores.emplace_back(
-        ::tt::target::Dim2d(physical.y, physical.x));
-  }
-
-  sort(dram_cores);
-  sort(eth_cores);
-  sort(eth_inactive_cores);
-
-  return ::tt::target::CreateChipPhysicalCores(
-      fbb, fbb.CreateVectorOfStructs(worker_cores),
-      fbb.CreateVectorOfStructs(dram_cores),
-      fbb.CreateVectorOfStructs(eth_cores),
-      fbb.CreateVectorOfStructs(eth_inactive_cores));
+::tt::target::Dim2d
+getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
+  const CoreCoord workerNWCorner =
+      device->worker_core_from_logical_core({0, 0});
+  const CoreCoord workerNWCornerTranslated =
+      device->virtual_noc0_coordinate(0, workerNWCorner);
+  return ::tt::target::Dim2d(workerNWCornerTranslated.y,
+                             workerNWCornerTranslated.x);
 }
 
 // Calculate the end of the DRAM region that is not usable by compiler.  This
 // upper region of memory is where kernel programs get allocated to.  This
 // function intends to estimate some conservative max number.
 static std::uint32_t
-calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
+calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
   CoreCoord deviceGridSize = device->logical_grid_size();
   CoreCoord dramGridSize = device->dram_grid_size();
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
                              device->get_active_ethernet_cores().size();
   std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
   std::uint32_t programCarveOutPerCore =
-      device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
+      device->allocator()->get_base_allocator_addr(HalMemType::L1);
   std::uint32_t totalProgramCarveOut = programCarveOutPerCore * totalCores;
   // The total carve out can be interleaved between all dram channels
   std::uint32_t programCarveOutDramSpace =
       (totalProgramCarveOut + totalDramCores - 1) / totalDramCores;
-  static_assert(DRAM_ALIGNMENT > 0);
-  static_assert((DRAM_ALIGNMENT & (DRAM_ALIGNMENT - 1)) == 0);
+
+  std::uint32_t dramAlignment =
+      device->allocator()->get_alignment(BufferType::DRAM);
+  LOG_ASSERT(dramAlignment > 0);
+  LOG_ASSERT((dramAlignment & (dramAlignment - 1)) == 0);
   LOG_ASSERT(programCarveOutDramSpace < device->dram_size_per_channel());
   std::uint32_t dramUnreservedEnd =
       device->dram_size_per_channel() - programCarveOutDramSpace;
-  // Align to DRAM_ALIGNMENT
-  dramUnreservedEnd = dramUnreservedEnd & ~(DRAM_ALIGNMENT - 1);
+  // Align to dramAlignment
+  dramUnreservedEnd = dramUnreservedEnd & ~(dramAlignment - 1);
   return dramUnreservedEnd;
 }
 
 static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
-  std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
+  std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
-            [](const ::tt::tt_metal::Device *a,
-               const ::tt::tt_metal::Device *b) { return a->id() < b->id(); });
+            [](const ::tt::tt_metal::IDevice *a,
+               const ::tt::tt_metal::IDevice *b) { return a->id() < b->id(); });
 
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
@@ -172,18 +153,27 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  for (const ::tt::tt_metal::Device *device : devices) {
-    size_t l1UnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
-    size_t dramUnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::DRAM);
+  std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
+  std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
+  std::uint32_t dramAlignment = ::tt::tt_metal::hal::get_dram_alignment();
 
+  for (const ::tt::tt_metal::IDevice *device : devices) {
+    size_t l1UnreservedBase =
+        device->allocator()->get_base_allocator_addr(HalMemType::L1);
+    size_t dramUnreservedBase =
+        device->allocator()->get_base_allocator_addr(HalMemType::DRAM);
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
 
-    // Extract physical core coordinates for worker, dram, eth cores
-    auto chipPhysicalCores = createChipPhysicalCores(device, fbb);
+    assert(device->compute_with_storage_grid_size().x ==
+               static_cast<size_t>(deviceGrid.x()) &&
+           device->compute_with_storage_grid_size().y ==
+               static_cast<size_t>(deviceGrid.y()));
+
+    // Get the physical-to-translated coordinate translation offset of the
+    // worker cores
+    auto coordTranslationOffsets = getCoordinateTranslationOffsets(device);
 
     // The following is temporary place-holder value to be replaced by API
     // value.
@@ -193,7 +183,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::target::DataType::BFP_BFloat8, ::tt::target::DataType::BFP_Float4,
         ::tt::target::DataType::BFP_BFloat4, ::tt::target::DataType::BFP_Float2,
         ::tt::target::DataType::BFP_BFloat2, ::tt::target::DataType::UInt32,
-        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8};
+        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8,
+        ::tt::target::DataType::Int32};
 
     auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
 
@@ -207,21 +198,24 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
+    constexpr std::uint32_t kDstRegisterSizeTiles = 8;
+    constexpr std::uint32_t kNumComputeThreads = 1;
+    constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
-        device->l1_size_per_core(), device->num_dram_channels(),
-        device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
-        DRAM_ALIGNMENT, l1UnreservedBase,
-        ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
-        dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
-        supportedTileSizes, NUM_CIRCULAR_BUFFERS));
-    chipDescIndices.push_back(device->id());
+        &coordTranslationOffsets, device->l1_size_per_core(),
+        device->num_dram_channels(), device->dram_size_per_channel(),
+        l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
+        ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
+        dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
+        kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
+        kNumDatamovementThreads));
+    chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
         ::tt::target::ChipCapability::NONE;
     if (device->is_mmio_capable()) {
-      chipCapability = chipCapability | ::tt::target::ChipCapability::PCIE |
-                       ::tt::target::ChipCapability::HostMMIO;
+      chipCapability = chipCapability | ::tt::target::ChipCapability::HostMMIO;
     }
     chipCapabilities.push_back(chipCapability);
   }
@@ -242,11 +236,12 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   auto root = ::tt::target::CreateSystemDescRootDirect(
-      fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
+      fbb, &version, tt::target::common::system_desc_bfbs_schema_hash,
+      ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
   if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    throw std::runtime_error("Failed to verify system desc root buffer");
+    LOG_FATAL("Failed to verify system desc root buffer");
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();
@@ -255,28 +250,51 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   return std::make_unique<::tt::runtime::SystemDesc>(handle);
 }
 
-std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  std::vector<chip_id_t> deviceIds(numDevices);
-  std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::distributed::MeshShape meshShape =
-      std::make_pair(1, numDevices);
-  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
-      ::tt::tt_metal::distributed::MeshDevice::create(
-          meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
+createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
+
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
+  return ::tt::tt_metal::distributed::MeshDevice::create(
+      ::tt::tt_metal::distributed::MeshDeviceConfig(
+          /*mesh_shape=*/std::nullopt),
+      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+}
+
+::tt::runtime::SystemDesc
+getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
+                     std::optional<Device> meshDevice) {
+
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevicePtr;
+  if (meshDevice.has_value()) {
+    meshDevicePtr =
+        meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
+            getCurrentRuntime());
+  } else {
+    meshDevicePtr = createNewMeshDevice(dispatchCoreType);
+  }
+
+  LOG_DEBUG("Device grid size = { ",
+            meshDevicePtr->compute_with_storage_grid_size().x, ", ",
+            meshDevicePtr->compute_with_storage_grid_size().y, " }");
+
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
-    desc = getCurrentSystemDescImpl(*meshDevice);
+    desc = getCurrentSystemDescImpl(*meshDevicePtr);
   } catch (...) {
     eptr = std::current_exception();
   }
-  meshDevice->close_devices();
+  if (!meshDevice.has_value()) {
+    // Close if mesh device was created in this scope (not passed from caller)
+    meshDevicePtr->close();
+  }
   if (eptr) {
+    LOG_ERROR("Exception occured when getting system descriptor");
     std::rethrow_exception(eptr);
   }
-  return std::make_pair(*desc, deviceIds);
+  return *desc;
 }
 
 } // namespace tt::runtime::system_desc

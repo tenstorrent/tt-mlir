@@ -1,0 +1,60 @@
+include "ttmlir/Target/Common/types.fbs";
+
+namespace tt.target.metal;
+
+table ShardSpec {
+  core_range_set: [Dim2dRange];
+  shard_shape: Dim2d;
+}
+
+table ShardSpecBuffer {
+  shard_spec: ShardSpec;
+  page_shape: Dim2d;
+  tensor_shape_in_pages: Dim2d;
+}
+
+table ShardedBufferConfig {
+  size: uint64;
+  page_size: uint64;
+  shard_spec_buffer: ShardSpecBuffer;
+}
+
+table CircularBufferConfig {
+  core_range_set: [Dim2dRange];
+  total_size: uint64;
+  page_size: uint64;
+  num_buffers: uint64;
+}
+
+table SystemBuffer {
+  stride: [int];
+}
+
+table MetalBuffer {
+  buffer_type: BufferType;
+  sharded_buffer_config: ShardedBufferConfig;
+  circular_buffer_config: CircularBufferConfig;
+}
+
+union BufferDetail {
+  SystemBuffer,
+  MetalBuffer
+}
+
+table BufferDesc {
+  shape: [int];
+  data_type: DataType;
+  element_shape: Dim2d;
+  buffer_detail: BufferDetail;
+}
+
+table BufferRef {
+  global_id: uint32;
+  address: uint64;
+  desc: BufferDesc;
+}
+
+table CBRef {
+  port: uint32;
+  buffer_ref: BufferRef;
+}

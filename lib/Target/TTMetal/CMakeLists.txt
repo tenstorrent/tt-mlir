@@ -9,8 +9,6 @@ add_mlir_translation_library(TTMetalTargetFlatbuffer
     MLIRTTMetalDialect
     MLIRTTKernelDialect
     MLIRTTIRDialect
-    MLIRTTDialect
+    MLIRTTCoreDialect
     TTMLIRTTKernelToEmitC
 )
-
-target_include_directories(TTMetalTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

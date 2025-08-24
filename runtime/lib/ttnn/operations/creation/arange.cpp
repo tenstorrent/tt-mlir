@@ -2,12 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "arange.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "operations/creation/arange.h"
+#include "tt/runtime/detail/common/logger.h"
+
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/types.hpp"
+
 #include <functional>
-#include <ttnn/types.hpp>
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::creation {
@@ -15,7 +17,7 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::DataType dtype =
       ::ttnn::DataType::BFLOAT16; // Default in arange implementation
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
+  OptionalMeshDeviceRef targetDevice = std::nullopt;
   ::ttnn::MemoryConfig memoryConfig =
       ::ttnn::DRAM_MEMORY_CONFIG; // Default in arange implementation
 
@@ -24,23 +26,18 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   }
 
   if (op->memcfg()) {
-    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
+    memoryConfig =
+        ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg())
+            .value();
   }
 
   if (op->device()) {
-    // ttnn::arange supports no device (host) and single device
-    DeviceVariant targetDevice =
-        context.getTargetDevice(op->device()->global_id());
-
-    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
-                   targetDevice),
-               "ttnn::arange does not support MeshDevice.");
-    device = std::make_optional(
-        std::get<std::reference_wrapper<::ttnn::Device>>(targetDevice));
+    targetDevice = std::ref(context.getMeshDevice());
   }
-  ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
-                                      device, memoryConfig);
 
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
+                                      targetDevice, memoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

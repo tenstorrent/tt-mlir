@@ -5,8 +5,11 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
-#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
+#include <iostream>
+#include <string>
+#include <unordered_map>
+
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 namespace mlir::tt::ttnn {
@@ -16,74 +19,83 @@ public:
   OptimizerOverridesHandler() {};
   ~OptimizerOverridesHandler() {};
 
-  // Setters for the overrides
-  // These are used to enable/disable the optimizer passes
+  // Enable/disable the optimizer passes.
   void setEnableOptimizer(bool);
-  // These are used to enable/disable the memory configurations
+  // Enable/disable the memory configurations.
   void setMemoryReconfig(bool);
   void setEnableMemoryLayoutAnalysis(bool);
+  void setEnableL1InterleavedFallbackAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
-  // These are used to set the input/output layout overrides
-  void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &);
+  void setInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> &);
   void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
-  // These are used to add system descriptor path
+  void setConv2dConfigOverrides(llvm::StringMap<Conv2dConfigOverrideParams> &);
+  // Add system descriptor path.
   void setSystemDescPath(std::string);
-  // These are used to set the maximum number of legal layouts for grid analysis
+  // Set the maximum number of legal layouts for grid analysis.
   void setMaxLegalLayouts(int64_t);
-  // These are used to set the mesh shape
   void setMeshShape(std::vector<int64_t>);
+  // Set the tensor L1 usage cap.
+  void setTensorL1UsageCap(float tensorL1UsageCap);
 
-  // Getters for the overrides
-  // These are used to get the current state of the optimizer passes
+  // Get the current state of the optimizer passes.
   bool getEnableOptimizer() const;
-  // These are used to get the current state of the memory configurations
+  // Get the current state of the memory configurations.
   bool getMemoryReconfig() const;
   bool getEnableMemoryLayoutAnalysis() const;
+  bool getEnableL1InterleavedFallbackAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
-  // These are used to get the current input/output layout overrides
-  llvm::StringMap<InputLayoutOverrideParams> getInputLayoutOverrides() const;
+  llvm::StringMap<InsertMemReconfigParams> getInsertMemReconfig() const;
   llvm::StringMap<OutputLayoutOverrideParams> getOutputLayoutOverrides() const;
-  // These are used to get the current system descriptor path
+  llvm::StringMap<Conv2dConfigOverrideParams> getConv2dConfigOverrides() const;
   std::string getSystemDescPath() const;
-  // These are used to get the current maximum number of legal layouts for grid
-  // analysis
+  // Get the current maximum number of legal layouts for grid analysis.
   int64_t getMaxLegalLayouts() const;
-  // These are used to get the current mesh shape
   std::vector<int64_t> getMeshShape() const;
+  // Get the current tensor L1 usage cap.
+  float getTensorL1UsageCap() const;
 
-  // Method that converts the overrides to a string
   std::string toString() const;
 
-  // Fill input/output layout overrides maps.
+  // Fill override maps.
   // This is used from tt-forge frontend where we define and compile the models.
-  void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
-  void addInputLayoutOverride(StringRef, SmallVector<int64_t> &);
+  void addInsertMemReconfig(StringRef, InsertMemReconfigParams);
+  void addInsertMemReconfig(StringRef, SmallVector<int64_t> &);
   void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
-                               tt::DataType);
+                               ttcore::DataType);
+  void addConv2dConfigOverride(StringRef, Conv2dConfigOverrideParams);
+
+  std::unordered_map<std::string, InsertMemReconfigParams>
+  getInsertMemReconfigNanobindWrapper() const;
+  std::unordered_map<std::string, OutputLayoutOverrideParams>
+  getOutputLayoutOverridesNanobindWrapper() const;
+  std::unordered_map<std::string, Conv2dConfigOverrideParams>
+  getConv2dConfigOverridesNanobindWrapper() const;
+
+  void addInsertMemReconfigNanobindWrapper(std::string, std::vector<int64_t> &);
+  void addOutputLayoutOverrideNanobindWrapper(std::string,
+                                              OutputLayoutOverrideParams);
+  void addConv2dConfigOverrideNanobindWrapper(std::string,
+                                              Conv2dConfigOverrideParams);
 
 private:
-  // Options for the TTIR to TTNN backend pipeline,
-  // we use them to extract the names and the deafulat values.
-  TTIRToTTNNBackendPipelineOptions pipelineOptions;
-
   // Flags for enabling/disabling the optimizer passes
   bool enableOptimizer = false;
 
   // Flags for enabling/disabling the memory configurations
   bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = false;
+  bool enableL1InterleavedFallbackAnalysis = false;
 
-  // Input layout overrides
-  llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides;
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;
 
-  // Output layout overrides
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides;
 
-  // Memory layout analysis policy
+  llvm::StringMap<Conv2dConfigOverrideParams> conv2dConfigOverrides;
+
   bool enableMemoryLayoutAnalysisPolicy = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy;
 
@@ -93,8 +105,10 @@ private:
   // Maximum number of legal layouts for grid analysis
   int64_t maxLegalLayouts = 0;
 
-  // Mesh shape
   std::vector<int64_t> meshShape;
+
+  // Tensor L1 usage cap
+  float tensorL1UsageCap = 0;
 
 }; // class OptimizerOverridesHandler
 

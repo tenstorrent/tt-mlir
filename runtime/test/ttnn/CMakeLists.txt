@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-add_runtime_gtest(subtract_test test_subtract.cpp)
-add_runtime_gtest(reshape_test test_reshape.cpp)
-=======
 if (NOT TTMLIR_ENABLE_RUNTIME_TESTS OR NOT TT_RUNTIME_ENABLE_TTNN)
   add_library(TTRuntimeTTNNTestLib INTERFACE)
   return()

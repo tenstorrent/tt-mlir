@@ -12,9 +12,47 @@ extern "C" {
 #endif
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx,
-                                                    uint64_t address,
-                                                    uint64_t port,
                                                     MlirType memrefType);
+
+MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelSemaphoreTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelNocAddrTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTKernelThreadTypeAttrGet(MlirContext ctx, uint32_t enumValue);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTKernelReduceTypeAttrGet(MlirContext ctx, uint32_t enumValue);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTKernelReduceDimAttrGet(MlirContext ctx, uint32_t enumValue);
+
+MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelL1AddrTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelL1AddrPtrTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelInterleavedAddrGenFastTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorArgsTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelTensorAccessorPageMappingTypeGet(MlirContext ctx);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx,
+                                                          MlirType argType,
+                                                          size_t operandIndex,
+                                                          bool isUniform);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgSpecAttrGet(
+    MlirContext ctx, MlirAttribute *rtArgs, size_t rtArgsSize,
+    MlirAttribute *ctArgs, size_t ctArgsSize);
 
 #ifdef __cplusplus
 }

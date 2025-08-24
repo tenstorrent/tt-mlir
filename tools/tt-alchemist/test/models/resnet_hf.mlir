@@ -1,0 +1,1 @@
+../../../../test/ttmlir/models/resnet_hf.mlir

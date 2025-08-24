@@ -8,32 +8,28 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Target/Common/types_generated.h"
-#include <llvm/Support/ErrorHandling.h>
+#include "llvm/Support/ErrorHandling.h"
 
-namespace tt::mlir::ttnn::utils {
+namespace mlir::tt::ttnn::utils {
 
-::tt::target::TensorMemoryLayout toTargetTensorMemoryLayout(
+inline ::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
     ::mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
 
   switch (tensorMemoryLayout) {
   case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
-    return ::tt::target::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::TensorMemoryLayout::SingleBank;
+    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
   case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
-    return ::tt::target::TensorMemoryLayout::HeightSharded;
+    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
-    return ::tt::target::TensorMemoryLayout::WidthSharded;
+    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
-    return ::tt::target::TensorMemoryLayout::BlockSharded;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
+    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
   }
 
   llvm_unreachable("Unsupported TensorMemoryLayout");
 }
 
-::tt::target::BufferType
+inline ::tt::target::BufferType
 toTargetBufferType(::mlir::tt::ttnn::BufferType bufferType) {
 
   switch (bufferType) {
@@ -52,7 +48,7 @@ toTargetBufferType(::mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unsupported BufferType");
 }
 
-::tt::target::TensorLayout
+inline ::tt::target::TensorLayout
 toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   switch (layout) {
   case ::mlir::tt::ttnn::Layout::RowMajor:
@@ -66,33 +62,36 @@ toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   llvm_unreachable("Unsupported Layout");
 }
 
-::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
+inline ::tt::target::DataType
+toTargetDataType(::mlir::tt::ttcore::DataType dataType) {
   switch (dataType) {
-  case ::mlir::tt::DataType::BFloat16:
-    return ::tt::target::DataType::BFloat16;
-  case ::mlir::tt::DataType::Float32:
+  case ::mlir::tt::ttcore::DataType::Float32:
     return ::tt::target::DataType::Float32;
-  case ::mlir::tt::DataType::UInt32:
-    return ::tt::target::DataType::UInt32;
-  case ::mlir::tt::DataType::BFP_BFloat8:
+  case ::mlir::tt::ttcore::DataType::BFloat16:
+    return ::tt::target::DataType::BFloat16;
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat8:
     return ::tt::target::DataType::BFP_BFloat8;
-  case ::mlir::tt::DataType::BFP_BFloat4:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat4:
     return ::tt::target::DataType::BFP_BFloat4;
-  case ::mlir::tt::DataType::UInt8:
+  case ::mlir::tt::ttcore::DataType::UInt8:
     return ::tt::target::DataType::UInt8;
-  case ::mlir::tt::DataType::UInt16:
+  case ::mlir::tt::ttcore::DataType::UInt16:
     return ::tt::target::DataType::UInt16;
-  case ::mlir::tt::DataType::Float16:
-  case ::mlir::tt::DataType::BFP_Float2:
-  case ::mlir::tt::DataType::BFP_Float4:
-  case ::mlir::tt::DataType::BFP_Float8:
-  case ::mlir::tt::DataType::BFP_BFloat2:
+  case ::mlir::tt::ttcore::DataType::UInt32:
+    return ::tt::target::DataType::UInt32;
+  case ::mlir::tt::ttcore::DataType::Int32:
+    return ::tt::target::DataType::Int32;
+  case ::mlir::tt::ttcore::DataType::Float16:
+  case ::mlir::tt::ttcore::DataType::BFP_Float2:
+  case ::mlir::tt::ttcore::DataType::BFP_Float4:
+  case ::mlir::tt::ttcore::DataType::BFP_Float8:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat2:
     llvm_unreachable("Unsupported DataType");
   }
 
   llvm_unreachable("Unsupported DataType");
 }
 
-} // namespace tt::mlir::ttnn::utils
+} // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_TARGET_TTNN_UTILS_H

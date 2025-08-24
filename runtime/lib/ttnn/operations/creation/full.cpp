@@ -2,120 +2,64 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "full.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/detail/workarounds.h"
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "operations/creation/full.h"
+
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::creation {
-struct FullTensorConfig {
-  ::ttnn::Shape shape;
-  ::ttnn::DataType dtype;
-  ::ttnn::Layout layout;
-  float fillValue;
-  uint32_t numShards;
-  const ::tt::target::DistributionStrategy *strategy = nullptr;
-  std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
+namespace {
+void run(const ::tt::target::ttnn::FullOp *op, auto &&fillValue,
+         ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  FullTensorConfig(const ::tt::target::ttnn::FullOp *op)
-      : shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
-            *op->out()->desc()->shape())),
-        dtype(::tt::runtime::ttnn::operations::utils::getDataType(op->out())),
-        fillValue(op->fill_value()), numShards(op->num_shards()),
-        strategy(op->strategy()) {
+  ::ttnn::Shape shape =
+      ::tt::runtime::ttnn::operations::utils::toTTNNShape(*op->shape());
 
-    layout = utils::inferLayoutFromTileShape(op->out());
-
-    // TODO(bug #272), determine correct layout by tile shape in the future
-    // currently tile shape is not set correctly, so as a workaround, hardcode
-    // layout
-    if (workaround::Env::get().ignoreTileShape) {
-      layout = ::ttnn::Layout::TILE;
-    }
-
-    // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-    // using ROW_MAJOR until we fix it
-    if (workaround::Env::get().fullOpForceRowMajor) {
-      layout = ::ttnn::Layout::ROW_MAJOR;
-    }
-
-    if (!utils::inSystemMemory(op->out())) {
-      memoryConfig =
-          ::tt::runtime::ttnn::operations::utils::createMemoryConfig(op->out());
-    }
-    validate();
+  ::ttnn::DataType dtype =
+      ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
 
-  void validate() const {
-    LOG_ASSERT(strategy, "Strategy must be provided");
-    LOG_ASSERT(numShards > 0, "Number of shards must be greater than 0");
-    LOG_ASSERT(numShards == 1 ||
-                   strategy->strategy_type() !=
-                       ::tt::target::DistributedTensorConfig::NONE,
-               "Strategy must be provided when num shards is greater than 1");
-    LOG_ASSERT(strategy->strategy_type() !=
-                   ::tt::target::DistributedTensorConfig::AllGatherTensor,
-               "AllGatherTensor is not supported");
+  ::ttnn::Layout layout =
+      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
+  if (op->layout()) {
+    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(*(op->layout()));
   }
 
-  ::tt::tt_metal::DistributedTensorConfig distributedTensorConfig() const {
-    return ::tt::runtime::ttnn::operations::utils::
-        distributedTensorConfigFromFlatbuffer(strategy);
+  OptionalMeshDeviceRef meshDevice;
+  if (op->device()) {
+    meshDevice = std::ref(context.getMeshDevice());
   }
-};
 
-static ::ttnn::Tensor
-createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
-                        const ::tt::target::DeviceRef *deviceRef) {
-  ::tt::tt_metal::DistributedTensorConfig strategy =
-      config.distributedTensorConfig();
-  std::vector<::ttnn::Tensor> tensorShards;
-  tensorShards.resize(config.numShards);
-  std::generate_n(tensorShards.begin(), config.numShards,
-                  [&config]() -> ::ttnn::Tensor {
-                    return ::ttnn::full(config.shape, config.fillValue,
-                                        config.dtype, config.layout);
-                  });
-  ::ttnn::Tensor out = ::ttnn::distributed::api::create_multi_device_tensor(
-      tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST, strategy);
-  if (deviceRef) {
-    ::ttnn::MeshDevice &meshDevice = context.getSubMesh(deviceRef->global_id());
-    LOG_ASSERT(config.numShards == meshDevice.num_devices());
-    out = ::ttnn::to_device(out, &meshDevice, config.memoryConfig);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  if (op->memcfg()) {
+    memoryConfig =
+        ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
   }
-  return out;
+
+  ::ttnn::Tensor out =
+      ::ttnn::full(shape, fillValue, dtype, layout, meshDevice, memoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
-
-static ::ttnn::Tensor
-createFullOnSingleDevice(ProgramContext &context, FullTensorConfig &config,
-                         const ::tt::target::DeviceRef *deviceRef) {
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
-  if (deviceRef) {
-    ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
-    LOG_ASSERT(subMesh.num_devices() == 1);
-    LOG_ASSERT(config.memoryConfig.has_value());
-    device = std::make_optional(std::ref(*subMesh.get_device_index(0)));
-  }
-  return ::ttnn::full(config.shape, config.fillValue, config.dtype,
-                      config.layout, device, config.memoryConfig);
-}
+} // namespace
 
 void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.getTensorPool();
-  FullTensorConfig config(op);
-  ::ttnn::Tensor out;
-  const ::tt::target::DeviceRef *deviceRef =
-      !utils::inSystemMemory(op->out()) ? op->device() : nullptr;
-
-  if (config.numShards == 1) {
-    out = createFullOnSingleDevice(context, config, deviceRef);
-  } else if (config.numShards > 1) {
-    out = createFullOnMultiDevice(context, config, deviceRef);
-  } else {
-    LOG_FATAL("Unsupported num shards");
+  switch (op->fill_value_type()) {
+  case ::tt::target::ttnn::FillValueType::FP:
+    run(op, op->fill_value_as_FP()->value(), context);
+    break;
+  case ::tt::target::ttnn::FillValueType::I32:
+    run(op, op->fill_value_as_I32()->value(), context);
+    break;
+  default:
+    LOG_FATAL("unknown fill value type");
   }
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
 }
 } // namespace tt::runtime::ttnn::operations::creation

@@ -5,17 +5,13 @@
 #ifndef RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_UNARY_UNARY_H
 #define RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_UNARY_UNARY_H
 
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
-namespace tt::runtime::ttnn::operations::unary {
+namespace tt::runtime::ttnn::operations::eltwise::unary {
 
-inline bool isUnaryOp(const ::tt::target::ttnn::EltwiseOp *op) {
-  return op->ins()->size() == 1;
-}
+void run(const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramContext &context);
 
-void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context);
-
-} // namespace tt::runtime::ttnn::operations::unary
+} // namespace tt::runtime::ttnn::operations::eltwise::unary
 
 #endif

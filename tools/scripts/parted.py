@@ -4,7 +4,7 @@
 
 import ttmlir
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, func, tt, tensor
+from ttmlir.dialects import ttir, func, ttcore, tensor
 import sys
 
 uid = -1
@@ -49,7 +49,7 @@ def get_op_operands(op):
         ins, outs = segments
         assert ins + outs == len(op.operands)
         return (op.operands[:ins], op.operands[ins:])
-    elif ttir.ir.is_dps(op):
+    elif ttmlir.util.is_dps(op):
         return (op.operands[:-1], op.operands[-1:])
     return (op.operands, [])
 
@@ -66,7 +66,7 @@ def emit_op_as_entry_point(op, ip=None, loc=None):
         operands = [arg for arg in entry_block.arguments]
         for output_type in output_types:
             operands.append(
-                tensor.empty(
+                ttir.empty(
                     output_type.shape,
                     output_type.element_type,
                     encoding=output_type.encoding,
@@ -118,6 +118,5 @@ if __name__ == "__main__":
 
     with Context() as ctx, open(args.mlir, "r") as mlir_fd:
         ctx.allow_unregistered_dialects = True
-        ttir.register_dialect(ctx)
         module = Module.parse(mlir_fd.read(), ctx)
         print(parted(module))

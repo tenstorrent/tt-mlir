@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTIRToTTIRDecomposition
+add_mlir_conversion_library(TTMLIRTTIRToTTIRDecomposition
   TTIRToTTIRDecomposition.cpp
   TTIRToTTIRDecompositionPass.cpp
 

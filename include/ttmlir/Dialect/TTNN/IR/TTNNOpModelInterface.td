@@ -7,6 +7,7 @@
 
 include "mlir/IR/OpBase.td"
 
+// TODO(odjuricic): support ops with multiple outputs
 def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let description = [{
         Interface to access TTNN op model methods.
@@ -15,36 +16,30 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let methods = [
         InterfaceMethod<
             /*desc=*/[{
-                Returns the op kernel estimate in clock cycles.
+                Measures and returns the runtime of the op in nanoseconds by running it on the device.
+                If the op is illegal or execution fails, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"size_t",
-            /*methodName=*/"getOpPerfCycles",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
+            /*retTy=*/"llvm::Expected<size_t>",
+            /*methodName=*/"getOpRuntime",
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Returns the op memory L1 usage estimate in bytes. The return value is a tuple of 3 values:
-                - The first value is CB L1 peak allocation in bytes.
-                - The second value is Tensor L1 peak allocation in bytes.
-                - The third value is Output L1 buffer allocation in bytes.
+                Checks if the op is legal for the given input/output layout. If it is, returns a tuple of three values:**
+                   - The first value is the CB L1 peak allocation in bytes.
+                   - The second value is the Tensor L1 peak allocation in bytes.
+                   - The third value is the Output L1 buffer allocation in bytes.
+                   - The fourth value is the actual TTNNLayoutAttr of the output tensor, as returned by the operation. For
+                     some operations this may be different from the requested output layout
+                If the op is illegal, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"std::tuple<size_t, size_t, size_t>",
-            /*methodName=*/"getOpL1Usage",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
+            /*retTy=*/"llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>",
+            /*methodName=*/"getOpConstraints",
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(0,0,0);"
-        >,
-        InterfaceMethod<
-            /*desc=*/[{
-                Returns if input/output layouts are legal for the op.
-            }],
-            /*retTy=*/"bool",
-            /*methodName=*/"isOpLegal",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
-            /*methodBody=*/"",
-            /*defaultImplementation=*/"return true;"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         ];
 }

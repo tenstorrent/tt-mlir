@@ -1,0 +1,80 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/eltwise.fbs";
+
+namespace tt.target.ttnn;
+
+table MatmulMultiCoreReuseProgramConfig {
+  compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
+  in0_block_w: uint64;
+  out_subblock_h: uint64;
+  out_subblock_w: uint64;
+  per_core_m: uint64;
+  per_core_n: uint64;
+}
+
+table MatmulMultiCoreReuseMultiCastProgramConfig {
+  compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
+  in0_block_w: uint64;
+  out_subblock_h: uint64;
+  out_subblock_w: uint64;
+  out_block_h: uint64;
+  out_block_w: uint64;
+  per_core_m: uint64;
+  per_core_n: uint64;
+  transpose_mcast: bool;
+  fused_activation: tt.target.ttnn.UnaryWithParam;
+  fuse_batch: bool;
+}
+
+table MatmulMultiCoreReuseMultiCast1DProgramConfig {
+  compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
+  in0_block_w: uint64;
+  out_subblock_h: uint64;
+  out_subblock_w: uint64;
+  out_block_h: uint64;
+  out_block_w: uint64;
+  per_core_m: uint64;
+  per_core_n: uint64;
+  fuse_batch: bool;
+  fused_activation: tt.target.ttnn.UnaryWithParam;
+  mcast_in0: bool;
+  gather_in0: bool;
+  hop_cores: tt.target.ttnn.CoreRangeSet;
+  num_global_cb_receivers: uint64;
+  untilize_out: bool;
+}
+
+table MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig {
+  in0_block_w: uint64;
+  per_core_m: uint64;
+  per_core_n: uint64;
+  fused_activation: tt.target.ttnn.UnaryWithParam;
+}
+
+union MatmulProgramConfig {
+  MatmulMultiCoreReuseProgramConfig,
+  MatmulMultiCoreReuseMultiCastProgramConfig,
+  MatmulMultiCoreReuseMultiCast1DProgramConfig,
+  MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig
+}
+
+// ANCHOR: adding_an_op_matmul_fbs
+table MatmulOp {
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
+  matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
+}
+// ANCHOR_END: adding_an_op_matmul_fbs
+
+table LinearOp {
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
+}

@@ -5,10 +5,9 @@
 # RUN: %python %s | FileCheck %s
 
 from ttmlir.ir import *
-from ttmlir.dialects import tt
+from ttmlir.dialects import ttcore
 
 ctx = Context()
-tt.register_dialect(ctx)
 
 
 def updiv(n, d):
@@ -69,7 +68,7 @@ def createDeviceAttr(
     mesh_shape=[1],
 ):
     if system_desc is not None:
-        return tt.ir.DeviceAttr.from_system_desc(ctx, system_desc, mesh_shape)
+        return ttcore.ir.DeviceAttr.from_system_desc(ctx, system_desc, mesh_shape)
     workerGridMap = (
         workerGridMap
         if workerGridMap is not None
@@ -78,7 +77,7 @@ def createDeviceAttr(
     l1Map = inferMemoryMap(grid)
     dramMap = inferMemoryMap(grid)
     totalDevices = volume(mesh_shape)
-    return tt.ir.DeviceAttr.get(
+    return ttcore.ir.DeviceAttr.get(
         ctx,
         grid,
         workerGridMap,
@@ -100,50 +99,52 @@ d1 = d(1)
 d2 = d(2)
 
 print("=== From SystemDesc ===")
-# CHECK: tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
-print("", createDeviceAttr([8, 8], system_desc=tt.ir.SystemDescAttr.get_default(ctx)))
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+print(
+    "", createDeviceAttr([8, 8], system_desc=ttcore.ir.SystemDescAttr.get_default(ctx))
+)
 
 # ------------------------------------------------------------------------------
 
 print("=== Simple single device ===")
-# CHECK: tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print("", createDeviceAttr([8, 8]))
 
 # ------------------------------------------------------------------------------
 
 print("\n=== Data parallel over batch ===")
-# CHECK: tt.device<workerGrid = #tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>, l1Map = [[M:.*]], dramMap = [[M:.*]], meshShape = 2x1x1, chipIds = [0, 1]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>, l1Map = [[M:.*]], dramMap = [[M:.*]], meshShape = 2x1x1, chipIds = [0, 1]>
 print("divide batch by 2\n", createDeviceAttr([2, 8, 8], mesh_shape=[2, 1, 1]))
-# CHECK: tt.device<workerGrid = #tt.grid<4x8x8, (d0, d1, d2) -> (d0, d1, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 4x1x1, chipIds = [0, 1, 2, 3]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<4x8x8, (d0, d1, d2) -> (d0, d1, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 4x1x1, chipIds = [0, 1, 2, 3]>
 print("divide batch by 4\n", createDeviceAttr([4, 8, 8], mesh_shape=[4, 1, 1]))
 
 # ------------------------------------------------------------------------------
 
 print("\n=== Data parallel over 2d ===")
-# CHECK: tt.device<workerGrid = #tt.grid<8x16, (d0, d1) -> (d1 floordiv 8, d0, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1x2, chipIds = [0, 1]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x16, (d0, d1) -> (d1 floordiv 8, d0, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1x2, chipIds = [0, 1]>
 print(
     "Reinterpret 2 devices as grid side by side, 1x2 mesh\n",
     createDeviceAttr([8, 16], mesh_shape=[1, 2]),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<16x8, (d0, d1) -> (d0 floordiv 8, d0 mod 8, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1, chipIds = [0, 1]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<16x8, (d0, d1) -> (d0 floordiv 8, d0 mod 8, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1, chipIds = [0, 1]>
 print(
     "Reinterpret 2 devices as grid top to bottom, 2x1 mesh\n",
     createDeviceAttr([16, 8], mesh_shape=[2, 1]),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<16x32, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 4, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<16x32, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 4, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
 print("8 devices 2x4 mesh\n", createDeviceAttr([16, 32], mesh_shape=[2, 4]))
-# CHECK: tt.device<workerGrid = #tt.grid<32x16, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 2, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 4x2, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<32x16, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 2, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 4x2, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
 print("8 devices 4x2 mesh\n", createDeviceAttr([32, 16], mesh_shape=[4, 2]))
 
 # ------------------------------------------------------------------------------
 
 print("\n=== Data parallel over 2d and batch (3d) ===")
-# CHECK: tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + d2 floordiv 8, d1, d2 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + d2 floordiv 8, d1, d2 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
 print(
     "divide batch by 2, 2x1x2 mesh\n",
     createDeviceAttr([2, 8, 16], mesh_shape=[2, 1, 2]),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<3x24x8, (d0, d1, d2) -> (d0 * 3 + d1 floordiv 8, d1 mod 8, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 3x3x1, chipIds = [0, 1, 2, 3, 4, 5, 6, 7, 8]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<3x24x8, (d0, d1, d2) -> (d0 * 3 + d1 floordiv 8, d1 mod 8, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 3x3x1, chipIds = [0, 1, 2, 3, 4, 5, 6, 7, 8]>
 print(
     "divide batch by 3, 3x3x1 mesh\n",
     createDeviceAttr([3, 24, 8], mesh_shape=[3, 3, 1]),
@@ -152,13 +153,13 @@ print(
 # ------------------------------------------------------------------------------
 
 print("\n=== nD ===")
-# CHECK: tt.device<workerGrid = #tt.grid<3x2x8x8, (d0, d1, d2, d3) -> (d0 * 2 + d1, d2, d3)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 3x2x1x1, chipIds = [0, 1, 2, 3, 4, 5]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<3x2x8x8, (d0, d1, d2, d3) -> (d0 * 2 + d1, d2, d3)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 3x2x1x1, chipIds = [0, 1, 2, 3, 4, 5]>
 print("", createDeviceAttr([3, 2, 8, 8], mesh_shape=[3, 2, 1, 1]))
 
 # ------------------------------------------------------------------------------
 
 print("\n=== Data parallel batch on single device ===")
-# CHECK: tt.device<workerGrid = #tt.grid<2x4x8, (d0, d1, d2) -> (0, d0 * 4 + d1, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<2x4x8, (d0, d1, d2) -> (0, d0 * 4 + d1, d2)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print(
     "divide batch by 2, top 4 rows get batch 0, bottom 4 rows get batch 1\n",
     createDeviceAttr([2, 4, 8], workerGridMap=amap(3, [c0, d0 * 4 + d1, d2])),
@@ -167,12 +168,12 @@ print(
 # ------------------------------------------------------------------------------
 
 print("\n=== Pipeline parallel ===")
-# CHECK: tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + d2 floordiv 8, d1, d2 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + d2 floordiv 8, d1, d2 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
 print(
     "view devices 0-3 in one way\n",
     createDeviceAttr([2, 8, 16], deviceStartIdx=0, mesh_shape=[2, 1, 2]),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<16x16, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 2, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x2, chipIds = [4, 5, 6, 7]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<16x16, (d0, d1) -> (d1 floordiv 8 + (d0 floordiv 8) * 2, d0 mod 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 2x2, chipIds = [4, 5, 6, 7]>
 print(
     "view devices 4-7 in another way\n",
     createDeviceAttr([16, 16], deviceStartIdx=4, mesh_shape=[2, 2]),
@@ -181,16 +182,16 @@ print(
 # ------------------------------------------------------------------------------
 
 print("\n=== Reinterpreted Grids ===")
-# CHECK: tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d1, d0)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d1, d0)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print("transposed\n", createDeviceAttr([8, 8], workerGridMap=amap(2, [c0, d1, d0])))
-# CHECK: tt.device<workerGrid = #tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print(
     "extra wide\n",
     createDeviceAttr(
         [1, 64], workerGridMap=amap(2, [c0, d0 * 8 + floordiv(d1, c(8)), d1 % 8])
     ),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print(
     "extra tall transposed\n",
     createDeviceAttr(
@@ -198,7 +199,7 @@ print(
         workerGridMap=amap(2, [c0, d1 * 8 + floordiv(d0, c(8)), d0 % 8]),
     ),
 )
-# CHECK: tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0]>
 print(
     "staircase systolic\n",
     createDeviceAttr([8, 8], workerGridMap=amap(2, [c0, d0, (d0 + d1) % 8])),

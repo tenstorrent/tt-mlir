@@ -5,13 +5,12 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalBase.td"
-include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.td"
+include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrs.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
-include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
@@ -21,78 +20,64 @@ class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
   "region with " # numBlocks # " blocks">;
 
-def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
+def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[MemRead, MemWrite]>, AttrSizedOperandSegments]> {
+    let summary = "Enqueue program op.";
     let description = [{
-      Dispatch operation
+      Enqueue program operation
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
-                         TTMetal_CoreRangeArrayAttr:$core_ranges,
-                         TTKernel_KernelConfigArrayAttr:$kernelConfigs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
-
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$buffers,
+                         Variadic<AnyNon0RankedMemRef>:$cbs,
+                         DenseI64ArrayAttr:$cb_ports,
+                         TTMetal_KernelConfigArrayAttr:$kernelConfigs);
     let hasVerifier = 1;
 }
 
-def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]> {
-    let summary = "Host write op.";
+def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Enqueue write buffer op.";
     let description = [{
-      Host write operation
+      Enqueue write buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$output, ElementsAttr:$value);
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
+    let arguments = (ins AnyNon0RankedMemRef:$input, AnyNon0RankedMemRef:$output);
     let hasVerifier = 1;
 }
 
-def TTMetal_HostReadOp : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> {
-    let summary = "Host read op.";
+def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Enqueue read buffer op.";
     let description = [{
-      Host read operation
+      Enqueue read buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         AnyNon0RankedMemRef:$output);
     let hasVerifier = 1;
 }
 
-def TTMetal_AllocOp : TTMetal_Op<"alloc"> {
-    let summary = "Alloc op.";
+def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAlloc]>]> {
+    let summary = "Create buffer op.";
     let description = [{
-      Tensor Alloc operation
+      Create buffer operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasVerifier = 1;
+    let arguments = (ins I64Attr:$address);
+    let results = (outs AnyNon0RankedMemRef:$result);
 }
 
-def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<[MemFree]>]> {
+    let summary = "Deallocate buffer op.";
     let description = [{
-      Tensor Dealloc operation
+      Deallocate buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyNon0RankedMemRef:$input);
+}
+
+def TTMetal_FinishOp : TTMetal_Op<"finish", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Finish op for command queue.";
+    let description = [{
+      Global barrier op, used to wait for all commands on queue to finish.
+    }];
 }
 
 #endif

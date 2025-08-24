@@ -1,1 +1,2 @@
-add_subdirectory(python)
+add_subdirectory(ttrt)
+add_subdirectory(chisel)

@@ -1,52 +1,40 @@
-include "program.fbs";
+include "ttmlir/Target/TTMetal/program.fbs";
+include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
 
+table HostAllocCommand {
+  dst: BufferRef;
+  data: [ubyte];
+}
+
+table ReturnCommand {
+  results: [BufferRef];
+}
+
 table EnqueueProgramCommand {
-  operands: [TensorRef];
+  buffers: [BufferRef];
+  cbs: [CBRef];
   program: ProgramDesc;
 }
 
-table ConstantBuffer8 {
-  data: [uint8];
-}
-
-table ConstantBuffer16 {
-  data: [uint16];
-}
-
-table ConstantBuffer32 {
-  data: [uint32];
-}
-
-union HostBuffer {
-  TensorRef,
-  ConstantBuffer8,
-  ConstantBuffer16,
-  ConstantBuffer32,
-}
-
 table EnqueueWriteBufferCommand {
-  src: HostBuffer;
-  dst: TensorRef;
+  src: BufferRef;
+  dst: BufferRef;
 }
 
 table EnqueueReadBufferCommand {
-  src: TensorRef;
-  dst: TensorRef;
+  src: BufferRef;
+  dst: BufferRef;
 }
 
 table CreateBufferCommand {
-  ref: TensorRef;
+  ref: BufferRef;
 }
 
 table DeallocateBufferCommand {
-  ref: TensorRef;
-}
-
-table CreateEventCommand {
-  ref: EventRef;
+  ref: BufferRef;
 }
 
 table EnqueueRecordEventCommand {
@@ -61,33 +49,45 @@ table EventSynchronizeCommand {
   ref: EventRef;
 }
 
-table EventQueryCommand {
-  ref: EventRef;
+table MemrefCopyCommand {
+  src: BufferRef;
+  dst: BufferRef;
+}
+
+table CpuCommand {
+  ins: [BufferRef];
+  out: BufferRef;
+  func_name: string;
+  dylib_id: uint32;
 }
 
 table FinishCommand {
 }
 
 union CommandType {
+  HostAllocCommand,
+  ReturnCommand,
   EnqueueProgramCommand,
   EnqueueWriteBufferCommand,
   EnqueueReadBufferCommand,
   CreateBufferCommand,
   DeallocateBufferCommand,
-  CreateEventCommand,
   EnqueueRecordEventCommand,
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,
-  EventQueryCommand,
+  MemrefCopyCommand,
+  CpuCommand,
   FinishCommand,
 }
 
 table Command {
   type: CommandType;
+  loc: string;
   debug_info: string;
 }
 
 table CommandQueue {
   name: string;
+  queue_id: uint32;
   commands: [Command];
 }

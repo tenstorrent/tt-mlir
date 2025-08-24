@@ -1,66 +1,101 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "unary_composite.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
-#include "tt/runtime/ttnn/operations/utils.h"
+#include "operations/eltwise/unary/unary_composite.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 
-namespace tt::runtime::ttnn::operations::unary::composite {
+namespace tt::runtime::ttnn::operations::eltwise::unary {
 
 static void runEltwiseUnaryCompositeOp(
-    const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(const ::ttnn::Tensor &,
-                                       const ::tt::tt_metal::MemoryConfig &)>
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
+    ProgramTensorPool &tensorPool,
+    const std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &)>
         &ttnnOp) {
 
-  ::ttnn::Tensor *in = nullptr;
-  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  ::ttnn::Tensor out = ttnnOp(in, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-static void runEltwiseUnaryCompositeClampOP(
-    const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<::ttnn::Tensor(const ::ttnn::Tensor &, float, float,
-                                 const ::tt::tt_metal::MemoryConfig &)>
-        ttnnOp) {
-  ::ttnn::Tensor *in = nullptr;
-  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
+static void runEltwiseUnaryCompositeClampScalarOp(
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
+    ProgramTensorPool &tensorPool) {
 
-  float min = op->params_as_ClampOpParams()->min();
-  float max = op->params_as_ClampOpParams()->max();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
-  ::ttnn::Tensor out = ttnnOp(*in, min, max, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
-  return;
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
+
+  float min = op->params_as_ClampScalarOpParams()->min();
+  float max = op->params_as_ClampScalarOpParams()->max();
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
+static void runEltwiseUnaryCompositeClampTensorOp(
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
+    ProgramTensorPool &tensorPool) {
+
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
+
+  ::ttnn::Tensor min = tensorPool.getTTNNTensorAndValidate(
+      op->params_as_ClampTensorOpParams()->min());
+  ::ttnn::Tensor max = tensorPool.getTTNNTensorAndValidate(
+      op->params_as_ClampTensorOpParams()->max());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+void run(const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
+         ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
-  case ::tt::target::ttnn::EltwiseOpType::Cbrt: {
+  case ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Cbrt: {
     runEltwiseUnaryCompositeOp(op, tensorPool, ::ttnn::cbrt);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Clamp: {
-    runEltwiseUnaryCompositeClampOP(op, tensorPool, ::ttnn::clamp);
+  case ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar: {
+    runEltwiseUnaryCompositeClampScalarOp(op, tensorPool);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Log1p: {
+  case ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor: {
+    runEltwiseUnaryCompositeClampTensorOp(op, tensorPool);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Log1p: {
     runEltwiseUnaryCompositeOp(op, tensorPool, ::ttnn::log1p);
     break;
   }
-  default:
-    LOG_FATAL("Unsupported Eltwise Binary Composite operation");
   }
 }
 
-} // namespace tt::runtime::ttnn::operations::unary::composite
+} // namespace tt::runtime::ttnn::operations::eltwise::unary

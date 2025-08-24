@@ -2,28 +2,35 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "reduction.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/operations/utils.h"
+#include "operations/reduction/reduction.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionOp(
-    ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
+    const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
-        const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
-        const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const std::optional<std::variant<int, ::ttsl::SmallVector<int>>> &,
+        const bool, const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         &ttnnOp) {
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const auto *fbDimArg = op->dim_arg();
-  std::optional<::ttnn::SmallVector<int>> dimArg =
-      fbDimArg ? std::make_optional(::ttnn::SmallVector<int>(fbDimArg->begin(),
+  std::optional<::ttsl::SmallVector<int>> dimArg =
+      fbDimArg ? std::make_optional(::ttsl::SmallVector<int>(fbDimArg->begin(),
                                                              fbDimArg->end()))
                : std::nullopt;
 
@@ -31,7 +38,7 @@ static void runReductionOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
       std::nullopt /* compute_kernel_config */, 1.0f /* scalar */);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
@@ -47,6 +54,10 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::ReductionOpType::Max: {
     runReductionOp(op, tensorPool, ::ttnn::max);
+    break;
+  }
+  case ::tt::target::ttnn::ReductionOpType::Min: {
+    runReductionOp(op, tensorPool, ::ttnn::min);
     break;
   }
   }

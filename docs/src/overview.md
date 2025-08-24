@@ -79,14 +79,15 @@ simpler.
 ### MLIR Primitives
 
 So what does MLIR look like, how does it work and get parsed? The
-hierarchy of an MLIR Module is as shown:
-```
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
-module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt.grid<8x8>>], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
-  func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = tensor.empty() : tensor<64x128xf32>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    return %1 : tensor<64x128xf32>
+hierarchy of an MLIR module is as shown:
+```mlir
+#permutation = array<i64: 0, 2, 1>
+
+module {
+  func.func @forward(%input: tensor<32x64x128xf32>) -> tensor<32x128x64xf32> {
+    %output = ttir.empty() : tensor<32x128x64xf32>
+    %result = "ttir.permute"(%input, %output) <{permutation = #permutation}> : (tensor<32x64x128xf32>, tensor<32x128x64xf32>) -> tensor<32x128x64xf32>
+    return %result : tensor<32x128x64xf32>
   }
 }
 ```
@@ -100,13 +101,12 @@ module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt
 -   Operations
 
     -   These operations are accessed with the . method, so you'll see
-        some examples like func.func or tensor.empty. Each operation
+        some examples like func.func or ttir.empty. Each operation
         also provides it's own assembly instructions but often strictly
         defines the type of result
 
     -   Quotes are added around ttir.multiply since it's part of a
-        custom dialect, and more custom assembly instructions are
-        applied to specify operand_constraints.
+        custom dialect.
 
     -   Operations typically have operands (arguments) and results which
         are highlighted with %, these results and operands help to show
@@ -210,7 +210,7 @@ Desired Optimization List:
 
     -   Data Storage, Memory Configuration, Grid Configuration
 
--   TT-NN (backend)
+-   TTNN (backend)
 
     -   Kernel Configuration\*, Network Optimization
 
@@ -284,13 +284,13 @@ covers key topics if implementation details are needed.
 ### EmitC Dialect
 \[[Reference](https://mlir.llvm.org/docs/Dialects/EmitC/)\]
 
-## TT-Explorer - Performance Optimization Tool
+## tt-explorer - Performance Optimization Tool
 
 A unique project related to TT-MLIR is the integration of Performance
 Optimization Tools such that users are easily able to visualize and
 readily tune their models without needing an expert level understanding
 of the tech stack.
-[TT-Explorer](https://github.com/vprajapati-tt/tt-explorer)
+['tt-explorer'](./tt-explorer.md)
 is built with Google AI's [Model
 Explorer](https://github.com/google-ai-edge/model-explorer)
 as a base for the visualization tool, and a [custom

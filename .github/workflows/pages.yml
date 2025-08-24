@@ -1,8 +1,7 @@
 name: docs
 
 on:
-  push:
-    branches: ["main"]
+  workflow_call:
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -24,11 +23,10 @@ jobs:
       matrix:
         image: ["ubuntu-22-04"]
         build: [
-          {runs-on: builder, build_type: Release, enable_runtime: ON}
+          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: ON}
         ]
 
     runs-on:
-      - in-service
       - ${{ matrix.build.runs-on }}
 
     container:
@@ -67,8 +65,8 @@ jobs:
         run: |
           source env/activate
           export PATH="$PATH:${{ steps.strings.outputs.work-dir }}"
-          cmake -B build -S ${{ steps.strings.outputs.work-dir }}
-          cmake --build build -- doxygen
+          cmake -B build -S ${{ steps.strings.outputs.work-dir }} -G Ninja
+          cmake --build build -- docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

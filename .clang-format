@@ -1,2 +1,4 @@
 BasedOnStyle: LLVM
 AlwaysBreakTemplateDeclarations: Yes
+QualifierAlignment: Left
+InsertBraces: Yes
