@@ -52,6 +52,8 @@ struct Layout;
 struct MemoryConfig;
 struct BufferType;
 
+struct QueueId;
+
 namespace types {
 struct ShardOrientation;
 struct ShardMode;
@@ -297,6 +299,11 @@ template <>
 struct TypeName<::ttnn::operations::reduction::ReduceType> {
   inline static const std::string value =
       "::ttnn::operations::reduction::ReduceType";
+};
+
+template <>
+struct TypeName<::ttnn::QueueId> {
+  inline static const std::string value = "::ttnn::QueueId";
 };
 
 template <>
@@ -1702,6 +1709,11 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  mlir::Attribute emitCQ(uint32_t cqId) {
+    return rewriter.getType<emitc::OpaqueAttr>(
+        TypeNameV<::ttnn::QueueId> + "(" + std::to_string(cqId) + ")");
   }
 
 private:

@@ -2523,6 +2523,14 @@ public:
 namespace {
 class WriteTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WriteTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "tt::tt_metal::write_tensor";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::WriteTensorOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2530,6 +2538,18 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::WriteTensorOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::WriteTensorOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getHostTensor()),
+        emitter.emit(srcOp.getDeviceTensor()),
+        emitter.emit(srcOp.getBlocking()),
+        emitter.emitCQ(srcOp.getCqId()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }
