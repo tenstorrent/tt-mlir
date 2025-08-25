@@ -2,14 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import re
+import textwrap
 import inspect
-from ttmlir.dialects import ttkernel, ttir
-
-
-def _camel_to_snake(name):
-    s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+from typing import Callable
 
 
 def _discover_dialect_ops(dialect, denylist=None):
@@ -41,3 +36,13 @@ def _discover_dialect_ops(dialect, denylist=None):
             op_map[name] = func
 
     return op_map
+
+
+def _cleanup_source_code(f: Callable):
+    source_code = inspect.getsource(f)
+    source_code = textwrap.dedent(source_code)
+    cleaned = [
+        line for line in source_code.splitlines() if not line.strip().startswith("@")
+    ]
+    source_code = "\n".join(cleaned)
+    return source_code
