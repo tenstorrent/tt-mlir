@@ -170,6 +170,7 @@ createMeshBufferFromBufferRef(
 
   LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
             logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
+
   std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer =
       tt_metal::distributed::MeshBuffer::create(
           distributedBufferConfig, localBufferConfig, meshDevice, address);
@@ -515,6 +516,56 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
              {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
       .set_page_size(cbRef->port(),
                      metalBuffer->circular_buffer_config()->page_size());
+}
+
+inline void writeHostTensorToMeshBuffer(
+    tt_metal::distributed::MeshCommandQueue *mcq, const Tensor &input,
+    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer,
+    bool blockingCQ) {
+  std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &) {
+            void *src = input.data.get();
+            LOG_ASSERT(src);
+            mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
+          },
+          [&](const HostBuffer &hostBuffer) {
+            auto span = hostBuffer->view_bytes();
+            mcq->enqueue_write_mesh_buffer(meshBuffer, span.data(), blockingCQ);
+          },
+          [&](const DistributedHostBuffer &distributedHostBuffer) {
+            mcq->enqueue_write(meshBuffer, *distributedHostBuffer, blockingCQ);
+          },
+          [&](const MeshBuffer &mesh_buffer) {
+            LOG_FATAL("WriteTensorToMeshBuffer from MeshBuffer not supported.");
+          },
+      },
+      input.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+inline void readHostTensorFromMeshBuffer(
+    tt_metal::distributed::MeshCommandQueue *mcq,
+    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer,
+    Tensor &output, bool blockingCQ) {
+  std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &) {
+            void *dst = output.data.get();
+            LOG_ASSERT(dst);
+            mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
+          },
+          [&](const HostBuffer &hostBuffer) {
+            LOG_FATAL("ReadTensorFromMeshBuffer to HostBuffer not supported.");
+          },
+          [&](const DistributedHostBuffer &distributedHostBuffer) {
+            mcq->enqueue_read(meshBuffer, *distributedHostBuffer, std::nullopt,
+                              blockingCQ);
+          },
+          [&](const MeshBuffer &mesh_buffer) {
+            LOG_FATAL("ReadTensorFromMeshBuffer to MeshBuffer not supported.");
+          },
+      },
+      output.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 } // namespace tt::runtime::ttmetal

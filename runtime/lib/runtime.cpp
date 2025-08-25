@@ -206,7 +206,7 @@ Tensor createOwnedHostTensor(const void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
+            data, shape, stride, itemsize, dataType);
       });
 }
 
@@ -228,7 +228,8 @@ Tensor createMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+        return ::tt::runtime::ttmetal::createMultiDeviceHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
       });
 }
 
@@ -245,7 +246,8 @@ Tensor createMultiDeviceHostTensor(
             tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+        return ::tt::runtime::ttmetal::createMultiDeviceHostTensor(
+            tensorShards, strategy, meshShape);
       });
 }
 
