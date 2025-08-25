@@ -374,6 +374,28 @@ template <>
 struct OpModel<OnesOp> : NamedFullOpModel<OnesOp> {};
 
 //===----------------------------------------------------------------------===//
+// QuantizeOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<QuantizeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> scaleShape,
+      TTNNLayoutAttr scaleLayout, llvm::ArrayRef<int64_t> zeroPointShape,
+      TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
+               llvm::ArrayRef<int64_t> zeroPointShape,
+               TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+               std::optional<ttcore::DataType> outputDtype,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
 

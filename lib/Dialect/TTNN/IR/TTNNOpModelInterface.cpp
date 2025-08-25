@@ -1899,6 +1899,45 @@ ProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// QuantizeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+QuantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+  const auto inputShape = getInput().getType().getShape();
+  const auto scaleShape = getScale().getType().getShape();
+  const auto zeroPointShape = getZeroPoint().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<QuantizeOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], scaleShape, inputs[1], zeroPointShape, inputs[2],
+      getAxis(), getOutputDtype(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+QuantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+  const auto inputShape = getInput().getType().getShape();
+  const auto scaleShape = getScale().getType().getShape();
+  const auto zeroPointShape = getZeroPoint().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<QuantizeOp>::getOpRuntime, *this, inputShape, inputs[0],
+      scaleShape, inputs[1], zeroPointShape, inputs[2], getAxis(),
+      getOutputDtype(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

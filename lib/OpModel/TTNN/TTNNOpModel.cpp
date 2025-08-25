@@ -2526,6 +2526,108 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
 }
 
 //===----------------------------------------------------------------------===//
+// QuantizeOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<QuantizeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> scaleShape,
+    TTNNLayoutAttr scaleLayout, llvm::ArrayRef<int64_t> zeroPointShape,
+    TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto scaleSpecExp =
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
+  if (!scaleSpecExp) {
+    return scaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec scaleSpec = scaleSpecExp.get();
+
+  auto zeroPointSpecExp =
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
+  if (!zeroPointSpecExp) {
+    return zeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+}
+
+std::optional<::tt::tt_metal::DataType> outputDType =
+    detail::getNullableDataType(outputLayout);
+std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+    detail::getNullableMemoryConfig(outputLayout);
+
+// Create query closure
+
+auto quantizeOpQuery = [=]() {
+  return ::ttnn::graph::query_op_constraints(
+      ::ttnn::quantize, device, inputSpec, scaleSpec, zeroPointSpec, axis,
+      outputDType, outputMemoryConfig);
+};
+
+return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                   quantizeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<QuantizeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
+    llvm::ArrayRef<int64_t> zeroPointShape, TTNNLayoutAttr zeroPointLayout,
+    std::optional<int32_t> axis, std::optional<ttcore::DataType> outputDtype,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto scaleSpecExp =
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
+
+  auto zeroPointSpecExp =
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
+  if (!zeroPointSpecExp) {
+    return zeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto quantizeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::quantize, device, inputSpec,
+                                           scaleSpec, zeroPointSpec, axis,
+                                           outputDType, outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(quantizeOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(

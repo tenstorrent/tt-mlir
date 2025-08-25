@@ -2211,7 +2211,9 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample",
     let hasVerifier = 1;
 }
 
-def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
+def TTNN_QuantizeOp : TTNN_Op<"quantize",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Quantize operation.";
     let description = [{
       Applies quantization to the input tensor.
