@@ -351,11 +351,12 @@ struct OpModel<SoftmaxOp> {
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const int dimArg,
-                   TTNNLayoutAttr outputLayout);
+                   bool numericStable, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
                                              const int dimArg,
+                                             bool numericStable,
                                              TTNNLayoutAttr outputLayout);
 };
 
