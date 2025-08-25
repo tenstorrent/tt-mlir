@@ -2,11 +2,7 @@ name: "Issue Work Started"
 description: "Update issue work started date when Status field changes to In Progress"
 
 on:
-  # Temporary hack for testing - triggers on any push
-  push:
-    branches: [ feature/issue-work-started-workflow ]
-  
-  # Manual trigger for testing (will be registered after merge to main)
+  # Manual trigger for testing and specific issue updates
   workflow_dispatch:
     inputs:
       issue_number:
@@ -17,6 +13,11 @@ on:
   # Automatic trigger for issue changes
   issues:
     types: [edited]
+  
+  # Daily schedule to check all issues and update Work Started field
+  schedule:
+    # Run at 11 PM UTC daily (23:00)
+    - cron: '0 23 * * *'
   
 permissions:
   repository-projects: write
@@ -41,10 +42,7 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # HACK: Hardcoded issue number for testing
-            issue_number="4540"
-            echo "Push trigger - testing with hardcoded issue #$issue_number"
+
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
@@ -162,7 +160,7 @@ jobs:
 
             if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
               found_item_id="$ITEM_ID"
-              echo "Found ITEM_ID: $found_item_id"
+              echo "Found issue in project"
               break
             fi
 
@@ -175,7 +173,6 @@ jobs:
 
             # Get cursor for next page
             cursor=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
-            echo "Moving to next page with cursor: $cursor"
 
             if [[ $page_count -gt 100 ]]; then
               echo "Searched 100 pages (10,000+ items). Stopping to prevent infinite loop."
@@ -243,9 +240,19 @@ jobs:
                          '.data.node.fieldValues.nodes[] | 
                           select(.field.id==$status_field_id or .field.name=="Status") | .name')
           
+          # Extract Work Started field value to check if it's already set
+          WORK_STARTED_VALUE=$(echo "$RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
+                              '.data.node.fieldValues.nodes[] | 
+                               select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
+          
           if [[ "$STATUS_VALUE" == "In Progress" ]]; then
-            echo "Status is 'In Progress' - proceeding with Work Started update"
-            echo "should_update=true" >> $GITHUB_OUTPUT
+            if [[ -z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null" ]]; then
+              echo "Status is 'In Progress' and Work Started is empty - proceeding with update"
+              echo "should_update=true" >> $GITHUB_OUTPUT
+            else
+              echo "Status is 'In Progress' but Work Started already set to '$WORK_STARTED_VALUE' - skipping to avoid overwriting"
+              echo "should_update=false" >> $GITHUB_OUTPUT
+            fi
           elif [[ -z "$STATUS_VALUE" || "$STATUS_VALUE" == "null" ]]; then
             echo "Status field not found or empty - skipping update"
             echo "should_update=false" >> $GITHUB_OUTPUT
@@ -266,22 +273,10 @@ jobs:
             -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ steps.get_item_id.outputs.item_id }}\\\", fieldId: \\\"${{ env.work_started_field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
             https://api.github.com/graphql)
           
-          echo "GraphQL Response: $RESPONSE"
-          
           ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
           if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
             echo "GraphQL Error: $ERRORS"
             exit 0
-          fi
-          
-          # Check if mutation was successful
-          CLIENT_MUTATION_ID=$(echo "$RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.clientMutationId')
-          if [[ -n "$CLIENT_MUTATION_ID" && "$CLIENT_MUTATION_ID" != "null" ]]; then
-            echo "✅ Work Started field successfully updated to $current_date"
-            echo "Mutation ID: $CLIENT_MUTATION_ID"
-          else
-            echo "❌ Mutation may have failed - no clientMutationId returned"
-            echo "Full response: $RESPONSE"
           fi
 
       - name: Verify Work Started Field Update
@@ -323,10 +318,244 @@ jobs:
             -d "$JSON_PAYLOAD" \
             https://api.github.com/graphql)
           
-          echo "Verification response: $VERIFY_RESPONSE"
+
           
           WORK_STARTED_VALUE=$(echo "$VERIFY_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
                               '.data.node.fieldValues.nodes[] | 
                                select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
           
-          echo "Current Work Started field value: $WORK_STARTED_VALUE"
+          echo "Work Started field updated to: $WORK_STARTED_VALUE"
+
+  # Bulk processing job for scheduled runs
+  bulk_update_work_started:
+    # Only run on scheduled triggers (cron)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Environment Variables
+        run: |
+          echo "project_id=PVT_kwDOA9MHEM4AjeTl" >> $GITHUB_ENV
+          echo "status_field_id=PVTSSF_lADOA9MHEM4AjeTlzgb1Hjo" >> $GITHUB_ENV
+          echo "work_started_field_id=PVTF_lADOA9MHEM4AjeTlzgzZQtk" >> $GITHUB_ENV
+
+      - name: Get All Repository Issues
+        id: get_all_issues
+        run: |
+          echo "Fetching all open issues from repository..."
+          
+          # Initialize variables for pagination
+          page=1
+          all_issue_numbers=""
+          
+          # Fetch all pages of issues
+          while true; do
+            echo "Fetching page $page of issues..."
+            
+            issues_response=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+              "https://api.github.com/repos/${{ github.repository }}/issues?state=open&per_page=100&page=$page")
+            
+            # Check if we got any issues
+            page_issue_count=$(echo "$issues_response" | jq 'length')
+            if [[ "$page_issue_count" == "0" ]]; then
+              echo "No more issues found on page $page"
+              break
+            fi
+            
+            # Extract issue numbers from this page
+            page_issue_numbers=$(echo "$issues_response" | jq -r '.[].number')
+            all_issue_numbers="$all_issue_numbers"$'\n'"$page_issue_numbers"
+            
+            echo "Found $page_issue_count issues on page $page"
+            
+            # Check if we got less than 100 issues (last page)
+            if [[ "$page_issue_count" -lt 100 ]]; then
+              echo "Last page reached (less than 100 issues)"
+              break
+            fi
+            
+            page=$((page + 1))
+            
+            # Safety check to prevent infinite loops
+            if [[ $page -gt 50 ]]; then
+              echo "Reached maximum pages (50). Stopping to prevent infinite loop."
+              break
+            fi
+          done
+          
+          # Clean up and save issue numbers
+          echo "$all_issue_numbers" | grep -v '^$' > /tmp/issue_numbers.txt
+          total_issues=$(cat /tmp/issue_numbers.txt | wc -l)
+          echo "Total open issues found: $total_issues"
+
+      - name: Process All Issues
+        run: |
+          echo "Processing all issues to check Status and update Work Started..."
+          processed_count=0
+          updated_count=0
+          
+          while read -r issue_number; do
+            if [[ -z "$issue_number" ]]; then
+              continue
+            fi
+            
+            echo "Processing issue #$issue_number..."
+            processed_count=$((processed_count + 1))
+            
+            # Get issue node ID
+            issue_details=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+            issue_id=$(echo "$issue_details" | jq -r '.node_id')
+            
+            if [[ -z "$issue_id" || "$issue_id" == "null" ]]; then
+              echo "Could not get issue ID for #$issue_number, skipping..."
+              continue
+            fi
+            
+            # Find item ID in project (reuse existing pagination logic)
+            found_item_id=""
+            cursor=""
+            page_count=0
+            
+            while true; do
+              page_count=$((page_count + 1))
+              
+              if [[ -z "$cursor" ]]; then
+                QUERY='query($projectId: ID!) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          content { ... on Issue { id } }
+                        }
+                      }
+                    }
+                  }
+                }'
+                JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" \
+                  '{ query: $query, variables: { projectId: $projectId }}')
+              else
+                QUERY='query($projectId: ID!, $cursor: String!) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $cursor) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          content { ... on Issue { id } }
+                        }
+                      }
+                    }
+                  }
+                }'
+                JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" --arg cursor "$cursor" \
+                  '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+              fi
+              
+              RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                -H "Content-Type: application/json" -d "$JSON_PAYLOAD" https://api.github.com/graphql)
+              
+              ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
+              if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
+                echo "GraphQL Error finding issue #$issue_number: $ERRORS"
+                break
+              fi
+              
+              ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
+                '.data.node.items.nodes[]? | select(.content.id==$issue_id) | .id')
+              
+              if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
+                found_item_id="$ITEM_ID"
+                break
+              fi
+              
+              has_next_page=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage // false')
+              if [[ "$has_next_page" != "true" ]]; then
+                break
+              fi
+              
+              cursor=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
+              
+              if [[ $page_count -gt 100 ]]; then
+                echo "Searched 100 pages for issue #$issue_number. Stopping."
+                break
+              fi
+            done
+            
+            if [[ -z "$found_item_id" ]]; then
+              echo "Issue #$issue_number not found in project, skipping..."
+              continue
+            fi
+            
+            # Check Status and Work Started fields
+            STATUS_QUERY='query($itemId: ID!) {
+              node(id: $itemId) {
+                ... on ProjectV2Item {
+                  fieldValues(first: 20) {
+                    nodes {
+                      ... on ProjectV2ItemFieldSingleSelectValue {
+                        field { id name }
+                        name
+                      }
+                      ... on ProjectV2ItemFieldDateValue {
+                        field { id name }
+                        date
+                      }
+                    }
+                  }
+                }
+              }
+            }'
+            
+            STATUS_JSON_PAYLOAD=$(jq -n --arg query "$STATUS_QUERY" --arg itemId "$found_item_id" \
+              '{ query: $query, variables: { itemId: $itemId }}')
+            
+            STATUS_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+              -H "Content-Type: application/json" -d "$STATUS_JSON_PAYLOAD" https://api.github.com/graphql)
+            
+            STATUS_ERRORS=$(echo "$STATUS_RESPONSE" | jq -r '.errors // empty')
+            if [[ -n "$STATUS_ERRORS" && "$STATUS_ERRORS" != "null" ]]; then
+              echo "Error checking fields for issue #$issue_number: $STATUS_ERRORS"
+              continue
+            fi
+            
+            # Extract Status field value
+            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+              '.data.node.fieldValues.nodes[] | 
+               select(.field.id==$status_field_id or .field.name=="Status") | .name')
+            
+            # Extract Work Started field value
+            WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
+              '.data.node.fieldValues.nodes[] | 
+               select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
+            
+            # Check if Status is "In Progress" and Work Started is empty
+            if [[ "$STATUS_VALUE" == "In Progress" && (-z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null") ]]; then
+              echo "Issue #$issue_number has Status='In Progress' but no Work Started date - updating..."
+              
+              current_date=$(date +%Y-%m-%d)
+              
+              MUTATION_RESPONSE=$(curl -s -X POST \
+                -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                -H "Content-Type: application/json" \
+                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+                https://api.github.com/graphql)
+              
+              MUTATION_ERRORS=$(echo "$MUTATION_RESPONSE" | jq -r '.errors // empty')
+              if [[ -n "$MUTATION_ERRORS" && "$MUTATION_ERRORS" != "null" ]]; then
+                echo "Error updating Work Started for issue #$issue_number: $MUTATION_ERRORS"
+              else
+                echo "✅ Updated Work Started for issue #$issue_number to $current_date"
+                updated_count=$((updated_count + 1))
+              fi
+            else
+              echo "Issue #$issue_number: Status='$STATUS_VALUE', Work Started='$WORK_STARTED_VALUE' - no update needed"
+            fi
+            
+            # Add small delay to avoid rate limiting
+            sleep 1
+            
+          done < /tmp/issue_numbers.txt
+          
+          echo "Summary: Processed $processed_count issues, updated $updated_count Work Started fields"
