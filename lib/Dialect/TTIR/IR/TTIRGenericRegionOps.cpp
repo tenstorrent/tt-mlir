@@ -459,21 +459,22 @@ void mlir::tt::ttir::TileUntilizeBlockOp::getEffects(
 
 mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options) {
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
   mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(getOperation());
 
   mlir::Value in = getInput();
   mlir::Value out = getOutput();
   if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options);
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     in = *maybe;
   }
   if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options);
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
     if (failed(maybe)) {
       return maybe;
     }
@@ -507,6 +508,7 @@ mlir::tt::ttir::TileTilizeBlockOp::getAliasingValues(
 mlir::FailureOr<mlir::BaseMemRefType>
 mlir::tt::ttir::TileTilizeBlockOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
   assert(false && "should already have bufferized types via parent generic op "
                   "bufferization");
@@ -515,21 +517,22 @@ mlir::tt::ttir::TileTilizeBlockOp::getBufferType(
 
 mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options) {
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
   mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(getOperation());
 
   mlir::Value in = getInput();
   mlir::Value out = getOutput();
   if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options);
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     in = *maybe;
   }
   if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options);
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
     if (failed(maybe)) {
       return maybe;
     }
@@ -563,6 +566,7 @@ mlir::tt::ttir::TileUntilizeBlockOp::getAliasingValues(
 mlir::FailureOr<mlir::BaseMemRefType>
 mlir::tt::ttir::TileUntilizeBlockOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
   assert(false && "should already have bufferized types via parent generic op "
                   "bufferization");

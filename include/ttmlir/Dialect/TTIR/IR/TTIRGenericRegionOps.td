@@ -872,12 +872,14 @@ def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
       }
       mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
           mlir::Value, const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationState &,
           ::llvm::SmallVector<mlir::Value> &) {
         return mlir::failure();
       }
       mlir::LogicalResult $cppClass::bufferize(
           mlir::RewriterBase &rewriter,
-          const mlir::bufferization::BufferizationOptions &) {
+          const mlir::bufferization::BufferizationOptions &,
+          mlir::bufferization::BufferizationState &state) {
         rewriter.eraseOp(*this);
         return mlir::success();
       }

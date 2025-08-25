@@ -4862,7 +4862,7 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
       if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType())) {
         continue;
       }
-      auto newArgType = getBufferType(oldArg, options, invocationStack);
+      auto newArgType = getBufferType(oldArg, options, state, invocationStack);
       mlir::BlockArgument newArg =
           block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
       auto toTensor = rewriter.create<bufferization::ToTensorOp>(
