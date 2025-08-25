@@ -88,17 +88,22 @@ public:
                          bool isOutput, SmallVector<Value> coreIndex = {},
                          SmallVector<Value> mcastShape = {}) {
 
-    AffineMapAttr srcIndexingMap = (!isOutput && operandIndexingMap)
-                                       ? AffineMapAttr::get(*operandIndexingMap)
-                                       : nullptr;
-    AffineMapAttr dstIndexingMap = (isOutput && operandIndexingMap)
-                                       ? AffineMapAttr::get(*operandIndexingMap)
-                                       : nullptr;
+    AffineMapAttr indexingMapAttr =
+        (operandIndexingMap) ? AffineMapAttr::get(*operandIndexingMap)
+                             : nullptr;
 
-    return builder
-        .create<ttir::DMAOp>(loc, src, srcIndexingMap, dst, dstIndexingMap,
-                             coreIndex, mcastShape)
-        .getResult();
+    // affine map is associated with dst when isOutput is true, src otherwise
+    if (isOutput) {
+      return builder
+          .create<ttir::DMAOp>(loc, src, dst, indexingMapAttr, coreIndex,
+                               mcastShape)
+          .getResult();
+    } else {
+      return builder
+          .create<ttir::DMAOp>(loc, src, indexingMapAttr, dst, coreIndex,
+                               mcastShape)
+          .getResult();
+    }
   }
 
   struct McastArguments {
