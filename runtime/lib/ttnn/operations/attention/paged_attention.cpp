@@ -33,11 +33,7 @@ void run(const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp *op,
           ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
                 op->attn_mask()))
           : std::nullopt;
-  const std::optional<::ttnn::Tensor> &cur_pos_tensor =
-      op->cur_pos_tensor()
-          ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
-                op->cur_pos_tensor()))
-          : std::nullopt;
+  const std::optional<::ttnn::Tensor> &cur_pos_tensor = std::nullopt;
 
   ::ttnn::Tensor output =
       ::ttnn::transformer::paged_scaled_dot_product_attention_decode(
