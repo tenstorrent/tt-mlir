@@ -842,5 +842,23 @@ struct OpModel<mlir::tt::ttnn::FullOp> {
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<GenericOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+                   std::vector<TTNNLayoutAttr> inputLayouts,
+                   ProgramAttr program, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+               std::vector<TTNNLayoutAttr> inputLayouts, ProgramAttr program,
+               TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

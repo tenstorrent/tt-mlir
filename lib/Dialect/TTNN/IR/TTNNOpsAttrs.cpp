@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include <cstdint>
+#include <mlir/IR/Attributes.h>
 #include <numeric>
 #include <optional>
 
@@ -996,4 +997,42 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   DeviceComputeKernelConfigAttrParams params(*this);
   params.dstFullSyncEn = BoolAttr::get(getContext(), value);
   return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+::llvm::LogicalResult ProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBAttr> cbs,
+    llvm::ArrayRef<mlir::Attribute> kernels) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t total_size, CoreRangeAttr core_range,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBFormatAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t page_size, uint32_t buffer_index, ttcore::DataType dtype) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ComputeKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbol_ref) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ReaderKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbol_ref) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult WriterKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbol_ref) {
+  return ::llvm::success();
 }

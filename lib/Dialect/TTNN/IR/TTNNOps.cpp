@@ -3218,4 +3218,12 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+// GenericOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  return mlir::success();
+}
 } // namespace mlir::tt::ttnn
