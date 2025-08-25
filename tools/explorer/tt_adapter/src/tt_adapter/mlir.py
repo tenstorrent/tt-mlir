@@ -575,15 +575,19 @@ def parse_conv2d_config(attr):
             },
         )
     )
+    output_layout = OVERRIDE_PARAMETER_DISABLED_STR
+    if conv2d_config.output_layout_as_int is not None:
+        output_layout = str(ttnn.Layout(conv2d_config.output_layout_as_int))
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="output_layout",
-                value=str(ttnn.Layout(conv2d_config.output_layout_as_int)),
+                value=output_layout,
             ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in ttnn.Layout],
+                "options": [str(o) for o in ttnn.Layout]
+                + [OVERRIDE_PARAMETER_DISABLED_STR],
             },
         )
     )

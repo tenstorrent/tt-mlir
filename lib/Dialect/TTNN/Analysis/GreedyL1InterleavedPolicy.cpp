@@ -72,7 +72,7 @@ GreedyL1InterleavedPolicy::getGreedyConfig(
     // Calculate the optimal L1Precedence.
     //
     bool isMaskLegal = false;
-    uint64_t minRequiredL1Usage = getAvailableL1CacheSize();
+    uint64_t minRequiredL1Usage = usableL1CacheSize;
 
     std::sort(L1Precedence.begin(), L1Precedence.end());
     do {
@@ -83,7 +83,7 @@ GreedyL1InterleavedPolicy::getGreedyConfig(
       uint64_t intermediateRequiredL1Usage = 0;
       for (Operation *op : L1Precedence) {
         if (intermediateL1Usage + opsL1Usage[op].requiredL1Usage >
-            getAvailableL1CacheSize()) {
+            usableL1CacheSize) {
           isLegal = false;
           break;
         }
@@ -106,7 +106,7 @@ GreedyL1InterleavedPolicy::getGreedyConfig(
     } while (std::next_permutation(L1Precedence.begin(), L1Precedence.end()));
 
     if (isMaskLegal && optimalL1Usage < currentL1Usage &&
-        currentL1Usage <= getAvailableL1CacheSize()) {
+        currentL1Usage <= usableL1CacheSize) {
 
       // Append the legal L1Precedence to the currentPrecedence and therefore
       // create a complete precedence for the baseOp and currentMask.

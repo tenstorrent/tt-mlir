@@ -489,6 +489,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         sparse-checkout: |
+          test/ttmlir/models
           tools/tt-alchemist/test
 
     - name: Fetch job id
@@ -546,7 +547,7 @@ jobs:
       run: |
         source testenv/bin/activate
         rm -rf /tmp/test-generate-cpp-resnet
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet.mlir --output /tmp/test-generate-cpp-resnet --standalone
+        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet_hf.mlir --output /tmp/test-generate-cpp-resnet --standalone
         cd /tmp/test-generate-cpp-resnet
         [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
         ./run

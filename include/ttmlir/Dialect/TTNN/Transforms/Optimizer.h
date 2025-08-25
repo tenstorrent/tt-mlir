@@ -21,11 +21,13 @@ struct TTNNOptimizerOptions {
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
+  bool l1InterleavedFallbackAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
+  float tensorL1UsageCap = 0.8f; // Default to 80% of maximum free space in L1.
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

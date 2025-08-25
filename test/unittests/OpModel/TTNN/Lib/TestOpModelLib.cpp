@@ -387,7 +387,9 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-
+    // TODO(tt-metal #25772): Need to reset device here otherwise hangs. Remove
+    // once fixed.
+    SingletonDeviceContext::resetInstance();
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, dimArg, keepDim, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -402,9 +404,13 @@ protected:
 // Type aliases for reduction operations
 using OpModelSumParam = OpModelReductionParam<SumOp>;
 using OpModelMeanParam = OpModelReductionParam<MeanOp>;
+using OpModelMaxParam = OpModelReductionParam<MaxOp>;
+using OpModelMinParam = OpModelReductionParam<MinOp>;
 
 TEST_P(OpModelSumParam, SumOp) { RunTest(); }
 TEST_P(OpModelMeanParam, MeanOp) { RunTest(); }
+TEST_P(OpModelMaxParam, MaxOp) { RunTest(); }
+TEST_P(OpModelMinParam, MinOp) { RunTest(); }
 
 // Test parameters for reduction operations
 static const auto reductionParams = ::testing::Values(
@@ -432,6 +438,10 @@ static const auto reductionParams = ::testing::Values(
 INSTANTIATE_TEST_SUITE_P(SumTests, OpModelSumParam, reductionParams);
 
 INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelMeanParam, reductionParams);
+
+INSTANTIATE_TEST_SUITE_P(MaxTests, OpModelMaxParam, reductionParams);
+
+INSTANTIATE_TEST_SUITE_P(MinTests, OpModelMinParam, reductionParams);
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -558,7 +568,7 @@ TEST_F(OpModelTest, Slice) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = OpModel<SliceOp>::getOpConstraints(
+  auto constraintsExp = OpModel<SliceStaticOp>::getOpConstraints(
       CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
       layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
@@ -567,7 +577,7 @@ TEST_F(OpModelTest, Slice) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = OpModel<SliceOp>::getOpRuntime(
+  auto runtimeExp = OpModel<SliceStaticOp>::getOpRuntime(
       inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
@@ -886,9 +896,11 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
-      EXPECT_EQ(outputSize, expectedOutputSize);
+
+      bool useGreaterThan = false;
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       // Must clean up the error
@@ -932,7 +944,8 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
 
-      bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp>;
+      bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp> ||
+                            std::is_same_v<OpTy, LogicalLeftShiftOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
@@ -958,6 +971,8 @@ using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
 using OpModelLogicalRightShiftParam =
     OpModelBinaryEltwiseParam<LogicalRightShiftOp>;
+using OpModelLogicalLeftShiftParam =
+    OpModelBinaryEltwiseParam<LogicalLeftShiftOp>;
 using OpModelSubtractParam = OpModelBinaryEltwiseParam<SubtractOp>;
 using OpModelMaximumParam = OpModelBinaryEltwiseParam<MaximumOp>;
 using OpModelMinimumParam = OpModelBinaryEltwiseParam<MinimumOp>;
@@ -971,10 +986,15 @@ using OpModelLessThanParam = OpModelBinaryEltwiseParam<LessThanOp>;
 using OpModelLogicalAndParam = OpModelBinaryEltwiseParam<LogicalAndOp>;
 using OpModelLogicalOrParam = OpModelBinaryEltwiseParam<LogicalOrOp>;
 using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
+using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
+using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
+using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
+using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
 TEST_P(OpModelLogicalRightShiftParam, LogicalRightShiftOp) { RunTestInt32(); }
+TEST_P(OpModelLogicalLeftShiftParam, LogicalLeftShiftOp) { RunTestInt32(); }
 TEST_P(OpModelSubtractParam, SubtractOp) { RunTest(); }
 TEST_P(OpModelMaximumParam, MaximumOp) { RunTest(); }
 TEST_P(OpModelMinimumParam, MinimumOp) { RunTest(); }
@@ -988,6 +1008,10 @@ TEST_P(OpModelLessThanParam, LessThanOp) { RunTest(); }
 TEST_P(OpModelLogicalAndParam, LogicalAndOp) { RunTest(); }
 TEST_P(OpModelLogicalOrParam, LogicalOrOp) { RunTest(); }
 TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
+TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
+TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
+TEST_P(OpModelPowParam, PowOp) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
@@ -1069,6 +1093,20 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
+                            std::size_t extraCbRequirement = 0) {
+  // Memory requirements for bitwise ops are 2x compared to other binary ops
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    newValues.back().expectedResult.expectedCbSize *= 2;
+    newValues.back().expectedResult.expectedPeakSize *= 2;
+    newValues.back().expectedResult.expectedOutputSize *= 2;
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1079,6 +1117,9 @@ INSTANTIATE_TEST_SUITE_P(SubtractTests, OpModelSubtractParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalRightShiftTests, OpModelLogicalRightShiftParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(LogicalLeftShiftTests, OpModelLogicalLeftShiftParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(MaximumTests, OpModelMaximumParam,
@@ -1120,6 +1161,18 @@ INSTANTIATE_TEST_SUITE_P(LogicalOrTests, OpModelLogicalOrParam,
 INSTANTIATE_TEST_SUITE_P(LogicalXorTests, OpModelLogicalXorParam,
                          generateBinaryEltwiseParams(
                              binaryEltwiseParams, /*extraCbRequirement=*/4096));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseAndTests, OpModelBitwiseAndParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
+                         generateBinaryBitwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 

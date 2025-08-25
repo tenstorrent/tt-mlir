@@ -56,7 +56,8 @@ struct RankedTensorTypeFactory {
 };
 
 // Return the L1 memory usage of the output tensor of the given op.
-// Used within L1 interleaved policies.
+// Used within L1 interleaved policies and temporarily within L1 Interleaved
+// Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
@@ -99,6 +100,17 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
+// Check if operation's first result uses TTNN layout encoding.
+bool producesTTNNLayoutEncoding(Operation *op);
+
+// Check if operation's first result uses DRAM buffer layout.
+bool producesDRAMLayout(Operation *op);
+
+// Check if operation's first result uses L1 buffer layout.
+bool producesL1Layout(Operation *op);
+
+// Check if operation's first result uses tiled tensor layout.
+bool producesTiledTensorLayout(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

@@ -258,20 +258,6 @@ public:
       // Check if the operand is a dps result
       bool isDPSResult = op.isDpsInit(&operand);
 
-      // TTNN Conv2d moves input, weight, and bias from host to device
-      // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (!isDPSResult && (mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(
-                              op.getOperation()))) {
-        // For the weight and bias input of the conv2d op, they specifically
-        // need to be on host, so we create a host to layout op (issue
-        // https://github.com/tenstorrent/tt-mlir/issues/1528).
-        if (operand.getOperandNumber() == 1 ||
-            operand.getOperandNumber() == 2) {
-          modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
-        }
-        continue;
-      }
-
       // TTNN mesh shard expects host input and output
       // TODO(#2291): This can be removed once the workaround pass can correctly
       // handle canonicalization of toLayout ops (#2102). Currently the
@@ -531,15 +517,6 @@ private:
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
-      }
-
-      if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user))) {
-        // For the weight and bias input of the conv2d op, they specifically
-        // need to be on host (issue
-        // https://github.com/tenstorrent/tt-mlir/issues/1528).
-        if (user->getOperand(1) == arg || user->getOperand(2) == arg) {
-          return true;
-        }
       }
     }
 

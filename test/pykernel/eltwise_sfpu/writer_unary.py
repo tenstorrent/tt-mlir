@@ -5,8 +5,8 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: pykernel
 
-from pykernel.ast import *
-from pykernel.types import *
+from pykernel.kernel_ast import *
+from pykernel.kernel_types import *
 
 
 @ttkernel_noc_compile()

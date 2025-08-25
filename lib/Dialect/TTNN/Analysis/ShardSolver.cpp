@@ -823,10 +823,6 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     return customCheckShardCompatible(producerOperand, producerLayout,
                                       consumerOp, consumerConfig);
   }
-  // Figure out this const based on exec data, but will be replaced
-  // with API.
-  //
-  constexpr float tensorL1UsageCap = 0.9;
 
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {
@@ -912,8 +908,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
 
-  bool l1UsageValid = (producerL1OutputUsage + tensorUsage + cBUsagePeak) <
-                      tensorL1UsageCap * usableL1CacheSize;
+  bool l1UsageValid =
+      (producerL1OutputUsage + tensorUsage + cBUsagePeak) < usableL1CacheSize;
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

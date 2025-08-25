@@ -193,9 +193,6 @@ convertToOptionalTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
     auto retExp =
         detail::convertToTensorSpec(device, shape.value(), layout.value());
     if (!retExp) {
-      // This is a common pattern for preventing the function to return
-      // llvm::Expected when std::optional is needed (by consuming the error).
-      llvm::consumeError(retExp.takeError());
       assert(false && "Failed to convert to TensorSpec");
       return std::nullopt;
     }
@@ -288,6 +285,8 @@ auto getOpSymbol() {
     return ::ttnn::subtract;
   } else if constexpr (std::is_same_v<OpTy, LogicalRightShiftOp>) {
     return ::ttnn::logical_right_shift;
+  } else if constexpr (std::is_same_v<OpTy, LogicalLeftShiftOp>) {
+    return ::ttnn::logical_left_shift;
   } else if constexpr (std::is_same_v<OpTy, DivideOp>) {
     return ::ttnn::divide;
   } else if constexpr (std::is_same_v<OpTy, EqualOp>) {
@@ -312,10 +311,22 @@ auto getOpSymbol() {
     return ::ttnn::maximum;
   } else if constexpr (std::is_same_v<OpTy, MinimumOp>) {
     return ::ttnn::minimum;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseAndOp>) {
+    return ::ttnn::bitwise_and;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseOrOp>) {
+    return ::ttnn::bitwise_or;
+  } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
+    return ::ttnn::bitwise_xor;
+  } else if constexpr (std::is_same_v<OpTy, PowOp>) {
+    return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
     return ::ttnn::where;
   } else if constexpr (std::is_same_v<OpTy, MeanOp>) {
     return ::ttnn::mean;
+  } else if constexpr (std::is_same_v<OpTy, MaxOp>) {
+    return ::ttnn::max;
+  } else if constexpr (std::is_same_v<OpTy, MinOp>) {
+    return ::ttnn::min;
   } else if constexpr (std::is_same_v<OpTy, SumOp>) {
     return ::ttnn::sum;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
@@ -555,7 +566,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
-mlir::RankedTensorType getPreparedConv2dWeightsOutputTensor(Conv2dOp *op) {
+mlir::RankedTensorType
+getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
+                                     Conv2dConfigAttr conv2dConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto input = op->getInput().getType();
   auto weight = op->getWeight().getType();
@@ -568,8 +581,9 @@ mlir::RankedTensorType getPreparedConv2dWeightsOutputTensor(Conv2dOp *op) {
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          op->getConv2dConfig(), op->getBias() != nullptr,
+          conv2dConfig, op->getBias() != nullptr,
           /* transpose */ false);
+
   if (!outputTensorSpec) {
     llvm::errs() << llvm::toString(outputTensorSpec.takeError());
     assert(false && "Failed to calculate conv2d prepared weights shape.");
@@ -979,6 +993,85 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+template <typename OpTy>
+llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+    TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
+    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
+                                               device, inputSpecA, inputSpecB,
+                                               outputMemoryConfig);
+  };
+
+  return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
+                                           inputSpecA, inputSpecB,
+                                           outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 // Explicit template instantiation for BinaryEltwiseOpModel.
 template struct BinaryEltwiseOpModel<AddOp>;
 template struct BinaryEltwiseOpModel<MultiplyOp>;
@@ -996,6 +1089,12 @@ template struct BinaryEltwiseOpModel<LessThanOp>;
 template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
+template struct BinaryEltwiseOpModel<PowOp>;
+// BinaryCompositeOpModel
+template struct BinaryCompositeOpModel<BitwiseAndOp>;
+template struct BinaryCompositeOpModel<BitwiseOrOp>;
+template struct BinaryCompositeOpModel<BitwiseXorOp>;
+template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
@@ -1181,6 +1280,8 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for ReductionOpModel.
 template struct ReductionOpModel<MeanOp>;
 template struct ReductionOpModel<SumOp>;
+template struct ReductionOpModel<MaxOp>;
+template struct ReductionOpModel<MinOp>;
 
 //===----------------------------------------------------------------------===//
 // Named Full Ops
@@ -1349,9 +1450,9 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// SliceOp
+// SliceStaticOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> begins,
     llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
@@ -1394,7 +1495,7 @@ llvm::Expected<OpConstraints> OpModel<SliceOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<SliceOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
     llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout) {
