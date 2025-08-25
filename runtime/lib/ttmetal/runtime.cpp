@@ -868,9 +868,10 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  std::vector<tt_metal::IDevice *> allDevices = meshDevice.get_devices();
-  LOG_ASSERT(meshDevice.num_rows() == 1 && meshDevice.num_cols() == 1,
-             "Currently we only support 1x1 mesh.");
+  if (meshDevice.num_rows() != 1 || meshDevice.num_cols() != 1) {
+    LOG_WARNING("D2M runtime multi-device support is experimental. mesh = [",
+                meshDevice.num_rows(), ", ", meshDevice.num_cols(), "]");
+  }
 
   std::vector<Tensor> outputs;
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {

@@ -225,6 +225,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   const std::vector<uint32_t> stride(bufferDesc->host_strides()->begin(),
                                      bufferDesc->host_strides()->end());
   const uint64_t physicalVolume = bufferDesc->host_volume();
+  const std::string tensorMesh = bufferDesc->mesh()->c_str();
   assert(shape.size() == stride.size());
   const auto dataType = bufferDesc->data_type();
 
@@ -243,7 +244,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   }
 
   auto meshShape = meshDevice->shape();
-  if (meshShape.mesh_size() == 1) {
+  if (meshShape.mesh_size() == 1 || tensorMesh.empty()) {
     auto [_, inserted] = hostBuffers.try_emplace(
         command->dst()->global_id(),
         std::static_pointer_cast<void>(std::make_shared<MetalTensor>(desc)),
@@ -382,9 +383,8 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  assert(meshBuffer.get()->size() ==
-         std::get<TensorDesc>(input.as<MetalTensor>(DeviceRuntime::TTMetal))
-             .sizeBytes());
+  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(input,
+                                                                   meshBuffer);
   tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
                                                     blockingCQ);
 }
@@ -395,9 +395,8 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
-  assert(meshBuffer.get()->size() ==
-         std::get<TensorDesc>(output.as<MetalTensor>(DeviceRuntime::TTMetal))
-             .sizeBytes());
+  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(output,
+                                                                   meshBuffer);
   tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
                                                      blockingCQ);
 }

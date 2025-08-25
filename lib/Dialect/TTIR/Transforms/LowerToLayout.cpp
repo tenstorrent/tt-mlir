@@ -337,8 +337,8 @@ public:
                                     Value input,
                                     RankedTensorType desiredType) const {
     // Create empty tensor with desired type and layout
-    auto layout =
-        mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
+    auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
+        desiredType.getEncoding());
     auto output = rewriter.create<ttir::EmptyOp>(
         loc, desiredType.getShape(), desiredType.getElementType(), layout);
     return rewriter.create<ttir::ToLayoutOp>(loc, input, output);

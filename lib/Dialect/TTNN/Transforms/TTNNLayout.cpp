@@ -193,25 +193,6 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
       ->getResult(0);
 }
 
-static bool changeLayoutToHost(DestinationStyleOpInterface &op,
-                               OpOperand &operand, PatternRewriter &rewriter,
-                               bool isDPSResult) {
-  Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout =
-      createToLayoutOp(rewriter, newLoc, operand.get(),
-                       BufferType::SystemMemory, false /* tiled */);
-  if (layout.has_value()) {
-    rewriter.modifyOpInPlace(op, [&]() {
-      op->setOperand(operand.getOperandNumber(), *layout);
-      if (isDPSResult) {
-        op->getResult(0).setType(layout->getType());
-      }
-    });
-    return true;
-  }
-  return false;
-}
-
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -234,16 +215,6 @@ public:
     for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
       bool isDPSResult = op.isDpsInit(&operand);
-
-      // TTNN mesh shard expects host input and output
-      // TODO(#2291): This can be removed once the workaround pass can correctly
-      // handle canonicalization of toLayout ops (#2102). Currently the
-      // workaround pass cannot detect redundant toLayout ops as a result of
-      // forcing the output layout and removing them.
-      if (shouldMeshShardOpForceSystemMemory(op.getOperation())) {
-        modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
-        continue;
-      }
 
       // If the operand is a BroadcastOp or a ToLayout op do not put a
       // ToLayoutOp on its output
@@ -341,6 +312,48 @@ public:
     rewriter.replaceOp(callOp, newCallOp);
 
     return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTNNLayoutMeshShardRewriter : public OpRewritePattern<ttir::MeshShardOp> {
+public:
+  TTNNLayoutMeshShardRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::MeshShardOp>(ctx) {}
+  // Match and rewrite the MeshShardOp.
+  LogicalResult matchAndRewrite(ttir::MeshShardOp op,
+                                PatternRewriter &rewriter) const override {
+    // TTNN mesh shard expects host input and output
+    // TODO(#2291): This can be removed once the workaround pass can correctly
+    // handle canonicalization of toLayout ops (#2102). Currently the
+    // workaround pass cannot detect redundant toLayout ops as a result of
+    // forcing the output layout and removing them.
+    if (!shouldMeshShardOpForceSystemMemory(op.getOperation())) {
+      return failure();
+    }
+
+    bool modified = false;
+    Value input = op.getOperand();
+    Value result = op.getResult();
+    Location newLoc = appendInputSuffix(op.getLoc(), 0);
+    std::optional<Value> inputLayout = createToLayoutOp(
+        rewriter, newLoc, input, BufferType::SystemMemory, false /* tiled */);
+    if (inputLayout.has_value()) {
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
+      modified = true;
+    }
+    std::optional<Value> resultLayout = createToLayoutOp(
+        rewriter, newLoc, result, BufferType::SystemMemory, false /* tiled */);
+    if (resultLayout.has_value()) {
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(resultLayout->getType()); });
+      modified = true;
+    }
+    if (modified) {
+      return success();
+    }
+    return failure();
   }
 };
 } // namespace
@@ -598,6 +611,7 @@ public:
       // Logic here should match that of TTNNLayoutFuncInputOutputTypeRewriter
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
+      patterns.add<TTNNLayoutMeshShardRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.setUseTopDownTraversal(true);

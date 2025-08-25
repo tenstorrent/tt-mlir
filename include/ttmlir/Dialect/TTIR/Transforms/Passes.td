@@ -629,4 +629,14 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
+{
+  let summary = "TTIR multi-device tensor annotation pass.";
+  let description = [{
+    This pass walks through the graph with mesh and add multi-device tensor annotations to tensor encoding.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif

@@ -58,6 +58,7 @@ table BufferDesc {
   data_type: DataType;
   element_shape: Dim2d;
   buffer_detail: BufferDetail;
+  mesh: string;
 }
 
 table BufferRef {

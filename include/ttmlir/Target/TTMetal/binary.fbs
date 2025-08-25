@@ -29,10 +29,17 @@ table TensorRef {
 }
 ///////////////////////////////
 
+table DeviceRef {
+  name: string;
+  mesh_shape: [int64];
+  mesh_offset: [int64];
+}
+
 table DeviceProgram {
   inputs: [BufferRef];
   outputs: [BufferRef];
   command_queues: [CommandQueue];
+  mesh: DeviceRef;
 }
 
 table Program {

@@ -1308,9 +1308,10 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
     chipGrid[1] = std::min(chipGrid[1], iChipGrid[1]);
   }
 
-  auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
+  // Due mainly to SPMD programming model for multi-devices, workerGrid
+  // currently is set to be limited to a single device {1, 1}.
+  auto workerGrid = createWorkerGrid(context, chipGrid, {1, 1});
   auto l1Map = createL1Map(context, workerGrid);
-
   auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
   return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
 }
