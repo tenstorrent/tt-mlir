@@ -196,9 +196,8 @@ public:
       // Create a new mesh shard op.
       auto outputType = mlir::cast<mlir::RankedTensorType>(
           getTypeConverter()->convertType(localArgType));
-      auto meshShardOp = ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
-          rewriter, loc, outputType, globalOperand,
-          shardyMeshSharding->getShardType(),
+      auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
+          loc, outputType, globalOperand, shardyMeshSharding->getShardType(),
           shardyMeshSharding->getShardDirection(),
           shardyMeshSharding->getShardShape(),
           shardyMeshSharding->getShardDims());
@@ -229,8 +228,8 @@ public:
       // Create a new mesh shard op.
       auto outputType = mlir::cast<mlir::RankedTensorType>(
           getTypeConverter()->convertType(opResult.getType()));
-      auto meshShardOp = ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
-          rewriter, loc, outputType, returnOperand.get(),
+      auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
+          loc, outputType, returnOperand.get(),
           shardyMeshSharding->getShardType(),
           shardyMeshSharding->getShardDirection(),
           shardyMeshSharding->getShardShape(),

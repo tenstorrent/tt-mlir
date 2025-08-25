@@ -50,16 +50,26 @@ MemRefType getBufferType(Type type, bool isView,
                          std::optional<ttcore::MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   MLIRContext *ctx = tensorType.getContext();
+  auto tensorMeshAttr = mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(
+      tensorType.getEncoding());
+  ttcore::HostLayoutAttr hostLayout = nullptr;
 
-  if (!tensorType.getEncoding()) {
-    // Calculate host layout and attach, for I/O with (potentially) unaligned
-    // host memref.
-    ttcore::HostLayoutAttr hostLayout = nullptr;
-    if (hostInfo.has_value()) {
-      hostLayout = ttcore::HostLayoutAttr::get(ctx, tensorType.getShape(),
-                                               hostInfo->getHostStride(),
-                                               hostInfo->getHostVolume());
-    }
+  if (hostInfo.has_value()) {
+    // Calculate host layout for I/O with potentially unaligned host memref
+    hostLayout = ttcore::HostLayoutAttr::get(
+        ctx, tensorType.getShape(), hostInfo->getHostStride(),
+        hostInfo->getHostVolume(), tensorMeshAttr);
+  } else if (tensorMeshAttr) {
+    // Create host layout with tensor mesh info and default shape/strides/volume
+    hostLayout = ttcore::HostLayoutAttr::get(
+        ctx, tensorType.getShape(),
+        ttmlir::utils::calculateStrides(tensorType.getShape()),
+        ttmlir::utils::volume(tensorType.getShape()), tensorMeshAttr);
+  }
+
+  // If there is no encoding or encoding with TensorMesh info, return with the
+  // host layout attribute.
+  if (!tensorType.getEncoding() || tensorMeshAttr) {
     return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
                            hostLayout);
   }
@@ -2687,8 +2697,15 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
   auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
 
-  const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
-  const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
+  ttcore::MetalLayoutAttr inputLayout =
+      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+  ttcore::MetalLayoutAttr outputLayout =
+      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          outputTensor.getEncoding());
+
+  const bool hasInputLayout = inputLayout != nullptr;
+  const bool hasOutputLayout = outputLayout != nullptr;
 
   // Layout versus no layout special case.
   if (hasInputLayout != hasOutputLayout) {
@@ -2712,11 +2729,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   }
 
   // Both have layouts--do a full comparison.
-  ttcore::MetalLayoutAttr inputLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
-  ttcore::MetalLayoutAttr outputLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
-
   components.isMemorySpaceChange =
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
 
@@ -2752,20 +2764,32 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
 bool mlir::tt::ttir::ToLayoutOp::isHostToDevice() {
   const bool hostInput =
       mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
   const bool hostOutput =
       mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
   return hostInput && !hostOutput;
 }
 
 bool mlir::tt::ttir::ToLayoutOp::isDeviceToHost() {
   const bool hostInput =
       mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
   const bool hostOutput =
       mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
   return !hostInput && hostOutput;
 }
 
@@ -4067,7 +4091,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 // MeshShardOp verification
-::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
+mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto shardType = getShardType();
 
   // Currently, we are not supporting maximal from StableHLO.
@@ -4076,6 +4100,43 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+mlir::LogicalResult mlir::tt::ttir::MeshShardOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeResult =
+      mlir::bufferization::getBuffer(rewriter, getResult(), options, state);
+  if (failed(maybeResult)) {
+    return maybeResult;
+  }
+
+  mlir::bufferization::replaceOpWithNewBufferizedOp<
+      mlir::tt::ttir::MeshShardOp>(
+      rewriter, *this, maybeResult->getType(), *maybeInput, getShardType(),
+      getShardDirection(), getShardShape(), getShardDims());
+
+  return success();
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::MeshShardOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), false);
 }
 
 //===----------------------------------------------------------------------===//

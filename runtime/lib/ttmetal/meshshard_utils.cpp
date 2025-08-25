@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <tt_stl/overloaded.hpp>
 #include <tt_stl/small_vector.hpp>
@@ -64,10 +65,10 @@ shard(const tt_metal::HostBuffer &hostBuffer,
   // devices: use xtensor to chunk the data into shards.
   ttsl::Span<const T> span = hostBuffer.view_as<const T>();
   size_t tensorVolume =
-      std::accumulate(tensorShape.cbegin(), tensorShape.cend(), uint64_t{1},
-                      std::multiplies<uint64_t>());
+      utils::product(tensorShape.cbegin(), tensorShape.cend());
   LOG_ASSERT(span.size() == tensorVolume,
-             "Current buffer size is different from shape volume");
+             "Current buffer size is different from shape volume.", span.size(),
+             " != ", tensorVolume);
 
   auto inputXtensor = xtensor::adapt(
       span, std::vector<size_t>(tensorShape.cbegin(), tensorShape.cend()));
@@ -179,6 +180,7 @@ shardHostBuffer(const tt_metal::HostBuffer &hostBuffer,
   switch (dataType) {
   case target::DataType::BFP_BFloat4:
   case target::DataType::BFP_BFloat8:
+    LOG_FATAL("Unsupported data type");
   case target::DataType::Float32:
     return shard_impl.template operator()<float>();
   case target::DataType::BFloat16:
@@ -263,6 +265,7 @@ static tt_metal::HostBuffer concatDistributedHostBuffers(
   switch (dataType) {
   case target::DataType::BFP_BFloat4:
   case target::DataType::BFP_BFloat8:
+    LOG_FATAL("Unsupported data type");
   case target::DataType::Float32:
     return concat_impl.template operator()<float>();
   case target::DataType::BFloat16:
@@ -293,7 +296,8 @@ std::shared_ptr<tt_metal::DistributedHostBuffer> tensorFullToShard(
             void *dst = input.data.get();
             LOG_ASSERT(dst, "Tensor data is null");
             auto hostBuffer = tt::runtime::ttmetal::createMetalHostBuffer(
-                dst, tensorDesc.shape, tensorDesc.dataType);
+                dst, tensorDesc.shape, tensorDesc.sizeBytes(),
+                tensorDesc.dataType);
             return std::make_shared<tt_metal::DistributedHostBuffer>(
                 meshshard_utils::shardHostBuffer(*hostBuffer, meshShape,
                                                  dataType, tensorShape,
