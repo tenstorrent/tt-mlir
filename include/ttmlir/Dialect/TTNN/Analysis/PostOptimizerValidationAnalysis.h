@@ -152,17 +152,6 @@ private:
   createFallbackTransforms(TTNNLayoutAttr originalLayout,
                            llvm::ArrayRef<int64_t> tensorShape);
 
-  // Test provided fallback layouts for an operation
-  // validator: Validator instance to use for testing
-  // op: Operation to validate
-  // originalConfig: Original configuration that failed
-  // fallbackLayouts: List of layouts to test directly
-  // Returns: Vector of validation results with early exit on first success
-  std::vector<OpConstraintValidator::ValidationResult>
-  testFallbackLayouts(OpConstraintValidator &validator, Operation *op,
-                      const OpConfig &originalConfig,
-                      const std::vector<TTNNLayoutAttr> &fallbackLayouts);
-
   // Test a specific combination of fallback layouts for an operation
   // validator: Validator instance to use for testing
   // op: Operation to validate

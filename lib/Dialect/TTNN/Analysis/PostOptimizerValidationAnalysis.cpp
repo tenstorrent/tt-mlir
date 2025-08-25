@@ -348,41 +348,6 @@ PostOptimizerValidationAnalysis::createFallbackTransforms(
   return fallbackLayouts;
 }
 
-std::vector<OpConstraintValidator::ValidationResult>
-PostOptimizerValidationAnalysis::testFallbackLayouts(
-    OpConstraintValidator &validator, Operation *op,
-    const OpConfig &originalConfig,
-    const std::vector<TTNNLayoutAttr> &fallbackLayouts) {
-
-  std::vector<OpConstraintValidator::ValidationResult> results;
-
-  for (size_t i = 0; i < fallbackLayouts.size(); ++i) {
-    const TTNNLayoutAttr &testInputLayout = fallbackLayouts[i];
-
-    // For all fallbacks, don't constrain output layout - let backend decide
-    OpConfig testConfig = originalConfig;
-    testConfig.outputLayout =
-        TTNNLayoutAttr{}; // Let backend choose output layout
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Fallback {}: testing layout={}, dtype={}", i,
-                 static_cast<int>(testInputLayout.getLayout()),
-                 static_cast<int>(testInputLayout.getDataType()));
-
-    auto result =
-        validator.validateSingleConfig(op, {testInputLayout}, testConfig);
-    results.push_back(result);
-
-    if (result.success) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "Fallback {} succeeded with output layout: {}", i,
-                   result.actualOutputLayout);
-      break; // Early exit on first working configuration
-    }
-  }
-
-  return results;
-}
-
 void PostOptimizerValidationAnalysis::recordSuccessfulCombination(
     const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
