@@ -14,13 +14,6 @@ from ttmlir.dialects import (
 from .base_ast import PyKernelAstBase
 from .utils import _discover_dialect_ops
 
-try:
-    import ttnn
-except Exception as e:
-    ttbn = e
-
-Tensor = ttnn.Tensor
-
 
 class TTIRCompiler(PyKernelAstBase):
     _unsupported_ops = [
