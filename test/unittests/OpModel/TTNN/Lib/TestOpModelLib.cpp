@@ -2907,4 +2907,62 @@ const auto batchNormTestValues = ::testing::Values(
 INSTANTIATE_TEST_SUITE_P(BatchNormTests, OpModelBatchNormParam,
                          batchNormTestValues);
 
+TEST_F(OpModelTest, RandOp) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutL1 = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // Test RandOp with DRAM output
+  auto shapeAttr = ttnn::ShapeAttr::get(&context, tensorShape);
+
+  auto constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  // Test RandOp with L1 output
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  // Test RandOp with custom range parameters
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(-2.5f), llvm::APFloat(5.0f), 42,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  // Test RandOp with Float32 data type
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::Float32, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+}
+
 } // namespace mlir::tt::ttnn::op_model

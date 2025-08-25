@@ -3384,4 +3384,41 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr size,
+    mlir::tt::ttcore::DataType dtype,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+    mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
+    uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prefer the output layout if possible:
+  ::ttnn::MemoryConfig metalMemConfig = ::ttnn::DRAM_MEMORY_CONFIG;
+  if (outputLayout) {
+    metalMemConfig = conversion::getMemoryConfig(outputLayout);
+  } else if (memoryConfig) {
+    metalMemConfig = conversion::getMemoryConfig(memoryConfig);
+  }
+
+  auto randOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::rand, device, conversion::getShape(size.getShape()),
+        std::ref(*device), conversion::getDataType(dtype),
+        conversion::getPageLayout(layout), metalMemConfig, low.convertToFloat(),
+        high.convertToFloat(), seed);
+  };
+
+  return operation::getOpConstraints(size.getContext(), deviceGrid,
+                                     randOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

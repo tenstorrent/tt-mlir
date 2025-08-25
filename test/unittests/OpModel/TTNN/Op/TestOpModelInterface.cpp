@@ -3011,4 +3011,65 @@ TEST_F(OpModelBase, FullOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RandOpInterface) {
+  // Test RandOp with default parameters
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create device value using GetDeviceOp
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
+  auto randOp = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), device,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
+      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr);
+
+  // Test RandOp interface
+  auto backend = dyn_cast<OpModel>(randOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(randOp), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (default params); Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test RandOp with custom parameters
+  auto randOpCustom = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), device,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
+      builder.getF32FloatAttr(-1.0),   // low
+      builder.getF32FloatAttr(2.0),    // high
+      builder.getUI32IntegerAttr(42)); // seed
+
+  // Test RandOp interface with custom parameters
+  auto backendCustom = dyn_cast<OpModel>(randOpCustom.getOperation());
+  auto constraintsExpCustom = backendCustom.getOpConstraints(
+      getInputLayouts(randOpCustom), OpConfig(nullptr));
+  if (constraintsExpCustom) {
+    auto l1 = constraintsExpCustom.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (custom params); Error="
+           << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
+  }
+}
+
 } // namespace mlir::tt::ttnn

@@ -1829,7 +1829,9 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange",
   let hasVerifier = 1;
 }
 
-def TTNN_RandOp : TTNN_CreationOp<"rand"> {
+def TTNN_RandOp : TTNN_CreationOp<"rand",
+    [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+    > {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
