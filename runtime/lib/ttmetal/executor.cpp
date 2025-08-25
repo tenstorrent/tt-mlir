@@ -254,7 +254,6 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
   tt_metal::Program program = tt_metal::CreateProgram();
-  program.set_runtime_id(getUniqueProgramRuntimeId());
 
   for (const target::metal::KernelConfig *kernelConfig :
        *command->program()->kernels()) {
@@ -310,10 +309,21 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),
                                         deviceRange);
+
+  if (perf::Env::get().enablePerfTrace) {
+    for (auto &[range, program] : meshWorkload.get_programs()) {
+      for (auto coord : range) {
+        auto deviceId = meshDevice->get_device(coord)->id();
+        program.set_runtime_id(getUniqueProgramRuntimeId());
+        profiler::addProgramProfileHostMetadata(deviceId, program, loc);
+      }
+    }
+  }
+
   distributed::EnqueueMeshWorkload(*mcq, meshWorkload, blockingCQ);
 
   if (perf::Env::get().enablePerfTrace) {
-    profiler::profileProgram(meshDevice, program, loc);
+    ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
   }
 }
 
