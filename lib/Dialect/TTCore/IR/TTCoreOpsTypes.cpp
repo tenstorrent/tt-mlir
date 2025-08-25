@@ -295,23 +295,21 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   auto systemDesc =
-      SystemDescAttr::getFromTargetSystemDesc(context, buffer.get());
-  if (failed(systemDesc)) {
-    diagFn() << "system desc schema mismatch, please collect a system desc "
-                "with a runtime compiled with the same schema version";
-    return failure();
-  }
+      SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+
   return systemDesc;
 }
 
-mlir::FailureOr<SystemDescAttr>
-SystemDescAttr::getFromTargetSystemDesc(MLIRContext *context,
-                                        void *systemDesc) {
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
       ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
   if (binarySystemDescRoot->schema_hash()->string_view() !=
       ::tt::target::common::system_desc_bfbs_schema_hash) {
+    diagFn() << "system desc schema mismatch, please collect a system desc "
+                "with a runtime compiled with the same schema version";
     return failure();
   }
 
