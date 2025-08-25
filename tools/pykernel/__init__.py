@@ -13,10 +13,11 @@ from pykernel._src.kernel_ast import (
     ttkernel_tensix_compile,
     ttkernel_noc_compile,
 )
+from pykernel.api import jit
 
 # Hide ttnn import behind a lazy import for now.
-# `import pykernel` will not import ttnn, but `from pykernel import jit, PykernelOp` will
-_lazy = {"PyKernelOp": "pykernel._src.kernel_op", "jit": "pykernel.api"}
+# `import pykernel` will not import ttnn, but `from pykernel import PykernelOp` will
+_lazy = {"PyKernelOp": "pykernel._src.kernel_op"}
 
 
 def __getattr__(name):
