@@ -17,8 +17,8 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-
 #include <type_traits>
+
 #include <utility>
 
 namespace mlir::tt::ttkernel {
@@ -51,8 +51,18 @@ static Value getTileIndex(RewriterBase &rewriter, Location loc,
     affine::resolveIndicesIntoOpWithOffsetsAndStrides(
         rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
         subViewOp.getDroppedDims(), indices, sourceIndices);
-
-    return sourceIndices[0];
+    auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
+    int64_t rt = resultTy.getShape()[0];
+    int64_t kt = resultTy.getShape()[1];
+    Value rtIdx = index(rewriter, loc, rt);
+    Value ktIdx = index(rewriter, loc, kt);
+    Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
+    // Convert the resolved source row offset to a block-row index.
+    Value rowBlockIdx =
+        rewriter.create<arith::DivSIOp>(loc, sourceIndices[0], rtIdx);
+    Value rowBase =
+        rewriter.create<arith::MulIOp>(loc, rowBlockIdx, tilesPerBlock);
+    return rewriter.create<arith::AddIOp>(loc, rowBase, sourceIndices[1]);
   } else if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
     // We have not blocked this input. Ignore the cast and start from index 0 of
     // the input.
@@ -385,8 +395,8 @@ public:
       // Get the tile index for each input in the global memref. This is done by
       // resolving tile (0,0) from the subview into the address space of the
       // source memref.
-      Value aTileIndex = getTileIndex(rewriter, op->getLoc(), op.getA());
-      Value bTileIndex = getTileIndex(rewriter, op->getLoc(), op.getB());
+      // Value aTileIndex = getTileIndex(rewriter, op->getLoc(), op.getA());
+      // Value bTileIndex = getTileIndex(rewriter, op->getLoc(), op.getB());
 
       // destIndex is always 0 because we call an experimental LLK that fills up
       // the entire dest in a loop.
@@ -423,6 +433,13 @@ public:
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       rewriter.create<ttkernel::MatmulBlockInitShortOp>(
           op->getLoc(), cbA, cbB, transpose, ct_i32, rt_i32, kt_i32);
+
+      // Get the tile index for each input in the global memref. This is done by
+      // resolving tile (0,0) from the subview into the address space of the
+      // source memref. Compute these at the current insertion point so any
+      // loop block arguments used dominate their uses.
+      Value aTileIndex = getTileIndex(rewriter, op->getLoc(), op.getA());
+      Value bTileIndex = getTileIndex(rewriter, op->getLoc(), op.getB());
 
       rewriter.create<ttkernel::MatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
