@@ -26,6 +26,7 @@ namespace mlir::tt::ttnn {
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  //good
 
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
@@ -35,10 +36,11 @@ void createTTNNPipelineTTIRPasses(
   }
   pm.addPass(
       mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
-
+    //good
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
+  //good
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern};
   if (options.enableFusing) {
@@ -47,11 +49,17 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableQuantDequantConversion) {
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
+
+  //good
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  //fail
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  //good
   pm.addPass(mlir::createCanonicalizerPass());
+
+  return
 
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
@@ -146,23 +154,31 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
   pm.addPass(mlir::createCanonicalizerPass());
+  
   // Element type normalization should be the first pass in the pipeline.
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
   pm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+
+
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
+  //good
   // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
+  return;
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
+
+  return;
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
   quantOptions.targetBitWidth = options.quantBitWidth;

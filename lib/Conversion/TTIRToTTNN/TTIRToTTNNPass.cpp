@@ -19,6 +19,10 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -40,6 +44,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
+    target.addLegalOp<ttir::GetDimensionSizeOp>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<quant::QuantDialect>();
 

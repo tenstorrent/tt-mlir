@@ -12,7 +12,7 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
-from ttmlir.dialects import stablehlo, sdy, mpmd
+from ttmlir.dialects import *
 
 from builder.base.builder import *
 from builder.base import builder_golden
@@ -111,6 +111,9 @@ class StableHLOBuilder(Builder):
                 loc=loc,
                 **stablehlo_kwargs,
             )
+            print("WOWOWOWOWOW")
+            print(op.operation.location)
+            print("WOWOWOWOWOW")
 
             if unit_attrs is not None:
                 from ttmlir.ir import UnitAttr

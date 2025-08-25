@@ -11,6 +11,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
+from ttmlir.dialects import *
 from ttmlir.dialects import func, sdy, mpmd
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
@@ -101,7 +102,12 @@ def _run_ttir_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
+    builder: Optional[TTIRBuilder] = None,
 ):
+    print("AAAAAAA")
+    some_map = builder.golden_map
+    print("AAAAAAA")
+
     if pipeline_options is None:
         pipeline_options = []
 
@@ -114,6 +120,10 @@ def _run_ttir_pipeline(
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
     pipeline_options.append(f"system-desc-path={system_desc_path}")
 
+    print("BBBBBBB")
+    some_map = builder.golden_map
+    print("BBBBBBB")
+
     mesh_shape = tuple(mesh_dict.values())
     if len(mesh_shape) != 2:
         raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
@@ -123,6 +133,11 @@ def _run_ttir_pipeline(
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
 
+    print("CCCCCCCC")
+    some_map = builder.golden_map
+    print("CCCCCCCC")
+
+    exit(0)
     # Optionally dump to file.
     if dump_to_file:
         with open(output_file_name, "w") as f:
@@ -135,6 +150,7 @@ def _run_ttir_pipeline(
 
 
 def build_ttir_module(
+    ctx: Context,
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
@@ -213,63 +229,65 @@ def build_ttir_module(
     https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
     """
 
-    ctx = Context()
-
     # Grab the location of the test function in python for later debugging
     try:
         fname = inspect.getfile(fn)
         line_no = inspect.getsourcelines(fn)[1]
-        loc = Location.file(fname, line_no, 0, ctx)
+        loc = Location.file(fname, line_no, 0, context=ctx)
     except (OSError, TypeError):
+        loc = Location.unknown(context=ctx)
+
+    with ctx:
         loc = Location.unknown(ctx)
+        with loc:
+            mesh_shape = tuple(mesh_dict.values())
+            ttir_builder = TTIRBuilder(ctx, loc, mesh_shape, golden_check_level)
 
-    mesh_shape = tuple(mesh_dict.values())
-    ttir_builder = TTIRBuilder(ctx, loc, mesh_shape, golden_check_level)
+            # Default to all f32s
+            if inputs_types is None:
+                inputs_types = [torch.float32] * len(inputs_shapes)
 
-    # Default to all f32s
-    if inputs_types is None:
-        inputs_types = [torch.float32] * len(inputs_shapes)
+            if len(inputs_shapes) != len(inputs_types):
+                raise ValueError(
+                    f"inputs_shapes and inputs_types must have the same length: "
+                    f"{len(inputs_shapes)} != {len(inputs_types)}"
+                )
 
-    if len(inputs_shapes) != len(inputs_types):
-        raise ValueError(
-            f"inputs_shapes and inputs_types must have the same length: "
-            f"{len(inputs_shapes)} != {len(inputs_types)}"
-        )
+            fn_input_types = [
+                ttir_builder._create_ranked_tensor_type(
+                    shape,
+                    ttir_builder._get_type_from_torch_dtype(
+                        dtype if isinstance(dtype, torch.dtype) else dtype
+                    ),
+                )
+                for (shape, dtype) in zip(inputs_shapes, inputs_types)
+            ]
 
-    with ctx, loc:
-        fn_input_types = [
-            ttir_builder._create_ranked_tensor_type(
-                shape,
-                ttir_builder._get_type_from_torch_dtype(
-                    dtype if isinstance(dtype, torch.dtype) else dtype
-                ),
-            )
-            for (shape, dtype) in zip(inputs_shapes, inputs_types)
-        ]
+        module = Module.create(loc=Location.unknown(context=ctx))
+        loc = Location.unknown(ctx)
+        with loc:
+            with InsertionPoint(module.body):
 
-        module = Module.create()
-        with InsertionPoint(module.body):
+                @func.func(*fn_input_types, name=fn.__name__)
+                def decorated_func(*inputs):
+                    if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                        input_goldens = []
+                        for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                            input_goldens.append(
+                                ttir_builder._generate_golden_tensor(operand, dtype)
+                            )
+                        ttir_builder.set_input_goldens(inputs, input_goldens)
 
-            @func.func(*fn_input_types, name=fn.__name__)
-            def decorated_func(*inputs):
-                if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
-                    input_goldens = []
-                    for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                        input_goldens.append(
-                            ttir_builder._generate_golden_tensor(operand, dtype)
-                        )
-                    ttir_builder.set_input_goldens(inputs, input_goldens)
+                    result = fn(*inputs, ttir_builder)
 
-                result = fn(*inputs, ttir_builder)
+                    if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
+                        outputs = result if hasattr(result, "__iter__") else (result,)
+                        output_goldens = [
+                            ttir_builder._get_golden_tensor(op) for op in outputs
+                        ]
+                        ttir_builder.set_output_goldens(outputs, output_goldens)
 
-                if ttir_builder._golden_check_level == GoldenCheckLevel.AUTOMATIC:
-                    outputs = result if hasattr(result, "__iter__") else (result,)
-                    output_goldens = [
-                        ttir_builder._get_golden_tensor(op) for op in outputs
-                    ]
-                    ttir_builder.set_output_goldens(outputs, output_goldens)
-
-                return result
+                    return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
@@ -369,99 +387,129 @@ def compile_ttir_to_flatbuffer(
         The path to the generated TT{Metal,NN} MLIR file.
     """
 
-    if inputs_types is not None:
-        if len(inputs_shapes) != len(inputs_types):
-            raise ValueError("inputs_shapes and inputs_types must have the same length")
+    ctx = Context()
 
-    if type(custom_pipeline) is str:
-        custom_pipeline = _create_custom_ttir_pipeline_fn(
-            custom_pipeline, print_ir=print_ir
-        )
-
-    if pipeline_options is None:
-        pipeline_options = []
-
-    pipeline_fn: Callable
-    to_target: Callable
-    mlir_suffix: str
-    target_extension: str
-
-    if target == "ttnn":
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
-        )
-        to_target = ttnn_to_flatbuffer_file
-        mlir_suffix = "_ttnn.mlir"
-        target_extension = "ttnn"
-    elif target == "ttmetal":
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
-        )
-        to_target = ttmetal_to_flatbuffer_file
-        mlir_suffix = "_ttm.mlir"
-        target_extension = "ttm"
-    elif target == "ttnn-standalone":
-        ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
-            "ttir-to-emitc-pipeline", print_ir=print_ir
-        )
-        pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
-        )
-        to_target = _emitc_to_executable
-        mlir_suffix = "_ttnn.mlir"
-        target_extension = "cpp"
-    else:
-        raise ValueError("Unsupported target: " + target)
-
+    # Grab the location of the test function in python for later debugging
     try:
-        # Compile model to TTIR MLIR
-        module, builder = build_ttir_module(
-            fn,
-            inputs_shapes,
-            inputs_types,
-            mesh_dict=mesh_dict,
-            module_dump=module_dump,
-            output_root=output_root,
-            golden_check_level=golden_check_level,
-        )
-    except Exception as e:
-        raise TTIRCompileException(e)
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
 
-    output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
-    output_file_fbb = ".".join([output_file_mlir, target_extension])
+    with ctx:
+        if inputs_types is not None:
+            if len(inputs_shapes) != len(inputs_types):
+                raise ValueError("inputs_shapes and inputs_types must have the same length")
 
-    try:
-        # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-        module = _run_ttir_pipeline(
-            module,
-            pipeline_fn,
-            pipeline_options=pipeline_options,
-            dump_to_file=module_dump,
-            output_file_name=output_file_mlir,
-            system_desc_path=system_desc_path,
-            mesh_dict=mesh_dict,
-            argument_types_string=argument_types_string,
-        )
-    except Exception as e:
-        raise TTIRCompileException(e)
+        if type(custom_pipeline) is str:
+            custom_pipeline = _create_custom_ttir_pipeline_fn(
+                custom_pipeline, print_ir=print_ir
+            )
 
-    print(f"{target} pipeline ran successfully.")
+        if pipeline_options is None:
+            pipeline_options = []
 
-    module_logger = MLIRModuleLogger()
-    module_logger.attach_context(module.context)
+        pipeline_fn: Callable
+        to_target: Callable
+        mlir_suffix: str
+        target_extension: str
 
-    try:
-        # Compile TT{Metal,NN} MLIR -> flatbuffer
-        to_target(
-            module,
-            output_file_fbb,
-            builder.golden_map,
-            module_logger.module_log if module_logger.module_log else [],
-        )
-    except Exception as e:
-        raise TTIRCompileException(e)
-    print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-    return output_file_mlir
+        if target == "ttnn":
+            pipeline_fn = (
+                custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
+            )
+            to_target = ttnn_to_flatbuffer_file
+            mlir_suffix = "_ttnn.mlir"
+            target_extension = "ttnn"
+        elif target == "ttmetal":
+            pipeline_fn = (
+                custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
+            )
+            to_target = ttmetal_to_flatbuffer_file
+            mlir_suffix = "_ttm.mlir"
+            target_extension = "ttm"
+        elif target == "ttnn-standalone":
+            ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
+                "ttir-to-emitc-pipeline", print_ir=print_ir
+            )
+            pipeline_fn = (
+                custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
+            )
+            to_target = _emitc_to_executable
+            mlir_suffix = "_ttnn.mlir"
+            target_extension = "cpp"
+        else:
+            raise ValueError("Unsupported target: " + target)
+
+        try:
+            # Compile model to TTIR MLIR
+            print("HEHEHEH0")
+            module, builder = build_ttir_module(
+                ctx,
+                fn,
+                inputs_shapes,
+                inputs_types,
+                mesh_dict=mesh_dict,
+                module_dump=module_dump,
+                output_root=output_root,
+                golden_check_level=golden_check_level,
+            )
+        except Exception as e:
+            raise TTIRCompileException(e)
+
+        print("HEHEHEH1")
+        some_map = builder.golden_map
+        print("HEHEHEH1")
+
+        output_file_mlir = _get_target_path(output_root, test_base + mlir_suffix, target)
+        output_file_fbb = ".".join([output_file_mlir, target_extension])
+
+        print("MYGODDDDD")
+        some_map = builder.golden_map
+        print("MYGODDDDD")
+
+        try:
+            # Compile TTIR MLIR -> TT{Metal,NN} MLIR
+            module = _run_ttir_pipeline(
+                module,
+                pipeline_fn,
+                pipeline_options=pipeline_options,
+                dump_to_file=module_dump,
+                output_file_name=output_file_mlir,
+                system_desc_path=system_desc_path,
+                mesh_dict=mesh_dict,
+                argument_types_string=argument_types_string,
+                builder=builder
+            )
+        except Exception as e:
+            raise TTIRCompileException(e)
+
+        print("EASYYYYY")
+        some_map = builder.golden_map
+        print("EASYYYYY")
+
+        print("HEHEHEH2")
+        print(f"{target} pipeline ran successfully.")
+
+
+        module_logger = MLIRModuleLogger()
+        module_logger.attach_context(ctx)
+        print("HEHEHEH3")
+        some_map = builder.golden_map
+        try:
+            # Compile TT{Metal,NN} MLIR -> flatbuffer
+            to_target(
+                module,
+                output_file_fbb,
+                some_map,
+                module_logger.module_log if module_logger.module_log else [],
+            )
+        except Exception as e:
+            raise TTIRCompileException(e)
+        print("HEHEHEH4")
+        print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
+        return output_file_mlir
 
 
 def build_stablehlo_module(

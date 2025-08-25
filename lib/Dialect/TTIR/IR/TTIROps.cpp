@@ -610,14 +610,6 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
 
 // GetDimensionSizeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
-  RankedTensorType inputTensorType = getOperand().getType();
-
-  int64_t dimensionIndex = getDimension();
-
-  if (dimensionIndex >=
-      static_cast<int64_t>(inputTensorType.getShape().size())) {
-    return failure();
-  };
 
   return success();
 }
@@ -625,14 +617,7 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
 // GetDimensionSizeOp folder
 ::mlir::OpFoldResult
 mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
-  RankedTensorType inputTensorType = getOperand().getType();
-  uint32_t dimensionIndex = getDimension();
-  uint32_t dimSize = inputTensorType.getShape()[dimensionIndex];
-
-  auto resultElType = IntegerType::get(
-      getContext(), 32, IntegerType::SignednessSemantics::Unsigned);
-  auto resultType = RankedTensorType::get(/*shape=*/{1}, resultElType);
-  return mlir::DenseElementsAttr::get<uint32_t>(resultType, dimSize);
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//

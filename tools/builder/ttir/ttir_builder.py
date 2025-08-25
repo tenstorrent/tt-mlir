@@ -11,6 +11,7 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
+from ttmlir.dialects import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
@@ -28,6 +29,9 @@ class TTIRBuilder(Builder):
         mesh_shape=(1, 1),
         golden_check_level=GoldenCheckLevel.AUTOMATIC,
     ):
+        print("OMGGGG")
+        print(ctx)
+        print("OMGGGG")
         super().__init__(ctx, location, mesh_shape, golden_check_level)
 
     # ----- Public methods -----
@@ -76,7 +80,7 @@ class TTIRBuilder(Builder):
             device_shape[-1] //= 32
 
         return RankedTensorType.get(
-            device_shape, elemType, layout, Location.unknown(ctx)
+            device_shape, elemType, layout
         )
 
     # ----- Private methods ----
@@ -101,7 +105,7 @@ class TTIRBuilder(Builder):
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         dtype = data_type if data_type is not None else F32Type.get(self._ctx)
 
-        with self._ctx, self._loc:
+        with self._ctx:
             op = ttir.EmptyOp(self._create_ranked_tensor_type(shape, dtype))
             return op
 
@@ -132,7 +136,7 @@ class TTIRBuilder(Builder):
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
-        with self._ctx, self._loc:
+        with self._ctx:
             # Create ttir.empty DPS operand.
             output_shape, output_type = self._get_output_shape_and_type(
                 organize_golden_args, inputs, op_ttir_function, golden_kwargs
@@ -140,17 +144,19 @@ class TTIRBuilder(Builder):
             output = self._empty(output_shape, output_type)
 
             id = self._get_next_global_id()
-            loc = (
-                self._get_loc_from_str(loc)
-                if loc is not None
-                else self._get_loc_of_extra_file_callee(id=id)
-            )
+
+            print(loc)
 
             op = op_ttir_function(
                 *organize_ttir_args(inputs, output, output_shape),
-                loc=loc,
                 **ttir_kwargs,
             )
+
+            print("WOWOWOWOWOW")
+            print(str(op.operation.location))
+            print(op.context)
+            print(self.golden_map)
+            print("WOWOWOWOWOW")
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
@@ -166,6 +172,7 @@ class TTIRBuilder(Builder):
                 )
                 self.set_operand_golden(op, golden_output)
 
+            print(self.golden_map)
             return op
 
     def _eltwise_proxy(
@@ -2683,19 +2690,19 @@ class TTIRBuilder(Builder):
             [in0, weight, bias],
             ttir_kwargs={
                 "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
                 "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), padding)
                     if isinstance(padding, int)
                     else DenseI32ArrayAttr.get(padding)
                 ),
                 "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), dilation)
                     if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
+                    else DenseI32ArrayAttr.get(dilation, self._ctx)
                 ),
                 "groups": groups,
             },
@@ -2772,27 +2779,27 @@ class TTIRBuilder(Builder):
             [in0, weight],
             ttir_kwargs={
                 "stride": (
-                    IntegerAttr.get(IntegerType.get_signless(32), stride)
+                    IntegerAttr.get(IntegerType.get_signless(32, self._ctx), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
                 "padding": (
-                    IntegerAttr.get(IntegerType.get_signless(32), padding)
+                    IntegerAttr.get(IntegerType.get_signless(32, self._ctx), padding)
                     if isinstance(padding, int)
                     else DenseI32ArrayAttr.get(padding)
                 ),
                 "output_padding": (
-                    IntegerAttr.get(IntegerType.get_signless(32), output_padding)
+                    IntegerAttr.get(IntegerType.get_signless(32, self._ctx), output_padding)
                     if isinstance(output_padding, int)
                     else DenseI32ArrayAttr.get(output_padding)
                 ),
                 "dilation": (
-                    IntegerAttr.get(IntegerType.get_signless(32), dilation)
+                    IntegerAttr.get(IntegerType.get_signless(32, self._ctx), dilation)
                     if isinstance(dilation, int)
                     else DenseI32ArrayAttr.get(dilation)
                 ),
                 "groups": (
-                    IntegerAttr.get(IntegerType.get_signless(32), groups)
+                    IntegerAttr.get(IntegerType.get_signless(32, self._ctx), groups)
                     if isinstance(groups, int)
                     else DenseI32ArrayAttr.get(groups)
                 ),
@@ -2847,22 +2854,22 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={
                 "kernel": (
-                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), kernel)
                     if isinstance(kernel, int)
                     else DenseI32ArrayAttr.get(kernel)
                 ),
                 "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
                 "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), dilation)
                     if isinstance(dilation, int)
                     else DenseI32ArrayAttr.get(dilation)
                 ),
                 "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), padding)
                     if isinstance(padding, int)
                     else DenseI32ArrayAttr.get(padding)
                 ),
@@ -2920,22 +2927,22 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={
                 "kernel": (
-                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), kernel)
                     if isinstance(kernel, int)
                     else DenseI32ArrayAttr.get(kernel)
                 ),
                 "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
                 "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), dilation)
                     if isinstance(dilation, int)
                     else DenseI32ArrayAttr.get(dilation)
                 ),
                 "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    IntegerAttr.get(IntegerType.get_signed(32, self._ctx), padding)
                     if isinstance(padding, int)
                     else DenseI32ArrayAttr.get(padding)
                 ),
@@ -3003,7 +3010,7 @@ class TTIRBuilder(Builder):
             },
             ttir_kwargs={
                 "epsilon": FloatAttr.get_f32(epsilon),
-                "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
+                "dimension": IntegerAttr.get(IntegerType.get_signless(32, self._ctx), dimension),
                 "training": BoolAttr.get(training),
             },
             # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
@@ -3518,7 +3525,7 @@ class TTIRBuilder(Builder):
         output_shape = self._get_golden_tensor(in1).shape
         kwargs = {
             "scale_factor": (
-                IntegerAttr.get(IntegerType.get_signed(32), scale_factor)
+                IntegerAttr.get(IntegerType.get_signed(32, self._ctx), scale_factor)
                 if isinstance(scale_factor, int)
                 else DenseI32ArrayAttr.get(scale_factor)
             ),
@@ -4373,7 +4380,7 @@ class TTIRBuilder(Builder):
 
         # Create integer attribute for index_vector_dim
         index_vector_dim_attr = IntegerAttr.get(
-            IntegerType.get_signed(64), index_vector_dim
+            IntegerType.get_signed(64, self._ctx), index_vector_dim
         )
 
         # Calculate output shape based on gather semantics
@@ -4477,13 +4484,13 @@ class TTIRBuilder(Builder):
 
         # Create integer attributes for each value
         begins_int_attrs = [
-            IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
+            IntegerAttr.get(IntegerType.get_signless(32, self._ctx), b) for b in begins
         ]
         ends_int_attrs = [
-            IntegerAttr.get(IntegerType.get_signless(32), e) for e in ends
+            IntegerAttr.get(IntegerType.get_signless(32, self._ctx), e) for e in ends
         ]
         step_int_attrs = [
-            IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+            IntegerAttr.get(IntegerType.get_signless(32, self._ctx), s) for s in step
         ]
 
         # Create array attributes

@@ -2083,22 +2083,22 @@ public:
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
-  patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
-  patterns.add<PoolingToFullOp>(typeConverter, ctx);
-  patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
-  patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
-  patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
-  patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
-  patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
-  patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
-  patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
-  patterns.add<ReductionAndPattern>(typeConverter, ctx);
-  patterns.add<ReductionOrPattern>(typeConverter, ctx);
-  patterns.add<BatchNormPattern>(typeConverter, ctx);
-  patterns.add<QuantizeOpPattern>(typeConverter, ctx);
-  patterns.add<DequantizeOpPattern>(typeConverter, ctx);
-  patterns.add<RequantizeOpPattern>(typeConverter, ctx);
-  patterns.add<ReductionProdPattern>(typeConverter, ctx);
+  //patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
+  //patterns.add<PoolingToFullOp>(typeConverter, ctx);
+  //patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
+  //patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
+  //patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
+  //patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
+  //patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
+  //patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
+  //patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
+  //patterns.add<ReductionAndPattern>(typeConverter, ctx);
+  //patterns.add<ReductionOrPattern>(typeConverter, ctx);
+  //patterns.add<BatchNormPattern>(typeConverter, ctx);
+  //patterns.add<QuantizeOpPattern>(typeConverter, ctx);
+  //patterns.add<DequantizeOpPattern>(typeConverter, ctx);
+  //patterns.add<RequantizeOpPattern>(typeConverter, ctx);
+  //patterns.add<ReductionProdPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

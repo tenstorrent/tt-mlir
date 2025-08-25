@@ -32,8 +32,9 @@ public:
       return;
     }
 
-    OpBuilder builder(&getContext());
-    auto innerModule = ModuleOp::create(rootModule.getLoc());
+    Location unknownLoc = UnknownLoc::get(rootModule.getContext());
+    OpBuilder builder(rootModule.getContext());
+    auto innerModule = ModuleOp::create(unknownLoc);
     // Transfer attributes from root module to inner module.
     for (const auto &attr : rootModule->getAttrs()) {
       innerModule->setAttr(attr.getName(), attr.getValue());
@@ -42,7 +43,7 @@ public:
     innerModule.getBodyRegion().takeBody(rootModule.getBodyRegion());
     rootModule.getRegion().emplaceBlock();
     builder.setInsertionPointToStart(&rootModule.getBodyRegion().front());
-    auto deviceModule = builder.create<DeviceModuleOp>(rootModule.getLoc());
+    auto deviceModule = builder.create<DeviceModuleOp>(unknownLoc);
     builder.setInsertionPointToStart(&deviceModule.getBodyRegion().front());
     builder.clone(*innerModule);
     innerModule->erase();

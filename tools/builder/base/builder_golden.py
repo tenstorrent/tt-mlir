@@ -1441,14 +1441,14 @@ def update_cache_golden(
 
 
 def get_dimension_size_golden(
-    input_tensor: torch.Tensor, **kwargs
+    input_tensor: BuilderGoldenTensor, **kwargs
 ) -> BuilderGoldenTensor:
     """
     Golden function for get_dimension_size operation.
 
     Parameters
     ----------
-    input_tensor : torch.Tensor
+    input_tensor : BuilderGoldenTensor
         Input tensor to get dimension size from
     **kwargs : dict
         Keyword arguments including 'dimension'
@@ -1458,9 +1458,16 @@ def get_dimension_size_golden(
     BuilderGoldenTensor
         Tensor containing the size of the specified dimension as int32
     """
+    output_shards = [None] * len(input_tensor.shard_map)
     dimension = kwargs.get("dimension", 0)
     size = input_tensor.size(dimension)
-    return torch.tensor([size], dtype=torch.int32)
+
+    for device_id, shard in input_tensor.shard_map.items():
+        output_shards[device_id] = torch.tensor([size], dtype=torch.int32)
+
+    return BuilderGoldenTensor(
+        {i: t for i, t in enumerate(output_shards)}, input_tensor.mesh_shape
+    )
 
 
 def sum_golden(input_tensor: torch.Tensor, **kwargs) -> BuilderGoldenTensor:

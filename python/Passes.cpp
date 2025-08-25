@@ -88,7 +88,7 @@ void populatePassesModule(nb::module_ &m) {
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getName());
+        mlir::PassManager pm(moduleOp->getContext());
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");

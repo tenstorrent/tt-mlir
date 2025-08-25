@@ -10,8 +10,9 @@ import torch
 from enum import Enum, auto
 import re
 
+import ttmlir
 from ttmlir.ir import *
-from ttmlir.dialects import tensor, quant
+from ttmlir.dialects import *
 from ttmlir.passes import GoldenTensor, DataType
 from builder.base.builder_golden import BuilderGoldenTensor
 
@@ -44,6 +45,7 @@ class Builder:
         mesh_shape: Tuple[int, int] = (1, 1),
         golden_check_level: GoldenCheckLevel = GoldenCheckLevel.AUTOMATIC,
     ):
+        ttmlir._mlir_libs._ttmlir.register_dialect(ctx)
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
@@ -67,39 +69,65 @@ class Builder:
 
     @property
     def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
+        print("taps0")
         golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
 
-        if self._golden_check_level == GoldenCheckLevel.DISABLED:
+        print("HEREEEE")
+        print(self._goldens)
+        print("HEREEEE")
+
+
+
+        print(self._goldens)
+        with self._ctx, self._loc:
+
+            if self._golden_check_level == GoldenCheckLevel.DISABLED:
+                return golden_info
+
+            # Handle all operation outputs.
+            for operand, builder_golden_tensor in self._goldens.items():
+                print("yoyo")
+                print(type(operand))
+                print("yoyo")
+                if isinstance(operand, Value):
+                    continue
+                elif isinstance(operand, OpView):
+                    print("omg0")
+                    #print(operand)
+                    loc = str(operand.operation.location)
+                    print(loc)
+                    print("omg1")
+                elif isinstance(operand, Operation):
+                    print("skdhdsh1")
+                    loc = str(operand.location)
+                    print("skdhdsh2")
+
+                print("WOWOW")
+
+                golden_info[loc] = self._generate_device_golden_info(
+                    loc, builder_golden_tensor
+                )
+            print("taps1")
+
+            # Handle all inputs.
+            for operand, loc in self._input_mapping.items():
+                builder_golden_tensor = self._goldens[operand]
+                golden_info[loc] = self._generate_device_golden_info(
+                    loc, builder_golden_tensor
+                )
+
+            print("taps2")
+
+            # Handle all outputs.
+            for operand, loc in self._output_mapping.items():
+                builder_golden_tensor = self._goldens[operand]
+                golden_info[loc] = self._generate_device_golden_info(
+                    loc, builder_golden_tensor
+                )
+
+            print("taps3")
+
             return golden_info
-
-        # Handle all operation outputs.
-        for operand, builder_golden_tensor in self._goldens.items():
-            if isinstance(operand, Value):
-                continue
-            elif isinstance(operand, OpView):
-                loc = str(operand.operation.location)
-            elif isinstance(operand, Operation):
-                loc = str(operand.location)
-
-            golden_info[loc] = self._generate_device_golden_info(
-                loc, builder_golden_tensor
-            )
-
-        # Handle all inputs.
-        for operand, loc in self._input_mapping.items():
-            builder_golden_tensor = self._goldens[operand]
-            golden_info[loc] = self._generate_device_golden_info(
-                loc, builder_golden_tensor
-            )
-
-        # Handle all outputs.
-        for operand, loc in self._output_mapping.items():
-            builder_golden_tensor = self._goldens[operand]
-            golden_info[loc] = self._generate_device_golden_info(
-                loc, builder_golden_tensor
-            )
-
-        return golden_info
 
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
@@ -180,24 +208,26 @@ class Builder:
 
     # Extracts a RankedTensorType from a Value, OpView, or Operation, ensuring the type is ranked.
     def _get_type(self, input: Operand):
-        if isinstance(input, Value):
-            typ = input.type
-        elif isinstance(input, OpView):
-            typ = input.operation.result.type
-        elif isinstance(input, Operation):
-            typ = input.result.type
-        else:
-            raise TypeError(f"Invalid input {type(input)}")
+        with self._ctx:
+            if isinstance(input, Value):
+                typ = input.type
+            elif isinstance(input, OpView):
+                typ = input.operation.result.type
+            elif isinstance(input, Operation):
+                typ = input.result.type
+            else:
+                raise TypeError(f"Invalid input {type(input)}")
 
-        if not isinstance(typ, RankedTensorType):
-            raise TypeError("Only ranked tensors are supported")
+            if not isinstance(typ, RankedTensorType):
+                raise TypeError("Only ranked tensors are supported")
 
-        return typ
+            return typ
 
     def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
         stack = inspect.stack()
         caller_filename = stack[1].filename
 
+        # Skip all frames from the current file
         while len(stack) > 0 and stack[0].filename == caller_filename:
             stack = stack[1:]
 
@@ -206,15 +236,13 @@ class Builder:
                 "Top of callstack to builder funcs must be outside the caller's file"
             )
 
-        return Location.name(
-            f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
-        )
+        # Build a location string
+        loc_str = f"{stack[0].filename}:{stack[0].lineno}:id({id})"
 
-    def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
-        if isinstance(loc, str):
-            return Location.name(loc)
-        else:
-            return loc
+        # Create a Location tied to the MLIR context
+        with self._ctx:
+            return Location.name(loc_str, context=self._ctx)
+
 
     # Creates an MLIR RankedTensorType from a shape, optional data type, and optional encoding.
     def _create_ranked_tensor_type(
@@ -223,10 +251,11 @@ class Builder:
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._default_type
+        dtype = data_type if data_type is not None else F32Type.get(self._ctx)
 
-        with self._ctx, self._loc:
-            return RankedTensorType.get(shape, dtype, encoding)
+        loc = Location.unknown(self._ctx)
+
+        return RankedTensorType.get(shape, dtype, loc=loc)
 
     # Converts a torch.dtype or TypeInfo (with optional scale and zero_point) into the corresponding MLIR type.
     def _get_type_from_torch_dtype(
@@ -235,6 +264,7 @@ class Builder:
         scale: Optional[float] = None,
         zero_point: Optional[float] = None,
     ) -> Type:
+        
         if scale is not None and zero_point is not None:
             dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
@@ -253,6 +283,9 @@ class Builder:
             case torch.int16:
                 return IntegerType.get_signless(16, self._ctx)
             case torch.int32:
+                print("DKSHKDHJKSHDJKSHDJHSDSD")
+                print(self._ctx)
+                print("DKSHKDHJKSHDJKSHDJHSDSD")
                 return IntegerType.get_signless(32, self._ctx)
             case torch.int64:
                 return IntegerType.get_signless(64, self._ctx)
@@ -332,7 +365,12 @@ class Builder:
         operand: Operand,
         golden: BuilderGoldenTensor,
     ):
+        
         self._goldens[operand] = golden
+
+        print("OPERANDDDDDDDD")
+        print(self._goldens)
+        print("OPERANDDDDDDDD")
 
     def _set_input_mapping(
         self,

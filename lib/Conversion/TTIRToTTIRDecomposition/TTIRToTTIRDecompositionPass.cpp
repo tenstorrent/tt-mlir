@@ -36,11 +36,15 @@ struct TTIRToTTIRDecompositionPass
   using TTIRToTTIRDecompositionBase::TTIRToTTIRDecompositionBase;
 
   void runOnOperation() override {
-    mlir::ConversionTarget target(getContext());
+    ModuleOp rootModule = getOperation();
+    mlir::ConversionTarget target(*rootModule.getContext());
+    
+    
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
+    target.addLegalOp<ttir::GetDimensionSizeOp>();
 
     // Configure which ops to decompose based on the configuration
     switch (decompConfig) {
@@ -68,7 +72,7 @@ struct TTIRToTTIRDecompositionPass
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::ConvolutionOp>();
-      target.addIllegalOp<ttir::GetDimensionSizeOp>();
+      //target.addIllegalOp<ttir::GetDimensionSizeOp>();
       target.addIllegalOp<ttir::PoolingOp>();
       target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
@@ -80,6 +84,8 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::DequantizeOp>();
       break;
     }
+
+    //good
 
     // These ops have additional conditions regardless of configuration
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
@@ -106,13 +112,17 @@ struct TTIRToTTIRDecompositionPass
       return (dimArg->size() == 1 || dimArg->size() == rank);
     });
 
+    //good
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
-    RewritePatternSet patterns(&getContext());
-    populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
+    RewritePatternSet patterns(rootModule.getContext());
+    //good
+    populateTTIRToTTIRDecompositionPatterns(rootModule.getContext(), patterns,
                                             typeConverter);
+                                            //good
 
     // Apply partial conversion
     //
