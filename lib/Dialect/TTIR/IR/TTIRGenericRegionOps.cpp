@@ -20,18 +20,17 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
                                                mlir::APInt(width, umax));
 }
 
+static mlir::Type getElemType(mlir::Type t) {
+  auto shaped = mlir::cast<mlir::ShapedType>(t);
+  return shaped.getElementType();
+};
+
 //===----------------------------------------------------------------------===//
 // TileMatmulBlockOp
 //===----------------------------------------------------------------------===//
 
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
-
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
-
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
       !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
     return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
@@ -43,12 +42,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
 // TileTilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
-
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
-
   if (llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {
     return emitOpError("operand to TileTilizeBlock must not have ttcore.tile "
@@ -66,12 +59,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
 // TileUntilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
-
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
-
   if (!llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {
     return emitOpError("operand to TileUntilizeBlock must have ttcore.tile "
