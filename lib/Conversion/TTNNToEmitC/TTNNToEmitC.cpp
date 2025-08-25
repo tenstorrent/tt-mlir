@@ -2568,6 +2568,16 @@ public:
   matchAndRewrite(mlir::tt::ttnn::BeginTraceCaptureOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BeginTraceCaptureOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getDevice()),
+        emitter.emitCQ(srcOp.getCqId()),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
