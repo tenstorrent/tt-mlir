@@ -87,11 +87,18 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
       meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
                               tt::tt_metal::SubDeviceId{0}),
       0, tt::tt_metal::BufferType::L1));
-  std::vector<::ttnn::Tensor> persistent_buffers = {intermediateBuffer, outputBuffer};
+
+  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
+      &meshDevice,
+      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
+                              tt::tt_metal::SubDeviceId{0}),
+      0, tt::tt_metal::BufferType::L1));
+  std::vector<::ttnn::Tensor> persistent_buffers = {intermediateBuffer,
+                                                    outputBuffer};
   out = ::ttnn::experimental::reduce_scatter_minimal_async(
-      input, std::make_optional(persistent_buffers), scatterDimension, semaphores,
-      std::nullopt, numLinks, outputMemoryConfig.value(), std::nullopt,
-      ::ttnn::ccl::Topology::Linear, std::nullopt, clusterAxis);
+      input, std::make_optional(persistent_buffers), scatterDimension,
+      semaphores, std::nullopt, numLinks, outputMemoryConfig.value(),
+      std::nullopt, ::ttnn::ccl::Topology::Linear, std::nullopt, clusterAxis);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
