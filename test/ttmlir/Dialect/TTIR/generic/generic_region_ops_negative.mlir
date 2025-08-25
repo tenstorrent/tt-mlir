@@ -28,7 +28,7 @@ func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) 
                   %4 = "ttir.tile_reduce_max" (%a, %b) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                   linalg.yield %4: !ttcore.tile<32x32, f32>
               }
-      "ttir.yield"() : () -> ()
+      ttir.yield %arg4 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_alias>)
       }) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
