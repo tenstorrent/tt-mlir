@@ -58,3 +58,15 @@ table CBRef {
   port: uint32;
   buffer_ref: BufferRef;
 }
+
+enum MeshShardDirection: uint32 {
+  FullToShardShape,
+  ShardToFullShape,
+}
+
+enum MeshShardType: uint32 {
+  Identity,
+  Replicate,
+  Maximal,
+  Devices,
+}

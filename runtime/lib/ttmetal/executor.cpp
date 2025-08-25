@@ -4,6 +4,7 @@
 
 #include "executor.h"
 #include "executor_utils.h"
+#include "meshshard_utils.h"
 
 #include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
@@ -21,9 +22,11 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 #include <cstdint>
 #include <string>
+#include <tt-metalium/distributed_host_buffer.hpp>
 #include <unordered_map>
 
 namespace tt::runtime::ttmetal {
@@ -62,8 +65,12 @@ private:
   void execute(const target::metal::MemrefCopyCommand *command);
   void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
+  void execute(const target::metal::MeshShardCommand *command);
 
   std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
+  Tensor getHostTensor(const target::metal::BufferRef *srcBufRef);
+  void putHostTensor(const target::metal::BufferRef *dstBufRef,
+                     const Tensor &output);
 
 private:
   distributed::MeshDevice *meshDevice;
@@ -103,6 +110,16 @@ MCQExecutor::MCQExecutor(
                          hostBuffers.try_emplace(ref->global_id(), input);
                      LOG_ASSERT(inserted);
                    },
+                   [&](const HostBuffer &host_buffer) {
+                     auto [_, inserted] =
+                         hostBuffers.try_emplace(ref->global_id(), input);
+                     LOG_ASSERT(inserted);
+                   },
+                   [&](const DistributedHostBuffer &distributed_host_buffer) {
+                     auto [_, inserted] =
+                         hostBuffers.try_emplace(ref->global_id(), input);
+                     LOG_ASSERT(inserted);
+                   },
                    [&](const MeshBuffer &mesh_buffer) {
                      auto [_, inserted] =
                          meshBuffers.try_emplace(ref->global_id(), mesh_buffer);
@@ -134,6 +151,52 @@ void MCQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
               "\n\t", command->debug_info()->c_str());
     execute(command);
   }
+}
+
+Tensor MCQExecutor::getHostTensor(const target::metal::BufferRef *srcBufRef) {
+  auto bufferDetailType = srcBufRef->desc()->buffer_detail_type();
+  if (bufferDetailType == tt::target::metal::BufferDetail::SystemBuffer) {
+    auto srcBufferIter = hostBuffers.find(srcBufRef->global_id());
+    LOG_ASSERT(srcBufferIter != hostBuffers.end(), "Host buffer not found.");
+    return srcBufferIter->second;
+  }
+  // Read from meshBuffer if source is device buffer
+  // tt::target::metal::BufferDetail::MetalBuffer
+  auto meshBufferIter = meshBuffers.find(srcBufRef->global_id());
+  LOG_ASSERT(meshBufferIter != meshBuffers.end());
+  auto meshBuffer = meshBufferIter->second;
+  auto distributedHostBuffer =
+      std::make_shared<tt_metal::DistributedHostBuffer>(
+          tt_metal::DistributedHostBuffer::create(
+              meshBuffer->device()->shape()));
+  mcq->enqueue_read(meshBuffer, *distributedHostBuffer, std::nullopt,
+                    blockingCQ);
+  return Tensor(std::static_pointer_cast<void>(distributedHostBuffer), nullptr,
+                DeviceRuntime::TTMetal);
+}
+
+void MCQExecutor::putHostTensor(const target::metal::BufferRef *dstBufRef,
+                                const Tensor &output) {
+  auto bufferDetailType = dstBufRef->desc()->buffer_detail_type();
+  if (bufferDetailType == tt::target::metal::BufferDetail::SystemBuffer) {
+    LOG_ASSERT(hostBuffers.find(dstBufRef->global_id()) == hostBuffers.end(),
+               "Host buffer already exists.");
+    auto [_, inserted] =
+        hostBuffers.try_emplace(dstBufRef->global_id(), output);
+    LOG_ASSERT(inserted);
+  }
+  // Write to meshBuffer if the target is device buffer
+  // tt::target::metal::BufferDetail::MetalBuffer
+  LOG_ASSERT(meshBuffers.find(dstBufRef->global_id()) != meshBuffers.end(),
+             "Mesh buffer already exists.");
+  auto [_, inserted] = meshBuffers.try_emplace(
+      dstBufRef->global_id(),
+      tt::runtime::ttmetal::createMeshBufferFromBufferRef(
+          meshDevice, dstBufRef, deviceAddressValidator));
+  LOG_ASSERT(inserted);
+  auto meshBuffer = meshBuffers.at(dstBufRef->global_id());
+  tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, output, meshBuffer,
+                                                    blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::Command *command) {
@@ -191,6 +254,10 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_FinishCommand());
     break;
   }
+  case target::metal::CommandType::MeshShardCommand: {
+    execute(command->type_as_MeshShardCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -212,17 +279,36 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
-
   if (command->data() != nullptr) {
     assert(command->data()->size() == size);
     std::memcpy(data.get(), command->data()->data(), size);
   }
 
-  std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  auto [_, inserted] = hostBuffers.try_emplace(
-      command->dst()->global_id(), std::static_pointer_cast<void>(tensor), data,
-      DeviceRuntime::TTMetal);
-  LOG_ASSERT(inserted);
+  auto meshShape = meshDevice->shape();
+  if (meshShape.mesh_size() == 1) {
+    auto [_, inserted] = hostBuffers.try_emplace(
+        command->dst()->global_id(),
+        std::static_pointer_cast<void>(std::make_shared<MetalTensor>(desc)),
+        data, DeviceRuntime::TTMetal);
+    LOG_ASSERT(inserted);
+  } else {
+    auto distributedHostBufferPtr =
+        std::make_shared<tt_metal::DistributedHostBuffer>(
+            tt_metal::DistributedHostBuffer::create(meshDevice->shape()));
+    for (const auto &coord :
+         tt_metal::distributed::MeshCoordinateRange(meshShape)) {
+      const auto hostBuffer =
+          createMetalHostBuffer(data.get(), shape, bufferDesc->data_type());
+      distributedHostBufferPtr->emplace_shard(
+          coord, [&buffer = *hostBuffer]() { return buffer; });
+    }
+    auto [_, inserted] = hostBuffers.try_emplace(
+        command->dst()->global_id(),
+        std::static_pointer_cast<void>(
+            std::make_shared<MetalTensor>(distributedHostBufferPtr)),
+        nullptr, DeviceRuntime::TTMetal);
+    LOG_ASSERT(inserted);
+  }
 }
 
 void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
@@ -321,20 +407,20 @@ void MCQExecutor::execute(
     const target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
 
-  void *src = hostBuffers.at(command->src()->global_id()).data.get();
-  LOG_ASSERT(src);
+  auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
+  tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
+                                                    blockingCQ);
 }
 
 void MCQExecutor::execute(
     const target::metal::EnqueueReadBufferCommand *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
 
-  void *dst = hostBuffers.at(command->dst()->global_id()).data.get();
-  LOG_ASSERT(dst);
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
-  mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
+  auto output = hostBuffers.at(command->dst()->global_id());
+  tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
+                                                     blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
@@ -415,6 +501,46 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
 void MCQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
   distributed::Finish(*mcq);
+}
+
+void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
+  ZoneScopedN("MeshShardCommand");
+
+  const auto srcDataType = command->src()->desc()->data_type();
+  const auto *fbTensorShape = command->src()->desc()->shape();
+  const std::vector<size_t> tensorShape(fbTensorShape->begin(),
+                                        fbTensorShape->end());
+  const auto *fbShardDims = command->shard_dims();
+  const std::vector<int64_t> shardDims(fbShardDims->begin(),
+                                       fbShardDims->end());
+  const auto shardType = command->shard_type();
+  const Tensor input = getHostTensor(command->src());
+
+  if (shardType == target::metal::MeshShardType::Identity) {
+    // Identity: copy from src tensor to dst tensor
+    putHostTensor(command->dst(), input);
+    return;
+  }
+
+  if (command->shard_direction() ==
+      target::metal::MeshShardDirection::FullToShardShape) {
+    auto distributedHostBufferPtr = meshshard_utils::tensorFullToShard(
+        input, meshDevice->shape(), srcDataType, tensorShape, shardType,
+        shardDims);
+    putHostTensor(
+        command->dst(),
+        Tensor(std::static_pointer_cast<void>(
+                   std::make_shared<MetalTensor>(distributedHostBufferPtr)),
+               nullptr, DeviceRuntime::TTMetal));
+  } else {
+    auto hostBufferPtr = meshshard_utils::tensorShardToFull(
+        input, meshDevice->shape(), srcDataType, tensorShape, shardType,
+        shardDims);
+    putHostTensor(command->dst(),
+                  Tensor(std::static_pointer_cast<void>(
+                             std::make_shared<MetalTensor>(hostBufferPtr)),
+                         nullptr, DeviceRuntime::TTMetal));
+  }
 }
 
 std::vector<Tensor>
