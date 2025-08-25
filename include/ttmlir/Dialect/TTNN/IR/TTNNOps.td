@@ -1012,7 +1012,9 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw",
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
+def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Moreh cummulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
@@ -1070,7 +1072,9 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
-def TTNN_SortOp : TTNN_Op<"sort"> {
+def TTNN_SortOp : TTNN_Op<"sort",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Sort op.";
   let description = [{
     Sorts elements of a tensor along a given dimension.
@@ -1124,7 +1128,9 @@ def TTNN_TransposeOp : TTNN_Op<"transpose",
     let hasVerifier = 1;
 }
 
-def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat interleave op.";
     let description = [{
       Repeats elements of a tensor along a specified dimension.
@@ -1194,7 +1200,9 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
     let hasFolder = 1;
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_Op<"repeat",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
@@ -1212,7 +1220,9 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PadOp: TTNN_Op<"pad"> {
+def TTNN_PadOp: TTNN_Op<"pad",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Pad op.";
   let description = [{
     Pad input tensor by padding the input_shape to output_shape using the provided value.
@@ -1743,7 +1753,9 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
     ];
 }
 
-def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Clamp op.";
   let description = [{
     Clamp tensor values to a specified range using min/max as tensor.
