@@ -32,15 +32,15 @@ class TTIRCompiler(PyKernelAstBase):
     ]
     _fn_map = _discover_dialect_ops(ttir, denylist=_unsupported_ops)
     supported_nodes = [
-        ### Variables
-        ast.Name,
         ### Control-flow (NOT SUPPORTED)
         # ast.If,
         # ast.For,
         ### Literals
+        ast.Name,
+        ast.Load,
+        ast.Store,
         ast.Constant,
         ### Expressions
-        # ast.Attribute,
         ast.Expr,
         ast.Call,
         ast.UnaryOp,
@@ -56,8 +56,15 @@ class TTIRCompiler(PyKernelAstBase):
     ]
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self.ctx = Context()
+        self.cursor = Location.unknown(self.ctx)
+        self.module = Module.create(self.cursor)
+        self.insert_point = self.module.body
+        self.func_entry = None
+        self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
+        self.verbose = False
+        self.source_code = ""
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -110,10 +117,18 @@ class TTIRCompiler(PyKernelAstBase):
         # Assumption: first arg is always a tensor, and shape is same for input/output
         # input params usually look like (result_type, input1, input2, output, *other_args)
         # edge of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg
+        assert node.func.id in self._fn_map, f"Function {node.func.id} not supported"
         arg = self.visit(node.args[0])
         result_type = arg.type
         output = ttir.empty(result_type)
-        return super().visit_Call(node, [result_type], [output])
+
+        func_args = [result_type]
+        for arg in node.args:
+            func_args.append(self.visit(arg))
+        func_args.append(output)
+
+        func = self._fn_map[node.func.id]
+        return func(*func_args)
 
     # Expressions
     # I don't think this respects BEDMAS..
@@ -154,16 +169,10 @@ class TTIRCompiler(PyKernelAstBase):
                 return ttir.multiply(result_type, lhs, rhs, output)
             case ast.Div():
                 return ttir.div(result_type, lhs, rhs, output)
-            # case ast.FloorDiv():
-            #     raise NotImplementedError("Floor division not supported")
             case ast.Mod():
                 return ttir.remainder(result_type, lhs, rhs, output)
             case ast.Pow():
                 return ttir.pow(result_type, lhs, rhs, output)
-            # case ast.LShift():
-            #     pass
-            # case ast.RShift():
-            #     pass
             case ast.BitXor():
                 return ttir.bitwise_xor(result_type, lhs, rhs, output)
             case ast.BitOr():
@@ -181,14 +190,14 @@ class TTIRCompiler(PyKernelAstBase):
             raise ValueError("Unary operand not found")
         output = ttir.empty(operand.type)
         match node.op:
-            # case ast.UAdd():
-            # return ttir.add(operand.type, operand, operand, output)
             case ast.USub():
                 return ttir.neg(operand.type, operand, output)
             case ast.Not():
                 return ttir.logical_not(operand.type, operand, output)
             case ast.Invert():
                 return ttir.bitwise_not(operand.type, operand, output)
+            case _:
+                raise NotImplementedError(f"Unsupported unary operator: {node.op}")
 
     def visit_Compare(self, node):
         assert len(node.comparators) == 1, "Only one comparison supported"
@@ -229,6 +238,14 @@ class TTIRCompiler(PyKernelAstBase):
         sym_table[name] = value
 
     # Literals
+    def visit_Name(self, node):
+        var_name = node.id
+        existing_var_table = self._var_exists(var_name)
+        if existing_var_table:
+            return existing_var_table[var_name]
+
+        return None
+
     def visit_Constant(self, node, tensor_shape=[]):
         assert tensor_shape, "Tensor shape must be provided for constants"
         if isinstance(node.value, float):
