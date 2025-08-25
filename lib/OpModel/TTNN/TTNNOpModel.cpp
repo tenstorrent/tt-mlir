@@ -2046,6 +2046,36 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
+
+/**
+ * @brief Converts padding array to PadSpecDim format for TTNN operations.
+ *
+ * @param padding Array of padding values in [before0, after0, before1, after1,
+ * ...] format
+ * @return SmallVector of PadSpecDim objects
+ */
+static ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
+convertPadding(llvm::ArrayRef<int32_t> padding) {
+
+  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
+  // Reserve space to avoid memory reallocations
+  paddingSpec.reserve((padding.size() + 1) / 2);
+
+  constexpr int32_t defaultPadValue = 0;
+  for (size_t i = 0; i < padding.size(); i += 2) {
+    int32_t before = padding[i];
+    int32_t after = (i + 1 < padding.size()) ? padding[i + 1] : defaultPadValue;
+
+    // Padding values must be non-negative since we're adding padding, not
+    // cropping
+    assert(before >= 0 && after >= 0 && "Padding values must be non-negative");
+
+    paddingSpec.emplace_back(static_cast<uint32_t>(before),
+                             static_cast<uint32_t>(after));
+  }
+  return paddingSpec;
+}
+
 llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int32_t> padding,
@@ -2062,13 +2092,7 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Convert padding to PadSpecDim format
-  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
-  for (size_t i = 0; i < padding.size(); i += 2) {
-    uint32_t before = static_cast<uint32_t>(padding[i]);
-    uint32_t after =
-        (i + 1 < padding.size()) ? static_cast<uint32_t>(padding[i + 1]) : 0;
-    paddingSpec.emplace_back(before, after);
-  }
+  auto paddingSpec = convertPadding(padding);
 
   // Create query closure
   auto padOpQuery = [=]() {
@@ -2100,13 +2124,7 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Convert padding to PadSpecDim format
-  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
-  for (size_t i = 0; i < padding.size(); i += 2) {
-    uint32_t before = static_cast<uint32_t>(padding[i]);
-    uint32_t after =
-        (i + 1 < padding.size()) ? static_cast<uint32_t>(padding[i + 1]) : 0;
-    paddingSpec.emplace_back(before, after);
-  }
+  auto paddingSpec = convertPadding(padding);
 
   // Create query closure
   auto padOpQuery = [=]() {
