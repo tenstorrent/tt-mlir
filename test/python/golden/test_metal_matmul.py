@@ -106,13 +106,13 @@ def test_matmul_multi_core_8otpc(
 @pytest.mark.parametrize(
     "shape",
     [
-        (512, 512, 512),
-        (512, 1024, 1024),
-        (512, 1024, 2048),
-        (1024, 1024, 1024),
-        (1024, 1024, 2048),
-        (1024, 2048, 2048),
-        (2048, 2048, 2048),
+        (512, 512, 512), #pass
+        (512, 1024, 1024), #pass
+        (512, 1024, 2048), #fail
+        (1024, 1024, 1024), #fail in0_tile_index = arg1 * 8 to pass
+        (1024, 1024, 2048), #fail in0_tile_index = arg1 * 4 to pass
+        (1024, 2048, 2048), #fail in0_tile_index = arg1 * 8 to pass
+        (2048, 2048, 2048), #fail in0_tile_index = arg1 * 8 to pass
     ],
 )
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
