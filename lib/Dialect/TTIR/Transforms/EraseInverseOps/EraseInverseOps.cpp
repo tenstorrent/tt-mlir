@@ -21,12 +21,16 @@ namespace mlir::tt::ttir {
 uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
+    llvm::outs() << "Operation " << op->getName().getStringRef() << ":\n";
     if (op->hasTrait<tt::ttir::detail::TensorManipulationTrait>()) {
+      llvm::outs() << "  is a TM\n";
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
       if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
         tmCount++;
       }
+    } else {
+      llvm::outs() << "  is NOT a TM\n";
     }
   });
   return tmCount;
@@ -59,7 +63,8 @@ public:
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsBefore = countTms(funcOp);
 #endif
-
+      llvm::outs() << "EraseInverseOps: Processing function: "
+                   << funcOp.getName() << ".\n";
       uint64_t maxIterationsValue = maxIterations.getValue();
       uint64_t previousAfterCommuteAboveTMCount =
           std::numeric_limits<uint64_t>::max();
@@ -73,11 +78,22 @@ public:
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
+        llvm::outs() << "\nITERATION " << iter << " started.\n\n";
         applyCommuteAbovePatterns(funcOp);
+
         uint64_t afterCommuteAboveTMCount = countTms(funcOp);
+        llvm::outs() << "Number of TMs"
+                     << " after commuting ABOVE: " << afterCommuteAboveTMCount
+                     << ".\n";
+
+        funcOp->dump();
 
         applyCommuteBelowPatterns(funcOp);
         uint64_t afterCommuteBelowTMCount = countTms(funcOp);
+        llvm::outs() << "Number of TMs"
+                     << " after commuting BELOW: " << afterCommuteBelowTMCount
+                     << ".\n";
+        funcOp->dump();
 
         // If the number of TM is the same as in the previous iteration, we have
         // converged.
@@ -86,7 +102,13 @@ public:
 
           // If the number of TM was smaller before commuting below, commute
           // above one more time.
-          if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
+          llvm::outs() << "EraseInverseOps: TM count has converged: "
+                       << afterCommuteAboveTMCount
+                       << " == " << previousAfterCommuteAboveTMCount << " "
+                       << afterCommuteBelowTMCount
+                       << " == " << previousAfterCommuteBelowTMCount << "\n";
+          if (afterCommuteAboveTMCount <= afterCommuteBelowTMCount) {
+            llvm::outs() << "EraseInverseOps: Commuting above one more time.\n";
             applyCommuteAbovePatterns(funcOp);
           }
           break;
@@ -135,6 +157,7 @@ private:
 
   void applyCommuteAbovePatterns(Operation *op) {
     if (enableCommuteUpwards.getValue()) {
+      llvm::outs() << "EraseInverseOps: Applying commute above patterns.\n";
       if (failed(applyPatternsGreedily(op, commuteAbovePatterns))) {
         signalPassFailure();
       }
