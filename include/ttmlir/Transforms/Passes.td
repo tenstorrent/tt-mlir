@@ -153,4 +153,76 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
   let dependentDialects = ["mlir::affine::AffineDialect"];
 }
 
+def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
+{
+  let summary = "Extract GPU kernel functions from LLVM into a single module";
+  let description = [{
+    This pass removes host code from llvm and extracts all functions of gpu modules into a single module.
+
+    Example:
+    ```
+    module @Example attributes {gpu.container_module} {
+      llvm.func @host_function
+      ...
+      gpu.module @kernel_1
+      {
+        llvm.func @kernel_func
+        ...
+      }
+      ...
+      gpu.module @kernel_n
+      {
+        llvm.func @kernel_func
+        ...
+      }
+    }
+    ```
+    becomes:
+
+    ```
+    module {
+      llvm.func @kernel_1_kernel_func
+      ...
+      llvm.func @kernel_n_kernel_func
+    }
+    ```
+
+  }];
+  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+}
+
+def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::ModuleOp"> {
+  let summary = "Embed CUDA target attributes into module for flatbuffer translation.";
+  let description = [{
+    This pass embeds CUDA target information (chip, features, optimization level)
+    as module attributes so they can be read during flatbuffer translation instead
+    of relying on command-line options.
+
+    The pass adds these attributes to the module:
+    - cuda.chip: Target GPU architecture (e.g., "sm_80", "sm_90")
+    - cuda.features: PTX features (e.g., "+ptx70")
+    - cuda.optLevel: Optimization level (0-3)
+
+    Example:
+    ```mlir
+    module attributes {
+      cuda.chip = "sm_80",
+      cuda.features = "+ptx70",
+      cuda.optLevel = 2 : i32
+    } {
+      // module content
+    }
+    ```
+  }];
+
+  let options = [
+    Option<"chip", "chip", "std::string", /*default=*/"\"sm_80\"",
+           "Target GPU chip architecture">,
+    Option<"features", "features", "std::string", /*default=*/"\"+ptx70\"",
+           "PTX features string">,
+    Option<"optLevel", "opt-level", "int32_t", /*default=*/"2",
+           "Optimization level (0-3)">
+  ];
+}
+
 #endif

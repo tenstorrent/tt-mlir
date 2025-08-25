@@ -1,4 +1,6 @@
 # Options
+option(TT_RUNTIME_ENABLE_CUDA "Enable CUDA Runtime" ON)
+
 if (TTMLIR_ENABLE_RUNTIME)
   option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)
   option(TT_RUNTIME_ENABLE_TTMETAL "Enable TTMetal Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)
@@ -22,6 +24,7 @@ endif()
 set(TT_RUNTIME_OPTIONS
   TT_RUNTIME_ENABLE_TTNN
   TT_RUNTIME_ENABLE_TTMETAL
+  TT_RUNTIME_ENABLE_CUDA
   TT_RUNTIME_DEBUG
   TT_RUNTIME_ENABLE_PERF_TRACE
   TTMLIR_ENABLE_RUNTIME_TESTS
@@ -42,6 +45,16 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
+endif()
+
+if(TT_RUNTIME_ENABLE_CUDA)
+  find_package(CUDAToolkit)
+  if (CUDAToolkit_FOUND)
+    add_subdirectory(test)
+  else()
+    set(TT_RUNTIME_ENABLE_CUDA OFF)
+    add_library(TTRuntimeCUDA INTERFACE)
+  endif()
 endif()
 
 # Add coverage_config to all targets in runtime
