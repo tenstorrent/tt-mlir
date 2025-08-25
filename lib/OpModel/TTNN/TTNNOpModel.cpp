@@ -2047,6 +2047,7 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
 // PadOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 /**
  * @brief Converts padding array to PadSpecDim format for TTNN operations.
  *
@@ -2066,8 +2067,6 @@ convertPadding(llvm::ArrayRef<int32_t> padding) {
     int32_t before = padding[i];
     int32_t after = (i + 1 < padding.size()) ? padding[i + 1] : defaultPadValue;
 
-    // Padding values must be non-negative since we're adding padding, not
-    // cropping
     assert(before >= 0 && after >= 0 && "Padding values must be non-negative");
 
     paddingSpec.emplace_back(static_cast<uint32_t>(before),
@@ -2075,6 +2074,7 @@ convertPadding(llvm::ArrayRef<int32_t> padding) {
   }
   return paddingSpec;
 }
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
