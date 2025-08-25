@@ -14,48 +14,31 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern
+class TTIRGenericMergeDatamovementThreadsRewritePattern
     : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static Block *getIfTrivialBlock(Region &region,
-                                  unsigned outputOperandsIndex) {
-    assert(region.getBlocks().size() == 1);
-    auto &block = region.front();
-    if (block.getOperations().size() != 1) {
-      return nullptr;
-    }
-    ttir::AwaitOp awaitOp = dyn_cast<ttir::AwaitOp>(block.front());
-    if (!awaitOp) {
-      return nullptr;
-    }
-
-    if (!llvm::all_of(awaitOp.getOperands(), [&](Value operand) {
-          return mlir::dyn_cast<BlockArgument>(operand) &&
-                 mlir::cast<BlockArgument>(operand).getOwner() == &block &&
-                 mlir::cast<BlockArgument>(operand).getArgNumber() ==
-                     outputOperandsIndex;
-        })) {
-      return nullptr;
-    }
-
-    return &block;
-  }
-
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
+    unsigned inputOperandsLength = op.getInputs().size();
     unsigned outputOperandsLength = op.getOutputs().size();
-    assert(outputOperandsLength == 1);
-    if (outputOperandsIndex >= op.getNumRegions()) {
+    assert(inputOperandsLength <= 2 &&
+           "only 2 or less input operands are supported");
+    assert(outputOperandsLength == 1 && "only one output operand is supported");
+    // note: If only one input + one output operand, dma is already in optimal
+    // form
+    if (inputOperandsLength < 2 || outputOperandsIndex >= op.getNumRegions()) {
       return failure();
     }
     Region &outputRegion = op.getRegion(outputOperandsIndex);
-    Block *outputBlock = getIfTrivialBlock(outputRegion, outputOperandsIndex);
-    if (!outputBlock) {
+    if (outputRegion.getBlocks().size() == 0) {
       return failure();
     }
+    assert(outputRegion.getBlocks().size() == 1 &&
+           "output datamovement region should have exactly one block");
+    Block &outputBlock = outputRegion.front();
 
     SmallVector<Attribute> threads(op.getThreads().getValue());
     // Skip the output operands block
@@ -75,8 +58,10 @@ public:
           op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
-    Block *newBlock = &newGeneric.getRegions().back().front();
-    rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
+    // ??? isn't the last region a compute region?
+    unsigned lastInputRegionIndex = inputOperandsLength - 1;
+    Block *newBlock = &newGeneric.getRegion(lastInputRegionIndex).back();
+    rewriter.mergeBlocks(&outputBlock, newBlock, newBlock->getArguments());
     rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
@@ -94,7 +79,7 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern>(
+    patterns.add<TTIRGenericMergeDatamovementThreadsRewritePattern>(
         &getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
