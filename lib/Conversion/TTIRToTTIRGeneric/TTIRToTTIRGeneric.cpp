@@ -751,88 +751,67 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    mlir::Location loc = op->getLoc();
-
-    // Get the input and permutation
-    Value input = adaptor.getInput();
     auto permutation = op.getPermutation();
 
-    // Get input and output types
-    // auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-    auto outputType =
-        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    // Only support 2D transpose
+    assert(permutation.size() == 2 && permutation[0] == 1 &&
+           permutation[1] == 0 &&
+           "Only 2D transpose permutation [1, 0] is currently supported");
 
-    // Apply layout transformation to the input if needed
-    Value layoutInput = createOptimalLayoutOp(input, memorySpaces[0],
-                                              /*tiled*/ true, rewriter);
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
 
-    // Get the type after layout transformation
-    auto layoutInputType =
-        mlir::cast<mlir::RankedTensorType>(layoutInput.getType());
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
 
-    // For tiled tensors, we need to preserve the tiled structure
-    // Get the layout attribute to access the logical shape
-    auto layout =
-        mlir::cast<ttcore::MetalLayoutAttr>(layoutInputType.getEncoding());
+    // Apply layout transformation with tiling
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
 
-    // Create the permuted logical shape
-    ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
-    ArrayRef<int64_t> gridShape = layout.getGridShape(layoutInputType);
-    llvm::SmallVector<int64_t> permutedLogicalShape;
-    llvm::SmallVector<int64_t> permutedGridShape;
-    permutedLogicalShape.reserve(permutation.size());
-    for (auto dim : permutation) {
-      permutedLogicalShape.push_back(logicalShape[dim]);
-      permutedGridShape.push_back(gridShape[dim]);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+
+    // Create affine maps for 2D transpose
+    // Input map: (d0, d1) -> (d1, d0)
+    // Output map: (d0, d1) -> (d0, d1)
+    auto inputMap = AffineMap::get(
+        2, 0, {rewriter.getAffineDimExpr(1), rewriter.getAffineDimExpr(0)},
+        ctx);
+    auto outputMap = rewriter.getMultiDimIdentityMap(2);
+
+    SmallVector<mlir::Attribute> iteratorTypes(
+        2, ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+    // Create ttir.generic for the transpose
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, inputs, outputs,
+        rewriter.getAffineMapArrayAttr({inputMap, outputMap}),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    // Create the block with tile transpose operation
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
+                                            TypeRange(outputs));
+
+      // Create tile transpose block operation
+      // This will transpose data within tiles AND rearrange tile layout
+      rewriter.create<ttir::TileTransposeBlockOp>(loc, mlir::TypeRange(),
+                                                  blockArgs);
     }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
 
-    // Create a new layout with the permuted logical shape
-    auto permutedLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), permutedLogicalShape, targetGridShape,
-        layout.getOobVal(), layout.getMemorySpace());
-
-    llvm::errs() << "permuted layout: " << permutedLayout << "\n";
-
-    // Calculate the new physical shape for the permuted layout
-    Type elementType = layoutInputType.getElementType();
-    llvm::SmallVector<int64_t> tileShape;
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
-      tileShape = llvm::SmallVector<int64_t>(tileType.getShape());
-    }
-
-    llvm::errs() << "grid shape: ";
-    llvm::interleaveComma(permutedGridShape, llvm::errs());
-    llvm::errs() << "\n";
-    llvm::errs() << "tile shape: ";
-    llvm::interleaveComma(tileShape, llvm::errs());
-    llvm::errs() << "\n";
-
-    // Get the permuted physical shape
-    llvm::SmallVector<int64_t> permutedPhysicalShape =
-        permutedLayout.getDeviceShape(permutedGridShape, tileShape);
-
-    llvm::errs() << "permuted physical shape: ";
-    llvm::interleaveComma(permutedPhysicalShape, llvm::errs());
-    llvm::errs() << "\n";
-    llvm::errs() << "permutedLayout: " << permutedLayout << "\n";
-
-    // Create the result type with the permuted shape and layout
-    auto permutedType = mlir::RankedTensorType::get(
-        permutedPhysicalShape, elementType, permutedLayout);
-
-    // Create ViewLayoutOp with the properly computed type
-    auto viewLayoutOp = rewriter.create<ttir::ViewLayoutOp>(
-        loc, permutedType, layoutInput, /*reinterpretLayout*/ false);
-
-    // Convert back to the original output type if needed
-    Operation *result =
-        unLayoutResult(rewriter, viewLayoutOp.getResult(), outputType);
-
-    rewriter.replaceOp(op, result->getResults());
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return llvm::success();
   }
 };
-} // namespace
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -869,7 +848,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement op.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
-    // Permute op (also handles tranpose ops, since they're canonicalized to permutes).
+    // Permute op (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
 

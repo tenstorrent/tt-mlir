@@ -428,6 +428,16 @@ def TTIR_AcquireDstOp : TTIR_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
+def TTIR_TileTransposeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_transpose"> {
+    let summary = "TTIR Tile Transpose Op";
+    let description = [{
+        The `tile_transpose` operation computes the transpose of the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Datamovement Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
