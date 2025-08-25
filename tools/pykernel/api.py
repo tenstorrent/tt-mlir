@@ -34,6 +34,8 @@ def jit(
             for i, arg in enumerate(args):
                 tensor_args[param_names[i]] = arg
             kwargs["_tensor_args"] = tensor_args
+            kwargs["_verbose"] = debug
+            kwargs["_source_code"] = source_code.splitlines() if debug else ""
 
             # Parse and compile
             m = ast.parse(source_code)
@@ -50,15 +52,17 @@ def jit(
 
             system_desc_path = os.getenv("SYSTEM_DESC_PATH")
             assert system_desc_path, "SYSTEM_DESC_PATH must be set."
-            ttir_to_ttmetal_backend_pipeline(
-                ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
-            )
-            if debug:
-                print("---- After ttir_to_ttmetal_backend_pipeline ----")
-                print(ir)
 
-            if to_flatbuffer_file:
-                ttmetal_to_flatbuffer_file(ir, to_flatbuffer_file, {}, [])
+            # TODO: legalize lowering ttir constants through D2M
+            # ttir_to_ttmetal_backend_pipeline(
+            #     ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
+            # )
+            # if debug:
+            #     print("---- After ttir_to_ttmetal_backend_pipeline ----")
+            #     print(ir)
+
+            # if to_flatbuffer_file:
+            #     ttmetal_to_flatbuffer_file(ir, to_flatbuffer_file, {}, [])
 
             return ir
 
