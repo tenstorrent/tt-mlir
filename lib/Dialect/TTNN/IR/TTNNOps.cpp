@@ -152,6 +152,41 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// LogicalLeftShiftOp
+//===----------------------------------------------------------------------===//
+
+// LogicalLeftShiftOp verifier
+::mlir::LogicalResult mlir::tt::ttnn::LogicalLeftShiftOp::verify() {
+  RankedTensorType lhsTensorType = getLhs().getType();
+  RankedTensorType rhsTensorType = getRhs().getType();
+  RankedTensorType outputTensorType = getResult().getType();
+
+  // Check that all operands have integer element types.
+  auto lhsElemType = lhsTensorType.getElementType();
+  auto rhsElemType = rhsTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
+
+  if (!mlir::isa<mlir::IntegerType>(lhsElemType)) {
+    return emitOpError()
+           << "Left operand element type must be integer, but got "
+           << lhsElemType;
+  }
+
+  if (!mlir::isa<mlir::IntegerType>(rhsElemType)) {
+    return emitOpError()
+           << "Right operand element type must be integer, but got "
+           << rhsElemType;
+  }
+
+  if (!mlir::isa<mlir::IntegerType>(outputElemType)) {
+    return emitOpError() << "Output element type must be integer, but got "
+                         << outputElemType;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ClampOp
 //===----------------------------------------------------------------------===//
 

@@ -133,6 +133,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
 
+  // If this option is true, run L1 interleaved layout analysis.
+  //
+  Option<bool> l1InterleavedFallbackAnalysisEnabled{
+      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
+      llvm::cl::desc("Enable DRAM to L1 interleaved fallback optimization."),
+      llvm::cl::init(false)};
+
   // If this option is true, insert memory reconfiguration ops.
   //
   Option<bool> memReconfigEnabled{
@@ -189,6 +196,18 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
+
+  // Option to override maximum percent of L1 storage that can be used
+  // by tensors in Optimizer analysis.
+  // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
+  // storage can be used by tensors.
+  // The default value is 0.8.
+  //
+  Option<float> tensorL1UsageCap{
+      *this, OptionNames::tensorL1UsageCap,
+      llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
+                     "Analysis and Memory Layout Analysis. [0.0-1.0]"),
+      llvm::cl::init(0.8f)};
 
   // Option to enable/disable the workaround pass.
   //

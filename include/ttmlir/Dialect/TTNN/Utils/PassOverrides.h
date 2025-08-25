@@ -23,6 +23,8 @@ struct OptionNames {
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
       "memory-layout-analysis-enabled";
+  static constexpr StringRef l1InterleavedFallbackAnalysisEnabled =
+      "l1-interleaved-fallback-analysis-enabled";
   static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";
@@ -31,6 +33,7 @@ struct OptionNames {
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
+  static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;

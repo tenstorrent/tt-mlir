@@ -86,12 +86,11 @@ module {
     return %4: tensor<1x30x30x64xbf16>
   }
 
-  // Verify that we can commute only first multiply.
-  // This is because when rewriting we check if weight argument to conv is constant block argument, which is not the case after we commute first multiply.
-  // Ideally we would commute second one also, but it would require more complex analysis.
+  // Check that we can commute consecutive multiply.
   // CHECK-LABEL: func.func @conv2d_with_chain_of_multiply
   func.func @conv2d_with_chain_of_multiply(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.reshape"
+    // CHECK: "ttir.multiply"
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
@@ -105,7 +104,6 @@ module {
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
     %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK: "ttir.multiply"
     %5 = ttir.empty() : tensor<1x30x30x64xbf16>
     %6 = "ttir.multiply"(%4, %arg2, %5) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %6: tensor<1x30x30x64xbf16>
@@ -134,7 +132,7 @@ module {
     return %2: tensor<1x30x30x64xbf16>
   }
 
-  // Check that we can't commute since %scale is not before %conv in block.
+  // Check that we can commute by moving scale before conv2d.
   // CHECK-LABEL: func.func @conv2d_creation_op_commutable
   func.func @conv2d_creation_op_commutable(%input: tensor<1x32x32x64xbf16>) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.ones"

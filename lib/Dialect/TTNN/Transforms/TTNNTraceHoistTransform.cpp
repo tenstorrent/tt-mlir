@@ -240,6 +240,7 @@ private:
         funcOp.getLoc(), traceFuncName, traceFuncType);
     traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
     traceFuncOp.setAllArgAttrs(inputAttrs);
+    traceFuncOp.setPrivate();
 
     // Build the body of the new function
     auto *traceFuncEntryBlock = traceFuncOp.addEntryBlock();
@@ -352,6 +353,7 @@ private:
     if (traceFunc.getAllArgAttrs()) {
       runAndCaptureTraceFunc.setAllArgAttrs(traceFunc.getAllArgAttrs());
     }
+    runAndCaptureTraceFunc.setPrivate();
 
     // Build the body of the function
     auto *runAndCaptureTraceFuncEntryBlock =
@@ -483,6 +485,7 @@ private:
     auto executeTraceFunc = builder.create<func::FuncOp>(
         funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
     executeTraceFunc->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    executeTraceFunc.setPrivate();
 
     // Build the body of the function
     auto *executeTraceFuncEntryBlock = executeTraceFunc.addEntryBlock();

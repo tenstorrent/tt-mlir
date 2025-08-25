@@ -73,6 +73,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::minimum);
     break;
   }
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::logical_left_shift);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
     break;
