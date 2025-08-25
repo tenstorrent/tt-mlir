@@ -4,7 +4,6 @@
 
 #include "tt/runtime/detail/ttnn/distributed/server/command_factory.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/distributed/server/utils/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -15,6 +14,11 @@ namespace tt::runtime::ttnn::distributed::server {
 
 using ::tt::runtime::DeviceRuntime;
 
+static uint64_t nextCommandId() {
+  static std::atomic<uint64_t> commandIdCounter = 0;
+  return commandIdCounter.fetch_add(1, std::memory_order_relaxed);
+}
+
 static void verifyCommand(const ::flatbuffers::FlatBufferBuilder &fbb) {
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
   bool verified =
@@ -24,7 +28,8 @@ static void verifyCommand(const ::flatbuffers::FlatBufferBuilder &fbb) {
 
 uint64_t CommandFactory::buildGetSystemDescCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
-    const ::tt::runtime::DispatchCoreType &dispatchCoreType) {
+    const ::tt::runtime::DispatchCoreType &dispatchCoreType,
+    std::optional<uint32_t> deviceGlobalId) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
@@ -32,9 +37,15 @@ uint64_t CommandFactory::buildGetSystemDescCommand(
   auto commandType =
       ::tt::target::ttnn::distributed::CommandType::GetSystemDescCommand;
 
+  ::flatbuffers::Offset<::tt::target::DeviceRef> deviceRef = 0;
+  if (deviceGlobalId.has_value()) {
+    deviceRef = ::tt::target::CreateDeviceRef(fbb, deviceGlobalId.value());
+  }
+
   auto getSystemDescCommand =
       ::tt::target::ttnn::distributed::CreateGetSystemDescCommand(
-          fbb, ::tt::runtime::toFlatbuffer(dispatchCoreType));
+          fbb, deviceRef,
+          ::tt::runtime::utils::fromRuntimeDispatchCoreType(dispatchCoreType));
 
   auto command = ::tt::target::ttnn::distributed::CreateCommand(
       fbb, commandId, commandType, getSystemDescCommand.Union());
@@ -55,8 +66,8 @@ uint64_t CommandFactory::buildOpenMeshDeviceCommand(
   std::optional<::tt::target::DispatchCoreType> fbDispatchCoreType =
       std::nullopt;
   if (meshDeviceOptions.dispatchCoreType.has_value()) {
-    fbDispatchCoreType =
-        toFlatbuffer(meshDeviceOptions.dispatchCoreType.value());
+    fbDispatchCoreType = ::tt::runtime::utils::fromRuntimeDispatchCoreType(
+        meshDeviceOptions.dispatchCoreType.value());
   }
 
   auto fbMeshDeviceOptions =
@@ -110,9 +121,10 @@ uint64_t CommandFactory::buildCloseMeshDeviceCommand(
 }
 
 uint64_t CommandFactory::buildCreateHostTensorCommand(
-    ::flatbuffers::FlatBufferBuilder &fbb, const void *data,
-    const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
-    uint32_t itemSize, ::tt::target::DataType dataType) {
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t outputGlobalId,
+    const void *data, const std::vector<uint32_t> &shape,
+    const std::vector<uint32_t> &stride, uint32_t itemSize,
+    ::tt::target::DataType dataType) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
@@ -131,7 +143,8 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
 
   auto createHostTensorCommand =
       ::tt::target::ttnn::distributed::CreateCreateHostTensorCommand(
-          fbb, dataVec, shapeVec, strideVec, itemSize, dataType);
+          fbb, outputGlobalId, dataVec, shapeVec, strideVec, itemSize,
+          dataType);
 
   auto command = ::tt::target::ttnn::distributed::CreateCommand(
       fbb, commandId, commandType, createHostTensorCommand.Union());

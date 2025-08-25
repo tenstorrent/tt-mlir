@@ -36,15 +36,15 @@ table CloseMeshDeviceResponse {
 }
 
 table CreateHostTensorResponse {
-  output_global_id: uint64;
+  success: bool;
 }
 
 table ToLayoutResponse {
-  output_global_id: uint64;
+  success: bool;
 }
 
 table SubmitResponse {
-  output_global_ids: [uint64];
+  success: bool;
 }
 
 table ShutdownResponse {

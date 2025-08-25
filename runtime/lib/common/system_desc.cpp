@@ -27,18 +27,6 @@ namespace tt::runtime::system_desc {
 using HalMemType = ::tt::tt_metal::HalMemType;
 using BufferType = ::tt::tt_metal::BufferType;
 
-static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
-createFullMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
-
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
-
-  return ::tt::tt_metal::distributed::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig(
-          /*mesh_shape=*/std::nullopt),
-      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
-}
-
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
@@ -265,7 +253,8 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
             getCurrentRuntime());
   } else {
-    meshDevicePtr = createFullMeshDevice(dispatchCoreType);
+    meshDevicePtr =
+        ::tt::runtime::common::createFullMeshDevice(dispatchCoreType);
   }
 
   LOG_DEBUG("Device grid size = { ",

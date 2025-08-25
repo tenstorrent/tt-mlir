@@ -5,6 +5,7 @@ include "ttmlir/Target/TTNN/binary.fbs";
 namespace tt.target.ttnn.distributed;
 
 table GetSystemDescCommand {
+  device: tt.target.DeviceRef;
   dispatch_core_type: tt.target.DispatchCoreType;
 }
 
@@ -29,6 +30,7 @@ table CloseMeshDeviceCommand {
 }
 
 table CreateHostTensorCommand {
+  output_global_id: uint64;
   data: [ubyte];
   shape: [uint32];
   stride: [uint32];

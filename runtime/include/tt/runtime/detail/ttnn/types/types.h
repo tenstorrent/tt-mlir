@@ -25,6 +25,8 @@ using OptionalMeshDeviceRef =
 using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
 using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
 using TensorPtrMapIterator = typename TensorPtrMap::iterator;
+using MeshDeviceMap = std::unordered_map<uint32_t, ::tt::runtime::Device>;
+using MeshDeviceMapIterator = typename MeshDeviceMap::iterator;
 
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime
@@ -170,6 +172,29 @@ private:
 
   const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
   ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
+};
+
+class MeshDevicePool {
+public:
+  MeshDevicePool() = default;
+  MeshDevicePool(const DevicePool &) = delete;
+  MeshDevicePool &operator=(const DevicePool &) = delete;
+  MeshDevicePool(DevicePool &&) = delete;
+  MeshDevicePool &operator=(DevicePool &&) = delete;
+
+  ::tt::runtime::Device &getRuntimeDevice(uint64_t deviceGlobalId);
+  std::shared_ptr<::ttnn::MeshDevice> getMeshDevice(uint64_t deviceGlobalId);
+
+  std::pair<MeshDeviceMapIterator, bool>
+  insertRuntimeDevice(uint64_t deviceGlobalId,
+                      const ::tt::runtime::Device &device);
+
+  MeshDeviceMapIterator erase(uint64_t deviceGlobalId);
+
+  bool contains(uint64_t deviceGlobalId) const;
+
+private:
+  MeshDeviceMap meshDevices_;
 };
 
 class ProgramContext {

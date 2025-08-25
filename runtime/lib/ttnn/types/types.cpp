@@ -201,4 +201,37 @@ ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return liveTensors.erase(it);
 }
 
+//
+// MeshDevicePool APIs
+//
+
+::tt::runtime::Device &
+MeshDevicePool::getRuntimeDevice(uint64_t deviceGlobalId) {
+  auto it = meshDevices_.find(deviceGlobalId);
+  LOG_ASSERT(it != meshDevices_.end(), "Mesh device not found in pool");
+  return it->second;
+}
+
+std::shared_ptr<::ttnn::MeshDevice>
+MeshDevicePool::getMeshDevice(uint64_t deviceGlobalId) {
+  ::tt::runtime::Device &runtimeDevice = getRuntimeDevice(deviceGlobalId);
+  return runtimeDevice.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+}
+
+std::pair<MeshDeviceMapIterator, bool>
+MeshDevicePool::insertRuntimeDevice(uint64_t deviceGlobalId,
+                                    const ::tt::runtime::Device &device) {
+  return meshDevices_.insert_or_assign(deviceGlobalId, device);
+}
+
+MeshDeviceMapIterator MeshDevicePool::erase(uint64_t deviceGlobalId) {
+  auto it = meshDevices_.find(deviceGlobalId);
+  LOG_ASSERT(it != meshDevices_.end(), "Mesh device not found in pool");
+  return meshDevices_.erase(it);
+}
+
+bool MeshDevicePool::contains(uint64_t deviceGlobalId) const {
+  return meshDevices_.contains(deviceGlobalId);
+}
+
 } // namespace tt::runtime::ttnn

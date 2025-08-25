@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_TYPES_COMMAND_FACTORY_H
-#define TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_TYPES_COMMAND_FACTORY_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_COMMAND_FACTORY_H
+#define TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_COMMAND_FACTORY_H
 
 #include "flatbuffers/flatbuffers.h"
 #include "tt/runtime/types.h"
@@ -15,7 +15,8 @@ class CommandFactory {
 public:
   static uint64_t buildGetSystemDescCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
-      const ::tt::runtime::DispatchCoreType &dispatchCoreType);
+      const ::tt::runtime::DispatchCoreType &dispatchCoreType,
+      std::optional<uint32_t> deviceGlobalId = std::nullopt);
 
   static uint64_t buildOpenMeshDeviceCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
@@ -27,9 +28,10 @@ public:
                               const ::tt::runtime::Device &deviceShell);
 
   static uint64_t buildCreateHostTensorCommand(
-      ::flatbuffers::FlatBufferBuilder &fbb, const void *data,
-      const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
-      uint32_t itemSize, ::tt::target::DataType dataType);
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t outputGlobalId,
+      const void *data, const std::vector<uint32_t> &shape,
+      const std::vector<uint32_t> &stride, uint32_t itemSize,
+      ::tt::target::DataType dataType);
 
   static uint64_t
   buildToLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,
@@ -49,4 +51,4 @@ public:
 };
 
 } // namespace tt::runtime::ttnn::distributed::server
-#endif // TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_TYPES_COMMAND_FACTORY_H
+#endif // TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_SERVER_COMMAND_FACTORY_H

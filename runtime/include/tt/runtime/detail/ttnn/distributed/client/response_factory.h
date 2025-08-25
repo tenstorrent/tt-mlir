@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_TYPES_RESPONSE_FACTORY_H
-#define TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_TYPES_RESPONSE_FACTORY_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H
+#define TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H
 
 #include "flatbuffers/flatbuffers.h"
 #include "tt/runtime/types.h"
@@ -13,37 +13,36 @@ namespace tt::runtime::ttnn::distributed::client {
 
 class ResponseFactory {
 public:
-  static uint64_t buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                                     std::string_view errorMessage);
+  static void buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                 uint64_t commandId,
+                                 std::string_view errorMessage);
 
   // The fbb should already have the system desc root buffer built.
-  static uint64_t buildGetSystemDescResponse(
-      ::flatbuffers::FlatBufferBuilder &fbb,
-      const ::flatbuffers::Offset<::tt::target::SystemDescRoot> &systemDesc);
+  static void buildGetSystemDescResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+      ::flatbuffers::Offset<::tt::target::SystemDescRoot> systemDesc);
 
-  static uint64_t
-  buildOpenMeshDeviceResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                              const ::tt::runtime::Device &device);
+  static void buildOpenMeshDeviceResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                          uint64_t commandId,
+                                          const ::tt::runtime::Device &device);
 
-  static uint64_t
+  static void
   buildCloseMeshDeviceResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                               bool success);
+                               uint64_t commandId, bool success);
 
-  static uint64_t
+  static void
   buildCreateHostTensorResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                                const ::tt::runtime::Tensor &hostTensor);
+                                uint64_t commandId, bool success);
 
-  static uint64_t
-  buildToLayoutResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                        const ::tt::runtime::Tensor &outputTensor);
+  static void buildToLayoutResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                    uint64_t commandId, bool success);
 
-  static uint64_t
-  buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                      const std::vector<::tt::runtime::Tensor> &outputTensors);
+  static void buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                  uint64_t commandId, bool success);
 
-  static uint64_t buildShutdownResponse(::flatbuffers::FlatBufferBuilder &fbb,
-                                        bool success);
+  static void buildShutdownResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                    uint64_t commandId, bool success);
 };
 
 } // namespace tt::runtime::ttnn::distributed::client
-#endif // TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_TYPES_RESPONSE_FACTORY_H
+#endif // TT_RUNTIME_DETAIL_TTNN_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H

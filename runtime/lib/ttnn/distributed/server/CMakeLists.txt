@@ -1,5 +1,3 @@
-add_subdirectory(utils)
-
 if (NOT TT_RUNTIME_ENABLE_TTNN)
   add_library(TTRuntimeTTNNServer INTERFACE)
   return()
@@ -19,4 +17,4 @@ target_include_directories(TTRuntimeTTNNServer PRIVATE
 target_include_directories(TTRuntimeTTNNServer SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 
 add_dependencies(TTRuntimeTTNNServer FBS_GENERATION)
-target_link_libraries(TTRuntimeTTNNServer PRIVATE TTBinary TTRuntimeTypes TTRuntimeTTNNServerUtils TTRuntimeTTNN flatbuffers)
+target_link_libraries(TTRuntimeTTNNServer PRIVATE TTBinary TTRuntimeTypes TTRuntimeTTNN flatbuffers)

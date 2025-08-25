@@ -33,6 +33,7 @@ endif()
 
 if (NOT ANY_RUNTIME_ENABLED)
   add_library(TTRuntimeTypes INTERFACE)
+  add_library(TTRuntimeUtils INTERFACE)
   add_library(TTRuntimeSysDesc INTERFACE)
   add_library(TTRuntimeContext INTERFACE)
   add_library(TTRuntimeSocket INTERFACE)
@@ -50,6 +51,14 @@ target_include_directories(TTRuntimeTypes
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeTypes PUBLIC coverage_config)
+
+add_library(TTRuntimeUtils STATIC utils.cpp)
+set_property(TARGET TTRuntimeUtils PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeUtils
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
+target_link_libraries(TTRuntimeUtils PUBLIC coverage_config)
 
 add_library(TTRuntimeSysDesc STATIC system_desc.cpp)
 set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)

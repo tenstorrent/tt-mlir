@@ -37,6 +37,7 @@ target_include_directories(TTRuntimeGTestLib INTERFACE
 target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTBinary
     TTRuntimeTypes
+    TTRuntimeUtils
     TTMLIRRuntime
     TTNN_LIBRARY
     TTMETAL_LIBRARY

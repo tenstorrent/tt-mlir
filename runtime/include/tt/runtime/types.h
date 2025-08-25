@@ -59,16 +59,6 @@ enum class DispatchCoreType {
   ETH,
 };
 
-inline ::tt::target::DispatchCoreType
-toFlatbuffer(const ::tt::runtime::DispatchCoreType &dispatchCoreType) {
-  switch (dispatchCoreType) {
-  case ::tt::runtime::DispatchCoreType::WORKER:
-    return ::tt::target::DispatchCoreType::Worker;
-  case ::tt::runtime::DispatchCoreType::ETH:
-    return ::tt::target::DispatchCoreType::Ethernet;
-  }
-}
-
 enum class FabricConfig {
   DISABLED,
   FABRIC_1D,
@@ -223,10 +213,6 @@ struct MeshDeviceOptions {
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
-};
-
-struct Connection : public detail::ObjectImpl {
-  using detail::ObjectImpl::ObjectImpl;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
