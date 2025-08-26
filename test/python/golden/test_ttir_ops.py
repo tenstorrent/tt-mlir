@@ -97,6 +97,30 @@ def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, requ
     )
 
 
+# TODO @dlokeTT: create the tensors for the test
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_eq(shape: Shape, dtype: torch.dtype, target: str, request):
+    def eq(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.eq(in0, in1, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        eq,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
 def bitwise_not(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
 ):
@@ -2393,7 +2417,7 @@ def test_unary_ops_int32(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.skip_config(["ttmetal"])),
+        # eq | Marks(pytest.mark.skip_config(["ttmetal"])),
         ne | Marks(pytest.mark.skip_config(["ttmetal"])),
         le | Marks(pytest.mark.skip_config(["ttmetal"])),
         lt | Marks(pytest.mark.skip_config(["ttmetal"])),

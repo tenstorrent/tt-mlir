@@ -814,6 +814,35 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @eq_tiles_init
+    func.func @eq_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: emitc.call_opaque "eq_tiles_init"(%[[CB0]], %[[CB1]])
+      "ttkernel.eq_tiles_init"(%cb0, %cb1) : (!cb0_tiles, !cb1_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @eq_tiles
+    func.func @eq_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[CB0_INDEX:.*]] = "emitc.constant"
+      %cb0_index = arith.constant 1 : index
+      // CHECK: %[[CB1_INDEX:.*]] = "emitc.constant"
+      %cb1_index = arith.constant 2 : index
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : index
+      // CHECK: emitc.call_opaque "eq_tiles"(%[[CB0]], %[[CB1]], %[[CB0_INDEX]], %[[CB1_INDEX]], %[[DST_INDEX]])
+      "ttkernel.eq_tiles"(%cb0, %cb1, %cb0_index, %cb1_index, %dst_index) : (!cb0_tiles, !cb1_tiles, index, index, index) -> ()
+      return
+    }
+
+
     // CHECK-LABEL: func @fill_tile_init
     func.func @fill_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "fill_tile_init"()

@@ -1088,6 +1088,35 @@ def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_
     }];
 }
 
+def TTKernel_EqTilesInitOp : TTKernel_InitOp<"eq_tiles_init"> {
+    let summary = "Init function for eq() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before eq_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+
+     let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EqTilesOp : TTKernel_FPUOp<"eq_tiles", [TTKernel_BinaryOpTrait]> {
+    let summary = "Eq operation";
+    let description = [{
+      Performs element-wise equality C=(A==B) of tiles in two CBs at given indices
+      and writes the result to the DST register at index dst_tile_index. The DST
+      register buffer must be in acquired state via *tile_regs_acquire* call. This call
+      is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{

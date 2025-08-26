@@ -899,6 +899,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::FloorOp,      ttir::TileFloorOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,        ttir::TileLogOp>,
     TTIRNamedElementwiseRewriter<ttir::LogicalNotOp, ttir::TileLogicalNotOp>,
+    TTIRNamedElementwiseRewriter<ttir::EqualOp,      ttir::TileEqOp>,
     TTIRNamedElementwiseRewriter<ttir::MultiplyOp,   ttir::TileMulOp>,
     TTIRNamedElementwiseRewriter<ttir::MaximumOp,    ttir::TileMaximumOp>,
     TTIRNamedElementwiseRewriter<ttir::NegOp,        ttir::TileNegativeOp>,
