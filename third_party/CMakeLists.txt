@@ -51,7 +51,7 @@ set(TTMETAL_INCLUDE_DIRS
 )
 
 # Test forcing the LIBDIR
-set(CMAKE_INSTALL_LIBDIR lib)
+set(CMAKE_INSTALL_LIBDIR lib64)
 
 set(TTMETAL_BUILD_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/${CMAKE_INSTALL_LIBDIR})
