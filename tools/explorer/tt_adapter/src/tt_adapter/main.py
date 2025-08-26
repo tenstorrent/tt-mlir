@@ -148,6 +148,7 @@ class TTAdapter(model_explorer.Adapter):
         fileExts=["mlir", "ttir", "ttnn"],
         settings={
             "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
+            "isExecutionEnabled": True
         },
     )
     model_runner = None
