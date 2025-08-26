@@ -283,7 +283,7 @@ def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
-def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block_experimental", [TTKernel_TernaryOpTrait]> {
+def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
