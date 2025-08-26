@@ -42,7 +42,6 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
-
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
@@ -196,7 +195,7 @@ jobs:
         run: |
           source $GITHUB_ENV
 
-          # Query to get the current Status field value
+          # Query to get the current Status field value with timestamp
           QUERY='query($itemId: ID!) {
             node(id: $itemId) {
               ... on ProjectV2Item {
@@ -204,13 +203,24 @@ jobs:
                   nodes {
                     ... on ProjectV2ItemFieldSingleSelectValue {
                       field {
-                        ... on ProjectV2SingleSelectField {
+                        ... on ProjectV2Field {
                           id
                           name
                         }
                       }
                       name
                       optionId
+                      updatedAt
+                    }
+                    ... on ProjectV2ItemFieldDateValue {
+                      field {
+                        ... on ProjectV2Field {
+                          id
+                          name
+                        }
+                      }
+                      date
+                      updatedAt
                     }
                   }
                 }
@@ -236,13 +246,14 @@ jobs:
           fi
 
           # Extract Status field value and its update timestamp
-          STATUS_VALUE=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+          # For single select fields, we need to find by matching known Status values
+          STATUS_VALUE=$(echo "$RESPONSE" | jq -r \
                          '.data.node.fieldValues.nodes[] |
-                          select(.field.id==$status_field_id or .field.name=="Status") | .name')
+                          select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
-          STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+          STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r \
                               '.data.node.fieldValues.nodes[] |
-                               select(.field.id==$status_field_id or .field.name=="Status") | .updatedAt')
+                               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
           # Extract Work Started field value to check if it's already set
           WORK_STARTED_VALUE=$(echo "$RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
@@ -503,19 +514,31 @@ jobs:
               continue
             fi
 
-            # Check Status and Work Started fields
+            # Check Status and Work Started fields with timestamps
             STATUS_QUERY='query($itemId: ID!) {
               node(id: $itemId) {
                 ... on ProjectV2Item {
                   fieldValues(first: 20) {
                     nodes {
                       ... on ProjectV2ItemFieldSingleSelectValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         name
+                        updatedAt
                       }
                       ... on ProjectV2ItemFieldDateValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         date
+                        updatedAt
                       }
                     }
                   }
@@ -536,13 +559,14 @@ jobs:
             fi
 
             # Extract Status field value and its update timestamp
-            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+            # For single select fields, we need to find by matching known Status values
+            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
               '.data.node.fieldValues.nodes[] |
-               select(.field.id==$status_field_id or .field.name=="Status") | .name')
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
-            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
               '.data.node.fieldValues.nodes[] |
-               select(.field.id==$status_field_id or .field.name=="Status") | .updatedAt')
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
             # Extract Work Started field value
             WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
