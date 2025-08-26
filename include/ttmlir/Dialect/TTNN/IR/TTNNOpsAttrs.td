@@ -834,4 +834,11 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
   let genVerifyDecl = 1;
 }
 
+def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
+  let summary = "TTNN Trace ID attribute";
+  let description = [{
+    A unit attribute indicating that the tensor represents `trace_id`.
+  }];
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
