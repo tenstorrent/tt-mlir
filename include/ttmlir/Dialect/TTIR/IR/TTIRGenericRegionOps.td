@@ -279,6 +279,17 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileEqOp : TTIR_GenericRegionComputeOp<"tile_eq"> {
+    let summary = "TTIR Tile Eq Op";
+    let description = [{
+        The `tile_eq` operation checks equality between two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
