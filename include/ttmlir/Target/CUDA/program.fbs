@@ -43,8 +43,20 @@ table Constant {
   value: [uint8];
 }
 
+table CopyFunction {
+  src: string;
+  dst: string;
+  strides: [uint64];
+  offset: uint64;
+}
+
+union Action {
+  Kernel,
+  CopyFunction
+}
+
 table Program {
-  kernels: [Kernel];
+  actions: [Action];
   memrefs: [MemRefDesc];
   constants: [Constant];
   return_variable: string;

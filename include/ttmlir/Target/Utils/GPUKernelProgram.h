@@ -12,6 +12,7 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cstdint>
 #include <flatbuffers/buffer.h>
 #include <string>
 #include <vector>
@@ -35,9 +36,21 @@ struct Kernel {
   int64_t blockSizeZ;
 };
 
+struct CopyFunction {
+  std::string sourceName;
+  std::string destinationName;
+  std::vector<int64_t> strides;
+  int64_t offset;
+};
+
+union Action {
+  CopyFunction copyFunction;
+  Kernel kernel;
+};
+
 struct Program {
   ::flatbuffers::FlatBufferBuilder *fbb;
-  std::vector<::flatbuffers::Offset<Kernel>> kernels;
+  std::vector<::flatbuffers::Offset<Action>> actions;
   std::vector<::flatbuffers::Offset<MemRefDesc>> variables;
   flatbuffers::Offset<std::string> returnVariable;
 };
