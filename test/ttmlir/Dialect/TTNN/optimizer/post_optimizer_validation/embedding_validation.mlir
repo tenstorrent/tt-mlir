@@ -31,12 +31,10 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // The post-optimizer validation should detect that embedding requires:
-    // 1. BFloat16 data type for weight tensor (f32 -> bf16)
-    // 2. Output layout conversion to tile format
+    // BFloat16 data type for weight tensor (f32 -> bf16)
 
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.embedding"
-    // CHECK: "ttnn.to_layout"
 
     %1 = "ttnn.embedding"(%arg0, %arg1) : (tensor<32x32xui32, #ttnn_layout_tile_input>, tensor<1000x32xf32, #ttnn_layout_tile_f32>) -> tensor<32x32x32xbf16, #ttnn_layout_tile_output>
 

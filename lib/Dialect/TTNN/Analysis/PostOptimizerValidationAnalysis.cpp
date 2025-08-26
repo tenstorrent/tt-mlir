@@ -76,7 +76,7 @@ void PostOptimizerValidationAnalysis::analysisImplementation() {
                "Running post-optimizer validation analysis");
 
   // Create validator configured for non-fatal errors (post-optimizer context)
-  auto validator = OpConstraintValidator::create(
+  OpConstraintValidator validator(
       OpConstraintValidator::ValidationOptions(false));
 
   analysisResult = PostOptimizerValidationAnalysisResult();
@@ -123,7 +123,7 @@ void PostOptimizerValidationAnalysis::analysisImplementation() {
 
       // Test original configuration
       OpConstraintValidator::ValidationResult originalResult =
-          validator.validateSingleConfig(operation, inputLayouts, config);
+          validator.validateOperation(operation, inputLayouts, config);
 
       OperationValidationResult opResult;
 
@@ -200,8 +200,8 @@ void PostOptimizerValidationAnalysis::processFallbackConfigurations(
   // Don't compare output layout in this context - let backend decide. However,
   // we will send output config to the validator to ensure DRAM Interleaved
   // memory layout.
-  OpConstraintValidator validator =
-      OpConstraintValidator::create(OpConstraintValidator::ValidationOptions(
+  OpConstraintValidator validator(
+      OpConstraintValidator::ValidationOptions(
           /*fatalOnUnsupported=*/false, /*compareOutput=*/false));
 
   // Distance-based BFS: test combinations by total distance, starting from minimal
@@ -478,7 +478,7 @@ PostOptimizerValidationAnalysis::testFallbackCombination(
                  inputLayouts[i]);
   }
 
-  auto result = validator.validateSingleConfig(op, inputLayouts, testConfig);
+  auto result = validator.validateOperation(op, inputLayouts, testConfig);
 
   if (result.success) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
