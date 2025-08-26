@@ -10,10 +10,6 @@ on:
         required: true
         type: string
 
-  # Test trigger for timestamp extraction fix
-  push:
-    branches: [test/fix-timestamp-extraction]
-
   # Automatic trigger for any issue activity
   issues:
     types: [opened, edited, closed, reopened, assigned, unassigned, labeled, unlabeled]
@@ -46,10 +42,6 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # Test trigger - hardcode issue #4095 for timestamp extraction testing
-            issue_number="4095"
-            echo "Push trigger - testing timestamp extraction with hardcoded issue #$issue_number"
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
