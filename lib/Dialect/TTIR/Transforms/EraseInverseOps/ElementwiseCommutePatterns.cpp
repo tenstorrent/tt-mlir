@@ -137,16 +137,8 @@ private:
     // If all users of an elementwise binary op are identical tms, then it is
     // typically favorable to commute them above it. In some cases we may not
     // be able to erase/consteval one or both of the commuted operand TMs.
-
     SmallVector<Operation *> users(op->getUsers());
-    bool usersNotEmpty = !users.empty();
-    bool usersAreIdenticalTms = checkAllUsersAreIdenticalTms(users);
-    bool fav = usersNotEmpty && usersAreIdenticalTms;
-    if (!fav && std::is_same_v<TMOpType, ttir::ReshapeOp> &&
-        isa<ttir::AddOp>(op)) {
-      llvm::outs() << "Reshape op is not favorable to commute upwards\n";
-    }
-    return fav;
+    return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
 
   bool isCommuteDownwardsViable(ElementwiseInterfaceType op,
