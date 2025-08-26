@@ -1007,6 +1007,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
   int64_t inputBatchSize = inputType.getDimSize(0);
   int64_t outputBatchSize = outputType.getDimSize(0);
+  if (flatInfo) {
+    inputBatchSize = flatInfo.getBatchSize();
+    outputBatchSize = flatInfo.getBatchSize();
+  }
 
   if (inputBatchSize != outputBatchSize) {
     return emitOpError("Batch size of input and output tensors must match");
@@ -1129,6 +1133,16 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                          << "Expected: (" << expectedHOut << " x "
                          << expectedWOut << "), "
                          << "got: (" << HOut << " x " << WOut << ").";
+  }
+
+  if (flatInfo && inputBatchSize * expectedHOut * expectedWOut !=
+                      outputType.getDimSize(outputType.getRank() - 2)) {
+    return emitOpError() << "Mismatch between expected flattened NHW dim size. "
+                         << "Expected: "
+                         << inputBatchSize * expectedHOut * expectedWOut << ", "
+                         << "got: "
+                         << outputType.getDimSize(outputType.getRank() - 2)
+                         << ".";
   }
 
   return success();
