@@ -12,6 +12,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 #include <iostream>
@@ -83,14 +84,11 @@ public:
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
-          assert(linalgGenericOp.getInputs().size() == 2 &&
-                 "Expected exactly 2 inputs");
-          assert(linalgGenericOp.getOutputs().size() == 1 &&
-                 "Expected exactly 1 output");
-
-          Value inputA_memref = linalgGenericOp.getInputs()[0];
-          Value inputB_memref = linalgGenericOp.getInputs()[1];
-          Value outputC_memref = linalgGenericOp.getOutputs()[0];
+          if (hasTileMatmul(linalgGenericOp)) {
+            linalgToAffineFailed |= expandTileMatmul(rewriter, op, region,
+                                                     linalgGenericOp, modified);
+            return;
+          }
 
           rewriter.setInsertionPoint(linalgGenericOp);
           // Apply linalg to affine loops pass
@@ -108,17 +106,6 @@ public:
               [&](int64_t index) {
                 return op.getNonParticipatingLoopDims(index);
               });
-
-          Operation *outerLoop = linalgLoops.value()[0];
-          Block *parentBlk = outerLoop->getBlock();
-          auto insertPos = std::next(Block::iterator(outerLoop));
-
-          rewriter.setInsertionPoint(parentBlk, insertPos);
-          for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
-            rewriter.eraseOp(loopOp);
-          }
-          rewriter.create<ttir::TileMatmulBlockOp>(
-              op.getLoc(), inputA_memref, inputB_memref, outputC_memref);
         });
         if (linalgToAffineFailed) {
           return failure();
@@ -305,6 +292,53 @@ public:
     // the memref shape we're assuming the whole memref is accessed inside of
     // this loop.
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
+  }
+
+  static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+    bool hasTileMatmul = false;
+    linalgGenericOp->walk([&](ttir::TileMatmulOp) {
+      hasTileMatmul = true;
+      return WalkResult::interrupt();
+    });
+    return hasTileMatmul;
+  }
+
+  static bool expandTileMatmul(PatternRewriter &rewriter, GenericOp op,
+                               Region &region,
+                               linalg::GenericOp linalgGenericOp,
+                               bool &modified) {
+    assert(linalgGenericOp.getInputs().size() == 2 &&
+           "Expected exactly 2 input for tile matmul");
+    assert(linalgGenericOp.getOutputs().size() == 1 &&
+           "Expected exactly 1 output for tile matmul");
+
+    Value inputA_memref = linalgGenericOp.getInputs()[0];
+    Value inputB_memref = linalgGenericOp.getInputs()[1];
+    Value outputC_memref = linalgGenericOp.getOutputs()[0];
+
+    rewriter.setInsertionPoint(linalgGenericOp);
+
+    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+    if (failed(linalgLoops)) {
+      return false;
+    }
+    rewriter.eraseOp(linalgGenericOp);
+    modified |= insertDstRegisterAccess(
+        rewriter, op.getLoc(), region,
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
+
+    Operation *outerLoop = linalgLoops.value()[0];
+    Block *parentBlk = outerLoop->getBlock();
+    auto insertPos = std::next(Block::iterator(outerLoop));
+
+    rewriter.setInsertionPoint(parentBlk, insertPos);
+    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+      rewriter.eraseOp(loopOp);
+    }
+    rewriter.create<ttir::TileMatmulBlockOp>(op.getLoc(), inputA_memref,
+                                             inputB_memref, outputC_memref);
+    return true;
   }
 
   static void
