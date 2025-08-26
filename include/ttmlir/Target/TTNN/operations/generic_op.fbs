@@ -1,0 +1,60 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table KernelCBFormat {
+  buffer_index: uint32;
+  dtype: DataType;
+  page_size: uint32;
+}
+
+table KernelCBDescriptor {
+  total_size: uint32;
+  core_range: tt.target.ttnn.CoreRangeSet;
+  kernel_cb_formats: [KernelCBFormat];
+}
+
+table ComputeKernelConfig {
+  /*
+  math_fidelity : MathFidelity = HiFi4;
+  fp32_dest_acc_en : bool = false;
+  dst_full_sync_en : bool = false;
+  unpack_to_dest_modes: [UnpackToDestMode];
+  bfp8_pack_precise : bool = false;
+  math_approx_mode : bool = false;
+  */
+}
+
+table ReaderKernelConfig{}
+table WriterKernelConfig{}
+
+union KernelConfig {
+  ComputeKernelConfig,
+  ReaderKernelConfig,
+  WriterKernelConfig
+}
+
+table CoreRTArgs {
+  args: [uint32];
+}
+
+table KernelDescriptor {
+  kernel_source : string;
+  kernel_config : KernelConfig;
+  core_ranges: tt.target.ttnn.CoreRangeSet;
+  ct_args: [uint32];
+  rt_args: [CoreRTArgs];
+  common_rt_args: [uint32];
+}
+
+table ProgramDescriptor {
+  kernels: [KernelDescriptor];
+  cbs: [KernelCBDescriptor];
+}
+
+table GenericOp {
+  inputs: [tt.target.ttnn.TensorRef];
+  program_desc: ProgramDescriptor;
+  out: tt.target.ttnn.TensorRef;
+}
