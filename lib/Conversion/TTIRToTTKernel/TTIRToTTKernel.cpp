@@ -1130,7 +1130,6 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
-               ttkernel::TTIRFPUOpsRewriter<ttir::TileEqOp>,
 
                // Elementwise SFPU.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileAbsOp>,
@@ -1141,6 +1140,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileFloorOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileEqOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
