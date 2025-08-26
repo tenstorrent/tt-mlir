@@ -30,6 +30,7 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -293,9 +294,15 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
+  return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+}
+
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
+      ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
   if (binarySystemDescRoot->schema_hash()->string_view() !=
       ::tt::target::common::system_desc_bfbs_schema_hash) {
     diagFn() << "system desc schema mismatch, please collect a system desc "
