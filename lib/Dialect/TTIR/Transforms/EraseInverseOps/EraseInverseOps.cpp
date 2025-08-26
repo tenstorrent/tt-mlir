@@ -29,7 +29,6 @@ uint64_t countTms(Operation *op) {
       }
     }
   });
-  // llvm::outs() << "Number of TMs: " << tmCount << "\n";
   return tmCount;
 }
 
