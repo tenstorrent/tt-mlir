@@ -26,10 +26,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "-x",
-    "--model-execution",
-    help="Enable execution of models from the UI",
-	action=argparse.BooleanOptionalAction,
-	default=True,
+    "--no-model-execution",
+    help="Disable execution of models from the UI",
+	action="store_true",
 )
 
 args = parser.parse_args()
@@ -42,5 +41,5 @@ model_explorer.visualize_from_config(
     no_open_in_browser=args.no_browser,
     port=args.port,
     host=args.url,
-	enable_execution=args.model_execution,
+	enable_execution=not args.no_model_execution,
 )
