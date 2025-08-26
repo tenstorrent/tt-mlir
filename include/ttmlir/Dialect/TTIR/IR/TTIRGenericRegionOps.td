@@ -279,7 +279,7 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileEqOp : TTIR_GenericRegionComputeOp<"tile_eq"> {
+def TTIR_TileEqOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_eq"> {
     let summary = "TTIR Tile Eq Op";
     let description = [{
         The `tile_eq` operation checks equality between two tiles element-wise.
