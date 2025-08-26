@@ -84,7 +84,7 @@ public:
           op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
-    unsigned computeRegionIndex = op.getNumRegions() - 1;
+    unsigned computeRegionIndex = newGeneric.getNumRegions() - 1;
     unsigned lastInputRegionIndex = inputOperandsLength - 1;
 
     // Output DMA regions that contain a lone ttir.await are special, in that
