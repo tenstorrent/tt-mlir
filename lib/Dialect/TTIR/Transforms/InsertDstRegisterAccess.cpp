@@ -27,6 +27,11 @@ struct TTIRInsertDstRegisterAccessRewriter final
 public:
   using OpRewritePattern<GenericOrFuncOp>::OpRewritePattern;
 
+  TTIRInsertDstRegisterAccessRewriter(MLIRContext *context,
+                                      bool insertProfilerTraces)
+      : OpRewritePattern<GenericOrFuncOp>(context),
+        insertProfilerTraces(insertProfilerTraces) {}
+
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
 
@@ -98,7 +103,8 @@ public:
                                            : nullptr,
               [&](int64_t index) {
                 return op.getNonParticipatingLoopDims(index);
-              });
+              },
+              insertProfilerTraces);
         });
         if (linalgToAffineFailed) {
           return failure();
@@ -109,8 +115,12 @@ public:
       ttir::ThreadAttr threadAttr =
           op->template getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
       if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
-        modified |=
-            insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody());
+        modified |= insertDstRegisterAccess(
+            rewriter, op.getLoc(), op.getBody(),
+            /*outermostInnerComputeLoop=*/nullptr,
+            /*getNonParticipatingLoopDims=*/
+            [](int64_t) { return SmallVector<int64_t>{}; },
+            insertProfilerTraces);
       }
     }
     return success(modified);
@@ -121,7 +131,8 @@ public:
       Operation *outermostInnerComputeLoop = nullptr,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
-              [](int64_t) { return SmallVector<int64_t>{}; }) {
+              [](int64_t) { return SmallVector<int64_t>{}; },
+      bool insertProfilerTraces = false) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -140,7 +151,7 @@ public:
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
-    dataCopyGenerate(rewriter, loc, dst, copyInfo);
+    dataCopyGenerate(rewriter, loc, dst, copyInfo, insertProfilerTraces);
     return true;
   }
 
@@ -287,18 +298,27 @@ public:
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
   }
 
-  static void
-  dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
-                   const DenseMap<Operation *, CopyInfo> &loopNests) {
+  static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
+                               Value dst,
+                               const DenseMap<Operation *, CopyInfo> &loopNests,
+                               bool insertProfilerTraces) {
     for (const auto &[loopNestOrOp, copyInfo] : loopNests) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       rewriter.setInsertionPoint(loopNestOrOp);
+
       auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices);
       if (guard) {
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+      }
+      OpBuilder::InsertPoint insertPoint;
+      if (insertProfilerTraces) {
+        rewriter.create<emitc::VerbatimOp>(loc, "{");
+        rewriter.create<emitc::VerbatimOp>(
+            loc, "DeviceZoneScopedN(\"reload_loops\");");
+        insertPoint = rewriter.saveInsertionPoint();
       }
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
@@ -317,8 +337,31 @@ public:
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
           });
-
+      if (insertProfilerTraces) {
+        rewriter.restoreInsertionPoint(insertPoint);
+        rewriter.create<emitc::VerbatimOp>(loc, "}");
+      }
+      if (guard) {
+        rewriter.setInsertionPointAfter(guard);
+      }
+      // Emit scoping braces strictly around the original loop nest.
+      if (insertProfilerTraces) {
+        rewriter.create<emitc::VerbatimOp>(loc, "{");
+        rewriter.create<emitc::VerbatimOp>(
+            loc, "DeviceZoneScopedN(\"inner_linalg_loops\");");
+      }
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
+
+      if (insertProfilerTraces) {
+        rewriter.create<emitc::VerbatimOp>(loc, "}");
+      }
+
+      if (insertProfilerTraces) {
+        rewriter.create<emitc::VerbatimOp>(loc, "{");
+        rewriter.create<emitc::VerbatimOp>(
+            loc, "DeviceZoneScopedN(\"pack_loops\");");
+        insertPoint = rewriter.saveInsertionPoint();
+      }
       dataCopyGenerate<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores,
           // Load/store dst access generation.
@@ -336,6 +379,10 @@ public:
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
                 op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
           });
+      if (insertProfilerTraces) {
+        rewriter.restoreInsertionPoint(insertPoint);
+        rewriter.create<emitc::VerbatimOp>(loc, "}");
+      }
     }
   }
 
@@ -444,6 +491,9 @@ public:
     SmallVector<Value> dstAccessIndices = l1AccessIndices;
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
+
+private:
+  bool insertProfilerTraces;
 };
 } // namespace
 
@@ -459,7 +509,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRInsertDstRegisterAccessRewriter<GenericOp>,
                  TTIRInsertDstRegisterAccessRewriter<func::FuncOp>>(
-        &getContext());
+        &getContext(), insertProfilerTraces);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
