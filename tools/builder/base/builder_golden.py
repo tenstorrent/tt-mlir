@@ -1035,6 +1035,103 @@ def index_golden(input_tensor, dim, begin, end, step):
     index = torch.tensor(indices)
     return torch.index_select(input_tensor, dim=dim, index=index)
 
+def gather_golden_new(
+    input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Custom golden function for gather operation (new implementation).
+
+    Parameters
+    ----------
+    input_tensor : torch.Tensor
+        Input tensor to gather from
+    start_indices_tensor : torch.Tensor
+        Tensor containing starting indices
+    **kwargs : dict
+        Additional keyword arguments
+
+    Returns
+    -------
+    torch.Tensor
+        Gathered tensor
+    """
+    # New implementation goes here
+    # unpack MLIR attributes from kwargs
+    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
+    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
+    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
+    start_indices_batching_dims = unpack_mlir_attr(
+        kwargs.get("start_indices_batching_dims", [])
+    )
+    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
+    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
+
+    # Validate inputs
+    input_shape = input_tensor.shape
+    indices_shape = start_indices_tensor.shape
+    if len(input_shape) != len(slice_sizes):
+        raise ValueError("Input tensor rank must match slice_sizes length.")
+
+    index_vector_size = indices_shape[index_vector_dim] if index_vector_dim < len(indices_shape) else 1
+    if len(start_index_map) != index_vector_size:
+        raise ValueError("start_index_map length must match the number of index vector components.")
+
+    # Compute output shape
+    # 1. Indices shape without index_vector_dim
+    indices_prefix_shape = list(indices_shape[: index_vector_dim]) + list(indices_shape[index_vector_dim + 1 :])
+    if index_vector_dim == len(indices_shape):
+        indices_prefix_shape = indices_shape[:-1] # handle case where index_vector_dim is the last dimension.
+    # 2. Slice sizes for non-collapsed dimensions (those in offset_dims)
+    output_shape = []
+    output_shape.extend(indices_prefix_shape) # Add batch/index dimensions
+    for dim in range(len(input_shape)):
+        if dim not in collapsed_slice_dims:
+            output_shape.append(slice_sizes[dim])
+    
+    # Reshape indices for iteration.
+    index_vector_size = indices_shape[index_vector_dim] if index_vector_dim < len(indices_shape) else 1
+    flat_indices = start_indices_tensor.view(-1, index_vector_size).long()
+
+    #initialize output tensor
+    device = input_tensor.device if hasattr(input_tensor, "device") else None
+    output = torch.zeros(output_shape, dtype=input_tensor.dtype, device=device)
+
+    # Iterate over each index vector to extract slices
+    for flat_idx in range(flat_indices.shape[0]):
+        indices = flat_indices[flat_idx]
+        # Map indices to input dimensions using start_index_map
+
+        slices_indices = [slice(None)] * len(input_shape)
+        for i, idx in enumerate(indices):
+            input_dim = start_index_map[i]
+            # Clamp indices to avoid out-of-bounds (implementation defined in StableHLO)
+            idx = max(0, min(idx, input_shape[input_dim] - slice_sizes[input_dim]))
+            slices_indices[input_dim] = slice(idx, idx + slice_sizes[input_dim])
+
+        # Extract the slice from input tensor
+        slice_data = input_tensor[tuple(slices_indices)]
+
+        # handle collapsed dimensions (squeeze them out)
+        for (collapsed_dim) in sorted(collapsed_slice_dims, reverse=True):
+            slice_data = slice_data.squeeze(dim=collapsed_dim)
+
+        # Assign to output (map to correct position in output tensor)
+        output_idx = []
+        if indices_prefix_shape:
+            # Compute multi-dimensional index from flat_idx
+            idx_coords = []
+            stride = 1
+            for dim_size in reversed(indices_prefix_shape):
+                idx_coords.append((flat_idx // stride) % dim_size)
+                stride *= dim_size
+            idx_coords[::-1] # reverse to match shape
+            output_idx.extend(idx_coords)
+        else:
+            output_idx.append(flat_idx)
+        output[tuple(output_idx)] = slice_data
+    return output 
 
 def gather_golden(
     input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
@@ -2238,7 +2335,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
     ttir.SliceStaticOp: slice_golden,
-    ttir.GatherOp: gather_golden,
+    ttir.GatherOp: gather_golden_new,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: torch.matmul,
