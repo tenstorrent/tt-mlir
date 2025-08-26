@@ -1,5 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTMetal/program.fbs";
 
 namespace tt.target.ttnn;
 
@@ -16,14 +17,18 @@ table KernelCBDescriptor {
 }
 
 table ComputeKernelConfig {
-  /*
   math_fidelity : MathFidelity = HiFi4;
   fp32_dest_acc_en : bool = false;
   dst_full_sync_en : bool = false;
-  unpack_to_dest_modes: [UnpackToDestMode];
+  unpack_to_dest_modes: [tt.target.metal.UnpackToDestMode];
   bfp8_pack_precise : bool = false;
   math_approx_mode : bool = false;
-  */
+}
+
+table DataMovementKernelConfig {
+  processor : tt.target.metal.DataMovementType = RISCV_0;
+  noc : tt.target.metal.NocIndex = Noc0;
+  noc_mode: tt.target.metal.NocMode = DM_DEDICATED_NOC;
 }
 
 table ReaderKernelConfig{}
@@ -31,21 +36,33 @@ table WriterKernelConfig{}
 
 union KernelConfig {
   ComputeKernelConfig,
+  DataMovementKernelConfig,
   ReaderKernelConfig,
   WriterKernelConfig
 }
 
-table CoreRTArgs {
-  args: [uint32];
+table KernelArgBufferAddressOfTensor {
+  tensor_idx : uint32;
+}
+
+union KernelArgType {
+  tt.target.metal.KernelArgCBPort,
+  tt.target.metal.KernelArgBufferAddress,
+  KernelArgBufferAddressOfTensor,
+  tt.target.metal.KernelArgSemaphore,
+}
+
+table KernelCoreArgs {
+  args: [KernelArgType];
 }
 
 table KernelDescriptor {
-  kernel_source : string;
+  kernel_source : tt.target.metal.KernelSource;
   kernel_config : KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
-  ct_args: [uint32];
-  rt_args: [CoreRTArgs];
-  common_rt_args: [uint32];
+  ct_args: KernelCoreArgs;
+  rt_args: [KernelCoreArgs];
+  common_rt_args: KernelCoreArgs;
 }
 
 table ProgramDescriptor {
