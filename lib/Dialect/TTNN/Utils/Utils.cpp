@@ -205,6 +205,27 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
   return tiledShape;
 }
 
+std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op) {
+  std::vector<TTNNLayoutAttr> inputLayouts;
+
+  for (auto operand : op->getOperands()) {
+    // Skip device type operands.
+    if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
+      continue;
+    }
+
+    // Extract layout from tensor type.
+    if (auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType())) {
+      if (auto layout =
+              mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+        inputLayouts.push_back(layout);
+      }
+    }
+  }
+
+  return inputLayouts;
+}
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
