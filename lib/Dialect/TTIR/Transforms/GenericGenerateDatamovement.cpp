@@ -93,17 +93,19 @@ public:
                              : nullptr;
 
     // affine map is associated with dst when isOutput is true, src otherwise
+    Value result;
     if (isOutput) {
-      return builder
-          .create<ttir::DMAOp>(loc, src, dst, indexingMapAttr, coreIndex,
-                               mcastShape)
-          .getResult();
+      result = builder
+                   .create<ttir::DMAOp>(loc, src, dst, indexingMapAttr,
+                                        coreIndex, mcastShape)
+                   .getResult();
     } else {
-      return builder
-          .create<ttir::DMAOp>(loc, src, indexingMapAttr, dst, coreIndex,
-                               mcastShape)
-          .getResult();
+      result = builder
+                   .create<ttir::DMAOp>(loc, src, indexingMapAttr, dst,
+                                        coreIndex, mcastShape)
+                   .getResult();
     }
+    return result;
   }
 
   struct McastArguments {
