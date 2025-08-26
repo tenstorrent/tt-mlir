@@ -38,13 +38,13 @@ def test_matmul_single_core_8otpc(
         n * tile_size,
     )
 
-#     def matmul(
-#         in0: Operand,
-#         in1: Operand,
-#         builder: TTIRBuilder,
-#         unit_attrs: List[str] = None,
-#     ):
-#         return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+    def matmul(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     options = [f"override-device-shape=1,1"]
     compile_ttir_to_flatbuffer(
@@ -82,13 +82,13 @@ def test_matmul_multi_core_8otpc(
         n * tile_size,
     )
 
-#     def matmul(
-#         in0: Operand,
-#         in1: Operand,
-#         builder: TTIRBuilder,
-#         unit_attrs: List[str] = None,
-#     ):
-#         return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+    def matmul(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         matmul,
@@ -102,17 +102,17 @@ def test_matmul_multi_core_8otpc(
     )
 
 
-# @pytest.mark.fails_golden
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shape",
     [
-        (512, 512, 512), #pass
-        (512, 1024, 1024), #pass
-        (512, 1024, 2048), #fail
-        (1024, 1024, 1024), #fail in0_tile_index = arg1 * 8 to pass
-        (1024, 1024, 2048), #fail in0_tile_index = arg1 * 4 to pass
-        (1024, 2048, 2048), #fail in0_tile_index = arg1 * 8 to pass
-        (2048, 2048, 2048), #fail in0_tile_index = arg1 * 8 to pass
+        (512, 512, 512),
+        (512, 1024, 1024),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
     ],
 )
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
