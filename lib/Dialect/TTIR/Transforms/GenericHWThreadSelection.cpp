@@ -19,6 +19,32 @@ class TTIRGenericMergeDatamovementThreadsRewritePattern
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
+  // returns true if the region contains only a ttir.await
+  // associated with the output CB
+  static bool isLocalAwaitForOutputCB(Region &region,
+                                      unsigned outputOperandsIndex) {
+    assert(region.getBlocks().size() == 1);
+    auto &block = region.front();
+    if (block.getOperations().size() != 1) {
+      return false;
+    }
+    ttir::AwaitOp awaitOp = dyn_cast<ttir::AwaitOp>(block.front());
+    if (!awaitOp) {
+      return false;
+    }
+
+    if (!llvm::all_of(awaitOp.getOperands(), [&](Value operand) {
+          return mlir::dyn_cast<BlockArgument>(operand) &&
+                 mlir::cast<BlockArgument>(operand).getOwner() == &block &&
+                 mlir::cast<BlockArgument>(operand).getArgNumber() ==
+                     outputOperandsIndex;
+        })) {
+      return false;
+    }
+
+    return true;
+  }
+
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
@@ -58,9 +84,18 @@ public:
           op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
-    // ??? isn't the last region a compute region?
+    unsigned computeRegionIndex = op.getNumRegions() - 1;
     unsigned lastInputRegionIndex = inputOperandsLength - 1;
-    Block *newBlock = &newGeneric.getRegion(lastInputRegionIndex).back();
+
+    // Output DMA regions that contain a lone ttir.await are special, in that
+    // they can (and should) be merged into compute region, were they are later
+    // transformed into a local cb_wait_front()/cb_pop_front() pair with no DMA.
+    bool local_cb_pop_only =
+        isLocalAwaitForOutputCB(outputRegion, outputOperandsIndex);
+    unsigned mergeRegionIndex =
+        (local_cb_pop_only) ? computeRegionIndex : lastInputRegionIndex;
+
+    Block *newBlock = &newGeneric.getRegion(mergeRegionIndex).back();
     rewriter.mergeBlocks(&outputBlock, newBlock, newBlock->getArguments());
     rewriter.replaceOp(op, newGeneric.getResults());
 
