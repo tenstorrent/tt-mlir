@@ -349,7 +349,7 @@ class Perf:
             sys.path.append(f"{get_ttrt_metal_home_path()}")
             sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
 
-            from tt_metal.tools.profiler.process_ops_logs import process_ops
+            from tracy.process_ops_logs import process_ops
 
             def get_available_port():
                 ip = socket.gethostbyname(socket.gethostname())
