@@ -1673,6 +1673,57 @@ llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ToDTypeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ToDTypeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, ttcore::DataTypeAttr dtype) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ::tt::tt_metal::Tensor inputTensor =
+      createMetalHostTensor(inputShape, inputLayout.getDataType());
+
+  // Create query closure
+  auto toDTypeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::to_dtype, device, inputTensor,
+        conversion::getDataType(dtype.getValue()));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     toDTypeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ToDTypeOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 TTNNLayoutAttr inputLayout,
+                                 ttcore::DataTypeAttr dtype) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ::tt::tt_metal::Tensor inputTensor =
+      createMetalHostTensor(inputShape, inputLayout.getDataType());
+
+  // Create query closure
+  auto toDTypeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::to_dtype, device, inputTensor,
+        conversion::getDataType(dtype.getValue()));
+  };
+
+  return operation::getOpRuntime(toDTypeOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraints(

@@ -1239,6 +1239,29 @@ TEST_F(OpModelTest, Typecast) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, ToDType) {
+  const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
+                                                  32};
+  const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
+      tensorShape, BufferType::SystemMemory, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<ToDTypeOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayout,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32));
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<ToDTypeOp>::getOpRuntime(
+      tensorShape, inputLayout,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32));
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+  llvm::outs() << "runtime is " << runtimeExp.get() << "\n";
+}
+
 struct BinaryEltwiseParam {
   detail::TestTensor inputA;
   detail::TestTensor inputB;

@@ -1651,6 +1651,45 @@ TEST_F(OpModelBase, typecastOp) {
   }
 }
 
+TEST_F(OpModelBase, toDTypeOp) {
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  RankedTensorType rankedTensorTypeBF16 =
+      RankedTensorType::get(tensorShape, builder.getBF16Type());
+
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), rankedTensorTypeBF16,
+      nullptr, // device parameter
+      ShapeAttr::get(&context, tensorShape),
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
+      nullptr);
+  RankedTensorType rankedTensorTypeF32 =
+      RankedTensorType::get(tensorShape, builder.getF32Type());
+
+  auto toDType =
+      builder.create<ToDTypeOp>(builder.getUnknownLoc(), rankedTensorTypeF32,
+                                input, ttcore::DataType::Float32);
+
+  auto constraintsExp = getOpConstraints(toDType.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(toDType.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+    llvm::outs() << "runtime is " << runtimeExp.get() << "\n";
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, Conv2dInterface) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};

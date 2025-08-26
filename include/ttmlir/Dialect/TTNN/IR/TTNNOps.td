@@ -93,7 +93,9 @@ def TTNN_TypecastOp : TTNN_Op<"typecast",
     let hasVerifier = 1;
 }
 
-def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToDType op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type on the host.
