@@ -294,10 +294,7 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
-  auto systemDesc =
-      SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
-
-  return systemDesc;
+  return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
 }
 
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
