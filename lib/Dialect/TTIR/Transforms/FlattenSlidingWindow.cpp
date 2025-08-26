@@ -52,9 +52,10 @@ class ConvertToFlattenedConv2dPattern
     : public OpConversionPattern<Conv2dOpType> {
 public:
   using OpConversionPattern<Conv2dOpType>::OpConversionPattern;
+  using OpAdaptor = typename Conv2dOpType::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Conv2dOpType op, typename Conv2dOpType::Adaptor adaptor,
+  matchAndRewrite(Conv2dOpType op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto inputType = op.getInput().getType();
