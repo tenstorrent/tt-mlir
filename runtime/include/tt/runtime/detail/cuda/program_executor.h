@@ -5,7 +5,10 @@
 #ifndef TT_RUNTIME_DETAIL_CUDA_PROGRAM_EXECUTOR_H
 #define TT_RUNTIME_DETAIL_CUDA_PROGRAM_EXECUTOR_H
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/CUDA/program_generated.h"
+#pragma clang diagnostic pop
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -44,6 +47,7 @@ private:
   CUcontext context;
 
   void runKernel(const ::cuda::Kernel *kernel);
+  void runCopyFunction(const ::cuda::CopyFunction *copyFunc);
   void finishing();
 };
 

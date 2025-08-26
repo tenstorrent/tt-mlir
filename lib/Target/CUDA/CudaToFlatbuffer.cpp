@@ -4,7 +4,10 @@
 
 #include "ttmlir/Target/CUDA/CudaToFlatbuffer.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/CUDA/program_generated.h"
+#pragma clang diagnostic pop
 #include "ttmlir/Target/Utils/GPUKernelProgram.h"
 #include "ttmlir/Transforms/Passes.h"
 
@@ -202,6 +205,25 @@ static int64_t extractIntegerFromConstantOp(Value value) {
   return intAttr.getInt();
 }
 
+// Helper function to walk backwards through operations to find the original
+// value by traversing through reinterpret casts and other transformations.
+static Value walkBackToOriginalValue(Value initialValue,
+                                     Operation *fallbackOp) {
+  Operation *definingOp = initialValue.getDefiningOp();
+  Operation *lastOp = fallbackOp;
+
+  while (definingOp && definingOp->getNumOperands() > 0) {
+    lastOp = definingOp;
+    definingOp = definingOp->getOperand(0).getDefiningOp();
+  }
+  Value finalValue = lastOp->getOpOperand(0).get();
+  if (lastOp == fallbackOp) {
+    finalValue = initialValue;
+  }
+
+  return finalValue;
+}
+
 static llvm::Expected<std::string> getReturnVariableName(ModuleOp rootModule) {
   // The name of return variable is needed for runtime.
   // The expected structure is:
@@ -232,16 +254,8 @@ static llvm::Expected<std::string> getReturnVariableName(ModuleOp rootModule) {
       // Apply the same pattern as operand extraction to find the original
       // return variable by walking backwards through any reinterpret casts
       // or other transformations.
-      Operation *definingOp = returnValue.getDefiningOp();
-      Operation *lastOp = returnOpCast;
-      while (definingOp && definingOp->getNumOperands() > 0) {
-        lastOp = definingOp;
-        definingOp = definingOp->getOperand(0).getDefiningOp();
-      }
-      Value finalReturnValue = lastOp->getOpOperand(0).get();
-      if (lastOp == returnOpCast) {
-        finalReturnValue = returnValue;
-      }
+      Value finalReturnValue =
+          walkBackToOriginalValue(returnValue, returnOpCast);
 
       std::string returnStr;
       llvm::raw_string_ostream returnStream(returnStr);
@@ -327,6 +341,135 @@ static void processMemRefDescMap(
   }
 }
 
+flatbuffers::Offset<::cuda::CopyFunction>
+processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
+              mlir::ModuleOp rootModule,
+              llvm::StringMap<MemRefDesc> &memRefDescMap) {
+  auto targetType = cast<MemRefType>(copyOp.getTarget().getType());
+  auto layout = dyn_cast<StridedLayoutAttr>(targetType.getLayout());
+
+  ArrayRef<int64_t> strides = layout.getStrides();
+  int64_t offset = layout.getOffset();
+
+  Value source = walkBackToOriginalValue(copyOp.getSource(), copyOp);
+  Value target = walkBackToOriginalValue(copyOp.getTarget(), copyOp);
+
+  mlir::AsmState asmState(rootModule);
+
+  // Get source name
+  std::string sourceName;
+  llvm::raw_string_ostream sourceStream(sourceName);
+  source.printAsOperand(sourceStream, asmState);
+
+  // Get target name
+  std::string targetName;
+  llvm::raw_string_ostream targetStream(targetName);
+  target.printAsOperand(targetStream, asmState);
+
+  if (!memRefDescMap.contains(sourceName)) {
+    memRefDescMap.insert(
+        {sourceName, MemRefDesc{sourceName, source.getType(), nullptr}});
+  }
+  if (!memRefDescMap.contains(targetName)) {
+    memRefDescMap.insert(
+        {targetName, MemRefDesc{targetName, target.getType(), nullptr}});
+  }
+
+  auto sourceNameOffset = fbb.CreateString(sourceName);
+  auto targetNameOffset = fbb.CreateString(targetName);
+  std::vector<uint64_t> stridesVector;
+  for (const int64_t &stride : strides) {
+    stridesVector.push_back(static_cast<uint64_t>(stride));
+  }
+  auto stridesOffset = fbb.CreateVector(stridesVector);
+
+  return ::cuda::CreateCopyFunction(fbb, sourceNameOffset, targetNameOffset,
+                                    stridesOffset, offset);
+}
+
+flatbuffers::Offset<::cuda::Kernel>
+processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
+                    const llvm::StringMap<cuda::Kernel> &kernelMap,
+                    flatbuffers::FlatBufferBuilder &fbb,
+                    llvm::StringMap<MemRefDesc> &memRefDescMap,
+                    llvm::StringMap<MemRefDesc> &constantMemRefDescMap) {
+
+  std::string kernelName = launchFuncOp.getKernelModuleName().str() + "_" +
+                           launchFuncOp.getKernelName().str();
+  assert(kernelMap.contains(kernelName) && "Kernel not found");
+  auto kernel = kernelMap.lookup(kernelName);
+
+  kernel.gridSizeX = extractIntegerFromConstantOp(launchFuncOp.getGridSizeX());
+  kernel.gridSizeY = extractIntegerFromConstantOp(launchFuncOp.getGridSizeY());
+  kernel.gridSizeZ = extractIntegerFromConstantOp(launchFuncOp.getGridSizeZ());
+  kernel.blockSizeX =
+      extractIntegerFromConstantOp(launchFuncOp.getBlockSizeX());
+  kernel.blockSizeY =
+      extractIntegerFromConstantOp(launchFuncOp.getBlockSizeY());
+  kernel.blockSizeZ =
+      extractIntegerFromConstantOp(launchFuncOp.getBlockSizeZ());
+
+  std::vector<std::string> inputNames;
+  auto kernelOperands = launchFuncOp.getKernelOperands();
+
+  for (auto operand : kernelOperands) {
+    std::string operandName = "unnamed";
+    std::string operandStr;
+    llvm::raw_string_ostream operandStream(operandStr);
+
+    // Host code does a lot of reinterpreting casts, so we need to find the
+    // original operand. This will get constants, allocations and program
+    // arguments.
+    // Dimensions of operands are not needed as PTX code will iterate over
+    // the stored data according to the shape.
+    Value operandValue = walkBackToOriginalValue(operand, launchFuncOp);
+    AsmState asmState(
+        operandValue.getDefiningOp()
+            ? operandValue.getDefiningOp()->getParentOfType<ModuleOp>()
+            : launchFuncOp->getParentOfType<ModuleOp>());
+
+    operandValue.printAsOperand(operandStream, asmState);
+    operandName = operandStream.str();
+    inputNames.push_back(operandName);
+
+    TypedAttr constantValue = nullptr;
+    Operation *finalDefiningOp = operandValue.getDefiningOp();
+    auto constantOp = (finalDefiningOp)
+                          ? dyn_cast<arith::ConstantOp>(finalDefiningOp)
+                          : nullptr;
+    if (constantOp) {
+      constantValue = constantOp.getValue();
+    }
+
+    if (constantValue && !constantMemRefDescMap.count(operandName)) {
+      constantMemRefDescMap.insert(
+          {operandName,
+           MemRefDesc{operandName, operandValue.getType(), constantValue}});
+    }
+
+    if (!constantValue && !memRefDescMap.count(operandName)) {
+      memRefDescMap.insert(
+          {operandName,
+           MemRefDesc{operandName, operandValue.getType(), constantValue}});
+    }
+  }
+
+  kernel.inputNames = inputNames;
+
+  // Create flatbuffer entries
+  auto nameOffset = fbb.CreateString(kernel.name);
+  auto ptxOffset = fbb.CreateString(kernel.ptx);
+  std::vector<::flatbuffers::Offset<::flatbuffers::String>> inputNameOffsets;
+  for (const std::string &inputName : kernel.inputNames) {
+    inputNameOffsets.push_back(fbb.CreateString(inputName));
+  }
+  auto inputNamesOffset = fbb.CreateVector(inputNameOffsets);
+
+  return ::cuda::CreateKernel(fbb, nameOffset, ptxOffset, kernel.gridSizeX,
+                              kernel.gridSizeY, kernel.gridSizeZ,
+                              kernel.blockSizeX, kernel.blockSizeY,
+                              kernel.blockSizeZ, inputNamesOffset);
+}
 std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
@@ -334,8 +477,10 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   ::flatbuffers::FlatBufferBuilder fbb;
 
   ::flatbuffers::Offset<cuda::Program> program;
-  std::vector<::flatbuffers::Offset<::cuda::Kernel>> kernels;
+  std::vector<::cuda::Action> actionTypes;
+  std::vector<::flatbuffers::Offset<void>> actionObjects;
   std::vector<::flatbuffers::Offset<::cuda::MemRefDesc>> memRefDescs;
+
   llvm::StringMap<MemRefDesc> memRefDescMap;
   std::vector<::flatbuffers::Offset<::cuda::Constant>> constants;
   llvm::StringMap<MemRefDesc> constantMemRefDescMap;
@@ -356,103 +501,38 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   }
   kernelMap = kernelMapResult.get();
 
-  rootModule.walk([&](mlir::gpu::LaunchFuncOp launchFuncOp) {
-    std::string kernelName = launchFuncOp.getKernelModuleName().str() + "_" +
-                             launchFuncOp.getKernelName().str();
-    assert(kernelMap.contains(kernelName) && "Kernel not found");
-    auto kernel = kernelMap.lookup(kernelName);
-
-    kernel.gridSizeX =
-        extractIntegerFromConstantOp(launchFuncOp.getGridSizeX());
-    kernel.gridSizeY =
-        extractIntegerFromConstantOp(launchFuncOp.getGridSizeY());
-    kernel.gridSizeZ =
-        extractIntegerFromConstantOp(launchFuncOp.getGridSizeZ());
-    kernel.blockSizeX =
-        extractIntegerFromConstantOp(launchFuncOp.getBlockSizeX());
-    kernel.blockSizeY =
-        extractIntegerFromConstantOp(launchFuncOp.getBlockSizeY());
-    kernel.blockSizeZ =
-        extractIntegerFromConstantOp(launchFuncOp.getBlockSizeZ());
-
-    std::vector<std::string> inputNames;
-    auto kernelOperands = launchFuncOp.getKernelOperands();
-    for (auto operand : kernelOperands) {
-      std::string operandName = "unnamed";
-      std::string operandStr;
-      llvm::raw_string_ostream operandStream(operandStr);
-
-      Operation *definingOp = operand.getDefiningOp();
-      Operation *lastOp = launchFuncOp;
-
-      // Host code does a lot of reinterpreting casts, so we need to find the
-      // original operand. This will get constants, allocations and program
-      // arguments.
-      // Dimensions of operands are not needed as PTX code will iterate over
-      // the stored data according to the shape.
-      while (definingOp && definingOp->getNumOperands() > 0) {
-        lastOp = definingOp;
-        definingOp = definingOp->getOperand(0).getDefiningOp();
-      }
-      AsmState asmState(lastOp->getParentOfType<ModuleOp>());
-
-      Value operandValue = lastOp->getOpOperand(0).get();
-      if (lastOp == launchFuncOp) {
-        operandValue = operand;
-      }
-
-      operandValue.printAsOperand(operandStream, asmState);
-
-      operandName = operandStream.str();
-
-      inputNames.push_back(operandName);
-
-      TypedAttr constantValue = nullptr;
-      auto constantOp =
-          (definingOp) ? dyn_cast<arith::ConstantOp>(definingOp) : nullptr;
-      if (constantOp) {
-        constantValue = constantOp.getValue();
-      }
-
-      if (constantValue && !constantMemRefDescMap.count(operandName)) {
-        constantMemRefDescMap.insert(
-            {operandName,
-             MemRefDesc{operandName, operandValue.getType(), constantValue}});
-      }
-
-      if (!constantValue && !memRefDescMap.count(operandName)) {
-        memRefDescMap.insert(
-            {operandName,
-             MemRefDesc{operandName, operandValue.getType(), constantValue}});
-      }
+  rootModule.walk([&](Operation *op) {
+    // Process LaunchFuncOp
+    if (auto launchFuncOp = dyn_cast<mlir::gpu::LaunchFuncOp>(op)) {
+      auto kernelOffset = processLaunchFuncOp(
+          launchFuncOp, kernelMap, fbb, memRefDescMap, constantMemRefDescMap);
+      actionTypes.push_back(::cuda::Action::Kernel);
+      actionObjects.push_back(kernelOffset.Union());
+      llvm::outs() << "Processed operation: " << op->getName() << "\n";
     }
-    kernel.inputNames = inputNames;
-    auto nameOffset = fbb.CreateString(kernel.name);
-    auto ptxOffset = fbb.CreateString(kernel.ptx);
-    std::vector<::flatbuffers::Offset<::flatbuffers::String>> inputNameOffsets;
-    for (const std::string &inputName : kernel.inputNames) {
-      inputNameOffsets.push_back(fbb.CreateString(inputName));
-    }
-    auto inputNamesOffset = fbb.CreateVector(inputNameOffsets);
 
-    auto kernelOffset = ::cuda::CreateKernel(
-        fbb, nameOffset, ptxOffset, kernel.gridSizeX, kernel.gridSizeY,
-        kernel.gridSizeZ, kernel.blockSizeX, kernel.blockSizeY,
-        kernel.blockSizeZ, inputNamesOffset);
-    kernels.push_back(kernelOffset);
+    // Process CopyOp
+    else if (auto copyOp = dyn_cast<mlir::memref::CopyOp>(op)) {
+      auto copyFunction = processCopyOp(copyOp, fbb, rootModule, memRefDescMap);
+      actionTypes.push_back(::cuda::Action::CopyFunction);
+      actionObjects.push_back(copyFunction.Union());
+      llvm::outs() << "Processed operation: " << op->getName() << "\n";
+    }
   });
 
   processMemRefDescMap(memRefDescMap, fbb, false, memRefDescs, constants);
   processMemRefDescMap(constantMemRefDescMap, fbb, true, memRefDescs,
                        constants);
 
-  auto kernelsVector = fbb.CreateVector(kernels);
+  auto actionTypesVector = fbb.CreateVector(actionTypes);
+  auto actionObjectsVector = fbb.CreateVector(actionObjects);
   auto memrefsVector = fbb.CreateVector(memRefDescs);
   auto constantsVector = fbb.CreateVector(constants);
   auto returnVariableOffset = fbb.CreateString(returnVariableName);
 
   auto finalProgram = ::cuda::CreateProgram(
-      fbb, kernelsVector, memrefsVector, constantsVector, returnVariableOffset);
+      fbb, actionTypesVector, actionObjectsVector, memrefsVector,
+      constantsVector, returnVariableOffset);
   fbb.FinishSizePrefixed(finalProgram);
 
   uint8_t *buf = fbb.GetBufferPointer();
