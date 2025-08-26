@@ -290,7 +290,7 @@ using ComputeOpMap = OpMap<
   // Elementwise FPU
   std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
   std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
-  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,        ttkernel::MatmulBlockOp>>,
+  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,        ttkernel::ExperimentalMatmulBlockOp>>,
   std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
   std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
@@ -441,7 +441,7 @@ public:
       Value aTileIndex = getTileIndex(rewriter, op->getLoc(), op.getA());
       Value bTileIndex = getTileIndex(rewriter, op->getLoc(), op.getB());
 
-      rewriter.create<ttkernel::MatmulBlockOp>(
+      rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
 
