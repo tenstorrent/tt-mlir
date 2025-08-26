@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -1319,7 +1320,7 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 // Rewrites the current PoolingOp to operate directly on quantized operands.
 //
 // This method constructs a new PoolingOp using the provided quantized inputs
-// and result type, preserving the original operation’s attributes.
+// and result type, preserving the original operation's attributes.
 //
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
@@ -4399,6 +4400,30 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
+  if (hasPureTensorSemantics()) {
+    if (this->getNumRegions() != 1) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have exactly 1 region");
+    }
+
+    Region &region = this->getRegion(0);
+    if (!region.hasOneBlock()) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have exactly 1 block");
+    }
+
+    Block &block = region.front();
+    if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have yield terminator");
+    }
+
+    if (block.back().getNumOperands() != getNumResults()) {
+      return emitOpError("yield terminator must have the same number of "
+                         "arguments as generic results");
+    }
+  }
+
   if (!getGrid().getMapping().isEmpty()) {
     return emitOpError("grid mapping is not supported");
   }
@@ -4530,17 +4555,13 @@ static mlir::LogicalResult verifyAffineBlocking(
       continue;
     }
 
-    auto memrefArguments =
-        region.getArguments().take_front(operandTypes.size());
-    for (BlockArgument arg : memrefArguments) {
-      auto blockMemref = mlir::dyn_cast<MemRefType>(arg.getType());
-      if (!blockMemref) {
-        return emitOpError("region arguments must be of MemRefType");
-      }
+    auto valueArguments = region.getArguments().take_front(operandTypes.size());
+    for (BlockArgument arg : valueArguments) {
+      Type blockArgType = arg.getType();
 
       Type operandType = operandTypes[arg.getArgNumber()];
-      Attribute expectedMemorySpace;
       ArrayRef<int64_t> expectedShardShape;
+      std::optional<Attribute> expectedMemorySpace;
       bool isStream = false;
       if (RankedTensorType tensorType =
               mlir::dyn_cast<RankedTensorType>(operandType)) {
@@ -4566,14 +4587,26 @@ static mlir::LogicalResult verifyAffineBlocking(
         isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
       }
 
-      if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
-        return emitOpError("region argument memory space must match "
-                           "the memory space of the corresponding operand");
-      }
-
-      if (expectedShardShape != blockMemref.getShape()) {
-        return emitOpError("region argument shape must match the "
-                           "shape of the corresponding operand");
+      if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
+        if (!isStream && expectedMemorySpace &&
+            *expectedMemorySpace != blockMemref.getMemorySpace()) {
+          return emitOpError("region argument memory space must match "
+                             "the memory space of the corresponding operand");
+        }
+        if (expectedShardShape != blockMemref.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
+      } else if (auto blockTensor =
+                     mlir::dyn_cast<RankedTensorType>(blockArgType)) {
+        if (expectedShardShape != blockTensor.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
+        // Memory space is not encoded in tensor types; skip that check.
+      } else {
+        return emitOpError(
+            "region arguments must be of RankedTensorType or MemRefType");
       }
     }
 
@@ -4756,6 +4789,8 @@ void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
   for (BlockArgument arg : region.getArguments()) {
     if (mlir::isa<MemRefType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else if (mlir::isa<RankedTensorType>(arg.getType())) {
+      setNameFn(arg, "t" + std::to_string(cbIndex++));
     } else if (mlir::isa<SemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     } else {
@@ -4816,6 +4851,27 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
+
+  // Bufferize region block arguments.
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  for (mlir::Region &region : bufferGeneric.getRegions()) {
+    mlir::Block &block = region.front();
+    for (unsigned argNumber = 0; argNumber < block.getNumArguments();
+         ++argNumber) {
+      mlir::BlockArgument oldArg = block.getArgument(argNumber);
+      if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType())) {
+        continue;
+      }
+      auto newArgType = getBufferType(oldArg, options, state, invocationStack);
+      mlir::BlockArgument newArg =
+          block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
+      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+          bufferGeneric.getLoc(), oldArg.getType(), newArg);
+      oldArg.replaceAllUsesWith(toTensor);
+      block.eraseArgument(argNumber + 1);
+    }
+  }
+
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      bufferOutputs);
   return success();
@@ -4825,7 +4881,15 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  if (mlir::isa<mlir::BlockArgument>(value)) {
+    assert(!tensorType.getEncoding());
+    return MemRefType::get(
+        tensorType.getShape(), tensorType.getElementType(), nullptr,
+        ttcore::MemorySpaceAttr::get(tensorType.getContext(),
+                                     ttcore::MemorySpace::DeviceL1));
+  }
+  return mlir::tt::ttir::getBufferType(tensorType, /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -5213,6 +5277,11 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
+  auto generic = getOperation()->getParentOfType<GenericOp>();
+  if (generic && generic.hasPureTensorSemantics()) {
+    return ::mlir::success();
+  }
+
   return operandsInRegionArguments(
       getOperation(),
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
@@ -5220,6 +5289,12 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+  auto generic = getOperation()->getParentOfType<GenericOp>();
+  if (generic && generic.hasPureTensorSemantics()) {
+    return emitOpError(
+        "await op illegal to use inside generic with pure tensor semantics");
+  }
+
   return operandsInRegionArguments(
       getOperation(),
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
