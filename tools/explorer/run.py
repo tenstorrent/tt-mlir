@@ -24,6 +24,13 @@ parser.add_argument(
     help="Create server without opening browser tab",
     action="store_true",
 )
+parser.add_argument(
+    "-e",
+    "--enable-execution",
+    help="Enables execution of models from the UI",
+    type=bool,
+	default=False
+)
 
 args = parser.parse_args()
 
