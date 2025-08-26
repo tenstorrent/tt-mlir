@@ -29,7 +29,7 @@ parser.add_argument(
     "--enable-execution",
     help="Enables execution of models from the UI",
     type=bool,
-	default=False
+	default=True
 )
 
 args = parser.parse_args()
