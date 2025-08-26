@@ -50,6 +50,9 @@ set(TTMETAL_INCLUDE_DIRS
   PARENT_SCOPE
 )
 
+# Test forcing the LIBDIR
+set(CMAKE_INSTALL_LIBDIR lib)
+
 set(TTMETAL_BUILD_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/${CMAKE_INSTALL_LIBDIR})
 
