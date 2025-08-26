@@ -3432,7 +3432,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 

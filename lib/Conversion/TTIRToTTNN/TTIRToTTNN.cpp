@@ -1108,15 +1108,25 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Please run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
     auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
     auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
