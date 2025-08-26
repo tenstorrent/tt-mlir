@@ -1,0 +1,667 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
+#include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Pass/Pass.h"
+#include <cassert>
+#include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/Types.h>
+#include <vector>
+
+using namespace mlir;
+using namespace mlir::tt;
+using namespace mlir::tt::ttnn;
+
+namespace mlir::tt::ttnn {
+#define GEN_PASS_DEF_TTNNOPERATIONVALIDATIONANDFALLBACK
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
+
+// Changes needed for a single input operand to make validation pass
+struct InputOperandChange {
+  size_t operandIndex;
+
+  // Layout changes
+  std::optional<Layout> targetLayout;
+  std::optional<TensorMemoryLayout> targetMemoryLayout;
+  std::optional<BufferType> targetBufferType;
+
+  // Data type changes
+  std::optional<ttcore::DataType> targetDataType;
+
+  // What the original values were (for debugging/logging)
+  TTNNLayoutAttr originalLayout;
+
+  InputOperandChange(size_t operandIndex, TTNNLayoutAttr originalLayout)
+      : operandIndex(operandIndex), originalLayout(originalLayout) {}
+
+  // Check if any changes are needed
+  bool hasChanges() const {
+    return targetLayout.has_value() || targetMemoryLayout.has_value() ||
+           targetBufferType.has_value() || targetDataType.has_value();
+  }
+};
+
+class TTNNOperationValidationAndFallback
+    : public impl::TTNNOperationValidationAndFallbackBase<
+          TTNNOperationValidationAndFallback> {
+
+  // Cost constants for layout transformation distances
+  static constexpr double NO_COST = 0.0;
+  static constexpr double LOW_COST = 1.0;
+  static constexpr double MID_COST = 2.0;
+  static constexpr double HIGH_COST = 3.0;
+
+  // Represents a combination candidate with layouts and total distance
+  struct CombinationCandidate {
+    std::vector<TTNNLayoutAttr> layouts;
+    double totalDistance;
+  };
+
+public:
+  using impl::TTNNOperationValidationAndFallbackBase<
+      TTNNOperationValidationAndFallback>::
+      TTNNOperationValidationAndFallbackBase;
+
+  void runOnOperation() override {
+    ModuleOp moduleOp = getOperation();
+
+    size_t totalOperationsChecked = 0;
+    size_t operationsValid = 0;
+    size_t operationsFixed = 0;
+    size_t operationsFailed = 0;
+
+    // Create validator configured not to throw on unsupported ops.
+    OpConstraintValidator validator(
+        OpConstraintValidator::ValidationOptions(/*fatalOnUnsupported=*/false));
+
+    moduleOp->walk([&](func::FuncOp func) {
+      if (ttmlir::utils::isConstEvalFunc(func)) {
+        return;
+      }
+
+      // llvm::SmallVector<Type> funcResultTypes;
+
+      func.walk([&](Operation *operation) {
+        // Skip operations without results
+        if (operation->getNumResults() == 0) {
+          return;
+        }
+
+        // Skip operations that are not OpModel castable (can't be validated)
+        if (!mlir::dyn_cast<OpModel>(operation)) {
+          return;
+        }
+
+        totalOperationsChecked++;
+
+        // Extract OpConfig from IR
+        OpConfig config = extractOpConfigFromIR(operation);
+        if (!config.outputLayout) {
+          operation->emitError()
+              << "OperationValidationAndFallback: No output layout found in "
+                 "operation result type encoding";
+          signalPassFailure();
+          return;
+        }
+
+        // Extract input layouts from the operation
+        std::vector<TTNNLayoutAttr> inputLayouts =
+            utils::extractInputLayouts(operation);
+
+        if (inputLayouts.empty()) {
+          return;
+        }
+
+        // Test original configuration
+        OpConstraintValidator::ValidationResult originalResult =
+            validator.validateOperation(operation, inputLayouts, config);
+
+        if (originalResult.success) {
+          operationsValid++;
+          TTMLIR_TRACE(
+              ttmlir::LogComponent::OpValidation,
+              "Operation {} at {} passed validation with original config",
+              operation->getName(), operation->getLoc());
+        } else {
+          // Original config failed, try fallback configurations
+          if (processFallbackConfigurations(operation, inputLayouts, config,
+                                            validator)) {
+            operationsFixed++;
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "Operation {} at {} fixed with fallback configuration",
+                         operation->getName(), operation->getLoc());
+          } else {
+            operationsFailed++;
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "Operation {} at {} FAILED validation - no working "
+                         "configuration found",
+                         operation->getName(), operation->getLoc());
+          }
+        }
+      });
+    });
+
+    // Log validation summary
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Operation validation complete: {} operations checked, "
+                 "{} valid, {} fixed, {} failed",
+                 totalOperationsChecked, operationsValid, operationsFixed,
+                 operationsFailed);
+
+    // Fail the pass if we have operations that couldn't be fixed
+    if (operationsFailed > 0) {
+      moduleOp->emitError()
+          << "OperationValidationAndFallback: " << operationsFailed
+          << " operations failed validation and couldn't be fixed";
+      signalPassFailure();
+    }
+  }
+
+private:
+  // Extract OpConfig from operation's IR
+  OpConfig extractOpConfigFromIR(Operation *operation) {
+    OpConfig config;
+
+    assert(operation->getNumResults() == 1 &&
+           "Expected operation with one result");
+
+    // Extract output layout from result type
+    if (auto tensorType =
+            mlir::dyn_cast<RankedTensorType>(operation->getResultTypes()[0])) {
+      if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+              tensorType.getEncoding())) {
+        config.outputLayout = layoutAttr;
+      }
+    }
+
+    // For Conv2d operations, extract op-specific attributes
+    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
+      config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
+                                           conv2dOp.getComputeConfigAttr()};
+    }
+
+    return config;
+  }
+
+  // Process fallback configurations for a failed operation
+  bool processFallbackConfigurations(
+      Operation *operation,
+      const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+      const OpConfig &config, OpConstraintValidator &validator) {
+
+    // Extract tensor shapes for all input operands
+    std::vector<llvm::ArrayRef<int64_t>> tensorShapes;
+    for (Value operand : operation->getOperands()) {
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(operand.getType())) {
+        if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                tensorType.getEncoding())) {
+          tensorShapes.push_back(tensorType.getShape());
+        }
+      }
+    }
+
+    if (originalInputLayouts.empty()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "No TTNN input layouts found for operation {} at {}",
+                   operation->getName(), operation->getLoc());
+      return false;
+    }
+
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Testing fallback combinations for operation {} at {} with {} operands",
+        operation->getName(), operation->getLoc(), originalInputLayouts.size());
+
+    // Don't compare output layout in this context - let backend decide.
+    // However, we will send output config to the validator to ensure DRAM
+    // Interleaved memory layout.
+    OpConstraintValidator fallbackValidator(
+        OpConstraintValidator::ValidationOptions(
+            /*fatalOnUnsupported=*/false, /*compareOutput=*/false));
+
+    // Create fallback combinations for each operand
+    std::vector<std::vector<TTNNLayoutAttr>> operandFallbacks;
+    for (size_t i = 0; i < originalInputLayouts.size(); ++i) {
+      auto fallbacks =
+          createFallbackTransforms(originalInputLayouts[i], tensorShapes[i]);
+      // Insert original layout at the beginning
+      fallbacks.insert(fallbacks.begin(), originalInputLayouts[i]);
+      operandFallbacks.push_back(fallbacks);
+    }
+
+    // Generate all possible combinations and calculate their distances from the
+    // original layouts.
+    std::vector<CombinationCandidate> allCombinations;
+    std::vector<TTNNLayoutAttr> currentCombination(originalInputLayouts.size());
+    generateAllCombinations(operandFallbacks, originalInputLayouts,
+                            /*operandIdx*/ 0, currentCombination,
+                            /*currentDistance*/ 0.0, allCombinations);
+
+    // Sort combinations by total distance (ascending)
+    std::sort(allCombinations.begin(), allCombinations.end(),
+              [](const CombinationCandidate &a, const CombinationCandidate &b) {
+                return a.totalDistance < b.totalDistance;
+              });
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Generated {} combinations, testing by distance",
+                 allCombinations.size());
+
+    // Test combinations in order of increasing distance
+    for (const auto &candidate : allCombinations) {
+      auto result = testFallbackCombination(fallbackValidator, operation,
+                                            config, candidate.layouts);
+      if (result.success) {
+        // Found working solution, apply transformations
+        applyFallbackTransformations(operation, originalInputLayouts,
+                                     candidate.layouts, result, config);
+        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                     "Found working fallback combination with {} operands",
+                     candidate.layouts.size());
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Helper method to create fallback layouts directly
+  std::vector<TTNNLayoutAttr>
+  createFallbackTransforms(TTNNLayoutAttr originalLayout,
+                           llvm::ArrayRef<int64_t> tensorShape) {
+    // Create systematic 2×4 combinations: 2 layouts × 4 data types = 8
+    // combinations Layouts: RowMajor, Tile DataTypes: BFloat16, Float32,
+    // UInt32, Int32
+    // TODO(rpavlovicTT): Expand to more combinations if needed in the future.
+    //                    E.g. Bfp8. At the moment we don't create new
+    //                    MemoryLayouts as Interleaved should always work.
+    std::vector<TTNNLayoutAttr> fallbackLayouts;
+
+    // Define the 4 target data types for fallbacks
+    std::vector<ttcore::DataType> targetDataTypes = {
+        ttcore::DataType::BFloat16, ttcore::DataType::Float32,
+        ttcore::DataType::UInt32, ttcore::DataType::Int32};
+
+    // Define the 2 target layouts for fallbacks
+    std::vector<Layout> targetLayouts = {Layout::RowMajor, Layout::Tile};
+
+    // Define the 2 buffer types for fallbacks
+    std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
+                                                 BufferType::SystemMemory};
+
+    for (Layout targetLayout : targetLayouts) {
+      for (ttcore::DataType targetDataType : targetDataTypes) {
+        for (BufferType targetBufferType : targetBufferTypes) {
+          // Skip if this is the same as original (already tested)
+          if (targetLayout == originalLayout.getLayout() &&
+              targetDataType == originalLayout.getDataType() &&
+              targetBufferType == originalLayout.getBufferType()) {
+            continue;
+          }
+
+          // Start with original layout
+          TTNNLayoutAttr result = originalLayout;
+
+          // Apply layout transformation if needed
+          if (targetLayout != originalLayout.getLayout()) {
+            result = result.withLayout(targetLayout, tensorShape);
+          }
+
+          // Apply data type transformation if needed
+          if (targetDataType != result.getDataType()) {
+            auto targetElementType = ttnn::utils::getElementType(
+                result.getContext(), result.getLayout(), targetDataType);
+            result = result.withElementType(targetElementType, tensorShape);
+          }
+
+          if (targetBufferType != result.getBufferType()) {
+            result = result.withBufferType(targetBufferType);
+          }
+
+          fallbackLayouts.push_back(result);
+        }
+      }
+    }
+
+    return fallbackLayouts;
+  }
+
+  // Calculate distance between two data types (lower = more similar)
+  double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to) {
+    if (from == to) {
+      return NO_COST;
+    }
+
+    // Define data type similarity groups
+    bool fromIsInt =
+        (from == ttcore::DataType::Int32 || from == ttcore::DataType::UInt32);
+    bool toIsInt =
+        (to == ttcore::DataType::Int32 || to == ttcore::DataType::UInt32);
+    bool fromIsFloat = (from == ttcore::DataType::Float32 ||
+                        from == ttcore::DataType::BFloat16);
+    bool toIsFloat =
+        (to == ttcore::DataType::Float32 || to == ttcore::DataType::BFloat16);
+
+    if (fromIsInt && toIsInt) {
+      return LOW_COST; // Both integers: Int32 <-> UInt32 is close
+    }
+    if (fromIsFloat && toIsFloat) {
+      return LOW_COST; // Both floating point: Float32 <-> BFloat16 is close
+    }
+
+    // Cross-category changes are more expensive
+    return MID_COST;
+  }
+
+  // Calculate distance between two layouts
+  double calculateLayoutDistance(Layout from, Layout to) {
+    if (from == to) {
+      return NO_COST;
+    }
+    return MID_COST; // RowMajor <-> Tile conversion
+  }
+
+  // Calculate total distance for a layout transformation
+  double calculateLayoutTransformDistance(TTNNLayoutAttr from,
+                                          TTNNLayoutAttr to) {
+    double distance = 0.0;
+
+    // Add data type distance
+    distance += calculateDataTypeDistance(from.getDataType(), to.getDataType());
+
+    // Add layout distance
+    distance += calculateLayoutDistance(from.getLayout(), to.getLayout());
+
+    // Add buffer type distance (if different), make it more expensive
+    if (from.getBufferType() != to.getBufferType()) {
+      distance += HIGH_COST;
+    }
+
+    return distance;
+  }
+
+  // Generate all possible fallback combinations recursively
+  void generateAllCombinations(
+      const std::vector<std::vector<TTNNLayoutAttr>> &operandFallbacks,
+      const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+      size_t operandIdx, std::vector<TTNNLayoutAttr> &currentCombination,
+      double currentDistance,
+      std::vector<CombinationCandidate> &allCombinations) {
+
+    if (operandIdx == operandFallbacks.size()) {
+      // Reached the end, store the current combination if it has changes.
+      if (currentDistance > 0.0) {
+        allCombinations.push_back({currentCombination, currentDistance});
+      }
+      return;
+    }
+
+    // Try each fallback for the current operand
+    for (size_t fallbackIdx = 0;
+         fallbackIdx < operandFallbacks[operandIdx].size(); ++fallbackIdx) {
+      currentCombination[operandIdx] =
+          operandFallbacks[operandIdx][fallbackIdx];
+
+      double addedDistance = calculateLayoutTransformDistance(
+          originalInputLayouts[operandIdx],
+          operandFallbacks[operandIdx][fallbackIdx]);
+
+      // Go to the next operand, accumulating distance along the way.
+      generateAllCombinations(operandFallbacks, originalInputLayouts,
+                              operandIdx + 1, currentCombination,
+                              currentDistance + addedDistance, allCombinations);
+    }
+  }
+
+  // Test a specific combination of fallback layouts for an operation
+  OpConstraintValidator::ValidationResult
+  testFallbackCombination(OpConstraintValidator &validator, Operation *op,
+                          const OpConfig &originalConfig,
+                          const std::vector<TTNNLayoutAttr> &inputLayouts) {
+
+    // For all fallbacks, constrain output layout to be DRAM Interleaved.
+    OpConfig testConfig = originalConfig;
+    testConfig.outputLayout = originalConfig.outputLayout;
+    testConfig.outputLayout =
+        testConfig.outputLayout.withBufferType(BufferType::DRAM);
+    testConfig.outputLayout = testConfig.outputLayout.withMemoryLayout(
+        TensorMemoryLayout::Interleaved);
+
+    auto result = validator.validateOperation(op, inputLayouts, testConfig);
+    return result;
+  }
+
+  // Apply fallback transformations to the operation
+  void applyFallbackTransformations(
+      Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
+      const std::vector<TTNNLayoutAttr> &workingLayouts,
+      const OpConstraintValidator::ValidationResult &result,
+      const OpConfig &config) {
+
+    // Apply input operand changes for each operand that was transformed
+    for (size_t i = 0; i < workingLayouts.size(); ++i) {
+      TTNNLayoutAttr originalLayout = originalLayouts[i];
+      TTNNLayoutAttr transformedLayout = workingLayouts[i];
+
+      // Skip if layout wasn't actually transformed
+      if (originalLayout == transformedLayout) {
+        continue;
+      }
+
+      // Create InputOperandChange object and populate it
+      InputOperandChange change(i, originalLayout);
+
+      // Detect layout changes
+      if (originalLayout.getLayout() != transformedLayout.getLayout()) {
+        change.targetLayout = transformedLayout.getLayout();
+      }
+
+      // Detect memory layout changes
+      if (originalLayout.getMemLayout() != transformedLayout.getMemLayout()) {
+        change.targetMemoryLayout = transformedLayout.getMemLayout().getValue();
+      }
+
+      // Detect buffer type changes
+      if (originalLayout.getBufferType() != transformedLayout.getBufferType()) {
+        change.targetBufferType = transformedLayout.getBufferType();
+      }
+
+      // Detect data type changes
+      if (originalLayout.getDataType() != transformedLayout.getDataType()) {
+        change.targetDataType = transformedLayout.getDataType();
+      }
+
+      if (change.hasChanges()) {
+        applyInputOperandChange(operation, change);
+      }
+    }
+
+    // Handle output layout changes if backend produced different layout
+    if (result.actualOutputLayout != config.outputLayout) {
+      // Step 1: Update operation's result type to what backend actually
+      // produced
+      assert(operation->getNumResults() == 1 &&
+             "Currently only single-result operations are supported");
+      auto oldResultType =
+          mlir::dyn_cast<RankedTensorType>(operation->getResult(0).getType());
+      assert(oldResultType && "Operation result type must be RankedTensorType");
+      auto newResultType = RankedTensorType::get(
+          oldResultType.getShape(),
+          result.actualOutputLayout.getScalarElementType(),
+          result.actualOutputLayout);
+      operation->getResult(0).setType(newResultType);
+
+      // Step 2: Add revert ToLayoutOp to convert back to expected layout for
+      // consumers
+      applyOutputLayoutRevert(operation, result.actualOutputLayout,
+                              config.outputLayout);
+    }
+  }
+
+  // Apply a single input operand change by inserting ToLayoutOp
+  void applyInputOperandChange(Operation *operation,
+                               const InputOperandChange &change) {
+    Value operand = operation->getOperand(change.operandIndex);
+    auto currentTensorType = mlir::cast<RankedTensorType>(operand.getType());
+    auto currentLayoutAttr =
+        mlir::cast<TTNNLayoutAttr>(currentTensorType.getEncoding());
+
+    // Build the new layout attribute with the required changes
+    TTNNLayoutAttr newLayoutAttr = currentLayoutAttr;
+
+    // Handle layout changes (ROW_MAJOR vs TILE)
+    if (change.targetLayout.has_value()) {
+      newLayoutAttr = newLayoutAttr.withLayout(change.targetLayout.value(),
+                                               currentTensorType.getShape());
+    }
+
+    if (change.targetMemoryLayout.has_value()) {
+      newLayoutAttr =
+          newLayoutAttr.withMemoryLayout(change.targetMemoryLayout.value());
+    }
+
+    if (change.targetBufferType.has_value()) {
+      newLayoutAttr =
+          newLayoutAttr.withBufferType(change.targetBufferType.value());
+    }
+
+    // Handle data type changes
+    if (change.targetDataType.has_value()) {
+      auto targetElementType = ttnn::utils::getElementType(
+          newLayoutAttr.getContext(), newLayoutAttr.getLayout(),
+          change.targetDataType.value());
+      newLayoutAttr = newLayoutAttr.withElementType(
+          targetElementType, currentTensorType.getShape());
+    }
+
+    // Create new tensor type with updated layout
+    // Use scalar element type for RankedTensorType, not tile type
+    Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
+        operation->getContext(), newLayoutAttr.getDataType());
+    RankedTensorType newTensorType = RankedTensorType::get(
+        currentTensorType.getShape(), scalarElementType, newLayoutAttr);
+
+    // Determine which layout to use for ToLayoutOp
+    Layout targetLayoutValue =
+        change.targetLayout.value_or(currentLayoutAttr.getLayout());
+
+    // Insert ToLayout operation to perform the transformation
+    OpBuilder builder(operation);
+
+    // Create proper MemoryConfigAttr for the target layout
+    MemoryConfigAttr memoryConfigAttr = MemoryConfigAttr::get(
+        operation->getContext(), newLayoutAttr.getMemLayout(),
+        BufferTypeAttr::get(operation->getContext(),
+                            newLayoutAttr.getBufferType()),
+        /*shardSpec=*/std::nullopt);
+
+    // Prepare dtype attribute if data type changed
+    ttcore::DataTypeAttr dtypeAttr = nullptr;
+    if (change.targetDataType.has_value()) {
+      dtypeAttr = ttcore::DataTypeAttr::get(operation->getContext(),
+                                            change.targetDataType.value());
+    } else {
+      dtypeAttr = ttcore::DataTypeAttr::get(operation->getContext(),
+                                            currentLayoutAttr.getDataType());
+    }
+
+    auto toLayoutOp = builder.create<ToLayoutOp>(
+        operation->getLoc(), newTensorType, operand,
+        LayoutAttr::get(operation->getContext(), targetLayoutValue), dtypeAttr,
+        memoryConfigAttr);
+
+    // Replace the operand with the result of ToLayout
+    operation->setOperand(change.operandIndex, toLayoutOp.getResult());
+
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "Applied input operand change for operation {} operand {}: "
+        "layout {} -> {}, memory layout {} -> {}, buffer type {} -> {}, data "
+        "type {} -> {}",
+        operation->getName(), change.operandIndex,
+        change.originalLayout.getLayout(),
+        change.targetLayout.value_or(change.originalLayout.getLayout()),
+        change.originalLayout.getMemLayout().getValue(),
+        change.targetMemoryLayout.value_or(
+            change.originalLayout.getMemLayout().getValue()),
+        change.originalLayout.getBufferType(),
+        change.targetBufferType.value_or(change.originalLayout.getBufferType()),
+        static_cast<int>(change.originalLayout.getDataType()),
+        static_cast<int>(change.targetDataType.value_or(
+            change.originalLayout.getDataType())));
+  }
+
+  // Apply output layout revert after an operation
+  void applyOutputLayoutRevert(Operation *operation,
+                               TTNNLayoutAttr actualOutputLayout,
+                               TTNNLayoutAttr expectedOutputLayout) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Applying output layout revert for operation {}: "
+                 "actual layout {}, expected layout {}",
+                 operation->getName(), actualOutputLayout,
+                 expectedOutputLayout);
+
+    Value result = operation->getResult(0);
+    auto currentResultType = mlir::cast<RankedTensorType>(result.getType());
+
+    // Save all uses of the operation's result before making changes
+    llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+    for (auto &use : result.getUses()) {
+      uses.emplace_back(use.getOwner(), use.getOperandNumber());
+    }
+
+    // Insert ToLayoutOp after the operation to revert back to the original
+    // expected layout
+    OpBuilder builder(operation->getContext());
+    builder.setInsertionPointAfter(operation);
+
+    // Create the expected result type for the revert operation
+    Type expectedElementType = mlir::tt::ttcore::dataTypeToElementType(
+        operation->getContext(), expectedOutputLayout.getDataType());
+    RankedTensorType expectedResultType =
+        RankedTensorType::get(currentResultType.getShape(), expectedElementType,
+                              expectedOutputLayout);
+
+    // Create proper MemoryConfigAttr for the expected layout
+    MemoryConfigAttr expectedMemoryConfigAttr = MemoryConfigAttr::get(
+        operation->getContext(), expectedOutputLayout.getMemLayout(),
+        BufferTypeAttr::get(operation->getContext(),
+                            expectedOutputLayout.getBufferType()),
+        /*shardSpec=*/std::nullopt);
+
+    auto revertToLayoutOp = builder.create<ToLayoutOp>(
+        ttmlir::utils::appendLocationSuffix(operation->getLoc(),
+                                            "_revert_layout"),
+        expectedResultType, result,
+        LayoutAttr::get(operation->getContext(),
+                        expectedOutputLayout.getLayout()),
+        ttcore::DataTypeAttr::get(operation->getContext(),
+                                  expectedOutputLayout.getDataType()),
+        expectedMemoryConfigAttr);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Inserted revert ToLayout op after operation {} to restore "
+                 "expected layout",
+                 operation->getName());
+
+    // Update all saved uses to point to the revert operation instead
+    for (auto &use : uses) {
+      Operation *useOp = use.first;
+      useOp->setOperand(use.second, revertToLayoutOp.getResult());
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Updated consumer {}@{} to use reverted layout",
+                   useOp->getName(), useOp->getLoc());
+    }
+  }
+};
+
+} // namespace mlir::tt::ttnn

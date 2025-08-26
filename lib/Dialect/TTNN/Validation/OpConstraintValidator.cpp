@@ -124,12 +124,12 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
     return llvm::createStringError("No device attribute found for operation");
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "About to call getOpConstraints with {} input layouts",
                inputLayouts.size());
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Input layout {}: {}, getLayout()={}, dtype={}", i,
                  inputLayouts[i], static_cast<int>(inputLayouts[i].getLayout()),
                  static_cast<int>(inputLayouts[i].getDataType()));
@@ -141,7 +141,7 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "OpModel constraints failed: {} @ {} :: {}, "
                  "config.outputLayout: {}",
                  op->getName(), op->getLoc(),
@@ -153,7 +153,7 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
   auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
       l1UsageExp.get();
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Backend returned output layout: {}, layout={}, dtype={}",
                outputLayout, static_cast<int>(outputLayout.getLayout()),
                static_cast<int>(outputLayout.getDataType()));
@@ -162,9 +162,10 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
       outputLayout != config.outputLayout) {
     std::string message = "Output layout mismatch: backend returned layout "
                           "doesn't match requested config layout";
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Config output layout: {}, backend output layout: {}",
+    TTMLIR_TRACE(ttmlir::LogComponent::OpValidation, "{}", message);
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Output layout mismatch: config output layout: {}, backend "
+                 "output layout: {}",
                  config.outputLayout, outputLayout);
     return llvm::createStringError("[Optimizer] " + message);
   }
@@ -190,7 +191,7 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
                       tensorL1UsageCap * usableL1CacheSize;
 
   if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Not enough L1 memory. OpModel constraints failed: {} "
                  "totalInputL1Usage: {}, tensorUsage: {}, cBUsagePeak: {}, "
                  "total: {}, limit: {}",
@@ -201,7 +202,7 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
   }
 
   TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
+      ttmlir::LogComponent::OpValidation,
       "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
       "L1 usage: cBUsagePeak: {}, tensorUsage: {}, outputTensorUsage: {}, "
       "totalInputL1Usage: {}, totalL1Usage: {}",
