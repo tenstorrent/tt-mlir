@@ -248,11 +248,11 @@ jobs:
           # Extract Status field value and its update timestamp
           # For single select fields, we need to find by matching known Status values
           STATUS_VALUE=$(echo "$RESPONSE" | jq -r \
-                         '.data.node.fieldValues.nodes[] | 
+                         '.data.node.fieldValues.nodes[] |
                           select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
           STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r \
-                              '.data.node.fieldValues.nodes[] | 
+                              '.data.node.fieldValues.nodes[] |
                                select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
           # Extract Work Started field value to check if it's already set
@@ -558,14 +558,14 @@ jobs:
               continue
             fi
 
-            # Extract Status field value and its update timestamp  
+            # Extract Status field value and its update timestamp
             # For single select fields, we need to find by matching known Status values
             STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
-              '.data.node.fieldValues.nodes[] | 
+              '.data.node.fieldValues.nodes[] |
                select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
             STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
-              '.data.node.fieldValues.nodes[] | 
+              '.data.node.fieldValues.nodes[] |
                select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
             # Extract Work Started field value
