@@ -10,6 +10,10 @@ on:
         required: true
         type: string
 
+  # Test trigger for timestamp extraction fix
+  push:
+    branches: [test/fix-timestamp-extraction]
+
   # Automatic trigger for any issue activity
   issues:
     types: [opened, edited, closed, reopened, assigned, unassigned, labeled, unlabeled]
@@ -42,7 +46,10 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
-
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # Test trigger - hardcode issue #4095 for timestamp extraction testing
+            issue_number="4095"
+            echo "Push trigger - testing timestamp extraction with hardcoded issue #$issue_number"
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
@@ -196,7 +203,7 @@ jobs:
         run: |
           source $GITHUB_ENV
 
-          # Query to get the current Status field value
+          # Query to get the current Status field value with timestamp
           QUERY='query($itemId: ID!) {
             node(id: $itemId) {
               ... on ProjectV2Item {
@@ -204,13 +211,24 @@ jobs:
                   nodes {
                     ... on ProjectV2ItemFieldSingleSelectValue {
                       field {
-                        ... on ProjectV2SingleSelectField {
+                        ... on ProjectV2Field {
                           id
                           name
                         }
                       }
                       name
                       optionId
+                      updatedAt
+                    }
+                    ... on ProjectV2ItemFieldDateValue {
+                      field {
+                        ... on ProjectV2Field {
+                          id
+                          name
+                        }
+                      }
+                      date
+                      updatedAt
                     }
                   }
                 }
@@ -503,19 +521,31 @@ jobs:
               continue
             fi
 
-            # Check Status and Work Started fields
+            # Check Status and Work Started fields with timestamps
             STATUS_QUERY='query($itemId: ID!) {
               node(id: $itemId) {
                 ... on ProjectV2Item {
                   fieldValues(first: 20) {
                     nodes {
                       ... on ProjectV2ItemFieldSingleSelectValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         name
+                        updatedAt
                       }
                       ... on ProjectV2ItemFieldDateValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         date
+                        updatedAt
                       }
                     }
                   }
