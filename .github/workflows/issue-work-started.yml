@@ -254,13 +254,14 @@ jobs:
           fi
 
           # Extract Status field value and its update timestamp
-          STATUS_VALUE=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
-                         '.data.node.fieldValues.nodes[] |
-                          select(.field.id==$status_field_id or .field.name=="Status") | .name')
+          # For single select fields, we need to find by matching known Status values
+          STATUS_VALUE=$(echo "$RESPONSE" | jq -r \
+                         '.data.node.fieldValues.nodes[] | 
+                          select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
-          STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
-                              '.data.node.fieldValues.nodes[] |
-                               select(.field.id==$status_field_id or .field.name=="Status") | .updatedAt')
+          STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r \
+                              '.data.node.fieldValues.nodes[] | 
+                               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
           # Extract Work Started field value to check if it's already set
           WORK_STARTED_VALUE=$(echo "$RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
@@ -565,14 +566,15 @@ jobs:
               continue
             fi
 
-            # Extract Status field value and its update timestamp
-            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
-              '.data.node.fieldValues.nodes[] |
-               select(.field.id==$status_field_id or .field.name=="Status") | .name')
+            # Extract Status field value and its update timestamp  
+            # For single select fields, we need to find by matching known Status values
+            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
+              '.data.node.fieldValues.nodes[] | 
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
 
-            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
-              '.data.node.fieldValues.nodes[] |
-               select(.field.id==$status_field_id or .field.name=="Status") | .updatedAt')
+            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
+              '.data.node.fieldValues.nodes[] | 
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
             # Extract Work Started field value
             WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
