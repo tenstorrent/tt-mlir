@@ -2252,7 +2252,9 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize",
     let hasVerifier = 1;
 }
 
-def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
+def TTNN_DequantizeOp : TTNN_Op<"dequantize",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Dequantize operation.";
     let description = [{
       Applies dequantization to the input tensor.
@@ -2290,7 +2292,9 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
+def TTNN_RequantizeOp : TTNN_Op<"requantize",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Requantize operation.";
     let description = [{
       Applies requantization to the input tensor.
