@@ -15,7 +15,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
@@ -302,7 +301,13 @@ public:
     });
     return hasTileMatmul;
   }
+  /*
+    Expand a linalg.generic op that contains a tile_matmul into a matmul_block.
 
+    - Uses the linalg.generic and affine semantics to generate copy/pack loops.
+    - Deletes the compute loop nest since matmul_block includes the loops inside
+    it.
+  */
   static bool expandTileMatmul(PatternRewriter &rewriter, GenericOp op,
                                Region &region,
                                linalg::GenericOp linalgGenericOp,
