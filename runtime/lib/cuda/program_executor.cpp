@@ -10,6 +10,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "llvm/Support/Error.h"
+#include <cassert>
 #include <cstddef>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -76,8 +77,8 @@ void ProgramExecutor::finishing() {
     ;
   }
 
-  if (!program->kernels()) {
-    llvm::errs() << "No kernels found in program\n";
+  if (!program->actions()) {
+    llvm::errs() << "No actions found in program\n";
     return ::tt::runtime::Tensor(nullptr, nullptr,
                                  ::tt::runtime::DeviceRuntime::CUDA);
     ;
@@ -132,9 +133,27 @@ void ProgramExecutor::finishing() {
     constantMap.insert({constant->id()->str(), constant});
   }
 
-  // Run kernels.
-  for (const auto *kernel : *program->kernels()) {
-    runKernel(kernel);
+  // Process actions.
+  for (size_t i = 0; i < program->actions()->size(); ++i) {
+    ::cuda::Action actionType = program->actions_type()->Get(i);
+    const void *actionObj = program->actions()->Get(i);
+
+    switch (actionType) {
+    case ::cuda::Action::Kernel: {
+      const ::cuda::Kernel *kernel =
+          static_cast<const ::cuda::Kernel *>(actionObj);
+      runKernel(kernel);
+      break;
+    }
+    case ::cuda::Action::CopyFunction: {
+      const ::cuda::CopyFunction *copyFunc =
+          static_cast<const ::cuda::CopyFunction *>(actionObj);
+      runCopyFunction(copyFunc);
+      break;
+    }
+    case ::cuda::Action::NONE:
+      break;
+    }
   }
 
   // Copy return value to host.
@@ -158,6 +177,63 @@ void ProgramExecutor::finishing() {
   return returnTensor;
 }
 
+void ProgramExecutor::runCopyFunction(const ::cuda::CopyFunction *copyFunc) {
+  auto source = copyFunc->src();
+  auto dest = copyFunc->dst();
+  assert(memrefDescMap.contains(source->str()) &&
+         memrefDescMap.contains(dest->str()));
+
+  auto sourceType = memrefDescMap[source->str()]->type()->data_type();
+  auto destType = memrefDescMap[dest->str()]->type()->data_type();
+  assert(sourceType == destType);
+  int64_t elementSize = getDim(sourceType);
+
+  auto sourceDim = memrefDescMap[source->str()]->type()->shape();
+  auto destDim = memrefDescMap[dest->str()]->type()->shape();
+
+  // Copy operations occur during conv2d ops and maxpool2d ops.
+  // These ops use padding, so the source and destination tensors may have
+  // different shapes. Tosa ops have a strict padding requirement, so slicing is
+  // done after the conv2d or maxpool2d to maintain the correct shape if needed.
+  // These ops use (N, H, W, C) layout. N and C are the same for source and
+  // destination. Therefore, the first two dimensions can be seen as the height
+  // and second two dimensions can be seen as the width. This is done to avoid
+  // complex logic for copying operations and use Cuda's 2D copy operations.
+  int sourceHeight = sourceDim->Get(0) * sourceDim->Get(1);
+  int sourceWidth = sourceDim->Get(2) * sourceDim->Get(3);
+
+  int destHeight = destDim->Get(0) * destDim->Get(1);
+  int destWidth = destDim->Get(2) * destDim->Get(3);
+
+  auto offset = copyFunc->offset();
+
+  CUDA_MEMCPY2D copyParams = {};
+
+  // Source parameters (contiguous layout)
+  copyParams.srcXInBytes = 0;
+  copyParams.srcY = 0;
+  copyParams.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+  copyParams.srcDevice = tensorMap[source->str()];
+  copyParams.srcPitch = sourceWidth * elementSize;
+
+  // Destination parameters (strided layout with offset)
+  copyParams.dstXInBytes = 0;
+  copyParams.dstY = 0;
+  copyParams.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+  copyParams.dstDevice = tensorMap[dest->str()] + (offset * elementSize);
+  copyParams.dstPitch = destWidth * elementSize;
+
+  // Copy dimensions - copy the smaller of source/dest. This is done because
+  // copying is called for both padding and slicing. If the source is smaller,
+  // then it is padded. If the destination is smaller, then it is sliced.
+  copyParams.WidthInBytes = std::min(sourceWidth, destWidth) * elementSize;
+  copyParams.Height = std::min(sourceHeight, destHeight);
+
+  auto result = cuMemcpy2D(&copyParams);
+  if (result != CUDA_SUCCESS) {
+    llvm::errs() << "cuMemcpy2D failed with error: " << result << "\n";
+  }
+}
 void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
 
   auto kernelArgs = std::make_unique<void *[]>(kernel->input_names()->size());
