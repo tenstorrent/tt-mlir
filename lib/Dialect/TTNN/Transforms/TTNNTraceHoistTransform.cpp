@@ -18,25 +18,10 @@ namespace mlir::tt::ttnn {
 using TraceSmallString = llvm::SmallString<64>;
 
 static ::mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
-
-  const std::array<std::pair<int64_t, int64_t>, 1> collapseDims = {{{0, -1}}};
-  llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(collapseDims);
-
-  constexpr size_t bitWidth = 32;
-  const BufferType bufferType = BufferType::SystemMemory;
-  const TensorMemoryLayoutAttr memoryLayoutAttr;
-  const ttcore::TensorMeshAttr tensorMeshAttr;
-
-  TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
-      ctx, /*shape=*/{},
-      ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-      bufferType, ttcore::GridAttr::get(ctx), memoryLayoutAttr, tensorMeshAttr,
-      collapseDimsRef);
-
   return ::mlir::RankedTensorType::get(
       /*shape=*/{},
-      ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-      layoutAttr);
+      ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
+      ttnn::TraceIdAttr::get(ctx));
 }
 
 class TTNNTraceHoistTransform
