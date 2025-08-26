@@ -260,7 +260,14 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  producersL1OutputUsage, tensorUsage, outputTensorUsage,
                  cBUsagePeak);
     consumerOp->dumpPretty();
-    std::cout << "Op wouldn't fit, totalL1Usage: "
+    std::cout << "FAIL CONSTRAINTS: Op "
+              << consumerOp->getName().getStringRef().data() << " wouldn't fit"
+              << "\n"
+              << "cBUsagePeak: " << cBUsagePeak
+              << ", tensorUsage: " << tensorUsage
+              << ", outputTensorUsage: " << outputTensorUsage
+              << ", producerL1OutputUsage: " << producersL1OutputUsage
+              << ", totalL1Usage: "
               << (cBUsagePeak + tensorUsage + producersL1OutputUsage)
               << ", l1CacheSize: " << analysisInput.usableL1CacheSize << "\n";
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
@@ -285,8 +292,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         cBUsagePeak + tensorUsage + producersL1OutputUsage);
     consumerOp->dumpPretty();
 
-    std::cout << "Upgrading consumer! op: "
-              << "\n"
+    std::cout << "Consumer op " << consumerOp->getName().getStringRef().data()
+              << " input conversion okay: \n"
               << "L1 usage: cBUsagePeak: " << cBUsagePeak
               << ", tensorUsage: " << tensorUsage
               << ", outputTensorUsage: " << outputTensorUsage
@@ -339,7 +346,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
   consumerOp->dumpPretty();
 
-  std::cout << "Upgrading op: "
+  std::cout << "Upgrading op: " << consumerOp->getName().getStringRef().data()
             << "\n"
             << "L1 usage: cBUsagePeak: " << cBUsagePeak
             << ", tensorUsage: " << tensorUsage
