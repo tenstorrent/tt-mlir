@@ -25,7 +25,7 @@ Layout TTNNLayoutAttr::getLayout() const {
   return isTiled() ? Layout::Tile : Layout::RowMajor;
 }
 
-// Get optinoal memory layout
+// Get optional memory layout
 std::optional<TensorMemoryLayout> TTNNLayoutAttr::getMemLayoutOpt() const {
   return getMemLayout() ? std::make_optional(getMemLayout().getValue())
                         : std::nullopt;
@@ -633,35 +633,6 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
   return MemoryConfigAttr::get(
       layoutAttr.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
       utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
-}
-
-// Construct a new MemoryConfig
-//
-// This function creates a deep copy of the current MemoryConfigAttr and
-// replaces the buffer type with the given one.
-//
-// param context The MLIR context.
-// param buffer type The new buffer type.
-// return The new MemoryConfigAttr with the given buffer type.
-MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
-  return MemoryConfigAttr::get(getContext(), getTensorMemoryLayout(),
-                               BufferTypeAttr::get(getContext(), bufferType),
-                               getShardSpec());
-}
-
-// Construct a new MemoryConfig
-//
-// This function creates a deep copy of the current MemoryConfig and
-// replaces the memory layout with the given one.
-//
-// param context The MLIR context.
-// param memLayout The new memory layout.
-// return The new MemoryConfig with the given memory layout.
-MemoryConfigAttr
-MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
-  return MemoryConfigAttr::get(
-      getContext(), TensorMemoryLayoutAttr::get(getContext(), memLayout),
-      getBufferType(), getShardSpec());
 }
 
 // Verify memory config attribute

@@ -37,7 +37,7 @@ mlir::Value moveToHostRowMajorIfNeeded(ConvOp op,
 
   return utils::createToLayoutOp(
       op, value, rewriter, Layout::RowMajor, BufferType::SystemMemory,
-      /*targetTensorMemoryLayout=*/std::nullopt, desiredDataType, locSuffix);
+      /*targetTensorMemoryLayout=*/nullptr, desiredDataType, locSuffix);
 }
 
 mlir::RankedTensorType rewriteOutputToTile(mlir::RankedTensorType resultType) {

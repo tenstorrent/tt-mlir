@@ -390,10 +390,10 @@ private:
                                          device.getWorkerGrid()));
 
       auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), inputType,
+          runAndCaptureTraceFunc.getLoc(), inputType, deviceOp,
           ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
-          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()), deviceOp,
+          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
           memoryConfigAttr);
 
       inputSlots.push_back(emptyOp.getResult());
