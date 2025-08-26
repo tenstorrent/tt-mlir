@@ -2642,6 +2642,16 @@ public:
   matchAndRewrite(mlir::tt::ttnn::ExecuteTraceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ExecuteTraceOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getTraceId()),
+        emitter.emitCQ(srcOp.getCqId()),
+    };
+
+    emitter.replaceOp(*this, args);
     return success();
   }
 };
