@@ -31,7 +31,7 @@ module attributes {} {
         // CHECK: ttnn.to_dtype
         %0 = "ttnn.to_dtype"(%arg0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
         %1 = "ttnn.to_dtype"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
-        %2 = "ttnn.add"(%0, %0) <{output_dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
+        %2 = "ttnn.add"(%0, %0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
         return %1, %2 : tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>
     }
 }

@@ -54,16 +54,14 @@ WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
   // nullopt if tensor is on host.
   results.tensorMemoryLayoutResult.targetValue =
       workaround.tensorMemoryLayoutWorkaround.has_value()
-          ? workaround.tensorMemoryLayoutWorkaround
+          ? (workaround.tensorMemoryLayoutWorkaround.value()
+                 ? std::make_optional(
+                       workaround.tensorMemoryLayoutWorkaround.value()
+                           .getValue())
+                 : std::nullopt)
           : inputLayoutAttr.getMemLayoutOpt();
   results.tensorMemoryLayoutResult.previousValue =
       inputLayoutAttr.getMemLayoutOpt();
-  // TODO(#2103): This is a temporary fix to handle host tensors
-  // If the target buffer type is SystemMemory, set tensor memory layout to
-  // nullopt.
-  if (results.tensorBufferTypeResult.targetValue == BufferType::SystemMemory) {
-    results.tensorMemoryLayoutResult.targetValue = std::nullopt;
-  }
 
   results.tensorDataTypeResult.targetValue =
       workaround.tensorDataTypeWorkaround.value_or(
@@ -185,6 +183,7 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
   wa::TTNNOperandWorkarounds sysMemWorkaround;
   if (shardType != mlir::tt::ttcore::MeshShardType::Identity) {
     sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+    sysMemWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr();
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(sysMemWorkaround)
@@ -298,6 +297,8 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
   hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);

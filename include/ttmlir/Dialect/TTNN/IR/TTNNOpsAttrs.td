@@ -227,6 +227,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
     MemoryConfigAttr withBufferType(BufferType bufferType);
     MemoryConfigAttr withMemoryLayout(TensorMemoryLayout memLayout);
+    MemoryConfigAttr withBufferTypeAndMemoryLayout(BufferType bufferType, std::optional<TensorMemoryLayout> memLayout);
   }];
 
   let genVerifyDecl = 1;
