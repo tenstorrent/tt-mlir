@@ -84,10 +84,8 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
         rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
         subViewOp.getDroppedDims(), indices, sourceIndices);
     auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
-    int64_t rt = resultTy.getShape()[0];
-    int64_t kt = resultTy.getShape()[1];
-    Value rtIdx = index(rewriter, loc, rt);
-    Value ktIdx = index(rewriter, loc, kt);
+    Value rtIdx = index(rewriter, loc, resultTy.getShape()[0]);
+    Value ktIdx = index(rewriter, loc, resultTy.getShape()[1]);
     Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
     // Convert the resolved source row offset to a block-row index.
     Value rowBlockIdx =
