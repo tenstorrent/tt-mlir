@@ -109,6 +109,15 @@ public:
                                   ShapeAttr::get(&context, tensorShape),
                                   nullptr, nullptr, nullptr, nullptr);
   }
+
+  mlir::Value createEmptyTensorUInt32(llvm::ArrayRef<int64_t> tensorShape,
+                                      TTNNLayoutAttr layout = nullptr) {
+    RankedTensorType rankedTensorType = createRankedTensorType(
+        tensorShape, builder.getIntegerType(32, false), layout);
+    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
+                                  ShapeAttr::get(&context, tensorShape),
+                                  nullptr, nullptr, nullptr, nullptr);
+  }
 };
 struct ExpectedResult {
   bool expectedLegal = false;
@@ -1227,6 +1236,64 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   }
 
   auto runtimeExp = getOpRuntime(sliceStaticOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SliceDynamicOpInterface) { // exactly as the mlir test.
+  // create SliceDynamicOp
+  llvm::SmallVector<int64_t> tensorShapeA = {4, 32, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {2, 16, 16};
+  llvm::SmallVector<int64_t> beginsShape = {3};
+  llvm::SmallVector<int64_t> endsShape = {3};
+
+  auto inputLayout = CreateTiledLayout(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::DRAM,
+                                        TensorMemoryLayout::Interleaved);
+  auto beginsEndsLayout = CreateTiledLayoutUInt32(
+      beginsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  // Create tensors with proper types and layouts
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(), outputLayout);
+  auto begins = createEmptyTensorUInt32(beginsShape, beginsEndsLayout);
+  auto ends = createEmptyTensorUInt32(endsShape, beginsEndsLayout);
+
+  // Create step array with i32 type to match working example format
+  llvm::SmallVector<mlir::Attribute> stepAttrs = {builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1)};
+
+  auto sliceDynamicOp =
+      builder.create<SliceDynamicOp>(builder.getUnknownLoc(), output.getType(),
+                                     mlir::ValueRange{input, begins, ends});
+  sliceDynamicOp.setStepAttr(builder.getArrayAttr(stepAttrs));
+  std::cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+            << std::endl;
+  std::cout << "The created sliceDynamicOp is: " << std::endl;
+  sliceDynamicOp.dump();
+  std::cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+            << std::endl;
+  // test SliceDynamicOp interface
+  auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceDynamicOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

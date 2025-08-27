@@ -396,6 +396,27 @@ struct OpModel<SliceStaticOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SliceDynamicOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> beginsShape,
+      TTNNLayoutAttr beginsLayout, llvm::ArrayRef<int64_t> endsShape,
+      TTNNLayoutAttr endsLayout, std::optional<llvm::SmallVector<int64_t>> step,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
+               llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
+               std::optional<llvm::SmallVector<int64_t>> step,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 

@@ -138,6 +138,61 @@ public:
         memLayoutAttr);
   }
 
+  mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
+      const llvm::ArrayRef<int64_t> &tensorShape,
+      const mlir::tt::ttnn::BufferType &bufferType,
+      const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
+      const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
+          std::nullopt,
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize()) {
+    const auto &virtualGridSelected =
+        virtualGrid.has_value()
+            ? virtualGrid.value()
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+
+    auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
+                             ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
+                             : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout);
+    auto uint32DataType = mlir::tt::ttcore::DataType::UInt32;
+    auto tileType =
+        mlir::tt::ttcore::TileType::get(&context, {32, 32}, uint32DataType);
+
+    // Special handling for 1D tensors with DRAM buffer type
+    if (tensorShape.size() == 1 &&
+        !mlir::tt::ttnn::isL1BufferType(bufferType)) {
+      std::cout << "DEBUG: Using special 1D DRAM tensor layout path for shape: "
+                << tensorShape[0] << std::endl;
+      // For 1D DRAM tensors, create the layout directly with a simple affine
+      // map Create a simple (d0) -> (0, d0) affine map
+      mlir::AffineExpr d0 = mlir::getAffineDimExpr(0, &context);
+      mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, &context);
+      mlir::AffineMap linear = mlir::AffineMap::get(1, 0, {zero, d0}, &context);
+
+      // Create a simple 1x1 grid with no extra affine mapping
+      mlir::tt::ttcore::GridAttr grid =
+          mlir::tt::ttcore::GridAttr::get(&context, {1, 1});
+
+      // Build memref type for the shard shape
+      llvm::SmallVector<int64_t> shardShape = {
+          1, 1}; // Simple 1x1 shard for 1D DRAM
+      mlir::MemRefType memRefType =
+          mlir::tt::ttcore::buildMemRef<mlir::tt::ttnn::BufferType,
+                                        mlir::tt::ttnn::BufferTypeAttr>(
+              &context, shardShape, tileType, bufferType);
+
+      return mlir::tt::ttnn::TTNNLayoutAttr::get(
+          &context, linear, grid, memRefType, memLayoutAttr,
+          mlir::tt::ttcore::TensorMeshAttr{});
+    }
+
+    return mlir::tt::ttnn::TTNNLayoutAttr::get(
+        &context, tensorShape, tileType, bufferType,
+        CreateGrid(&context, bufferType, tensorMemoryLayout,
+                   virtualGridSelected, physicalGrid),
+        memLayoutAttr);
+  }
+
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayout(
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::BufferType &bufferType,

@@ -1284,7 +1284,9 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
     let hasVerifier = 1;
 }
 
-def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
+def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Dynamic slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step

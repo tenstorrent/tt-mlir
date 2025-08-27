@@ -1537,6 +1537,105 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> beginsShape,
+    TTNNLayoutAttr beginsLayout, llvm::ArrayRef<int64_t> endsShape,
+    TTNNLayoutAttr endsLayout, std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto beginsSpecExp =
+      detail::convertToTensorSpec(device, beginsShape, beginsLayout);
+  if (!beginsSpecExp) {
+    return beginsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec beginsSpec = beginsSpecExp.get();
+
+  auto endsSpecExp = detail::convertToTensorSpec(device, endsShape, endsLayout);
+  if (!endsSpecExp) {
+    return endsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec endsSpec = endsSpecExp.get();
+
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+  // Create query closure
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::slice, device, inputSpec, beginsSpec, endsSpec,
+        conversion::convertI64SmallVectorToUI32SmallVector(step),
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+  };
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     sliceOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
+    llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
+    std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto beginsSpecExp =
+      detail::convertToTensorSpec(device, beginsShape, beginsLayout);
+  if (!beginsSpecExp) {
+    return beginsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec beginsSpec = beginsSpecExp.get();
+
+  auto endsSpecExp = detail::convertToTensorSpec(device, endsShape, endsLayout);
+  if (!endsSpecExp) {
+    return endsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec endsSpec = endsSpecExp.get();
+
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+
+  // Create query closure
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::slice, device, inputSpec, beginsSpec, endsSpec,
+        conversion::convertI64SmallVectorToUI32SmallVector(step),
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+  };
+
+  return operation::getOpRuntime(sliceOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(

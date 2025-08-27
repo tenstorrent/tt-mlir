@@ -340,6 +340,23 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
+std::optional<ttsl::SmallVector<uint32_t>>
+convertI64SmallVectorToUI32SmallVector(
+    const std::optional<llvm::SmallVector<int64_t>> &input) {
+  if (!input.has_value()) {
+    return std::nullopt;
+  }
+  assert(std::ranges::all_of(*input,
+                             [](const int64_t value) {
+                               return value >= 0 &&
+                                      value <=
+                                          std::numeric_limits<uint32_t>::max();
+                             }) &&
+         "Value out of range for uint32_t");
+  ttsl::SmallVector<uint32_t> result(input->begin(), input->end());
+  return result;
+}
+
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig) {
