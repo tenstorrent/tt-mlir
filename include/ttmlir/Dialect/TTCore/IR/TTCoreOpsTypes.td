@@ -335,41 +335,17 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace);
 
-    // Overload with explicit view affine map
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     AffineMap viewAffineMap);
-
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals);
 
-    // Overload with explicit collapsedIntervals and view affine map.
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     AffineMap viewAffineMap);
-
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
-
-    // Overload with explicit collapsedIntervals, dimAlignments and view affine map.
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     AffineMap viewAffineMap);
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
