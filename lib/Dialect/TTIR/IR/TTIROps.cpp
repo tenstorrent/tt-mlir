@@ -969,6 +969,24 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
 
+  auto flatInfo = getFlattenedCompatInfoAttr();
+  if (flatInfo &&
+      flatInfo.getBatchSize() * flatInfo.getInputHeight() *
+              flatInfo.getInputWidth() !=
+          getInput().getType().getDimSize(verification_utils::FLATTENED_DIM)) {
+    int64_t expectedSize = flatInfo.getBatchSize() * flatInfo.getInputHeight() *
+                           flatInfo.getInputWidth();
+    int64_t actualSize =
+        getInput().getType().getDimSize(verification_utils::FLATTENED_DIM);
+    return emitOpError()
+           << "The input tensor's flattened dimension (" << actualSize
+           << ") does not match the product of batch_size * input_height * "
+              "input_width from FlattenedCompatInfo ("
+           << flatInfo.getBatchSize() << " * " << flatInfo.getInputHeight()
+           << " * " << flatInfo.getInputWidth() << " = " << expectedSize
+           << ").";
+  }
+
   if (inputType.getRank() != 4) {
     return emitOpError("Input must be a 4D tensor");
   }
@@ -987,7 +1005,14 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
     }
   }
 
-  if (inputType.getShape()[0] != outputType.getShape()[0]) {
+  int64_t inputBatchSize = inputType.getDimSize(0);
+  int64_t outputBatchSize = outputType.getDimSize(0);
+  if (flatInfo) {
+    inputBatchSize = flatInfo.getBatchSize();
+    outputBatchSize = flatInfo.getBatchSize();
+  }
+
+  if (inputBatchSize != outputBatchSize) {
     return emitOpError("Batch size of input and output tensors must match");
   }
 
@@ -1081,6 +1106,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
   int32_t Hin = inputType.getDimSize(inputType.getRank() - 3);
   int32_t Win = inputType.getDimSize(inputType.getRank() - 2);
+  if (flatInfo) {
+    Hin = flatInfo.getInputHeight();
+    Win = flatInfo.getInputWidth();
+  }
 
   int32_t expectedHOut = (Hin - 1) * stride->first - verticalPadding +
                          dilation->first * (kernelHeight - 1) +
@@ -1098,12 +1127,22 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
   int32_t HOut = outputType.getDimSize(outputType.getRank() - 3);
   int32_t WOut = outputType.getDimSize(outputType.getRank() - 2);
-  if (HOut != expectedHOut || WOut != expectedWOut) {
+  if (!flatInfo && (HOut != expectedHOut || WOut != expectedWOut)) {
     return emitOpError() << "Mismatch between expected output size per channel "
                             "and got output tensor dimensions. "
                          << "Expected: (" << expectedHOut << " x "
                          << expectedWOut << "), "
                          << "got: (" << HOut << " x " << WOut << ").";
+  }
+
+  if (flatInfo && inputBatchSize * expectedHOut * expectedWOut !=
+                      outputType.getDimSize(outputType.getRank() - 2)) {
+    return emitOpError() << "Mismatch between expected flattened NHW dim size. "
+                         << "Expected: "
+                         << inputBatchSize * expectedHOut * expectedWOut << ", "
+                         << "got: "
+                         << outputType.getDimSize(outputType.getRank() - 2)
+                         << ".";
   }
 
   return success();
