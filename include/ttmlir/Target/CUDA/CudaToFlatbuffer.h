@@ -14,7 +14,7 @@ namespace mlir::tt::cuda {
 
 // Compile a GPU operation to PTX.
 llvm::Expected<std::string> translateToPTX(Operation *op,
-                                           const std::string &mcpu = "sm_80");
+                                           const std::string &mcpu = "sm_50");
 
 // Convert a GPU LLVMIR operation to a flatbuffer.
 std::shared_ptr<void> cudaToFlatbuffer(Operation *op);

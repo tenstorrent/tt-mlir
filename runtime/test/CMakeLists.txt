@@ -1,4 +1,4 @@
-if ((NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL)) AND NOT TT_RUNTIME_ENABLE_CUDA)
+if ((NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL)) AND NOT TTMLIR_ENABLE_CUDA)
   message(FATAL_ERROR "Runtime tests require at least one backend runtime to be enabled")
 endif()
 
@@ -110,9 +110,7 @@ if (TT_RUNTIME_ENABLE_TTMETAL)
   add_subdirectory(ttmetal)
 endif()
 
-if (TT_RUNTIME_ENABLE_CUDA)
+if (TTMLIR_ENABLE_CUDA)
   find_package(CUDAToolkit)
-  if (CUDAToolkit_FOUND)
-    add_subdirectory(cuda)
-  endif()
-  endif()
+  add_subdirectory(cuda)
+endif()

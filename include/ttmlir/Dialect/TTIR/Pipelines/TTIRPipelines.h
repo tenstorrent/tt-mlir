@@ -52,7 +52,7 @@ struct TTIRToNVVMPipelineOptions
   // PTX version to target.
   Option<std::string> features{*this, "features",
                                llvm::cl::desc("GPU features to target."),
-                               llvm::cl::init("+ptx60")};
+                               llvm::cl::init("+ptx50")};
 
   Option<int64_t> optLevel{*this, "opt-level",
                            llvm::cl::desc("Optimization level."),
