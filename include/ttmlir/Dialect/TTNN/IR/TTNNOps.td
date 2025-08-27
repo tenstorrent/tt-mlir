@@ -1955,7 +1955,8 @@ def TTNN_FullOp : TTNN_CreationOp<"full",
 
 }
 
-def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {
+def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Constant op.";
     let description = [{
       Produces tensor filled with given constant value.

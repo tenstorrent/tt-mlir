@@ -974,5 +974,16 @@ struct OpModel<mlir::tt::ttnn::FullOp> {
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ConstantOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid, mlir::ElementsAttr value,
+                   TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

@@ -21,7 +21,7 @@ namespace mlir::tt::ttir {
 uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
-    if (op->hasTrait<tt::ttir::detail::TensorManipulationTrait>()) {
+    if (op->hasTrait<tt::ttir::TensorManipulation::Trait>()) {
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
       if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
