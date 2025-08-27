@@ -70,17 +70,20 @@ public:
 
     Conv2dOpType newConv;
     if constexpr (std::is_same_v<Conv2dOpType, ttir::ConvTranspose2dOp>) {
-      newConv = ttir::utils::createDPSOp<Conv2dOpType>(
+      newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
           rewriter, op.getLoc(), getNHWFlattenedType(outputType),
           flattenedInput, adaptor.getWeight(), adaptor.getBias(),
           adaptor.getStride(), adaptor.getPadding(), adaptor.getOutputPadding(),
           adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
-    } else {
-      newConv = ttir::utils::createDPSOp<Conv2dOpType>(
+    } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
+      newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), getNHWFlattenedType(outputType),
           flattenedInput, adaptor.getWeight(), adaptor.getBias(),
           adaptor.getStride(), adaptor.getPadding(), adaptor.getDilation(),
           adaptor.getGroups(), flattenedCompatInfoAttr);
+    } else {
+      static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
+                    "Unsupported Conv2dOpType");
     }
 
     Value output = generateReshape(newConv, outputType, rewriter);
