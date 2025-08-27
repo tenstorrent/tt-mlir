@@ -4,10 +4,10 @@
 
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRUtils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -140,6 +140,7 @@ private:
 };
 } // namespace
 
+namespace {
 class TosaToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<tosa::ReshapeOp> {
   using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
@@ -148,15 +149,6 @@ class TosaToTTIRReshapeOpConversionPattern
 public:
   LogicalResult
   matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
-
-namespace {
-class TosaToTTIRClampOpConversionPattern
-    : public OpConversionPattern<tosa::ClampOp> {
-  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -168,35 +160,34 @@ public:
     return success();
   }
 };
+} // namespace
 
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
-    FloatAttr minValAttr;
-    FloatAttr maxValueAttr;
+  FloatAttr minValAttr;
+  FloatAttr maxValueAttr;
 
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
-      minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
-    } else {
-      minValAttr = rewriter.getF32FloatAttr(
-          cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
-    }
-
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
-      maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
-    } else {
-      maxValueAttr = rewriter.getF32FloatAttr(
-          cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
-    }
-
-    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
-        maxValueAttr);
-
-    return success();
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
+    minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+  } else {
+    minValAttr = rewriter.getF32FloatAttr(
+        cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
   }
-};
-} // namespace
+
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
+    maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+  } else {
+    maxValueAttr = rewriter.getF32FloatAttr(
+        cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
+  }
+
+  ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+      rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
+      maxValueAttr);
+
+  return success();
+}
 
 namespace {
 class TosaToTTIRConcatOpConversionPattern
@@ -435,48 +426,48 @@ void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
                                                 TypeConverter &typeConverter) {
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
-  
-static void addMatmulOpsConversionPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
-}
 
-static void addReductionOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceMaxOp,
-                                                   mlir::tt::ttir::MaxOp>>(
-      typeConverter, ctx);
-  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceSumOp,
-                                                   mlir::tt::ttir::SumOp>>(
-      typeConverter, ctx);
-}
+  static void addMatmulOpsConversionPatterns(MLIRContext * ctx,
+                                             RewritePatternSet & patterns,
+                                             TypeConverter & typeConverter) {
+    patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
+  }
 
-static void addPoolingOpsConversionPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
-}
+  static void addReductionOpsConversionPatterns(MLIRContext * ctx,
+                                                RewritePatternSet & patterns,
+                                                TypeConverter & typeConverter) {
+    patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceMaxOp,
+                                                     mlir::tt::ttir::MaxOp>>(
+        typeConverter, ctx);
+    patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceSumOp,
+                                                     mlir::tt::ttir::SumOp>>(
+        typeConverter, ctx);
+  }
 
-namespace mlir::tt {
+  static void addPoolingOpsConversionPatterns(MLIRContext * ctx,
+                                              RewritePatternSet & patterns,
+                                              TypeConverter & typeConverter) {
+    patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
+  }
 
-void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter) {
-  addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
-  addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
-  addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
-  addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
-  addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
-  addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
-  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
-  addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
-  addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+  namespace mlir::tt {
 
-  patterns.add<TosaToTTIRClampOpConversionPattern,
-               TosaToTTIRConcatOpConversionPattern,
-               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
-}
+  void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  TypeConverter &typeConverter) {
+    addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
+    addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+    addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
+    addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
+    addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
+    addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+    addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
+    addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+    addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
+    addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
 
-} // namespace mlir::tt
+    patterns.add<TosaToTTIRClampOpConversionPattern,
+                 TosaToTTIRConcatOpConversionPattern,
+                 TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+  }
+
+  } // namespace mlir::tt
