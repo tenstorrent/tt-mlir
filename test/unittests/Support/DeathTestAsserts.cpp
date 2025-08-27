@@ -124,11 +124,11 @@ TEST(AssertsDeathTest, IntegralRangeChecks) {
           in_exclusive_range\\(y, 2, 3\\)) "y \\(2\\) is not in \\(2, 3\\)");
 }
 
-// Check that TT_debug* asserts are elided when TTMLIR_ENABLE_DEBUG_LOGS is
-// undefined.
+// Check that TT_debug* asserts are elided when TT_ASSERT_ENABLE_DEBUG_ASSERTS
+// is undefined.
 
 TEST(AssertsDeathTest, MacroElision) {
-#if !defined(TTMLIR_ENABLE_DEBUG_LOGS)
+#if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
   // These should be elided and not abort the process.
 
   TT_debug(2 < 1);
@@ -136,7 +136,7 @@ TEST(AssertsDeathTest, MacroElision) {
 
   TT_debugv(2 + 2 != 4, "was hoping against hope");
 
-#endif // TTMLIR_ENABLE_DEBUG_LOGS
+#endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 }
 
 #undef TT_STANDARD_ASSERT_MSG_PREFIX

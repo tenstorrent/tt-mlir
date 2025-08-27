@@ -20,12 +20,14 @@ namespace ttmlir::utils::asserts {
 // and are meant to be used in tight loops and similar situations where
 // invariant checking overhead should be remoed from the final product.
 //
-// These debug macros are enabled when TT_ASSERT_ENABLE_DEBUG_CHECKS is defined
+// These debug macros are enabled when TT_ASSERT_ENABLE_DEBUG_ASSERTS is defined
 // which by default happens when TTMLIR_ENABLE_DEBUG_LOGS is defined.
 
+#if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
-#define TT_ASSERT_ENABLE_DEBUG_CHECKS
+#define TT_ASSERT_ENABLE_DEBUG_ASSERTS
 #endif // TTMLIR_ENABLE_DEBUG_LOGS
+#endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 // The default behavior for a triggered assert is to print a message (to
 // TT_ASSERT_REPORT_STREAM()) and std::abort the process. Redefine
@@ -345,7 +347,7 @@ decltype(auto) unsigned_cast(T x) {
 
 #define TT_assert(condition)                                                  \
   do {                                                                        \
-    if (!TT_ASSERT_UNLIKELY(condition)) {                                     \
+    if (TT_ASSERT_UNLIKELY(!(condition))) {                                   \
       (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )            \
         .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition); \
       TT_ASSERT_FAILURE();                                                    \
@@ -360,7 +362,7 @@ decltype(auto) unsigned_cast(T x) {
 
 #define TT_assertv(condition, /* message[, args...] */...)                    \
   do {                                                                        \
-    if (!TT_ASSERT_UNLIKELY(condition)) {                                     \
+    if (TT_ASSERT_UNLIKELY(!(condition))) {                                   \
       (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )            \
         .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition, \
                 llvm::formatv(__VA_ARGS__).str());                            \
@@ -389,7 +391,7 @@ decltype(auto) unsigned_cast(T x) {
 
 // ............................................................................
 
-#ifdef TT_ASSERT_ENABLE_DEBUG_CHECKS
+#ifdef TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 # define TT_debug(condition)                            TT_assert(condition)
 # define TT_debugv(condition, /* message[, args] */...) TT_assertv(condition, __VA_ARGS__)
@@ -399,7 +401,7 @@ decltype(auto) unsigned_cast(T x) {
 # define TT_debug_exclusive_range(x, a, b)              TT_assert_exclusive_range(x, a, b)
 # define TT_debug_inclusive_range(x, a, b)              TT_assert_inclusive_range(x, a, b)
 
-#else // !TT_ASSERT_ENABLE_DEBUG_CHECKS
+#else // !TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 # define TT_debug(condition)                            ((void)0)
 # define TT_debugv(condition, /* message[, args] */...) ((void)0)
@@ -409,7 +411,7 @@ decltype(auto) unsigned_cast(T x) {
 # define TT_debug_exclusive_range(x, a, b)              ((void)0)
 # define TT_debug_inclusive_range(x, a, b)              ((void)0)
 
-#endif // TT_ASSERT_ENABLE_DEBUG_CHECKS
+#endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 // clang-format on
 // ............................................................................
