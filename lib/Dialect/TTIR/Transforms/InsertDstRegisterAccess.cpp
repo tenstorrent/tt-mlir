@@ -25,7 +25,10 @@ template <typename GenericOrFuncOp>
 struct TTIRInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOrFuncOp> {
 public:
-  using OpRewritePattern<GenericOrFuncOp>::OpRewritePattern;
+  TTIRInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx,
+                                      const bool useTileMatmul)
+      : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul) {};
+  bool useTileMatmul;
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -83,9 +86,9 @@ public:
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
-          if (hasTileMatmul(linalgGenericOp)) {
-            linalgToAffineFailed |= expandTileMatmul(rewriter, op, region,
-                                                     linalgGenericOp, modified);
+          if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, region, linalgGenericOp, modified);
             return;
           }
 
@@ -302,16 +305,16 @@ public:
     return hasTileMatmul;
   }
   /*
-    Expand a linalg.generic op that contains a tile_matmul into a matmul_block.
+    Expand a linalg.generic op that contains a tile_matmul into a
+    tile_matmul_block.
 
     - Uses the linalg.generic and affine semantics to generate copy/pack loops.
-    - Deletes the compute loop nest since matmul_block includes the loops inside
-    it.
+    - Deletes the compute loop nest since tile_matmul_block includes the loops
+    inside it.
   */
-  static bool expandTileMatmul(PatternRewriter &rewriter, GenericOp op,
-                               Region &region,
-                               linalg::GenericOp linalgGenericOp,
-                               bool &modified) {
+  static bool rewriteTileMatmulAsTileMatmulBlock(
+      PatternRewriter &rewriter, GenericOp op, Region &region,
+      linalg::GenericOp linalgGenericOp, bool &modified) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -518,7 +521,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRInsertDstRegisterAccessRewriter<GenericOp>,
                  TTIRInsertDstRegisterAccessRewriter<func::FuncOp>>(
-        &getContext());
+        &getContext(), useTileMatmul);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
