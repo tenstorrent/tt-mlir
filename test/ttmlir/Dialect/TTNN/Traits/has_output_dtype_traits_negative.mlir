@@ -10,7 +10,7 @@ module {
   }
 }
 
-// CHECK: error: 'ttnn.multiply' op Output tensor layout data type bf16 must match output data type attribute f32
+// CHECK: error: 'ttnn.multiply' op output tensor layout data type bf16 must match output data type attribute f32
 
 // -----
 #dram = #ttnn.buffer_type<dram>
@@ -24,4 +24,4 @@ module {
   }
 }
 
-// CHECK: error: 'ttnn.multiply' op Output data type attribute is not defined for op that has output layout attribute.
+// CHECK: error: 'ttnn.multiply' op output data type attribute is not defined for op that has output layout attribute.

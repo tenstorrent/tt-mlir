@@ -4933,3 +4933,25 @@ class TTIRBuilder(Builder):
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
         )
+
+    def zeros_like(self, in0: Operand, unit_attrs: Optional[List[str]] = None):
+        return self._op_proxy(
+            ttir.ZerosLikeOp,
+            [in0],
+            organize_ttir_args=lambda i, o, _: (
+                i[0],
+                o,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def ones_like(self, in0: Operand, unit_attrs: Optional[List[str]] = None):
+        return self._op_proxy(
+            ttir.OnesLikeOp,
+            [in0],
+            organize_ttir_args=lambda i, o, _: (
+                i[0],
+                o,
+            ),
+            unit_attrs=unit_attrs,
+        )

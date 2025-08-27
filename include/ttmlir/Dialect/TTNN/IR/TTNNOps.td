@@ -1918,6 +1918,46 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
+class TTNN_NamedFullLikeOp <string mnemonic, list<Trait> traits = []> :
+TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait] # traits> {
+  let summary = "Creates a tensor filled with a specific value, with the same properties as the input tensor.";
+  let description = [{
+    Tensor operation to create a tensor filled with a specific value, matching the shape and type of the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_ZerosLikeOp : TTNN_NamedFullLikeOp<"zeros_like"> {
+  let summary = "Creates a tensor filled with zeros, with the same properties as the input tensor.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros, matching the shape and type of the input tensor.
+
+    Example:
+      %0 = "ttnn.zeros_like"(%1) : (tensor<64x28x28xbf16>) -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+}
+
+def TTNN_OnesLikeOp : TTNN_NamedFullLikeOp<"ones_like"> {
+  let summary = "Creates a tensor filled with ones, with the same properties as the input tensor.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones, matching the shape and type of the input tensor.
+
+    Example:
+      %0 = "ttnn.ones_like"(%1) : (tensor<64x28x28xbf16>) -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+}
+
 def TTNN_FullOp : TTNN_CreationOp<"full",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {

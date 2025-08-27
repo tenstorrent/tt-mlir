@@ -1027,7 +1027,7 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
   ArrayRef<int64_t> outputShape = output.getShape();
 
   if (shape != outputShape) {
-    return op.emitOpError("Output tensor shape must be ")
+    return op.emitOpError("output tensor shape must be ")
            << shape << ", but got " << outputShape;
   }
 
@@ -1040,6 +1040,43 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
 
 ::mlir::LogicalResult mlir::tt::ttnn::OnesOp::verify() {
   return namedOpVerify(*this);
+}
+
+//===----------------------------------------------------------------------===//
+// NamedFullLikeOp
+//===----------------------------------------------------------------------===//
+
+template <typename Op>
+static ::mlir::LogicalResult namedFullLikeOpVerify(Op op) {
+  RankedTensorType output = op.getResult().getType();
+  ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = output.getShape();
+
+  if (inputShape != outputShape) {
+    return op.emitOpError() << "output tensor shape must be (" << inputShape
+                            << "), but got (" << outputShape << ")";
+  }
+
+  // TODO(#4610): We should remove this check once we create a verifier for
+  // output layout trait
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+
+  if (op.getLayout() != layoutAttr.getLayout()) {
+    return op.emitOpError()
+           << "output tensor layout " << stringifyLayout(layoutAttr.getLayout())
+           << " must match layout attribute "
+           << stringifyLayout(*op.getLayout());
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::ZerosLikeOp::verify() {
+  return namedFullLikeOpVerify(*this);
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::OnesLikeOp::verify() {
+  return namedFullLikeOpVerify(*this);
 }
 
 //===----------------------------------------------------------------------===//

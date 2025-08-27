@@ -4979,6 +4979,67 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
+class TTIR_NamedFullLikeOp <string mnemonic, list<Trait> traits = []> :
+  TTIR_NamedOp<mnemonic, [SameOperandsAndResultType] # traits> {
+  let summary = "Base class that creates a tensor with the same properties as the input tensor, filled with a predefined constant value (e.g., zero or one).";
+  let description = [{
+    The `TTIR_NamedFullLikeOp` class serves as a base class for tensor creation operations that
+    generate tensors with the specified properties of an input tensor and fill them with predefined values.
+
+    This class is used by operations like `zeros_like` and `ones_like` that create tensors with a
+    properties derived from the input tensor (e.g. like shape, element type) and initialize all elements to the same value.
+
+    Attributes:
+    - `input` (Tensor): The input tensor to create a like tensor from.
+
+    Outputs:
+    - `result` (Tensor): The created tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ZerosLikeOp : TTIR_NamedFullLikeOp<"zeros_like">
+{
+  let summary = "Creates a tensor filled with zeros with the same shape and type as the input tensor.";
+  let description = [{
+    The `zeros_like` operation creates a new tensor with the same shape and element type
+    as the input tensor, but with all elements initialized to zero.
+
+    Example:
+    ```mlir
+    // Input tensor %input
+    // [[2.3, 3.2],
+    //  [4.0, 5.0]]
+    %result = ttir.zeros_like (%input) : tensor<2x2xf32> -> tensor<2x2xf32>
+    // Result: [[0.0, 0.0],
+    //          [0.0, 0.0]]
+    ```
+  }];
+}
+
+def TTIR_OnesLikeOp : TTIR_NamedFullLikeOp<"ones_like">
+{
+  let summary = "Creates a tensor filled with ones with the same shape and type as the input tensor.";
+  let description = [{
+    The `ones_like` operation creates a new tensor with the same shape and element type
+    as the input tensor, but with all elements initialized to one.
+
+    Example:
+    ```mlir
+    // Input tensor %input
+    // [[2.3, 3.2],
+    //  [4.0, 5.0]]
+    %result = ttir.ones_like %input : tensor<2x2xf32> -> tensor<2x2xf32>
+    // Result: [[1.0, 1.0],
+    //          [1.0, 1.0]]
+    ```
+  }];
+}
+
 def TTIR_EmptyOp : TTIR_CreationOp<"empty",
   [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                       , "bufferizesToMemoryWrite"
