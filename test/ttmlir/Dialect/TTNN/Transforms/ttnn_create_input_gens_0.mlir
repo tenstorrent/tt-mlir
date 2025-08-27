@@ -3,7 +3,7 @@
 
 module {
 	// CHECK-LABEL: @add_const_eval_0
-	// CHECK: @add(
+	// CHECK-LABEL: @add(
 
 	// CHECK-LABEL: @create_inputs_for_add
 	// CHECK: "ttnn.ones"
