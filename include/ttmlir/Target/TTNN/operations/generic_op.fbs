@@ -69,9 +69,7 @@ table KernelArgBufferAddressOfTensor {
 }
 
 table KernelArgSemaphore {
-  // core_type : CoreType
-  core_ranges : tt.target.ttnn.CoreRangeSet;
-  initial_value : uint32 = 0;
+  semaphore_id : uint32;
 }
 
 union KernelArgType {
