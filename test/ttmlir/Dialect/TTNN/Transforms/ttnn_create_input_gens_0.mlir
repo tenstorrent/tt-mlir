@@ -3,7 +3,7 @@
 
 module {
 	// CHECK-LABEL: @add_const_eval_0
-  // CHECK: @add(
+	// CHECK: @add(
 
 	// CHECK-LABEL: @create_inputs_for_add
 	// CHECK: "ttnn.ones"
@@ -17,6 +17,6 @@ module {
 		%1 = "ttir.add"(%arg0, %arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 		%2 = ttir.empty() : tensor<32x32xbf16>
 		%3 = "ttir.subtract"(%arg1, %1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %3 : tensor<32x32xbf16>
+		return %3 : tensor<32x32xbf16>
   }
 }
