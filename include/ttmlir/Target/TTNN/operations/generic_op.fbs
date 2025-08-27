@@ -81,8 +81,12 @@ union KernelArgType {
   KernelArgSemaphore,
 }
 
+table KernelArg {
+  arg : KernelArgType;
+}
+
 table KernelCoreArgs {
-  args: [KernelArgType];
+  args: [KernelArg];
 }
 
 table KernelCoreRTArgs {
