@@ -37,66 +37,51 @@ public:
                    ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
                    ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
                    AffineMap gridIndexingMap) {
-    assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
-    assert(dmaIndexingMap.getNumResults() == shardShape.size());
-    assert(gridIndexingMap.isProjectedPermutation() &&
-           "Grid indexing map must be a permutation");
-
     SmallVector<Value> streamIndex;
     SmallVector<int64_t> indexBounds;
-    streamIndex.reserve(dmaIndexingMap.getNumResults());
-    indexBounds.reserve(dmaIndexingMap.getNumResults());
+
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
-      unsigned dim = dmaIndexingMap.getDimPosition(result);
-      std::optional<unsigned> gridResult =
-          gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
-      //
-      // The following assert is pretty subtle. If this operand dimension
-      // participates in the grid, for now we must assert that the relative grid
-      // result is the same as the operand result. This protects against
-      // permutations of the grid, ie. transposes.  For example, let's consider
-      // a matmul case:
-      //   dmaIndexingMap:  (m, n, k) -> (m, k)
-      //   dmaIndexingMap:  (m, n, k) -> (k, n)
-      //   gridIndexingMap: (m, n, k) -> (m, n)
-      //                                     ^
-      // This assert ensures that the m's line up. A counter example would be:
-      //   dmaIndexingMap:  (m, n, k) -> (m, k)
-      //   gridIndexingMap: (m, n, k) -> (n, m)
-      //
-      // Not currently supported.
-      //
-      assert(!gridResult || *gridResult == result);
-      bool isGridDim = gridResult.has_value();
-      Value iterIndex = builder.create<IterIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
-      Value index;
-      if (isGridDim) {
-        // The grid dimension is always 1-1 with the result position.  Consider
-        // the case where interchange moves k to the outermost loop. We'd have
-        // output map: (k, m, n) -> (m, n)
-        // In this example we want (m, n) to map to grid dims (0, 1) (not their
-        // dim positions i.e. (1, 2)).
-        const unsigned gridDim = result;
+      // Get which iteration dimension maps to this result in the DMA map
+      unsigned dmaDim = dmaIndexingMap.getDimPosition(result);
 
-        // gridI * blockFactorI + iterI
+      // Check if this result participates in the grid
+      AffineExpr dmaExpr = dmaIndexingMap.getResult(result);
+      std::optional<unsigned> gridResult =
+          gridIndexingMap.getResultPosition(dmaExpr);
+
+      Value index;
+      if (gridResult.has_value()) {
+        // This dimension participates in the grid
+        // Find which iteration dimension it corresponds to in the grid map
+        unsigned gridPos = *gridResult;
+        unsigned gridIterDim = gridIndexingMap.getDimPosition(gridPos);
+
+        Value iterIndex =
+            builder.create<IterIndexOp>(loc, builder.getIndexType(),
+                                        builder.getI64IntegerAttr(gridIterDim));
+
         Value blockFactor = builder.create<arith::ConstantOp>(
             loc, builder.getIndexType(),
-            builder.getIndexAttr(blockFactors[dim]));
-        index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-                                            builder.getI64IntegerAttr(gridDim));
+            builder.getIndexAttr(blockFactors[gridIterDim]));
+
+        Value coreIndex = builder.create<CoreIndexOp>(
+            loc, builder.getIndexType(), builder.getI64IntegerAttr(gridPos));
+
         index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
-                                              index, blockFactor);
+                                              coreIndex, blockFactor);
         index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
                                               index, iterIndex);
       } else {
-        index = iterIndex;
+        // Non-grid dimension, use the DMA's iteration dimension directly
+        index = builder.create<IterIndexOp>(loc, builder.getIndexType(),
+                                            builder.getI64IntegerAttr(dmaDim));
       }
+
       streamIndex.push_back(index);
       indexBounds.push_back(gridShape[result]);
     }
+
     return std::make_tuple(streamIndex, indexBounds);
   }
 

@@ -752,11 +752,8 @@ public:
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
     auto permutation = op.getPermutation();
-
-    // Only support 2D transpose
     assert(permutation.size() == 2 && permutation[0] == 1 &&
-           permutation[1] == 0 &&
-           "Only 2D transpose permutation [1, 0] is currently supported");
+           permutation[1] == 0 && "Only 2D transpose supported");
 
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
@@ -769,27 +766,57 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    const std::size_t numInputs = inputs.size();
-    const std::size_t numOutputs = outputs.size();
+    // Create transpose view for input (your existing view creation code)
+    auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    auto inputShape = inputTensorType.getShape();
+    const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
 
-    // Create affine maps for 2D transpose
-    // Input map: (d0, d1) -> (d1, d0)
-    // Output map: (d0, d1) -> (d0, d1)
-    auto inputMap = AffineMap::get(
-        2, 0, {rewriter.getAffineDimExpr(1), rewriter.getAffineDimExpr(0)},
-        ctx);
-    auto outputMap = rewriter.getMultiDimIdentityMap(2);
+    SmallVector<AffineExpr> results;
+    results.reserve(deviceRank);
+    results.push_back(rewriter.getAffineDimExpr(1));
+    results.push_back(rewriter.getAffineDimExpr(0));
+    for (unsigned i = 2; i < deviceRank; ++i) {
+      results.push_back(rewriter.getAffineDimExpr(i));
+    }
+    AffineMap transposeMap = AffineMap::get(deviceRank, 0, results, ctx);
 
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+    AffineMap composedMap = transposeMap.compose(
+        inputLayout.getViewAffineMapOrIdentity(deviceRank));
+
+    auto resultLayout = ttcore::MetalLayoutAttr::get(
+        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), composedMap);
+
+    SmallVector<int64_t> resultDeviceShape(inputShape.begin(),
+                                           inputShape.end());
+    if (resultDeviceShape.size() >= 2) {
+      std::swap(resultDeviceShape[0], resultDeviceShape[1]);
+    }
+
+    auto viewType = mlir::RankedTensorType::get(
+        resultDeviceShape, inputTensorType.getElementType(), resultLayout);
+
+    auto view = rewriter.create<ttir::ViewLayoutOp>(
+        loc, viewType, inputs[0], /*reinterpretLayout=*/false);
+
+    // NOW CREATE THE GENERIC OP WITH TILE TRANSPOSE
+    inputs[0] = view.getResult(); // Use the view as input
+
+    // Identity maps since grid shapes now match
+    auto identityMap = rewriter.getMultiDimIdentityMap(2);
     SmallVector<mlir::Attribute> iteratorTypes(
         2, ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
-    // Create ttir.generic for the transpose
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs,
-        rewriter.getAffineMapArrayAttr({inputMap, outputMap}),
+        rewriter.getAffineMapArrayAttr({identityMap, identityMap}),
         rewriter.getArrayAttr(iteratorTypes));
 
-    // Create the block with tile transpose operation
+    // Create block with tile transpose
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {
@@ -799,19 +826,35 @@ public:
       auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
                                             TypeRange(outputs));
 
-      // Create tile transpose block operation
-      // This will transpose data within tiles AND rearrange tile layout
-      rewriter.create<ttir::TileTransposeBlockOp>(loc, mlir::TypeRange(),
-                                                  blockArgs);
+      SmallVector<mlir::AffineMap> linalgIndexingMaps = {identityMap,
+                                                         identityMap};
+      SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+          iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+      auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+          loc,
+          llvm::to_vector(mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+          blockArgs.take_front(1), blockArgs.take_back(1), linalgIndexingMaps,
+          linalgIteratorTypes,
+          [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+              mlir::ValueRange bbArgs) {
+            mlir::Value yield = bbBuilder.create<ttir::TileTransposeOp>(
+                bbLoc, bbArgs.take_back(1).getTypes(), bbArgs.take_front(1));
+            bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+          });
+
+      rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
+    // Now replace with the generic's result
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return llvm::success();
   }
 };
+} // namespace
 } // namespace mlir::tt
 
 namespace mlir::tt {

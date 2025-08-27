@@ -81,6 +81,7 @@ static Value getDstIdxFromResult(Value ttirOpResult) {
   memref::StoreOp storeOp;
   for (Operation *op : ttirOpResult.getUsers()) {
     auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+    llvm::errs() << maybeStore << "\n";
     if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
                           ttcore::MemorySpace::RegisterDst) {
       storeOp = mlir::cast<memref::StoreOp>(op);
@@ -212,6 +213,8 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+
+    llvm::errs() << "MemrefStoreRewriter::matchAndRewrite\n";
     auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
@@ -502,6 +505,50 @@ public:
     rewriter.eraseOp(op);
     return success();
   };
+};
+} // namespace
+
+namespace {
+class TTIRTileTransposeRewriter
+    : public OpConversionPattern<ttir::TileTransposeOp> {
+public:
+  using OpConversionPattern<ttir::TileTransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TileTransposeOp op,
+                  ttir::TileTransposeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    llvm::errs() << "TTIRTileTransposeRewriter::matchAndRewrite\n";
+
+    // TileTransposeOp is a unary op that takes an input tile and produces
+    // an output tile It's similar to other SFPU ops but operates on tiles
+
+    // Get the input CB (where the tile data comes from)
+    Value inCB = getInCB(rewriter, op);
+
+    // Get the output CB (where the result will be packed)
+    Value outCB = getOutCB(rewriter, op);
+
+    // Initialize the transpose operation
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    rewriter.create<ttkernel::TransposeInitOp>(op->getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    // Get the tile index from the input operand
+    Value tileIndex = adaptor.getInput();
+
+    // Get the destination index where the result will be stored
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    // Perform the transpose operation
+    // transpose_wh_tile(icb, itile, idst)
+    rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
+                                               dstIdx);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -1150,6 +1197,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
+               ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
