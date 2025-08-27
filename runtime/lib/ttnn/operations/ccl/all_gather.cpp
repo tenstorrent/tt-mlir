@@ -44,6 +44,11 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
       meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
                               tt::tt_metal::SubDeviceId{0}),
       0, tt::tt_metal::BufferType::L1));
+  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
+      &meshDevice,
+      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
+                              tt::tt_metal::SubDeviceId{0}),
+      0, tt::tt_metal::BufferType::L1));
 
   out = ::ttnn::experimental::all_gather_async(
       input, allGatherDim, clusterAxis, meshDevice,
