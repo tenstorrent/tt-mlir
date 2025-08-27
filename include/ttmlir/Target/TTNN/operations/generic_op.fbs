@@ -85,12 +85,16 @@ table KernelCoreArgs {
   args: [KernelArgType];
 }
 
+table KernelCoreRTArgs {
+  args: [KernelCoreArgs];
+}
+
 table KernelDescriptor {
   kernel_source : string;
   kernel_config : KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
-  rt_args: [KernelCoreArgs];
+  rt_args: [KernelCoreRTArgs];
   common_rt_args: KernelCoreArgs;
 }
 
