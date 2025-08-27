@@ -211,7 +211,7 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
+    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/2);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
@@ -375,7 +375,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
+        const AllocSizeT sizeBytes =
+            device.getMemrefSizeBytes(memrefTy, 0, true);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 

@@ -220,7 +220,8 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
   // Shard shape is the fully collapsed shard down to 2D, so:
   //   [d0 * ... * dN-2, dN-1]
-  target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
+  target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
+                               shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
@@ -231,7 +232,8 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
   assert(tensorShape[1] % pageShape.x() == 0);
-  target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
+  target::Dim2d tensorShapeInPages((tensorShape[0] / pageShape.y()) *
+                                       shardLayout.getBuffers(),
                                    tensorShape[1] / pageShape.x());
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
