@@ -1,4 +1,4 @@
-message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}] CUDA[${TT_RUNTIME_ENABLE_CUDA}]")
+message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}] CUDA[${TTMLIR_ENABLE_CUDA}]")
 
 add_subdirectory(common)
 add_subdirectory(ttnn)

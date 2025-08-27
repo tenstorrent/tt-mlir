@@ -70,7 +70,7 @@ module @MNISTLinear attributes {} {
 ## Running the Tests
 
 ### Prerequisites
-1. Build tt-mlir with CUDA support (TT_RUNTIME_ENABLE_CUDA)
+1. Build tt-mlir with CUDA support (TTMLIR_ENABLE_CUDA)
 2. Ensure CUDA drivers and runtime are available
 3. Build the tests
 

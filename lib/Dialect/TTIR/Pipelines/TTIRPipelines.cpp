@@ -168,7 +168,7 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   transforms::EmbedCudaTargetAttributesOptions embedCudaTargetAttributesOptions;
   embedCudaTargetAttributesOptions.chip = options.chip;
   embedCudaTargetAttributesOptions.features = options.features;
-  embedCudaTargetAttributesOptions.optLevel = options.optLevel;
+  embedCudaTargetAttributesOptions.opt_level = options.optLevel;
   manager.addPass(transforms::createEmbedCudaTargetAttributes(
       embedCudaTargetAttributesOptions));
 }

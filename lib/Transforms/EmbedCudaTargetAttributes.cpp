@@ -6,7 +6,6 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
 
 namespace mlir::tt::transforms {
 
@@ -20,8 +19,8 @@ class EmbedCudaTargetAttributesPass
     : public impl::EmbedCudaTargetAttributesBase<
           EmbedCudaTargetAttributesPass> {
 private:
-  std::string chipArch = "sm_80";
-  std::string ptxFeatures = "+ptx70";
+  std::string chipArch = "sm_50";
+  std::string ptxFeatures = "+ptx50";
   int32_t optimizationLevel = 2;
 
 public:
@@ -29,14 +28,14 @@ public:
 
   EmbedCudaTargetAttributesPass(EmbedCudaTargetAttributesOptions options)
       : chipArch(options.chip), ptxFeatures(options.features),
-        optimizationLevel(options.optLevel) {}
+        optimizationLevel(options.opt_level) {}
 
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
     OpBuilder builder(moduleOp.getContext());
     moduleOp->setAttr("cuda.chip", builder.getStringAttr(chipArch));
     moduleOp->setAttr("cuda.features", builder.getStringAttr(ptxFeatures));
-    moduleOp->setAttr("cuda.optLevel",
+    moduleOp->setAttr("cuda.opt_level",
                       builder.getI32IntegerAttr(optimizationLevel));
   }
 };

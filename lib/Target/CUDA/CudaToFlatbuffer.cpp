@@ -24,11 +24,9 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
-#include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/TargetRegistry.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -43,10 +41,9 @@ namespace mlir::tt::cuda {
 
 // Helper function to extract CUDA chip information from module attributes.
 static std::string getCudaChipFromModule(Operation *moduleOp) {
-  if (auto chipAttr = moduleOp->getAttrOfType<StringAttr>("cuda.chip")) {
-    return chipAttr.getValue().str();
-  }
-  return "sm_80";
+  auto chipAttr = moduleOp->getAttrOfType<StringAttr>("cuda.chip");
+  assert(chipAttr && "CUDA chip attribute not found");
+  return chipAttr.getValue().str();
 }
 
 llvm::Expected<std::string> translateToPTX(Operation *op,
@@ -68,7 +65,6 @@ llvm::Expected<std::string> translateToPTX(Operation *op,
   pm.addPass(transforms::createExtractGPUModules());
 
   if (failed(pm.run(moduleOp))) {
-    moduleOp.erase();
     return llvm::createStringError(
         "Failed to run GPU to LLVM conversion passes");
   }
@@ -79,7 +75,6 @@ llvm::Expected<std::string> translateToPTX(Operation *op,
   auto llvmModule =
       translateModuleToLLVMIR(moduleOp, llvmContext, "gpu-module");
   if (!llvmModule) {
-    moduleOp.erase();
     return llvm::createStringError("Failed to translate MLIR to LLVM IR");
   }
 
@@ -179,15 +174,22 @@ static std::vector<uint8_t> serializeTypedAttrToBytes(TypedAttr attr) {
     }
   } else if (auto floatAttr = llvm::dyn_cast<FloatAttr>(attr)) {
     APFloat value = floatAttr.getValue();
+    Type elementType = floatAttr.getType();
 
-    if (&value.getSemantics() == &APFloat::IEEEsingle()) {
+    if (elementType.isF32()) {
       uint32_t bits = value.bitcastToAPInt().getZExtValue();
       for (size_t i = 0; i < 4; ++i) {
         bytes.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
       }
-    } else if (&value.getSemantics() == &APFloat::IEEEdouble()) {
+    } else if (elementType.isF64()) {
       uint64_t bits = value.bitcastToAPInt().getZExtValue();
       for (size_t i = 0; i < 8; ++i) {
+        bytes.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
+      }
+    } else if (elementType.isF16() || elementType.isBF16()) {
+      uint16_t bits =
+          static_cast<uint16_t>(value.bitcastToAPInt().getZExtValue());
+      for (size_t i = 0; i < 2; ++i) {
         bytes.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
       }
     }
@@ -348,9 +350,11 @@ processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
   auto targetType = cast<MemRefType>(copyOp.getTarget().getType());
   auto layout = dyn_cast<StridedLayoutAttr>(targetType.getLayout());
 
-  ArrayRef<int64_t> strides = layout.getStrides();
-  int64_t offset = layout.getOffset();
+  int64_t offset = 0;
 
+  if (layout) {
+    offset = layout.getOffset();
+  }
   Value source = walkBackToOriginalValue(copyOp.getSource(), copyOp);
   Value target = walkBackToOriginalValue(copyOp.getTarget(), copyOp);
 
@@ -377,14 +381,11 @@ processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
 
   auto sourceNameOffset = fbb.CreateString(sourceName);
   auto targetNameOffset = fbb.CreateString(targetName);
-  std::vector<uint64_t> stridesVector;
-  for (const int64_t &stride : strides) {
-    stridesVector.push_back(static_cast<uint64_t>(stride));
-  }
-  auto stridesOffset = fbb.CreateVector(stridesVector);
 
-  return ::cuda::CreateCopyFunction(fbb, sourceNameOffset, targetNameOffset,
-                                    stridesOffset, offset);
+  auto copyFunctionOffset = ::cuda::CreateCopyFunction(
+      fbb, sourceNameOffset, targetNameOffset, offset);
+
+  return copyFunctionOffset;
 }
 
 flatbuffers::Offset<::cuda::Kernel>
@@ -456,7 +457,6 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
 
   kernel.inputNames = inputNames;
 
-  // Create flatbuffer entries
   auto nameOffset = fbb.CreateString(kernel.name);
   auto ptxOffset = fbb.CreateString(kernel.ptx);
   std::vector<::flatbuffers::Offset<::flatbuffers::String>> inputNameOffsets;
@@ -476,16 +476,6 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
 
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  ::flatbuffers::Offset<cuda::Program> program;
-  std::vector<::cuda::Action> actionTypes;
-  std::vector<::flatbuffers::Offset<void>> actionObjects;
-  std::vector<::flatbuffers::Offset<::cuda::MemRefDesc>> memRefDescs;
-
-  llvm::StringMap<MemRefDesc> memRefDescMap;
-  std::vector<::flatbuffers::Offset<::cuda::Constant>> constants;
-  llvm::StringMap<MemRefDesc> constantMemRefDescMap;
-  llvm::StringMap<cuda::Kernel> kernelMap;
-
   auto getReturnVariableNameResult = getReturnVariableName(rootModule);
   if (auto err = getReturnVariableNameResult.takeError()) {
     llvm::errs() << "Failed to get return variable name: " << err << "\n";
@@ -499,7 +489,11 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
     llvm::errs() << "Failed to extract kernel names: " << err << "\n";
     return nullptr;
   }
-  kernelMap = kernelMapResult.get();
+  auto kernelMap = kernelMapResult.get();
+  llvm::StringMap<MemRefDesc> memRefDescMap;
+  llvm::StringMap<MemRefDesc> constantMemRefDescMap;
+  std::vector<::cuda::Action> actionTypes;
+  std::vector<::flatbuffers::Offset<void>> actionObjects;
 
   rootModule.walk([&](Operation *op) {
     // Process LaunchFuncOp
@@ -508,17 +502,15 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
           launchFuncOp, kernelMap, fbb, memRefDescMap, constantMemRefDescMap);
       actionTypes.push_back(::cuda::Action::Kernel);
       actionObjects.push_back(kernelOffset.Union());
-      llvm::outs() << "Processed operation: " << op->getName() << "\n";
-    }
-
-    // Process CopyOp
-    else if (auto copyOp = dyn_cast<mlir::memref::CopyOp>(op)) {
+    } else if (auto copyOp = dyn_cast<mlir::memref::CopyOp>(op)) {
       auto copyFunction = processCopyOp(copyOp, fbb, rootModule, memRefDescMap);
       actionTypes.push_back(::cuda::Action::CopyFunction);
       actionObjects.push_back(copyFunction.Union());
-      llvm::outs() << "Processed operation: " << op->getName() << "\n";
     }
   });
+
+  std::vector<::flatbuffers::Offset<::cuda::MemRefDesc>> memRefDescs;
+  std::vector<::flatbuffers::Offset<::cuda::Constant>> constants;
 
   processMemRefDescMap(memRefDescMap, fbb, false, memRefDescs, constants);
   processMemRefDescMap(constantMemRefDescMap, fbb, true, memRefDescs,
@@ -546,6 +538,10 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
 
 LogicalResult translateCudaToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
   std::shared_ptr<void> data = cudaToFlatbuffer(op);
+  if (!data) {
+    return failure();
+  }
+
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<const char *>(data.get()), size);
