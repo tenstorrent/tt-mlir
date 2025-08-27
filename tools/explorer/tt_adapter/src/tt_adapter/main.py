@@ -147,8 +147,7 @@ class TTAdapter(model_explorer.Adapter):
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir", "ttnn"],
         settings={
-            "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
-            "isExecutionEnabled": True
+            "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys())
         },
     )
     model_runner = None
