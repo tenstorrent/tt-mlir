@@ -82,7 +82,7 @@ module {
 
       // Check matmul operation uses values from correct memory spaces
       // CHECK: "ttir.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) : (memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>) -> ()
-      
+
       %c0 = arith.constant 0 : index
       %c3_10 = arith.constant 3 : index
       %c3_11 = arith.constant 3 : index
