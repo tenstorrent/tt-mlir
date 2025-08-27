@@ -1786,11 +1786,10 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait,
 }
 
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTCore_CreationOpTrait] # traits>;
+    TTNN_Op<mnemonic, [TTCore_CreationOpTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1807,9 +1806,7 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty",
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_CreationOp<"arange",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1879,8 +1876,7 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait,
-  DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1918,9 +1914,7 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
-def TTNN_FullOp : TTNN_CreationOp<"full",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_FullOp : TTNN_CreationOp<"full"> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -1953,8 +1947,7 @@ def TTNN_FullOp : TTNN_CreationOp<"full",
 
 }
 
-def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>,
-    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
+def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
     let description = [{
       Produces tensor filled with given constant value.

@@ -964,5 +964,19 @@ struct OpModel<ConstantOp> {
                    TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// RandOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::RandOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr size,
+      mlir::tt::ttcore::DataType dtype,
+      mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+      mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
+      uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
