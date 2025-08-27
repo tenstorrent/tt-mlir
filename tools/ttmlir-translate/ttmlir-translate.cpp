@@ -41,7 +41,9 @@ static void registerCustomTranslations() {
     mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     mlir::tt::ttkernel::registerTTKernelToCpp();
     mlir::tt::emitpy::registerToPythonTranslation();
+#ifdef TTMLIR_ENABLE_CUDA
     mlir::tt::cuda::registerCudaToFlatbuffer();
+#endif
     return true;
   }();
   (void)initOnce;
