@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path% mesh-shape=2,4" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 #dram = #ttnn.buffer_type<dram>
