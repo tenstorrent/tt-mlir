@@ -80,6 +80,9 @@ private:
   // Check if operation has exactly one user that is immediate next in schedule.
   bool hasImmediateConsumer(Operation *op) const;
 
+  // Check if operation produces model output (i.e. its user is a return op).
+  bool producesModelOutput(Operation *op) const;
+
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
   void tryUpgradeToL1Interleaved(Operation *op);

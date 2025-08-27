@@ -67,6 +67,14 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
+    // Skip if operation produces model output, no point in moving to L1.
+    if (producesModelOutput(op)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - produces "
+                   "model output.",
+                   op->getName());
+      return;
+    }
     tryUpgradeToL1Interleaved(op);
   });
   TTMLIR_TRACE(
@@ -99,6 +107,13 @@ bool L1InterleavedFallbackAnalysis::hasImmediateConsumer(Operation *op) const {
 
   // Check if the user is the immediate next operation in schedule.
   return consumerOp == userOp;
+}
+
+bool L1InterleavedFallbackAnalysis::producesModelOutput(Operation *op) const {
+  // Get the single user.
+  Operation *userOp = *op->getUsers().begin();
+  // Check if the user is a return op.
+  return isa<mlir::func::ReturnOp>(userOp);
 }
 
 void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
