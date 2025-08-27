@@ -37,7 +37,7 @@ inline std::string getAPITypeStr(APIType type) {
 
 enum class ReasonForLackOfSupport {
   NeedsMemoryIO,
-  MissingMeatlDefinition,
+  MissingMetalDefinition,
   NeedsMultiDevice,
 };
 
@@ -45,7 +45,7 @@ inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
   switch (reason) {
   case ReasonForLackOfSupport::NeedsMemoryIO:
     return "needs memory IO";
-  case ReasonForLackOfSupport::MissingMeatlDefinition:
+  case ReasonForLackOfSupport::MissingMetalDefinition:
     return "missing metal definition";
   case ReasonForLackOfSupport::NeedsMultiDevice:
     return "needs multi-device";
@@ -2567,13 +2567,13 @@ llvm::Expected<op_model::OpConstraints>
 CollectivePermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                       const OpConfig &opConfig) {
   return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 llvm::Expected<size_t>
 CollectivePermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2605,6 +2605,35 @@ ConstantOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// RandOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 0);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
+      deviceGrid, getSize(), getDtype(), getMemoryConfig(), getLayout(),
+      getLow(), getHigh(), getSeed(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RandOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -2612,13 +2641,13 @@ llvm::Expected<op_model::OpConstraints>
 MeshShardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 llvm::Expected<size_t>
 MeshShardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 } // namespace mlir::tt::ttnn
