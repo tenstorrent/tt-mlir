@@ -73,8 +73,8 @@ private:
       outputFeatureDim =
           convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
     } else {
-      llvm_unreachable(
-          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
     }
 
     auto biasShape = bias.getType().getShape();
@@ -498,8 +498,8 @@ private:
       outputFeatureDim =
           convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
     } else {
-      llvm_unreachable(
-          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
     }
 
     auto outputShape =
@@ -565,8 +565,8 @@ private:
       kernelOutputFeatureDim =
           convOp.getConvolutionLayoutAttr().getKernelOutputFeatureDimension();
     } else {
-      llvm_unreachable(
-          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
     }
 
     // Swap between output and kernel output feature dimensions.
