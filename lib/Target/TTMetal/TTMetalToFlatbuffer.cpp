@@ -350,7 +350,11 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       // only generate CircularBufferConfig for L1 memspace
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
-              memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+              isMemrefDeviceL1Memspace(memref)
+                  ? memrefTypeToCircularBufferConfigFlatbuffer(cache, memref,
+                                                               device)
+                  : 0;
+
       bufferDetail = target::metal::CreateMetalBuffer(
                          *cache.fbb, bufferType,
                          target::metal::BufferConfig::ShardedBufferConfig,
