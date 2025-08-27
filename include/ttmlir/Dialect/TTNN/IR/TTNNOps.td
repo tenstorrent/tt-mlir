@@ -2096,7 +2096,9 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute",
     let hasFolder = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Mesh shard op.";
     let description = [{
         Tensor Mesh Shard operation

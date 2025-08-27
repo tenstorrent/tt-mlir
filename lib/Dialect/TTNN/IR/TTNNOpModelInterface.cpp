@@ -2604,4 +2604,21 @@ ConstantOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
 
+//===----------------------------------------------------------------------===//
+// MeshShardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+MeshShardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+}
+
+llvm::Expected<size_t>
+MeshShardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMeatlDefinition);
+}
 } // namespace mlir::tt::ttnn
