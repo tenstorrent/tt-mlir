@@ -8,24 +8,9 @@ enum NocIndex : ushort {
   Noc1,
 }
 
-enum NocMode : uint8 {
-  DM_DEDICATED_NOC,
-  DM_DYNAMIC_NOC,
-}
-
 enum EthType : ushort {
   Sender,
   Receiver,
-}
-
-enum UnpackToDestMode : uint8 {
-  Fp32,
-  Default,
-}
-
-enum DataMovementType : uint8 {
-  RISCV_0,
-  RISCV_1,
 }
 
 table NocConfig {
