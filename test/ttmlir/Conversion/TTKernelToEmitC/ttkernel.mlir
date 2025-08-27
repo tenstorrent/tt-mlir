@@ -747,6 +747,25 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @eq_tiles_init
+    func.func @eq_tiles_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "eq_tiles_init"()
+      "ttkernel.eq_tiles_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @eq_tiles
+    func.func @eq_tiles() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : index
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : index
+      // CHECK: emitc.call_opaque "eq_tiles"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.eq_tiles"(%dst0_index, %dst1_index) : (index, index) -> ()
+      return
+    }
+
+
     // CHECK-LABEL: func @fill_tile_init
     func.func @fill_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "fill_tile_init"()

@@ -96,6 +96,14 @@ def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, requ
         target=target,
     )
 
+    def eq(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.eq(in0, in1, unit_attrs=unit_attrs)
+
 
 def bitwise_not(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2333,7 +2341,7 @@ def test_unary_ops_int32(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.skip_config(["ttmetal"])),
+        eq,
         ne | Marks(pytest.mark.skip_config(["ttmetal"])),
         le | Marks(pytest.mark.skip_config(["ttmetal"])),
         lt | Marks(pytest.mark.skip_config(["ttmetal"])),

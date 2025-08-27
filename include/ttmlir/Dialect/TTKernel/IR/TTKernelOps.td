@@ -1048,6 +1048,35 @@ def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_
     }];
 }
 
+def TTKernel_EqTilesInitOp : TTKernel_InitOp<"eq_tiles_init"> {
+    let summary = "Init function for eq() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before eq_tiles.
+    }];
+
+    let arguments = (ins);
+
+     let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EqTilesOp : TTKernel_SFPUOp<"eq_tiles", [TTKernel_BinaryOpTrait]> {
+    let summary = "Eq operation";
+    let description = [{
+      Performs element-wise equality on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] == DST[dst1_index])
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{
