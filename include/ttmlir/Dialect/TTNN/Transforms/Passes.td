@@ -94,7 +94,7 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
-    This pass identifies all functions in the module that exclusively use tensors as inputs and outputs. It rewrites
+    This pass identifies all public functions in the module that exclusively use tensors as inputs and outputs. It rewrites
     each such function by packing all input arguments into a single tuple and wrapping the return value(s) into a tuple
     type as well.
 

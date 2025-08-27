@@ -19,7 +19,7 @@ module {
     // CHECK: %[[TO_TILE:.*]] = "ttnn.to_layout"(%[[UPSAMPLE]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK: "ttnn.slice"(%[[TO_TILE]])
+    // CHECK: "ttnn.slice_static"(%[[TO_TILE]])
     // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32]
     // CHECK-SAME: ends = [1 : i32, 16 : i32, 16 : i32, 30 : i32]
     %1 = "ttnn.upsample"(%arg0) <{mode = "bilinear", scale_factor = 2 : si32}> : (tensor<1x8x8x30xf32, #layout_tile_interleaved>) -> tensor<1x16x16x30xf32, #layout_tile_interleaved_out>

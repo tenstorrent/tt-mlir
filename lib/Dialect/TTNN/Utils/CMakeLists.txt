@@ -1,4 +1,5 @@
 add_mlir_dialect_library(TTMLIRTTNNUtils
+  Conv2dConfigParams.cpp
   OptimizerOverrides.cpp
   OptimizerUtils.cpp
   PassOverrides.cpp

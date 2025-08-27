@@ -12,7 +12,7 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
-from ttmlir.dialects import stablehlo, sdy
+from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
 from builder.base import builder_golden
@@ -348,3 +348,33 @@ class StableHLOBuilder(Builder):
             A sharding constraint operation that applies the specified sharding to the input tensor
         """
         return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+
+    # ----- Experimental Mpmd Attribute Generators ----
+
+    def experimental_named_mesh_attr(
+        self,
+        name: str,
+        mesh_attr: sdy.MeshAttr,
+    ) -> mpmd.NamedMeshAttr:
+        return mpmd.NamedMeshAttr.get(name, mesh_attr)
+
+    def experimental_topology_attr(
+        self,
+        meshes: List[mpmd.NamedMeshAttr],
+    ) -> mpmd.TopologyAttr:
+        return mpmd.TopologyAttr.get(meshes)
+
+    def experimental_user_origin_attr(
+        self,
+        user_name: str,
+        transpose_count: int = 0,
+    ) -> mpmd.UserOriginAttr:
+        return mpmd.UserOriginAttr.get(
+            user_name=user_name, transpose_count=transpose_count
+        )
+
+    def experimental_origin_attr(
+        self,
+        origin_label: str,
+    ) -> mpmd.OriginAttr:
+        return mpmd.OriginAttr.get(origin_label=origin_label)

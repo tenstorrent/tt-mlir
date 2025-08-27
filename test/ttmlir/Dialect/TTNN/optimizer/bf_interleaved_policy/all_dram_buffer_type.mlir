@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memory-layout-analysis-policy=BFInterleaved" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memory-layout-analysis-policy=BFInterleaved tensor-l1-usage-cap=0.75" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 // XFAIL: *
 #any_device = #ttcore.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>

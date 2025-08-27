@@ -186,10 +186,13 @@ public:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (!funcOp->getUses().empty()) {
-        mlir::WalkResult::skip();
+      if (!funcOp->getUses().empty() ||
+          ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
       }
+
       forwardFuncOps.push_back(funcOp);
+      return mlir::WalkResult::advance();
     });
 
     // Iterate over all func ops and add input tensor generator functions.
@@ -397,10 +400,10 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip functions that are not called anywhere (top-level functions).
+      // Skip private functions.
       //
-      if (!funcOp->getUses().empty()) {
-        mlir::WalkResult::skip();
+      if (funcOp.isPrivate()) {
+        return mlir::WalkResult::skip();
       }
 
       mlir::FunctionType functionType = funcOp.getFunctionType();
@@ -425,6 +428,7 @@ public:
                        [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
         targetFuncOpsResult.push_back(funcOp);
       }
+      return mlir::WalkResult::advance();
     });
 
     // Iterate over all the input target func ops and modify their signatures.

@@ -60,14 +60,6 @@ private:
   // Fetch op's L1 Interleaved layout from legalConfigs.
   bool hasL1BufferType(Operation *op);
   TTNNLayoutAttr getL1InterleavedLayout(Operation *op);
-
-  size_t getAvailableL1CacheSize() const {
-    // Figure out this const based on exec data, but will be replaced
-    // with API.
-    //
-    constexpr float tensorL1UsageCap = 0.75;
-    return tensorL1UsageCap * usableL1CacheSize;
-  }
 };
 
 } // namespace mlir::tt::ttnn

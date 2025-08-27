@@ -669,17 +669,19 @@ public:
 } // namespace
 
 namespace {
-class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+template <typename TTIROpTy, typename TTNNOpTy>
+class SliceOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
-        adaptor.getStep());
+        adaptor.getStepAttr());
     return success();
   }
 };
@@ -937,6 +939,45 @@ public:
 };
 } // namespace
 
+namespace {
+class RMSNormOpConversionPattern : public OpConversionPattern<ttir::RMSNormOp> {
+public:
+  using OpConversionPattern<ttir::RMSNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RMSNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // We need to validate that the normalized_shape matches this constraint.
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> normalizedShape = adaptor.getNormalizedShape();
+
+    // For now, TTNN only support normalization over the last dimension (most
+    // common case).
+    if (normalizedShape.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN RMS norm currently only supports normalization over the "
+              "last dimension");
+    }
+
+    if (normalizedShape[0] != inputShape.back()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN RMS norm requires normalized_shape to match the last "
+              "dimension of input shape");
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -1067,15 +1108,25 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Please run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
     auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
     auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
@@ -1126,28 +1177,14 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Transposed convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C).
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    ttnn::ConvTranspose2dOp newConv = rewriter.create<ttnn::ConvTranspose2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+    rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
+        op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
+        adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
         /*memoryConfig=*/nullptr);
 
-    // Restore the normal shape (N x H x W x C).
-    Value output = ttir_to_ttnn::utils::generateReshape(
-        newConv, outputShape, rewriter,
-        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshape"));
-
-    rewriter.replaceOp(op, output);
     return success();
   }
 
@@ -1237,33 +1274,43 @@ public:
     int32_t paddingBottom = std::get<2>(*paddingQuad);
     int32_t paddingRight = std::get<3>(*paddingQuad);
 
-    // Check for asymmetric padding.
-    if (paddingBottom != paddingTop) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for top/bottom";
+    DenseI32ArrayAttr paddingAttr;
+    // If padding is symmetric along both spatial dimensions, we can use the
+    // {height, width} definition of padding.
+    if (paddingBottom == paddingTop && paddingLeft == paddingRight) {
+      paddingAttr = rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
+    } else {
+      // Otherwise pass {top, left, bottom, right}
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {paddingTop, paddingLeft, paddingBottom, paddingRight});
     }
-
-    if (paddingLeft != paddingRight) {
-      return op.emitOpError() << "only supports lowering to TTNN for symmetric "
-                                 "padding for left/right";
-    }
-
-    DenseI32ArrayAttr paddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingTop, paddingLeft});
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
     auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
-
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), batchSize,
-        adaptor.getFlattenedCompatInfo().getInputHeight(),
-        adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        /*memory_config=*/nullptr,
-        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-        /* in_place_halo=*/false);
+    if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false, adaptor.getCountIncludePad());
+    } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getResult().getType()),
+          adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false);
+    } else {
+      llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+    }
 
     return success();
   }
@@ -1679,7 +1726,7 @@ public:
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
-// ttnn.slice, ttnn.point_to_point, and ttnn.concat ops.
+// ttnn.slice_static, ttnn.point_to_point, and ttnn.concat ops.
 //
 // The goal is to reproduce the behavior expected from StableHLO's all_to_all,
 // which involves redistributing data slices across devices according to the
@@ -1727,7 +1774,7 @@ public:
       ends[splitDim] = (sliceIdx + 1) * splitSize;
 
       // Create a slice for this range
-      ttnn::SliceOp sliceOp = rewriter.create<ttnn::SliceOp>(
+      ttnn::SliceStaticOp sliceOp = rewriter.create<ttnn::SliceStaticOp>(
           loc, sliceOutputType, op.getInput(), rewriter.getI32ArrayAttr(begins),
           rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
       sliceOpResults.push_back(sliceOp.getResult());
@@ -1801,6 +1848,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
+           ElementwiseOpConversionPattern<ttir::LogicalLeftShiftOp, ttnn::LogicalLeftShiftOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
            ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
@@ -1858,12 +1906,14 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
-           SliceOpConversionPattern,
+           SliceOpConversionPattern<ttir::SliceStaticOp, ttnn::SliceStaticOp>,
+           SliceOpConversionPattern<ttir::SliceDynamicOp, ttnn::SliceDynamicOp>,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
            BatchNormOpConversionPattern,
+           RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
