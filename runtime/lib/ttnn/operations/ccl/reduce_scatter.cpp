@@ -23,8 +23,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   int32_t scatterDimension = op->scatter_dim();
   uint32_t clusterAxis = op->cluster_axis();
   uint32_t numLinks = op->num_links();
-//   auto reduceType =
-//       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
+  //   auto reduceType =
+  //       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
 
   LOG_ASSERT(
       input.storage_type() == ::ttnn::StorageType::DEVICE,

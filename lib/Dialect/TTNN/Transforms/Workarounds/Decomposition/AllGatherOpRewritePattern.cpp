@@ -12,7 +12,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult
 TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
-                                              PatternRewriter &rewriter) const {
+                                          PatternRewriter &rewriter) const {
   RankedTensorType inputType = op.getInput().getType();
   int64_t rank = inputType.getRank();
 
@@ -63,7 +63,8 @@ TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
   // all_gather_dim
   auto allGather4D = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_all_gather_4d"),
-      paddedOutputType, reshapeInput.getResult(), op.getDevice(), adjustedGatherDim, op.getClusterAxis());
+      paddedOutputType, reshapeInput.getResult(), op.getDevice(),
+      adjustedGatherDim, op.getClusterAxis());
 
   // Reshape back to original dimensionality
   SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
