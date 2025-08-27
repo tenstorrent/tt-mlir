@@ -62,33 +62,43 @@ public:
 private:
   bool isFusable(ConvOpType convOp,
                  mlir::TypedValue<mlir::RankedTensorType> bias) const {
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      return convOp && !convOp.getBias() && convOp->hasOneUse() &&
-             convOp.isBiasCompatible(bias.getType().getShape());
-    } else {
-      if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
-        return false;
-      }
-      auto outputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
-      auto biasShape = bias.getType().getShape();
-      auto outputShape =
-          mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
-              .getShape();
-
-      if (biasShape.size() != outputShape.size() ||
-          biasShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
-        return false;
-      }
-
-      for (size_t i = 0; i < biasShape.size(); ++i) {
-        if (i != static_cast<size_t>(outputFeatureDim) && biasShape[i] != 1) {
-          return false;
-        }
-      }
-
-      return true;
+    if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+      return false;
     }
+
+    size_t outputFeatureDim = 0;
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      outputFeatureDim = 3;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    } else {
+      llvm_unreachable(
+          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
+    }
+
+    auto biasShape = bias.getType().getShape();
+    auto outputShape =
+        mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+            .getShape();
+
+    if (biasShape.size() != outputShape.size() ||
+        biasShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
+      return false;
+    }
+
+    auto featureDimSize =
+        convOp.getResult().getType().getShape()[outputFeatureDim];
+    for (auto [dim, dimSize] : llvm::enumerate(bias.getType().getShape())) {
+      if (dim == outputFeatureDim && dimSize != featureDimSize) {
+        return false;
+      }
+      if (dim != outputFeatureDim && dimSize != 1) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   std::optional<std::pair<ConvOpType, mlir::Value>>
@@ -471,35 +481,41 @@ private:
     return true;
   }
 
-  // Scale must have rank 4 and shape (1, 1, 1, out_channels).
+  // Scale must have rank 4 and size 1 in all dimensions except the output
+  // feature dim.
+  // For Conv2dOp: shape (1, 1, 1, out_channels)
+  // For ConvolutionOp: depends on the convolution layout attribute
   static bool hasValidScaleShape(ConvOpType convOp,
                                  RankedTensorType scaleType) {
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      // For Conv2dOp: shape should be (1, 1, 1, out_channels)
-      return scaleType.getRank() == 4 && scaleType.getDimSize(0) == 1 &&
-             scaleType.getDimSize(1) == 1 && scaleType.getDimSize(2) == 1 &&
-             scaleType.getDimSize(3) == convOp.getOutputChannelSize();
-    } else {
-      auto outputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
-      auto scaleShape = scaleType.getShape();
-      auto outputShape =
-          mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
-              .getShape();
+    if (!scaleType || scaleType.getRank() != 4) {
+      return false;
+    }
 
-      if (scaleShape.size() != outputShape.size() ||
-          scaleShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
+    size_t outputFeatureDim = 0;
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      outputFeatureDim = 3;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    } else {
+      llvm_unreachable(
+          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
+    }
+
+    auto outputShape =
+        mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+            .getShape();
+
+    for (auto [dim, dimSize] : llvm::enumerate(scaleType.getShape())) {
+      if (dim == outputFeatureDim && dimSize != outputShape[outputFeatureDim]) {
         return false;
       }
-
-      for (size_t i = 0; i < scaleShape.size(); ++i) {
-        if (i != static_cast<size_t>(outputFeatureDim) && scaleShape[i] != 1) {
-          return false;
-        }
+      if (dim != outputFeatureDim && dimSize != 1) {
+        return false;
       }
-
-      return true;
     }
+
+    return true;
   }
 
   // There are two cases we want to handle here:
@@ -507,7 +523,10 @@ private:
   // 2. Input scale is a broadcast operation that needs reshaping
   //
   // In case of 1 we just add reshape operation to the scale tensor such that
-  // it has shape (out_channels, 1, 1, 1).
+  // it has the output feature dimension at the kernel output feature dimension
+  // to match the weight layout.
+  // For Conv2dOp: shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels)
+  // For ConvolutionOp: depends on the convolution layout attribute
   //
   // In case of 2 we need to add reshape operation to the input of the of bcast
   // and then we create new broadcast operation with the new reshaped scale
@@ -530,21 +549,29 @@ private:
     RankedTensorType scaleType =
         mlir::cast<RankedTensorType>(reshapeInput.getType());
 
-    // Create a new shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels).
+    // Create a new shape to match weight layout.
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
-    // Swap first and last dimensions.
     assert(newShape.size() == 4 &&
            "Scale tensor must have 4 dimensions for reshaping.");
 
+    size_t outputFeatureDim = 0;
+    size_t kernelOutputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      std::swap(newShape[0], newShape[3]);
-    } else {
-      auto outputFeatureDim =
+      outputFeatureDim = 3;
+      kernelOutputFeatureDim = 0;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
           convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
-      auto kernelOutputFeatureDim =
+      kernelOutputFeatureDim =
           convOp.getConvolutionLayoutAttr().getKernelOutputFeatureDimension();
-      std::swap(newShape[outputFeatureDim], newShape[kernelOutputFeatureDim]);
+    } else {
+      llvm_unreachable(
+          "Only Conv2dOp and ConvolutionOp are supported ConvOpType");
     }
+
+    // Swap between output and kernel output feature dimensions.
+    std::swap(newShape[outputFeatureDim], newShape[kernelOutputFeatureDim]);
+
     // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
