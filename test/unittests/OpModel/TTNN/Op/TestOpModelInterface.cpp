@@ -1121,6 +1121,31 @@ TEST_F(OpModelBase, SumOpInterface) {
   op_model::SingletonDeviceContext::resetInstance();
 }
 
+TEST_F(OpModelBase, ProdOpInterface) {
+  // create ProdOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeA);
+
+  auto prod = builder.create<ProdOp>(builder.getUnknownLoc(), output.getType(),
+                                     input, builder.getI64IntegerAttr(0),
+                                     builder.getBoolAttr(false), nullptr);
+
+  // test prod Op interface
+  auto constraintsExp = getOpConstraints(prod.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
 TEST_F(OpModelBase, ReshapeOpInterface) {
   // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
