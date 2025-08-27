@@ -18,6 +18,11 @@ enum DataMovementType : uint8 {
   RISCV_1,
 }
 
+enum CoreType : uint8{
+  WORKER,
+  ETH,
+}
+
 table KernelCBFormat {
   buffer_index: uint32;
   dtype: DataType;
@@ -31,17 +36,17 @@ table KernelCBDescriptor {
 }
 
 table ComputeKernelConfig {
-  math_fidelity : MathFidelity = HiFi4;
-  fp32_dest_acc_en : bool = false;
-  dst_full_sync_en : bool = false;
+  math_fidelity: MathFidelity = HiFi4;
+  fp32_dest_acc_en: bool = false;
+  dst_full_sync_en: bool = false;
   unpack_to_dest_modes: [UnpackToDestMode];
-  bfp8_pack_precise : bool = false;
-  math_approx_mode : bool = false;
+  bfp8_pack_precise: bool = false;
+  math_approx_mode: bool = false;
 }
 
 table DataMovementKernelConfig {
-  processor : DataMovementType = RISCV_0;
-  noc : Noc = Noc0;
+  processor: DataMovementType = RISCV_0;
+  noc: Noc = Noc0;
   noc_mode: NocMode = DM_DEDICATED_NOC;
 }
 
@@ -57,19 +62,19 @@ union KernelConfig {
 
 
 table KernelArgCBPort {
-  idx : uint32;
+  idx: uint32;
 }
 
 table KernelArgBufferAddress {
-  addr : uint32;
+  addr: uint32;
 }
 
 table KernelArgBufferAddressOfTensor {
-  tensor_idx : uint32;
+  tensor_idx: uint32;
 }
 
 table KernelArgSemaphore {
-  semaphore_id : uint32;
+  semaphore_id: uint32;
 }
 
 union KernelArgType {
@@ -80,7 +85,7 @@ union KernelArgType {
 }
 
 table KernelArg {
-  arg : KernelArgType;
+  arg: KernelArgType;
 }
 
 table KernelCoreArgs {
@@ -92,16 +97,23 @@ table KernelCoreRTArgs {
 }
 
 table KernelDescriptor {
-  kernel_source : string;
-  kernel_config : KernelConfig;
+  kernel_source: string;
+  kernel_config: KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
   rt_args: [KernelCoreRTArgs];
   common_rt_args: KernelCoreArgs;
 }
 
+table SemaphoreDescriptor {
+  core_type: CoreType;
+  core_ranges: tt.target.ttnn.CoreRangeSet;
+  initial_value: uint32;
+}
+
 table ProgramDescriptor {
   kernels: [KernelDescriptor];
+  semaphores: [SemaphoreDescriptor];
   cbs: [KernelCBDescriptor];
 }
 
