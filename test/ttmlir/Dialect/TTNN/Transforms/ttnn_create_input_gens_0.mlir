@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline=%system_desc_path% --ttcore-unwrap-device-module --ttnn-tuplify-tensors --ttnn-create-input-gens -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttcore-unwrap-device-module --ttnn-tuplify-tensors --ttnn-create-input-gens -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
