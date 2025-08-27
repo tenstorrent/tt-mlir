@@ -285,8 +285,7 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(tile && "non-tiled layouts are not supported");
   uint64_t pageSize = tile.getSizeBytes();
   uint64_t numTiles = memref.getNumElements();
-  uint64_t size = ttmlir::utils::alignUp(
-      static_cast<size_t>(numTiles * pageSize), pageSize);
+  uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
 
   return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
                                                       pageSize);
