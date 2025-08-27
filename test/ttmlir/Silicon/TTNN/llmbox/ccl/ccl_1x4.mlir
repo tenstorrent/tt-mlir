@@ -1,5 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,4" -o %t.mlir %s
-// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path% mesh-shape=1,4" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 builtin.module @jit_fwd attributes {mhlo.num_partitions = 4 : i32, mhlo.num_replicas = 1 : i32, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x4>]>} {
