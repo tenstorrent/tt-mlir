@@ -32,6 +32,9 @@ tt-explorer -p <port> -u <url> -q
 
 <dt><code>-q, --no-browser</code></dt>
   <dd>Create server without opening a browser tab.</dd>
+
+<dt><code>-x, --no-model-execution</code></dt>
+  <dd>Disable execution of models from the UI.</dd>
 </dl>
 
 Example usage:
