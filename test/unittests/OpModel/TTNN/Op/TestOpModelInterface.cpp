@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <numeric>
 
 namespace mlir::tt::ttnn {
 
@@ -3217,6 +3218,73 @@ TEST_F(OpModelBase, FullOpInterface) {
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExpF.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  mlir::Type elementType = builder.getI32Type();
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  auto outputLayout = CreateTiledLayoutInt32(tensorShape, BufferType::L1,
+                                             TensorMemoryLayout::Interleaved);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<int32_t> data = {1, 2, 3, 4};
+  llvm::ArrayRef<int32_t> dataRef(data);
+
+  mlir::DenseElementsAttr attr =
+      mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+  auto constant =
+      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 3, 4};
+  mlir::Type elementType =
+      builder.getIntegerType(16, false); // unsigned 16-bit (u16)
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<uint16_t> data;
+  data.resize(std::accumulate(tensorShape.begin(), tensorShape.end(), 1,
+                              std::multiplies<uint16_t>()));
+  std::iota(data.begin(), data.end(), 1);
+  llvm::ArrayRef<uint16_t> dataRef(data);
+  mlir::DenseElementsAttr attr =
+      mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+  auto constant =
+      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(constant), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 }
 
