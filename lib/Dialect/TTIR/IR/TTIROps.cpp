@@ -60,7 +60,9 @@ MemRefType getBufferType(Type type, bool isView) {
 
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, fullMemrefShape.size());
+    mlir::AffineMap viewMap =
+        layout.getViewAffineMapOrIdentity(fullMemrefShape.size());
+    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, viewMap);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);

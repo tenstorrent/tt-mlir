@@ -320,10 +320,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
     // Memory space for the tensor.
-    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
+    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
+
+    // Optional affine view remapping to apply when bufferizing tensors to views.
+    // Defaults to empty, which is treated as identity.
+    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$viewAffineMap
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? (`,` `view_affine_map` `=` custom<IdentityAffineMap>($viewAffineMap)^)? `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
@@ -331,17 +335,41 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace);
 
+    // Overload with explicit view affine map
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     AffineMap viewAffineMap);
+
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals);
 
+    // Overload with explicit collapsedIntervals and view affine map.
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     AffineMap viewAffineMap);
+
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
+
+    // Overload with explicit collapsedIntervals, dimAlignments and view affine map.
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     ArrayRef<int64_t> dimAlignments,
+                                     AffineMap viewAffineMap);
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
@@ -359,6 +387,17 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
+
+    // Optional affine view remapping that should be applied when bufferizing
+    // tensors to views. Defaults to identity when empty.
+    AffineMap getViewAffineMapOrIdentity(unsigned rank) const {
+      if (getViewAffineMap() && getViewAffineMap().getNumResults() != 0 &&
+          getViewAffineMap().getNumDims() == rank &&
+          getViewAffineMap().getNumResults() == rank) {
+        return getViewAffineMap();
+      }
+      return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
+    }
   }];
 }
 
