@@ -350,10 +350,6 @@ struct OpModel<ProdOp> {
                    llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, std::optional<int64_t> dim,
                    bool keepDim, TTNNLayoutAttr outputLayout);
-
-  /*static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t>
-     inputShape, TTNNLayoutAttr inputLayout, std::optional<int64_t> dim, bool
-     keepDim, TTNNLayoutAttr outputLayout);*/
 };
 
 //===----------------------------------------------------------------------===//
