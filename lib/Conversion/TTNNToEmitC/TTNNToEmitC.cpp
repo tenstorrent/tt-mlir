@@ -2624,6 +2624,105 @@ public:
   matchAndRewrite(mlir::tt::ttnn::CaptureOrExecuteTraceOp srcOp,
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    /*
+    `capture_or_execute_trace` is a stateful function that on the first call
+    calls `capture_calle` and on the second (and onwards) calls `execute_calle`.
+
+    ttnn::Tensor capture_or_execute_trace(...) {
+      static bool is_first_call = true;
+      if (is_first_call) {
+        is_first_call = false;
+        return capture_calle(...);
+      } else {
+        return execute_calle(...);
+      }
+    }
+    */
+    // Find the module to create the function at module level
+    auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+    if (!moduleOp) {
+      return failure();
+    }
+
+    std::string funcName = "capture_or_execute_trace";
+
+    // Create emitc.func with the stateful logic at module level
+    mlir::SmallVector<mlir::Type> inputTypes = llvm::map_to_vector(
+        adaptor.getOperands(), [](auto operand) { return operand.getType(); });
+
+    mlir::SmallVector<mlir::Type> resultTypes =
+        llvm::map_to_vector(srcOp.getResultTypes(), [this](auto resultType) {
+          return getTypeConverter()->convertType(resultType);
+        });
+
+    auto funcType = rewriter.getFunctionType(inputTypes, resultTypes);
+
+    // Create the function at the top of the module
+    rewriter.setInsertionPoint(srcOp->getParentOfType<func::FuncOp>());
+    auto funcOp =
+        rewriter.create<emitc::FuncOp>(srcOp.getLoc(), funcName, funcType);
+
+    // Create function body with stateful logic
+    auto *block = funcOp.addEntryBlock();
+    rewriter.setInsertionPointToStart(block);
+
+    // Add static variable declaration
+    rewriter.create<emitc::VerbatimOp>(srcOp.getLoc(),
+                                       "static bool is_first_call = true;");
+
+    // Create placeholders for all arguments (need them twice - once for each
+    // branch)
+    std::string placeholders;
+    llvm::raw_string_ostream rso(placeholders);
+    llvm::interleaveComma(
+        llvm::SmallVector<std::string>(block->getArguments().size(), "{}"),
+        rso);
+    rso.flush();
+
+    // Create conditional logic using VerbatimOp
+    std::string conditionalCode =
+        "if (is_first_call) {{\n"
+        "  is_first_call = false;\n"
+        "  return " +
+        srcOp.getCaptureCallee().str() + "(" + placeholders +
+        ");\n"
+        "} else {{\n"
+        "  return " +
+        srcOp.getExecuteCallee().str() + "(" + placeholders +
+        ");\n"
+        "}";
+
+    // We need to provide arguments twice since we use them in both branches
+    mlir::SmallVector<mlir::Value> allArgs;
+    for (auto arg : block->getArguments()) {
+      allArgs.push_back(arg);
+    }
+    for (auto arg : block->getArguments()) {
+      allArgs.push_back(arg);
+    }
+
+    rewriter.create<emitc::VerbatimOp>(srcOp.getLoc(), conditionalCode,
+                                       allArgs);
+
+    // Since the verbatim code contains return statements, this won't be reached
+    // but we need a terminator for the block. Create a dummy return.
+    if (resultTypes.size() == 1) {
+      // Create a dummy return value using CallOpaqueOp (this is unreachable)
+      auto dummyValue = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), resultTypes[0], "/* unreachable */", nullptr, nullptr,
+          mlir::ValueRange{});
+      rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), dummyValue.getResult(0));
+    } else {
+      rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), mlir::Value{});
+    }
+
+    // Replace the original operation with a call to our new function
+    auto resultType =
+        getTypeConverter()->convertType(srcOp.getResult(0).getType());
+
+    rewriter.setInsertionPoint(srcOp);
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultType, funcName, nullptr, nullptr, adaptor.getInputs());
 
     return success();
   }
