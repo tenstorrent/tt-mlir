@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifdef TT_RUNTIME_ENABLE_CUDA
+#ifdef TTMLIR_ENABLE_CUDA
 
 #include "tt/runtime/detail/cuda/program_executor.h"
 #include "tt/runtime/types.h"
@@ -265,4 +265,4 @@ TEST_F(CudaProgramExecutorTest, HandleInvalidInput) {
 
 } // namespace tt::runtime::cuda
 
-#endif // TT_RUNTIME_ENABLE_CUDA
+#endif // TTMLIR_ENABLE_CUDA

@@ -6,19 +6,11 @@
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Casting.h"
-
-#include <cassert>
-#include <iostream>
 
 namespace mlir::tt::transforms {
 
@@ -36,10 +28,10 @@ public:
     ModuleOp moduleOp = getOperation();
     OpBuilder builder(moduleOp.getContext());
     SmallVector<LLVM::LLVMFuncOp> gpuFunctions;
-    for (auto module : moduleOp.getOps<mlir::gpu::GPUModuleOp>()) {
-      for (auto func : module.getOps<LLVM::LLVMFuncOp>()) {
+    for (auto GPUModuleOp : moduleOp.getOps<mlir::gpu::GPUModuleOp>()) {
+      for (auto func : GPUModuleOp.getOps<LLVM::LLVMFuncOp>()) {
         std::string newFuncName =
-            module.getName().str() + "_" + func.getName().str();
+            GPUModuleOp.getName().str() + "_" + func.getName().str();
         func.setSymName(newFuncName);
         gpuFunctions.push_back(func);
       }
@@ -51,14 +43,10 @@ public:
     }
 
     // Remove all operations that are NOT GPU modules.
-    SmallVector<Operation *> toErase;
     for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
       if (!isa<mlir::gpu::GPUModuleOp>(op)) {
-        toErase.push_back(&op);
+        op.erase();
       }
-    }
-    for (auto *op : toErase) {
-      op->erase();
     }
 
     // Copy all GPU functions directly to the main module.
@@ -75,11 +63,8 @@ public:
     SmallVector<Operation *> gpusToErase;
     for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
       if (isa<mlir::gpu::GPUModuleOp>(op)) {
-        gpusToErase.push_back(&op);
+        op.erase();
       }
-    }
-    for (auto *op : gpusToErase) {
-      op->erase();
     }
   }
 };

@@ -201,14 +201,14 @@ def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::Mo
     The pass adds these attributes to the module:
     - cuda.chip: Target GPU architecture (e.g., "sm_80", "sm_90")
     - cuda.features: PTX features (e.g., "+ptx70")
-    - cuda.optLevel: Optimization level (0-3)
+    - cuda.opt_level: Optimization level (0-3)
 
     Example:
     ```mlir
     module attributes {
-      cuda.chip = "sm_80",
-      cuda.features = "+ptx70",
-      cuda.optLevel = 2 : i32
+      cuda.chip = "sm_50",
+      cuda.features = "+ptx50",
+      cuda.opt_level = 2 : i32
     } {
       // module content
     }
@@ -216,11 +216,11 @@ def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::Mo
   }];
 
   let options = [
-    Option<"chip", "chip", "std::string", /*default=*/"\"sm_80\"",
+    Option<"chip", "chip", "std::string", /*default=*/"\"sm_50\"",
            "Target GPU chip architecture">,
-    Option<"features", "features", "std::string", /*default=*/"\"+ptx70\"",
+    Option<"features", "features", "std::string", /*default=*/"\"+ptx50\"",
            "PTX features string">,
-    Option<"optLevel", "opt-level", "int32_t", /*default=*/"2",
+    Option<"opt_level", "opt-level", "int32_t", /*default=*/"2",
            "Optimization level (0-3)">
   ];
 }

@@ -43,12 +43,9 @@ add_subdirectory(bin)
 
 if(TT_RUNTIME_ENABLE_CUDA)
   find_package(CUDAToolkit)
-  if (CUDAToolkit_FOUND)
-    add_subdirectory(test)
-  else()
-    set(TT_RUNTIME_ENABLE_CUDA OFF)
-    add_library(TTRuntimeCUDA INTERFACE)
-  endif()
+  add_subdirectory(test)
+else()
+  add_library(TTRuntimeCUDA INTERFACE)
 endif()
 
 # Add coverage_config to all targets in runtime
