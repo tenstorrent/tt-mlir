@@ -1,10 +1,4 @@
-if (TT_RUNTIME_ENABLE_CUDA)
-  set(CUDA_RUNTIME_ENABLED ON)
-else()
-  set(CUDA_RUNTIME_ENABLED OFF)
-endif()
-
-if (NOT CUDA_RUNTIME_ENABLED)
+if (NOT TTMLIR_ENABLE_CUDA)
   add_library(TTRuntimeCUDA INTERFACE)
   return()
 endif()
@@ -20,7 +14,7 @@ add_library(TTRuntimeCUDA
 
 
 set_property(TARGET TTRuntimeCUDA PROPERTY CXX_STANDARD 20)
-target_compile_definitions(TTRuntimeCUDA PUBLIC TT_RUNTIME_ENABLE_CUDA)
+target_compile_definitions(TTRuntimeCUDA PUBLIC TTMLIR_ENABLE_CUDA)
 
 target_include_directories(TTRuntimeCUDA PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include

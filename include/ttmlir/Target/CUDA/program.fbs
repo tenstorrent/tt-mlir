@@ -46,7 +46,6 @@ table Constant {
 table CopyFunction {
   src: string;
   dst: string;
-  strides: [uint64];
   offset: uint64;
 }
 
