@@ -114,12 +114,12 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return llvm::createStringError("No device attribute found for operation");
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "About to call getOpConstraints with {} input layouts",
                inputLayouts.size());
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Input layout {}: {}, getLayout()={}, dtype={}", i,
                  inputLayouts[i], static_cast<int>(inputLayouts[i].getLayout()),
                  static_cast<int>(inputLayouts[i].getDataType()));
@@ -131,7 +131,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "OpModel constraints failed: {} @ {} :: {}, "
                  "config.outputLayout: {}",
                  op->getName(), op->getLoc(),
@@ -143,7 +143,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
       l1UsageExp.get();
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Backend returned output layout: {}, layout={}, dtype={}",
                outputLayout, static_cast<int>(outputLayout.getLayout()),
                static_cast<int>(outputLayout.getDataType()));
@@ -172,7 +172,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                       tensorL1UsageCap * usableL1CacheSize;
 
   if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Not enough L1 memory. OpModel constraints failed: {} "
                  "totalInputL1Usage: {}, tensorUsage: {}, cBUsagePeak: {}, "
                  "total: {}, limit: {}",
@@ -183,7 +183,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
+      ttmlir::LogComponent::OpValidation,
       "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
       "L1 usage: cBUsagePeak: {}, tensorUsage: {}, outputTensorUsage: {}, "
       "totalInputL1Usage: {}, totalL1Usage: {}",

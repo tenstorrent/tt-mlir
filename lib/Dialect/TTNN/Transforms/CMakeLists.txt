@@ -4,6 +4,7 @@ endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
         Optimizer.cpp
+        OperationValidationAndFallback.cpp
         Passes.cpp
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp

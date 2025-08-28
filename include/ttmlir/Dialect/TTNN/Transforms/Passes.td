@@ -216,4 +216,14 @@ def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
   let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
 }
 
+def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fallback", "::mlir::ModuleOp"> {
+  let summary = "Validate operations and apply fallback strategies when needed.";
+  let description = [{
+    This pass validates TTNN operations by checking if their configurations
+    will work at runtime. For operations that fail validation, it applies
+    fallback strategies by transforming input operand layouts and data types
+    to find working configurations.
+  }];
+}
+
 #endif
