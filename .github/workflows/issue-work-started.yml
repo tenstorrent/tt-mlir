@@ -9,6 +9,12 @@ on:
         description: 'Issue number to update'
         required: true
         type: string
+        default: ''
+      bulk_update:
+        description: 'Bulk update all issues'
+        required: false
+        type: boolean
+        default: false
 
   # Automatic trigger for any issue activity
   issues:
@@ -27,7 +33,7 @@ permissions:
 jobs:
   update_work_started:
     # Skip if the actor is a bot to avoid infinite loops
-    if: github.actor != 'github-actions[bot]' && github.actor != 'dependabot[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'dependabot[bot]' && ( github.event.inputs.issue_number || inputs.issue_number != '')
     runs-on: ubuntu-latest
     steps:
       - name: Determine Issue Number
@@ -355,7 +361,7 @@ jobs:
   # Bulk processing job for scheduled runs
   bulk_update_work_started:
     # Only run on scheduled triggers (cron)
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || inputs.bulk_update
     runs-on: ubuntu-latest
     steps:
       - name: Set Environment Variables
@@ -415,17 +421,31 @@ jobs:
 
       - name: Process All Issues
         run: |
+          handle_rate_limit() {
+            local response="$1"
+            local error_code=""
+
+            error_code=$(echo "$response" | grep -oP 'API rate limit exceeded')
+            if [[ "$error_code" == "API rate limit exceeded" ]]; then
+              sleep_time=$(shuf -i3-10 -n1)
+              echo "Rate limited, sleeping for $sleep_time seconds"
+              sleep $sleep_time
+              return 1
+            else
+              return 0
+            fi
+          }
+
+          # convert to file to read array
+          readarray -t issue_numbers < /tmp/issue_numbers.txt
           echo "Processing all issues to check Status and update Work Started..."
           processed_count=0
           updated_count=0
 
-          while read -r issue_number; do
-            if [[ -z "$issue_number" ]]; then
-              continue
-            fi
+          # for length in issue_numbers readarray
+          for issue_number in "${issue_numbers[@]}"; do
 
             echo "Processing issue #$issue_number..."
-            processed_count=$((processed_count + 1))
 
             # Get issue node ID
             issue_details=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
@@ -440,10 +460,9 @@ jobs:
             # Find item ID in project (reuse existing pagination logic)
             found_item_id=""
             cursor=""
-            page_count=0
+            page_count=1
 
             while true; do
-              page_count=$((page_count + 1))
 
               if [[ -z "$cursor" ]]; then
                 QUERY='query($projectId: ID!) {
@@ -481,6 +500,10 @@ jobs:
 
               RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                 -H "Content-Type: application/json" -d "$JSON_PAYLOAD" https://api.github.com/graphql)
+
+              if ! handle_rate_limit "$RESPONSE"; then
+                continue
+              fi
 
               ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
               if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
@@ -552,6 +575,10 @@ jobs:
             STATUS_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
               -H "Content-Type: application/json" -d "$STATUS_JSON_PAYLOAD" https://api.github.com/graphql)
 
+            if ! handle_rate_limit "$STATUS_RESPONSE"; then
+              continue
+            fi
+
             STATUS_ERRORS=$(echo "$STATUS_RESPONSE" | jq -r '.errors // empty')
             if [[ -n "$STATUS_ERRORS" && "$STATUS_ERRORS" != "null" ]]; then
               echo "Error checking fields for issue #$issue_number: $STATUS_ERRORS"
@@ -592,6 +619,10 @@ jobs:
                 -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$work_started_date\\\" } }) { clientMutationId } }\" }" \
                 https://api.github.com/graphql)
 
+              if ! handle_rate_limit "$MUTATION_RESPONSE"; then
+                continue
+              fi
+
               MUTATION_ERRORS=$(echo "$MUTATION_RESPONSE" | jq -r '.errors // empty')
               if [[ -n "$MUTATION_ERRORS" && "$MUTATION_ERRORS" != "null" ]]; then
                 echo "Error updating Work Started for issue #$issue_number: $MUTATION_ERRORS"
@@ -603,9 +634,10 @@ jobs:
               echo "Issue #$issue_number: Status='$STATUS_VALUE', Work Started='$WORK_STARTED_VALUE' - no update needed"
             fi
 
-            # Add small delay to avoid rate limiting
-            sleep 1
 
-          done < /tmp/issue_numbers.txt
+            # Bump processed count
+            processed_count=$((processed_count + 1))
+
+          done
 
           echo "Summary: Processed $processed_count issues, updated $updated_count Work Started fields"
