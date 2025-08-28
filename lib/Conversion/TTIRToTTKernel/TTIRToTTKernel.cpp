@@ -601,36 +601,51 @@ private:
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
 
-    // Step 1: Compute difference (lhs - rhs)
-    rewriter.create<ttkernel::BinaryOpInitCommonOp>(op->getLoc(), inCB, inCB,
-                                                    outCB);
-    rewriter.create<ttkernel::SubTilesInitOp>(op->getLoc(), inCB, inCB);
+    // Step 1: Load input operands into destination registers
+    rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc());
+    rewriter.create<ttkernel::CopyTileInitOp>(op->getLoc(), inCB);
+    auto lhsIdx = index(rewriter, op->getLoc(), 0);
+    auto rhsIdx = index(rewriter, op->getLoc(), 1);
+    rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), inCB, adaptor.getLhs(),
+                                          lhsIdx);
+    rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), inCB, adaptor.getRhs(),
+                                          rhsIdx);
+    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
 
-    auto dstIdx = getDstIdxFromResult(op.getResult());
-    rewriter.create<ttkernel::SubTilesOp>(
-        op->getLoc(), inCB, inCB, adaptor.getLhs(), adaptor.getRhs(), dstIdx);
+    // Step 2: Initialize SFPU and perform operations
+    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
 
-    // Step 2: Apply comparison operation based on type
+    // Step 3: Apply comparison operation based on type
     switch (CompType) {
     case ComparisonType::EQUAL:
-      // For equality: eqz(lhs - rhs)
-      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), outCB, outCB);
+      // For equality: eqz(lhs - rhs) using SFPU operations
+      rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
+      rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx, rhsIdx);
       rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), dstIdx);
+      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(),
+                                           lhsIdx); // Result is in lhsIdx
       break;
 
     case ComparisonType::NOT_EQUAL:
       // For inequality: nez(lhs - rhs) - not equal to zero
       // This would require a nez_tile operation if it exists
       // For now, fall back to not(eqz(lhs - rhs)) if nez_tile is not available
-      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), outCB, outCB);
+      rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
+      rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx, rhsIdx);
       rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), dstIdx);
+      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), lhsIdx);
       // TODO: Apply logical_not to the result if nez_tile is not available
       // rewriter.create<ttkernel::LogicalNotUnaryTileInitOp>(op->getLoc());
-      // rewriter.create<ttkernel::LogicalNotUnaryTileOp>(op->getLoc(), dstIdx);
+      // rewriter.create<ttkernel::LogicalNotUnaryTileOp>(op->getLoc(), lhsIdx);
       break;
     }
+
+    // Step 4: Copy result back to output CB and release registers
+    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+    rewriter.create<ttkernel::PackTileOp>(op->getLoc(), lhsIdx, outCB,
+                                          adaptor.getLhs(),
+                                          rewriter.getBoolAttr(true));
+    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
     rewriter.eraseOp(op);
