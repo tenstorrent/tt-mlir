@@ -464,7 +464,7 @@ void runSpillAllocateTest(Planner::Problem &problem, int32_t limitCount) {
   for (int32_t l = 0; l < limitCount; ++l) {
     problem.reset();
 
-    const Planner::SolveStats solveStats =
+    const Planner::SpillStats solveStats =
         Planner::spillAllocate(problem, limits[l]);
     TT_TEST_DEBUG("[limit {}] took {} step(s), spilled {} variable(s)",
                   limits[l], solveStats.stepsTaken, solveStats.spillCount);

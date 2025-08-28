@@ -9,7 +9,7 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
@@ -205,9 +205,9 @@ public:
 
   // Copy-constructible, copy-assignable.
   struct Problem {
-    // TODO std::vector -> llvm adts
-    std::vector<VarRequest> requests; // indexed into by `Variable::domain[*]`
-    std::vector<Variable> variables;
+    llvm::SmallVector<VarRequest>
+        requests; // indexed into by `Variable::domain[*]`
+    llvm::SmallVector<Variable> variables;
     VariableIndexSet bound;
 
     const Variable &variable(IndexT varIndex) const {
@@ -296,17 +296,17 @@ public:
                                          const AllocateStats &obj);
   };
 
-  struct SolveStats : public AllocateStats {
+  struct SpillStats : public AllocateStats {
     std::int32_t stepsTaken;
     std::int32_t spillCount;
 
-    SolveStats(std::int32_t stepsTaken, std::int32_t spillCount,
+    SpillStats(std::int32_t stepsTaken, std::int32_t spillCount,
                const AllocateStats &spaceStats)
         : AllocateStats(spaceStats), stepsTaken(stepsTaken),
           spillCount(spillCount) {}
 
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                         const SolveStats &obj);
+                                         const SpillStats &obj);
   };
 
   // TODO update/finish doc (planner modifies `problem`)
@@ -318,7 +318,7 @@ public:
 
   // TODO update/finish doc (planner modifies `problem`)
   // TODO doc that 'problem' is mutated
-  [[nodiscard]] static SolveStats spillAllocate(Problem &problem,
+  [[nodiscard]] static SpillStats spillAllocate(Problem &problem,
                                                 AllocSizeT memUsageLimit);
 
   /// Validate the allocation plan in `solution` for proper memory/liveness
@@ -390,7 +390,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 }
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const Planner::SolveStats &obj) {
+                                     const Planner::SpillStats &obj) {
   os << "converged in " << obj.stepsTaken << " step(s), spilled "
      << obj.spillCount << " var(s): ";
   os << static_cast<const Planner::AllocateStats &>(obj);
