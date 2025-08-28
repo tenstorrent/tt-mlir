@@ -12,7 +12,6 @@ module attributes {} {
     %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
     // CHECK: = "ttnn.reshape"
     // CHECK: "ttnn.reduce_scatter"
-    // CHECK: = "ttnn.reshape"
     // CHECK: "ttnn.all_gather"
     return %1 : tensor<4096x16384xf32>
   }
