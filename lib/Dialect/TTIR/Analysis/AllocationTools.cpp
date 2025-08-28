@@ -324,8 +324,12 @@ llvm::Expected<Planner::Problem> AllocationTools::read(std::istream &in) {
       return llvm::createStringError("failed to parse 'placement'");
     }
 
-    if (auto bound = *var->get("bound")->getAsBoolean()) {
-      problem.bound.insert(problem.variables.size());
+    if (auto bound = var->get("bound")->getAsBoolean()) {
+      if (*bound) {
+        problem.bound.insert(problem.variables.size());
+      }
+    } else {
+      return llvm::createStringError("failed to parse 'bound'");
     }
 
     if (llvm::json::Object *domain = var->get("domain")->getAsObject()) {
