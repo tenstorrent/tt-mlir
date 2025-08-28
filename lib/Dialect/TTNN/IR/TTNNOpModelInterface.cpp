@@ -2520,7 +2520,7 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 RandOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(getOperation());
+  return detail::issueErrorForGetOpRuntime(getOperation());
 }
 
 } // namespace mlir::tt::ttnn
