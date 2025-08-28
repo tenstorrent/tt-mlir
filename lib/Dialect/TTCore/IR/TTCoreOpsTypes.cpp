@@ -946,6 +946,21 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
+// 5-arg + explicit index_map convenience overload.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap) {
+  // Reuse the existing path that computes intervals/alignments, then attach
+  // map.
+  MetalLayoutAttr base =
+      get(context, logicalShape, deviceGridShape, oobVal, memorySpace);
+  return get(context, base.getLogicalShape(), base.getDimAlignments(),
+             base.getCollapsedIntervals(), base.getOobVal(),
+             base.getMemorySpace(), indexAffineMap);
+}
+
 // Get effective stride (use provided or calculate from shape)
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {

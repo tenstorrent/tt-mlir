@@ -343,6 +343,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
 
+    // Convenience getter: same as the 5-arg variant but attaches an explicit
+    // index_map to the resulting attribute.
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap);
+
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
