@@ -7,7 +7,7 @@ on:
     inputs:
       issue_number:
         description: 'Issue number to update'
-        required: true
+        required: false
         type: string
         default: ''
       bulk_update:
