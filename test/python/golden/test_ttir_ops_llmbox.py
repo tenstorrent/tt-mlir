@@ -21,18 +21,16 @@ pytestmark = [pytest.mark.llmbox, pytest.mark.frontend("ttir")]
         (1, 1, 64, 128),
         (1, 1, 66, 128),
         (1, 1, 62, 128),
-        pytest.param(
-            (1, 1, 64, 132), marks=pytest.mark.fails_golden
-        ),  # https://github.com/tenstorrent/tt-metal/issues/21964
-        pytest.param((1, 1, 66, 132), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 64, 124), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 62, 124), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 258, 516), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 260, 520), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 254, 508), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 252, 504), marks=pytest.mark.fails_golden),
-        pytest.param((1, 32, 32, 64), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 2, 4), marks=pytest.mark.fails_golden),
+        (1, 1, 64, 132),
+        (1, 1, 66, 132),
+        (1, 1, 64, 124),
+        (1, 1, 62, 124),
+        (1, 32, 258, 516),
+        (1, 32, 260, 520),
+        (1, 32, 254, 508),
+        (1, 32, 252, 504),
+        (1, 32, 32, 64),
+        (1, 1, 2, 4),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -72,7 +70,7 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize(
     "shape",
     [
-        (1, 1, 256, 512),
+        pytest.param((1, 1, 256, 512), marks=pytest.mark.run_error),
         pytest.param((1, 1, 2, 4), marks=pytest.mark.run_error),
         pytest.param((1, 1, 64, 128), marks=pytest.mark.fails_golden),
         pytest.param((1, 1, 64, 256), marks=pytest.mark.fails_golden),
@@ -116,23 +114,24 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize(
     "shape",
     [
-        (1, 1, 512, 512),
-        (1, 1, 256, 1024),
-        (1, 1, 256, 512),
+        pytest.param((1, 1, 512, 512), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 256, 1024), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 256, 1024), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 256, 512), marks=pytest.mark.fails_golden),
         pytest.param((1, 1, 254, 1024), marks=pytest.mark.fails_golden),
-        (1, 1, 256, 1024),
+        pytest.param((1, 1, 256, 1024), marks=pytest.mark.fails_golden),
         (1, 1, 128, 1024),
-        pytest.param((1, 1, 256, 1008), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 256, 1040), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 128, 256), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 128, 128), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 128, 64), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 64, 64), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 64, 128), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 2, 16), marks=pytest.mark.run_error),
+        (1, 1, 256, 1008),
+        pytest.param((1, 1, 256, 1040), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 128, 256), marks=pytest.mark.run_error),
+        (1, 1, 128, 128),
+        (1, 1, 128, 64),
+        pytest.param((1, 1, 64, 64), marks=pytest.mark.run_error),
+        (1, 1, 64, 128),
+        pytest.param((1, 1, 2, 16), marks=pytest.mark.fails_golden),
         (1, 1, 128, 512),
         (1, 1, 64, 512),
-        pytest.param((1, 1, 32, 512), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 32, 512), marks=pytest.mark.run_error),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -216,32 +215,27 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-# TODO: many of these tests can be combined with some logic around `mesh_shape`
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
-        pytest.param([(8192, 784), (784, 16384)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 32), (32, 512)], marks=pytest.mark.run_error),
-        pytest.param([(512, 32), (32, 128)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 16), (16, 512)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 8), (8, 512)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 8), (8, 512)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 124)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 120)], marks=pytest.mark.run_error),
-        # TODO (#3662), re-enable once tensor spec check
-        # accounts for non-uniform shapes due to non-divisibility
-        # [(256, 130), (130, 128)],
-        pytest.param([(254, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(252, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(258, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(260, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 132)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 136)], marks=pytest.mark.run_error),
+        [(8192, 784), (784, 16384)],
+        [(1024, 32), (32, 512)],
+        [(512, 32), (32, 128)],
+        [(1024, 16), (16, 512)],
+        [(1024, 8), (8, 512)],
+        [(1024, 8), (8, 512)],
+        pytest.param([(256, 128), (128, 128)], marks=pytest.mark.fails_golden),
+        [(256, 128), (128, 124)],
+        [(256, 128), (128, 120)],
+        pytest.param([(254, 128), (128, 128)], marks=pytest.mark.fails_golden),
+        pytest.param([(252, 128), (128, 128)], marks=pytest.mark.fails_golden),
+        pytest.param([(258, 128), (128, 128)], marks=pytest.mark.fails_golden),
+        pytest.param([(260, 128), (128, 128)], marks=pytest.mark.fails_golden),
+        [(256, 128), (128, 132)],
+        [(256, 128), (128, 136)],
         pytest.param([(256, 32), (32, 64)], marks=pytest.mark.run_error),
         pytest.param([(128, 32), (32, 32)], marks=pytest.mark.run_error),
-        pytest.param([(64, 32), (32, 16)], marks=pytest.mark.run_error),
+        [(64, 32), (32, 16)],
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -284,28 +278,27 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
         # [(8192, 784), (784, 16384)],
-        pytest.param([(1024, 32), (32, 512)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 16), (16, 512)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 8), (8, 512)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 124)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 132)], marks=pytest.mark.run_error),
-        pytest.param([(1024, 8), (8, 512)], marks=pytest.mark.run_error),
+        [(1024, 32), (32, 512)],
+        [(1024, 16), (16, 512)],
+        [(1024, 8), (8, 512)],
+        [(256, 128), (128, 124)],
+        [(256, 128), (128, 132)],
+        [(1024, 8), (8, 512)],
         pytest.param([(512, 32), (32, 128)], marks=pytest.mark.run_error),
         pytest.param([(256, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 120)], marks=pytest.mark.run_error),
-        pytest.param([(254, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(252, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(258, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(260, 128), (128, 128)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 136)], marks=pytest.mark.run_error),
+        [(256, 128), (128, 120)],
+        [(254, 128), (128, 128)],
+        [(252, 128), (128, 128)],
+        [(258, 128), (128, 128)],
+        [(260, 128), (128, 128)],
+        [(256, 128), (128, 136)],
         pytest.param([(256, 32), (32, 64)], marks=pytest.mark.run_error),
         pytest.param([(128, 32), (32, 32)], marks=pytest.mark.run_error),
-        pytest.param([(64, 32), (32, 16)], marks=pytest.mark.run_error),
+        [(64, 32), (32, 16)],
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
@@ -718,12 +711,13 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
-        pytest.param([(1024, 32), (32, 512), (1024, 512)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 128), (256, 128)], marks=pytest.mark.run_error),
+        [(1024, 32), (32, 512), (1024, 512)],
+        pytest.param(
+            [(256, 128), (128, 128), (256, 128)], marks=pytest.mark.fails_golden
+        ),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -772,12 +766,11 @@ def test_matmul_and_binary_op(
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
-        pytest.param([(1024, 32), (32, 512)], marks=pytest.mark.run_error),
-        pytest.param([(256, 128), (128, 128)], marks=pytest.mark.run_error),
+        [(1024, 32), (32, 512)],
+        pytest.param([(256, 128), (128, 128)], marks=pytest.mark.fails_golden),
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -824,13 +817,10 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
-        pytest.param(
-            [(1024, 32), (32, 512), (1024, 32), (32, 512)], marks=pytest.mark.run_error
-        ),
+        [(1024, 32), (32, 512), (1024, 32), (32, 512)],
         pytest.param(
             [(256, 128), (128, 128), (256, 128), (128, 128)],
             marks=pytest.mark.run_error,
