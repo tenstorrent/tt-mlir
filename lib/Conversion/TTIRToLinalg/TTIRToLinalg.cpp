@@ -1013,6 +1013,69 @@ public:
     auto padding = adaptor.getPadding();
     auto dilation = adaptor.getDilation();
 
+    auto groups = adaptor.getGroups();
+
+    auto weightType = cast<RankedTensorType>(weight.getType());
+
+    if (groups > 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Grouped convolution is not supported yet.");
+    }
+
+    // TTIR uses (O,C,H,W) but TOSA uses (O,H,W,C) for weight.
+    SmallVector<int32_t> permutation = {0, 2, 3, 1};
+    auto weightShape = weightType.getShape();
+    SmallVector<int64_t> transposedShape = {weightShape[0], weightShape[2],
+                                            weightShape[3], weightShape[1]};
+
+    auto transposedWeightType =
+        RankedTensorType::get(transposedShape, weightType.getElementType());
+
+    auto transposedWeight = rewriter.create<tosa::TransposeOp>(
+        op.getLoc(), transposedWeightType, weight, permutation);
+
+    // Reshape bias from 4D (1,1,1,O) to 1D (O) for TOSA.
+    // If bias is not provided, create a zero bias tensor.
+    Value reshapedBias = nullptr;
+    if (bias) {
+      auto biasType = cast<RankedTensorType>(bias.getType());
+      auto biasShape = biasType.getShape();
+
+      SmallVector<int64_t> reshapedBiasShape = {biasShape[3]};
+      auto reshapedBiasType =
+          RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 1);
+      SmallVector<int64_t> shapeValues = {biasShape[3]};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      reshapedBias = rewriter
+                         .create<tosa::ReshapeOp>(op.getLoc(), reshapedBiasType,
+                                                  bias, shapeOp.getResult())
+                         .getResult();
+    } else {
+      int64_t outputChannels = weightShape[0];
+      auto biasElementType =
+          cast<RankedTensorType>(input.getType()).getElementType();
+      auto biasType = RankedTensorType::get({outputChannels}, biasElementType);
+
+      Attribute zeroAttr;
+      if (isa<FloatType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APFloat::getZero(
+                cast<FloatType>(biasElementType).getFloatSemantics()));
+      } else if (isa<IntegerType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APInt::getZero(cast<IntegerType>(biasElementType).getWidth()));
+      } else {
+        return rewriter.notifyMatchFailure(op, "Unsupported bias element type");
+      }
+      reshapedBias = rewriter.create<tosa::ConstOp>(
+          op.getLoc(), biasType, cast<DenseElementsAttr>(zeroAttr));
+    }
     // Expand stride if it contains only one element.
     auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
     if (!stridesResult) {
@@ -1099,6 +1162,10 @@ public:
     auto maxPoolOp = rewriter.create<tosa::MaxPool2dOp>(
         op.getLoc(), actualResultType, input, expandedKernelAttr,
         expandedStridesAttr, expandedPaddingAttr);
+    auto conv2dOp = rewriter.create<tosa::Conv2DOp>(
+        op.getLoc(), actualResultType, input, transposedWeight.getResult(),
+        reshapedBias, expandedPaddingAttr, expandedStridesAttr,
+        expandedDilationsAttr, TypeAttr::get(accType));
 
     // Slice the result back to the original expected shape if needed.
     Value result = maxPoolOp.getResult();
@@ -1957,10 +2024,9 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   patterns.add<BroadcastOpConversionPattern, SinOpConversionPattern,
                CosOpConversionPattern, MatmulOpConversionPattern,
-               GatherOpConversionPattern, LogicalNotOpConversionPattern,
-               MaxOpConversionPattern, SumOpConversionPattern,
-               ReduceOrOpConversionPattern, MeanOpConversionPattern,
-               SqueezeOpConversionPattern, MaxPool2dOpConversionPattern>(
+               Conv2dOpConversionPattern, GatherOpConversionPattern,
+               LogicalNotOpConversionPattern, MaxOpConversionPattern,
+               SumOpConversionPattern, ReduceOrOpConversionPattern>(
       typeConverter, ctx);
 
   // Special operations
