@@ -23,6 +23,11 @@ enum CoreType : uint8{
   ETH,
 }
 
+enum SourceType : uint8 {
+  FILE_PATH,
+  SOURCE_CODE,
+}
+
 table KernelCBFormat {
   buffer_index: uint32;
   dtype: DataType;
@@ -98,6 +103,7 @@ table KernelCoreRTArgs {
 
 table KernelDescriptor {
   kernel_source: string;
+  source_type: SourceType = SOURCE_CODE;
   kernel_config: KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
