@@ -359,17 +359,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
-
-    // Optional index remapping (view/grid) applied during lowering/bufferization.
-    // Defaults to identity when empty.
-    AffineMap getIndexAffineMapOrIdentity(unsigned rank) const {
-      if (getIndexAffineMap() && getIndexAffineMap().getNumResults() != 0 &&
-          getIndexAffineMap().getNumDims() == rank &&
-          getIndexAffineMap().getNumResults() == rank) {
-        return getIndexAffineMap();
-      }
-      return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
-    }
   }];
 }
 

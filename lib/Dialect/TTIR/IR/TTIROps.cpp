@@ -60,8 +60,10 @@ MemRefType getBufferType(Type type, bool isView) {
 
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    mlir::AffineMap map =
-        layout.getIndexAffineMapOrIdentity(fullMemrefShape.size());
+    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
+    mlir::AffineMap map = layout.getIndexAffineMap();
+    assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
+           "expected tensor encoding to provide a concrete index_map for view");
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
@@ -3022,16 +3024,17 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     auto inputEncoding =
         mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-    // For reblocking, extract grid shape from outputShape.
-    const size_t halfRank = outputShape.size() / 2;
-    mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
+    // Preserve any explicit index_map on the encoding (e.g., transpose).
+    mlir::AffineMap map = inputEncoding.getIndexAffineMap();
+    if (!map || map.getNumResults() == 0) {
+      map = mlir::AffineMap::getMultiDimIdentityMap(
+          static_cast<unsigned>(outputShape.size()), builder.getContext());
+    }
 
-    // Create new encoding with the output grid shape.
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
-        builder.getContext(), inputEncoding.getLogicalShape(), outputGridShape,
-        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
-        inputEncoding.getCollapsedIntervals(),
-        inputEncoding.getDimAlignments());
+        builder.getContext(), inputEncoding.getLogicalShape(),
+        inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(), map);
 
     result =
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
@@ -3090,13 +3093,20 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
-  // Get the output shape from the current op's result type
-  auto outputType = mlir::cast<mlir::ShapedType>(getResult().getType());
-  auto outputShape = outputType.getShape();
+  // Build the memref result type from the tensor result encoding so that any
+  // index_map on the encoding is honored when creating the view layout.
+  ::llvm::SmallVector<mlir::Value> dummy;
+  auto outMemrefTypeOr = getBufferType(getResult(), options, state, dummy);
+  if (mlir::failed(outMemrefTypeOr)) {
+    return outMemrefTypeOr;
+  }
 
-  mlir::bufferization::replaceOpWithNewBufferizedOp<
-      mlir::tt::ttir::ViewLayoutOp>(rewriter, *this, *maybeInput, outputShape,
-                                    getReinterpretLayout());
+  auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
+  auto newOp = rewriter.create<mlir::tt::ttir::ViewLayoutOp>(
+      getLoc(), outMemrefType, *maybeInput, getReinterpretLayout());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     newOp.getResult());
 
   return mlir::success();
 }
