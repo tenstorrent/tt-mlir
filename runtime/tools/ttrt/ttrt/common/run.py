@@ -319,7 +319,7 @@ class Run:
         Run.register_arg(
             name="--fabric-config",
             type=str,
-            default=None,
+            default="fabric_1d",
             choices=None,
             help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
         )
@@ -624,7 +624,7 @@ class Run:
                             f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
                         )
 
-                    if self["--fabric-config"] is not None:
+                    if num_mesh_devices > 1 and self["--fabric-config"] is not None:
                         ttrt.runtime.set_fabric_config(
                             parse_fabric_config(self["--fabric-config"])
                         )
@@ -1190,7 +1190,7 @@ class Run:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
 
-                    if self["--fabric-config"] is not None:
+                    if num_mesh_devices > 1 and self["--fabric-config"] is not None:
                         ttrt.runtime.set_fabric_config(
                             ttrt.runtime.FabricConfig.DISABLED
                         )
