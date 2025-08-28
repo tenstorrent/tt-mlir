@@ -45,7 +45,6 @@ jobs:
   downstream-checks:
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.event.pull_request.head.ref == 'vvukoman/uplift-pr-upstream-test-trigger-change'
     strategy:
       matrix:
         projects: [
