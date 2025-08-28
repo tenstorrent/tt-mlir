@@ -14,6 +14,7 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
 
+
 # utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
     input_tensors = []
@@ -163,7 +164,6 @@ def golden_part2(
 
 
 # llama attention part 1 with 1x2
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -372,7 +372,6 @@ def test_llama_attention_1x2_tp_part1(
 
 
 # llama attention part 2 with 1x2
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
