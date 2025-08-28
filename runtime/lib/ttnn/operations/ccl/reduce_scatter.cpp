@@ -13,6 +13,9 @@
 #include "ttnn/operations/experimental/ccl/reduce_scatter_async/reduce_scatter.hpp"
 #include "ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/reduce_scatter_minimal_async.hpp"
 
+// NOTE: Temporarily using reduce_scatter_minimal_async due to an issue in
+// tt-metal. https://github.com/tenstorrent/tt-metal/issues/25212
+
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::ReduceScatterOp *op,
          ProgramContext &context) {
@@ -25,6 +28,9 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   uint32_t numLinks = op->num_links();
   //   auto reduceType =
   //       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
+  // TODO(hkwon): Enable reduce_type again once the issue is resolved.
+  // Currently the reduce_type argument is commented out because
+  // reduce_scatter_minimal_async does not accept it.
 
   LOG_ASSERT(
       input.storage_type() == ::ttnn::StorageType::DEVICE,
@@ -42,13 +48,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
       operations::utils::toTTNNShape(*op->out()->desc()->shape());
   ::ttnn::Shape inputShape =
       operations::utils::toTTNNShape(*op->in()->desc()->shape());
-
-  // Get data type from tensor descriptor
-  ::tt::target::DataType targetDtype =
-      op->out()->desc()->layout()->memory_desc()->data_type();
-
-  ::ttnn::DataType ttnnDtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(targetDtype);
+  ::ttnn::DataType ttnnDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      op->out()->desc()->layout()->memory_desc()->data_type());
   ::ttnn::Layout ttnnLayout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
@@ -62,6 +63,7 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
                                                     outputBuffer};
 
   std::vector<::ttnn::GlobalSemaphore> semaphores;
+  // reduce_scatter_minimal_async requires 3 semaphores.
   for (int i = 0; i < 3; i++) {
     semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
         &meshDevice,
