@@ -3104,7 +3104,9 @@ public:
         mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
         srcOp, emptyOp.getType(), query, keys, values, page_table,
         update_indices, emptyOp, nullptr, rewriter.getBoolAttr(true),
-        rewriter.getF32FloatAttr(1.0));
+        rewriter.getF32FloatAttr(
+            1.0 /
+            static_cast<float>(newValuesShape.back() * newValuesShape.back())));
 
     // ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
     //     rewriter, srcOp,
