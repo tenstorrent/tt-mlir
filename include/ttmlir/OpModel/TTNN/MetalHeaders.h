@@ -53,6 +53,7 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
+#include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"

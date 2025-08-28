@@ -819,6 +819,92 @@ TEST_F(OpModelTest, MorehCumSum) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+// ==== ConcatenateHeadsOp Tests ====
+class OpModelConcatenateHeadsParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,    // input tensor config
+                     detail::TestTensor,    // output tensor config
+                     detail::ExpectedResult // expected results
+                     >> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = std::get<2>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<ConcatenateHeadsOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+
+    // Check if the operation is expected to be legal
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+    if (expectedLegal) {
+      auto [cbSize, peakSize, outputSize, outputLayoutResult] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+      EXPECT_TRUE(outputLayoutResult != nullptr);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelConcatenateHeadsParam, ConcatenateHeadsOp) { RunTest(); }
+
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    concatenateHeadsParams = {
+        // Test case 1: Small transformer L1 to L1
+        std::make_tuple(detail::TestTensor{{1, 8, 512, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{1, 512, 512},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::ExpectedResult{true, 65536, 8192, 8192}),
+
+        // Test case 2: DRAM to DRAM configuration
+        std::make_tuple(detail::TestTensor{{2, 12, 1024, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{2, 1024, 768},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::ExpectedResult{true, 98304, 0, 0}),
+
+        // Test case 3: Mixed memory (DRAM input, L1 output)
+        std::make_tuple(detail::TestTensor{{1, 16, 256, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 256, 512},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::ExpectedResult{true, 65536, 4096, 4096}),
+
+        // Test case 4: Large transformer configuration
+        std::make_tuple(detail::TestTensor{{4, 24, 2048, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{4, 2048, 3072},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::ExpectedResult{true, 393216, 0, 0})};
+
+INSTANTIATE_TEST_SUITE_P(ConcatenateHeadsTests, OpModelConcatenateHeadsParam,
+                         ::testing::ValuesIn(concatenateHeadsParams));
+
 TEST_F(OpModelTest, RepeatInterleave) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
