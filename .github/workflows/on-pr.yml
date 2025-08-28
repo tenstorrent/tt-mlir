@@ -50,8 +50,7 @@ jobs:
         projects: [
           { name: "tenstorrent/tt-forge-fe", workflow-name: "on-pr.yml" },
           { name: "tenstorrent/tt-torch", workflow-name: "on-pr.yml" },
-          # TODO(vvukoman): rename workflow-name when typo is fixed upstream
-          { name: "tenstorrent/tt-xla", workflow-name: "maunal-test.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-test.yml" },
         ]
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
