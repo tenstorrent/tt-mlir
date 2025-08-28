@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationTools.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Tools.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationDefs.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
@@ -20,7 +20,8 @@
 #include <random>
 #include <sstream>
 
-namespace mlir::tt::ttir {
+// ----------------------------------------------------------------------------
+namespace mlir::tt::ttir::allocation {
 
 namespace {
 
@@ -217,7 +218,7 @@ struct Graph {
 } // namespace
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                              const AllocationTools::GenerateCfg &obj) {
+                              const Tools::GenerateCfg &obj) {
   for (std::size_t i = 0; i < obj.segments.size(); ++i) {
     const auto &s = obj.segments[i];
     os << '(' << s.neckLength << ", " << s.conflictCount << ')';
@@ -226,7 +227,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   return os;
 }
 
-Planner::Problem AllocationTools::generate(const GenerateCfg &cfg) {
+Planner::Problem Tools::generate(const GenerateCfg &cfg) {
   TT_assertv(!cfg.segments.empty(), "expected a non-empty list of segments");
 
   Graph g;
@@ -282,7 +283,7 @@ Planner::Problem AllocationTools::generate(const GenerateCfg &cfg) {
                            cfg.seed);
 }
 
-llvm::Expected<Planner::Problem> AllocationTools::read(std::istream &in) {
+llvm::Expected<Planner::Problem> Tools::read(std::istream &in) {
   TT_assertv(in.good(), "couldn't read input stream");
   const std::string content = readAsString(in);
 
@@ -352,8 +353,7 @@ llvm::Expected<Planner::Problem> AllocationTools::read(std::istream &in) {
   return problem;
 }
 
-void AllocationTools::write(const Planner::Problem &problem,
-                            std::ostream &out) {
+void Tools::write(const Planner::Problem &problem, std::ostream &out) {
   TT_assertv(out.good(), "couldn't write to output stream");
 
   int32_t width = 0;
@@ -436,15 +436,15 @@ void AllocationTools::write(const Planner::Problem &problem,
 }
 
 llvm::Expected<Planner::Problem>
-AllocationTools::read(const std::filesystem::path &file) {
+Tools::read(const std::filesystem::path &file) {
   std::ifstream in(file);
   TT_assertv(in.is_open(), "couldn't open output file [{}]", file);
 
   return read(in);
 }
 
-void AllocationTools::write(const Planner::Problem &problem,
-                            const std::filesystem::path &file) {
+void Tools::write(const Planner::Problem &problem,
+                  const std::filesystem::path &file) {
   TT_assertv(problem.valid(), "expected a valid problem");
 
   std::ofstream out(file);
@@ -453,4 +453,5 @@ void AllocationTools::write(const Planner::Problem &problem,
   return write(problem, out);
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttir::allocation
+// ----------------------------------------------------------------------------

@@ -6,8 +6,8 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationDefs.h"
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -48,7 +48,7 @@ inline bool isDeviceMemorySpace(MemRefType memref, ttcore::MemorySpace dflt) {
 //===----------------------------------------------------------------------===//
 namespace {
 
-using Planner = AllocationPlanner;
+using namespace allocation;
 
 using AllocSizeT = Planner::AllocSizeT;
 using SequenceT = Planner::SequenceT;
@@ -171,7 +171,7 @@ struct SequenceMapping {
 
   template <typename ConcreteOp>
   auto operator[](ConcreteOp op) const
-      -> std::enable_if_t<detail::is_Operation_v<ConcreteOp>, SequenceT> {
+      -> std::enable_if_t<is_operation_v<ConcreteOp>, SequenceT> {
     return this->operator[](op.getOperation());
   }
 };

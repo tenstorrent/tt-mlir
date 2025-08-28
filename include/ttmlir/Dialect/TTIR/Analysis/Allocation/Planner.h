@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONPLANNER_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONPLANNER_H
+#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_PLANNER_H
+#define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_PLANNER_H
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationDefs.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -14,12 +14,11 @@
 
 #include <array>
 #include <cstdint>
-#include <optional>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttir::allocation {
 
 /// An API for static DSA ("dynamic storage allocation") algorithms.
-class AllocationPlanner {
+class Planner {
 public:
   /// Enum for planning algorithms exposed by this API.
   /// @see AllocationPlanner::allocate()
@@ -50,7 +49,7 @@ public:
   using AllocSizeT = std::int64_t;
   // Type for liveness "logical time".
   using SequenceT = std::int32_t;
-  // Type of indexing into variable/request collections.
+  // Type for indexing into variable/request collections.
   using IndexT = std::int32_t; // more compact index type than std::size_t
 
   struct LiveRange {
@@ -156,8 +155,6 @@ public:
 
   // TODO this is kind of ugly
   struct VariableBuilder {
-    VariableBuilder(Problem &parent) : parent(&parent) {}
-
     IndexT request(Space space, AllocSizeT size, SequenceT first,
                    SequenceT last) {
       const auto reqIndex = (parent->requests.size() + requests.size());
@@ -179,6 +176,8 @@ public:
 
   private:
     friend struct Problem;
+
+    VariableBuilder(Problem &parent) : parent(&parent) {}
 
     // Complete new variable definition.
     IndexT add() {
@@ -328,7 +327,7 @@ public:
   [[nodiscard]] static AllocateStats verify(const Problem &solution);
 
 private:
-  AllocationPlanner() = default; // Non-instantiable.
+  Planner() = default; // Non-instantiable.
 
   struct AnalysisStats {
     struct RequestMetrics {
@@ -344,13 +343,13 @@ private:
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const AllocationPlanner::Request &obj) {
+                                     const Planner::Request &obj) {
   obj.print<false>(os);
   return os;
 }
 
 template <bool Nested>
-void AllocationPlanner::Request::print(llvm::raw_ostream &os) const {
+void Planner::Request::print(llvm::raw_ostream &os) const {
 
   if (!Nested) {
     os << '{';
@@ -362,13 +361,13 @@ void AllocationPlanner::Request::print(llvm::raw_ostream &os) const {
 }
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const AllocationPlanner::VarRequest &obj) {
+                                     const Planner::VarRequest &obj) {
   obj.print<false>(os);
   return os;
 }
 
 template <bool Nested>
-void AllocationPlanner::VarRequest::print(llvm::raw_ostream &os) const {
+void Planner::VarRequest::print(llvm::raw_ostream &os) const {
 
   if (!Nested) {
     os << '{';
@@ -380,8 +379,8 @@ void AllocationPlanner::VarRequest::print(llvm::raw_ostream &os) const {
   }
 }
 
-inline llvm::raw_ostream &
-operator<<(llvm::raw_ostream &os, const AllocationPlanner::AllocateStats &obj) {
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                     const Planner::AllocateStats &obj) {
   os << "{max size = " << obj.maxSize << ", mem usage = " << obj.memUsage;
   if (obj.maxLoad) {
     os << ", max load = " << obj.maxLoad << " (ratio {"
@@ -391,13 +390,13 @@ operator<<(llvm::raw_ostream &os, const AllocationPlanner::AllocateStats &obj) {
 }
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const AllocationPlanner::SolveStats &obj) {
+                                     const Planner::SolveStats &obj) {
   os << "converged in " << obj.stepsTaken << " step(s), spilled "
      << obj.spillCount << " var(s): ";
-  os << static_cast<const AllocationPlanner::AllocateStats &>(obj);
+  os << static_cast<const Planner::AllocateStats &>(obj);
   return os;
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttir::allocation
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONPLANNER_H
+#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_PLANNER_H
