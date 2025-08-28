@@ -60,9 +60,9 @@ MemRefType getBufferType(Type type, bool isView) {
 
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    mlir::AffineMap viewMap =
-        layout.getViewAffineMapOrIdentity(fullMemrefShape.size());
-    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, viewMap);
+    mlir::AffineMap map =
+        layout.getIndexAffineMapOrIdentity(fullMemrefShape.size());
+    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
@@ -2928,9 +2928,9 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 // Calculate a reblocking affine map from inputShape to outputShape.
-static mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                           mlir::ArrayRef<int64_t> outputShape,
-                                           mlir::MLIRContext *ctx) {
+mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
+                                    mlir::ArrayRef<int64_t> outputShape,
+                                    mlir::MLIRContext *ctx) {
   assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
   // Assume the shapes are sharded s.t. first half is grid dims, second half is

@@ -48,6 +48,11 @@ inline void getDpsEffects(
 
 MemRefType getBufferType(Type type, bool isView);
 
+// Calculate a reblocking affine map from inputShape to outputShape.
+mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
+                                    mlir::ArrayRef<int64_t> outputShape,
+                                    mlir::MLIRContext *ctx);
+
 } // namespace mlir::tt::ttir
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"

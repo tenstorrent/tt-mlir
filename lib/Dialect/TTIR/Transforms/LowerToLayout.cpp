@@ -76,26 +76,59 @@ public:
     // If src or dst operand is DRAM they must be remote
     // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
     // local)
-    bool isSrcRemote =
+    bool isSrcDramOrReblock =
         isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
-    bool isDstRemote = isDstDram;
 
-    assert(!(isSrcRemote && isDstRemote) &&
+    assert(!(isSrcDramOrReblock && isDstDram) &&
            "input and output cannot both be remote");
 
-    if (isSrcRemote) {
-      viewInput = rewriter
-                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
-                                            outputType.getShape())
-                      .getResult();
+    if (isSrcDramOrReblock) {
+      // Compute reblock map and attach to result encoding.
+      auto inTensorTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+      auto outTensorTy = mlir::cast<RankedTensorType>(outputType);
+      auto ctx = rewriter.getContext();
+      AffineMap map = calculateReblockMap(inTensorTy.getShape(),
+                                          outTensorTy.getShape(), ctx);
+
+      auto inLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(inTensorTy.getEncoding());
+      auto resultEncoding = ttcore::MetalLayoutAttr::get(
+          ctx, inLayout.getLogicalShape(), inLayout.getDimAlignments(),
+          inLayout.getCollapsedIntervals(), inLayout.getOobVal(),
+          inLayout.getMemorySpace(), map);
+      auto resultTensorTy = RankedTensorType::get(
+          outTensorTy.getShape(), outTensorTy.getElementType(), resultEncoding);
+
+      viewInput =
+          rewriter
+              .create<ViewLayoutOp>(op.getLoc(), resultTensorTy, op.getInput(),
+                                    /*reinterpretLayout=*/false)
+              .getResult();
     }
 
     Value viewOutput = op.getOutput();
-    if (isDstRemote) {
-      viewOutput = rewriter
-                       .create<ViewLayoutOp>(op.getLoc(), op.getOutput(),
-                                             inputType.getShape())
-                       .getResult();
+    if (isDstDram) {
+      // Compute reblock map and attach to result encoding.
+      auto outTensorTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+      auto inTensorTy = mlir::cast<RankedTensorType>(inputType);
+      auto ctx = rewriter.getContext();
+      AffineMap map = calculateReblockMap(outTensorTy.getShape(),
+                                          inTensorTy.getShape(), ctx);
+
+      auto outLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(outTensorTy.getEncoding());
+      auto resultEncoding = ttcore::MetalLayoutAttr::get(
+          ctx, outLayout.getLogicalShape(), outLayout.getDimAlignments(),
+          outLayout.getCollapsedIntervals(), outLayout.getOobVal(),
+          outLayout.getMemorySpace(), map);
+      auto resultTensorTy = RankedTensorType::get(
+          inTensorTy.getShape(), outTensorTy.getElementType(), resultEncoding);
+
+      viewOutput =
+          rewriter
+              .create<ViewLayoutOp>(op.getLoc(), resultTensorTy, op.getOutput(),
+                                    /*reinterpretLayout=*/false)
+              .getResult();
     }
 
     const size_t gridRank = outputGridShape.size();

@@ -233,10 +233,6 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let assemblyFormat = "`<` custom<IdentityAffineMap>($affineMap) `>`";
 
   let extraClassDeclaration = [{
-      static ViewLayoutAttr get(::mlir::MLIRContext *context, unsigned rank) {
-        return get(context, mlir::AffineMap::getMultiDimIdentityMap(rank, context));
-      }
-
       // Compose two view layouts f(g(x)) where f=this and g=other.
       ViewLayoutAttr compose(ViewLayoutAttr g) const;
   }];
@@ -322,12 +318,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Memory space for the tensor.
     DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
 
-    // Optional affine view remapping to apply when bufferizing tensors to views.
+    // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
     // Defaults to empty, which is treated as identity.
-    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$viewAffineMap
+    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? (`,` `view_affine_map` `=` custom<IdentityAffineMap>($viewAffineMap)^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? (`,` `index_map` `=` custom<IdentityAffineMap>($indexAffineMap)^)? `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
@@ -364,13 +360,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 
-    // Optional affine view remapping that should be applied when bufferizing
-    // tensors to views. Defaults to identity when empty.
-    AffineMap getViewAffineMapOrIdentity(unsigned rank) const {
-      if (getViewAffineMap() && getViewAffineMap().getNumResults() != 0 &&
-          getViewAffineMap().getNumDims() == rank &&
-          getViewAffineMap().getNumResults() == rank) {
-        return getViewAffineMap();
+    // Optional index remapping (view/grid) applied during lowering/bufferization.
+    // Defaults to identity when empty.
+    AffineMap getIndexAffineMapOrIdentity(unsigned rank) const {
+      if (getIndexAffineMap() && getIndexAffineMap().getNumResults() != 0 &&
+          getIndexAffineMap().getNumDims() == rank &&
+          getIndexAffineMap().getNumResults() == rank) {
+        return getIndexAffineMap();
       }
       return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
     }

@@ -9,7 +9,7 @@
   dim_alignments = 32x32,
   collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>,
   undef, l1,
-  view_affine_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)
+  index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)
 >
 
 func.func @propagate_view_map() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view> {
