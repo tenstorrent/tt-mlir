@@ -78,8 +78,8 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         (1, 1, 128, 508),
         (1, 1, 126, 508),
         (1, 1, 130, 508),
-        pytest.param((1, 1, 32, 2), marks=pytest.mark.fails_golden),
-        pytest.param((1, 1, 1, 2), marks=pytest.mark.fails_golden),
+        (1, 1, 32, 2),
+        (1, 1, 1, 2),
         (1, 1, 128, 516),
         (1, 1, 128, 516),
         (1, 1, 126, 516),
@@ -219,7 +219,6 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -432,7 +431,6 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -486,7 +484,6 @@ def test_matmul_and_binary_op(
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -538,7 +535,6 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
