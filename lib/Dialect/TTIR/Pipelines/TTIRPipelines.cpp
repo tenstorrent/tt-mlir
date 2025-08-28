@@ -21,6 +21,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/RemoveUnusedArgs.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -65,6 +66,7 @@ void createStableHLOToTTIRPipeline(
   ttir::ConvertStableHLOToTTIROptions passOptions;
   passOptions.enablePartialConversion = options.enableCPUFallback;
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
+  pm.addPass(createRemoveUnusedArgsPass());
 
   if (options.enableCPUFallback) {
     // Fallback any remaining SHLO ops to CPU.

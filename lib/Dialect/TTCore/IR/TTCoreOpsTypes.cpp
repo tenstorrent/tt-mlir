@@ -609,6 +609,12 @@ mlir::AffineMap collapsedLinearAffineMap(
   auto map = mlir::AffineMap::getMinorIdentityMap(shape.size(),
                                                   numResultsClamped, context);
 
+  llvm::errs() << "collapsedLinearAffineMap:\n";
+  llvm::errs() << "shape: ";
+  for (auto s : shape) {
+    llvm::errs() << s << ',';
+  }
+  llvm::errs() << "\n";
   std::int64_t minimumDim = static_cast<std::int64_t>(shape.size());
   for (auto [begin, end] : collapseIntervals) {
     if (begin < 0) {

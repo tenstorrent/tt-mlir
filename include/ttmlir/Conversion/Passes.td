@@ -18,6 +18,11 @@ let summary = "Convert StableHLO dialect to TTIR dialect.";
       "Enable partial conversion mode, allowing unconverted ops to remain">
   ];
 }
+def RemoveUnusedArgs : Pass<"remove-unused-args", "::mlir::ModuleOp"> {
+let summary = "Remove unused args.";
+  let constructor = "createRemoveUnusedArgsPass()";
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::arith::ArithDialect"];
+}
 def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
 let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";

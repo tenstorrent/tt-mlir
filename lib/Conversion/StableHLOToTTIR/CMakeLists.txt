@@ -12,6 +12,7 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   StableHLOToTTIRPatterns.cpp
   StableHLOLegalizeCompositePass.cpp
   ShardyToTTIRPatterns.cpp
+  RemoveUnusedArgs.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/StableHLOToTTIR
