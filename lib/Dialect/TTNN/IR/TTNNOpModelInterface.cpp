@@ -1618,7 +1618,7 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      opConfig.outputLayout, false, false);
+      opConfig.outputLayout, getTransposeA(), getTransposeB());
 }
 
 llvm::Expected<size_t>
@@ -1640,7 +1640,7 @@ LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpRuntime, *this, inputShapeA, inputs[0],
       inputShapeB, inputs[1], biasShape, biasLayout, opConfig.outputLayout,
-      false, false);
+      getTransposeA(), getTransposeB());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1665,7 +1665,7 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      false, false);
+      getTransposeA(), getTransposeB());
 }
 
 llvm::Expected<size_t>
@@ -1678,7 +1678,8 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpRuntime, *this, inputShapeA, inputs[0],
-      inputShapeB, inputs[1], opConfig.outputLayout, false, false);
+      inputShapeB, inputs[1], opConfig.outputLayout, getTransposeA(),
+      getTransposeB());
 }
 
 //===----------------------------------------------------------------------===//
