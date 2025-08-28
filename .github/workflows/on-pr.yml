@@ -53,7 +53,6 @@ jobs:
           # TODO(vvukoman): rename workflow-name when typo is fixed upstream
           { name: "tenstorrent/tt-xla", workflow-name: "maunal-test.yml" },
         ]
-        # target-repo: ['tenstorrent/tt-forge-fe', 'tenstorrent/tt-torch', 'tenstorrent/tt-xla']
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       TARGET_REPO: ${{ matrix.projects.name }}
