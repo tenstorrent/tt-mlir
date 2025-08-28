@@ -1076,3 +1076,26 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
   return ::llvm::success();
 }
+
+// Transform TTNNLayoutAttr with a different layout while preserving the
+// element type.
+//
+// param layout The target layout (RowMajor or Tile).
+// param tensorShape The shape of the tensor.
+// return The new TTNNLayoutAttr with the specified layout.
+TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
+                                          ArrayRef<int64_t> tensorShape) {
+  if (layout == Layout::RowMajor) {
+    return ttnn::utils::convertTTNNLayoutToRowMajor(getContext(), *this,
+                                                    tensorShape);
+  }
+
+  if (layout == Layout::Tile) {
+    Type elementType =
+        ttnn::utils::getElementType(getContext(), Layout::Tile, getDataType());
+    return withElementType(elementType, tensorShape);
+  }
+
+  // For any other layout, return the current layout unchanged
+  return *this;
+}
