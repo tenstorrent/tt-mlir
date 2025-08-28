@@ -292,7 +292,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableBfp8Conversion{
       *this, "enable-bfp8-conversion",
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.
