@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationTools.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Tools.h"
 
 #include "llvm/ADT/IntervalTree.h"
 
@@ -14,20 +14,19 @@
 #include <queue>
 #include <sstream>
 
-namespace mlir::tt::ttir {
-
-// ............................................................................
+// ----------------------------------------------------------------------------
+namespace mlir::tt::ttir::allocation {
 
 using std::int32_t;
 
-using Request = AllocationPlanner::Request;
-using AllocSizeT = AllocationPlanner::AllocSizeT;
-using SequenceT = AllocationPlanner::SequenceT;
-using IndexT = AllocationPlanner::IndexT;
+using Request = Planner::Request;
+using AllocSizeT = Planner::AllocSizeT;
+using SequenceT = Planner::SequenceT;
+using IndexT = Planner::IndexT;
 
 // ............................................................................
 
-bool AllocationPlanner::Problem::valid() const {
+bool Planner::Problem::valid() const {
   const int32_t varCount = variables.size();
   const int32_t reqCount = requests.size();
 
@@ -66,15 +65,15 @@ bool AllocationPlanner::Problem::valid() const {
 }
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                              const AllocationPlanner::Problem &obj) {
+                              const Planner::Problem &obj) {
   std::stringstream s;
-  AllocationTools::write(obj, s);
+  Tools::write(obj, s);
   return os << s.str();
 }
 // ............................................................................
 
-AllocationPlanner::SolveStats
-AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
+Planner::SolveStats Planner::spillAllocate(Problem &problem,
+                                           AllocSizeT memUsageLimit) {
   TT_assert(problem.valid());
 
   const Algorithm algorithm = Algorithm::Greedy;
@@ -131,7 +130,7 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
     if (work.bound.contains(varIndex)) {
       continue;
     }
-    const AllocationPlanner::Variable &var = work.variable(varIndex);
+    const Planner::Variable &var = work.variable(varIndex);
     TT_assert_limit(var.placement, Space::limit);
 
     SpillPriority varPriority;
@@ -205,11 +204,10 @@ AllocationPlanner::spillAllocate(Problem &problem, AllocSizeT memUsageLimit) {
 }
 // ............................................................................
 
-template <AllocationPlanner::Algorithm Algorithm>
+template <Planner::Algorithm Algorithm>
 class PlannerImpl {
 public:
-  static inline AllocationPlanner::AllocateStats
-  allocate(AllocationPlanner::Problem &problem);
+  static inline Planner::AllocateStats allocate(Planner::Problem &problem);
 };
 // ............................................................................
 
@@ -218,9 +216,8 @@ public:
 // memory.
 //
 template <>
-inline AllocationPlanner::AllocateStats
-PlannerImpl<AllocationPlanner::Algorithm::Simple>::allocate(
-    AllocationPlanner::Problem &problem) {
+inline Planner::AllocateStats
+PlannerImpl<Planner::Algorithm::Simple>::allocate(Planner::Problem &problem) {
 
   // Not required for correctness, but for easier result interpretation
   // visit allocation requests in IR preorder.
@@ -237,8 +234,8 @@ PlannerImpl<AllocationPlanner::Algorithm::Simple>::allocate(
       lexicographic);
   [[maybe_unused]] int32_t varCount = 0;
 
-  for (const AllocationPlanner::Variable &var : problem.variables) {
-    if (var.placement == AllocationPlanner::Space::NA) {
+  for (const Planner::Variable &var : problem.variables) {
+    if (var.placement == Planner::Space::NA) {
       continue;
     }
     for (const auto reqIndex : var.domain[var.placement]) {
@@ -268,7 +265,7 @@ PlannerImpl<AllocationPlanner::Algorithm::Simple>::allocate(
     maxSize = std::max(maxSize, request.size);
   }
 
-  AllocationPlanner::AllocateStats stats = {maxSize, memUsage, 0};
+  Planner::AllocateStats stats = {maxSize, memUsage, 0};
   TT_ALLOC_DEBUG("allocation results: {}", stats);
 
   return stats;
@@ -281,9 +278,8 @@ PlannerImpl<AllocationPlanner::Algorithm::Simple>::allocate(
 //     formed by already placed requests; if no such gap is found, extend
 //     the solution makespan.
 template <>
-inline AllocationPlanner::AllocateStats
-PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
-    AllocationPlanner::Problem &problem) {
+inline Planner::AllocateStats
+PlannerImpl<Planner::Algorithm::Greedy>::allocate(Planner::Problem &problem) {
 
   auto &requests = problem.requests;
 
@@ -294,8 +290,8 @@ PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
   std::priority_queue<IndexT, std::vector<IndexT>, decltype(bySize)> pq(bySize);
   [[maybe_unused]] int32_t varCount = 0;
 
-  for (const AllocationPlanner::Variable &var : problem.variables) {
-    if (var.placement == AllocationPlanner::Space::NA) {
+  for (const Planner::Variable &var : problem.variables) {
+    if (var.placement == Planner::Space::NA) {
       continue;
     }
     for (const auto reqIndex : var.domain[var.placement]) {
@@ -362,15 +358,15 @@ PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
     maxSize = std::max(maxSize, request.size);
   }
 
-  AllocationPlanner::AllocateStats stats = {maxSize, memUsage, 0};
+  Planner::AllocateStats stats = {maxSize, memUsage, 0};
   TT_ALLOC_DEBUG("allocation results: {}", stats);
 
   return stats;
 }
 // ............................................................................
 
-AllocationPlanner::AllocateStats
-AllocationPlanner::allocate(Problem &problem, Algorithm algorithm) {
+Planner::AllocateStats Planner::allocate(Problem &problem,
+                                         Algorithm algorithm) {
   switch (algorithm) {
   case Algorithm::Simple:
     return PlannerImpl<Algorithm::Simple>::allocate(problem);
@@ -380,15 +376,14 @@ AllocationPlanner::allocate(Problem &problem, Algorithm algorithm) {
 }
 // ............................................................................
 
-AllocationPlanner::AnalysisStats
-AllocationPlanner::analyze(const Problem &solution,
-                           const AllocSizeT watermark) {
+Planner::AnalysisStats Planner::analyze(const Problem &solution,
+                                        const AllocSizeT watermark) {
   TT_assert(solution.valid());
 
   // All variables placed into 'space' by 'solution' and marked for lowering by
   // 'watermark'. Also, requests of those variables that triggered the inclusion
   // (in general, a subset of all requests in variables' domains).
-  AllocationPlanner::AnalysisStats analysis;
+  Planner::AnalysisStats analysis;
 
   std::vector<IndexT> requests; // TODO rename
 
@@ -442,8 +437,7 @@ AllocationPlanner::analyze(const Problem &solution,
 }
 // ............................................................................
 
-AllocationPlanner::AllocateStats
-AllocationPlanner::verify(const Problem &solution) {
+Planner::AllocateStats Planner::verify(const Problem &solution) {
   // Use an interval tree to both verify interval conflicts and calculate max
   // load/usage.
   //
@@ -461,7 +455,7 @@ AllocationPlanner::verify(const Problem &solution) {
   IntervalTree iv(allocator);
 
   // All requests referenced by 'solution.variables' placed into 'space'.
-  std::vector<AllocationPlanner::IndexT> requests; // TODO rename
+  std::vector<Planner::IndexT> requests; // TODO rename
   [[maybe_unused]] int32_t varCount = 0;
 
   for (const Variable &var : solution.variables) {
@@ -532,4 +526,5 @@ AllocationPlanner::verify(const Problem &solution) {
   return {maxSize, memUsage, maxLoad};
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttir::allocation
+// ----------------------------------------------------------------------------

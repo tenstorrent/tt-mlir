@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationDefs.h"
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationTools.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Tools.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
 
 #include "testing/Utils.h"
 
@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <functional>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttir::allocation {
 
 namespace gtest = ::testing;
 
@@ -22,8 +22,6 @@ namespace gtest = ::testing;
 
 using std::int32_t;
 using std::int64_t;
-
-using Planner = AllocationPlanner;
 
 //===----------------------------------------------------------------------===//
 // Tests for base (single space) algorithms.
@@ -363,8 +361,8 @@ TEST(AllocationToolsTest, SupportTypes) {
   auto seed = tt::testing::randomSeed();
 
   for (double bindFraction : {0.0, 0.25, 1.0}) {
-    Planner::Problem problem = AllocationTools::generate(
-        {{{1, 5}, {15, 19}, {3, 5}}, bindFraction, seed});
+    Planner::Problem problem =
+        Tools::generate({{{1, 5}, {15, 19}, {3, 5}}, bindFraction, seed});
 
     Planner::Problem copy;
     copy = problem;
@@ -383,13 +381,13 @@ TEST(AllocationToolsTest, JSONSerialization) {
   auto seed = tt::testing::randomSeed();
 
   for (double bindFraction : {0.0, 0.5, 1.0}) {
-    Planner::Problem problem = AllocationTools::generate(
-        {{{1, 5}, {15, 19}, {3, 5}}, bindFraction, seed});
+    Planner::Problem problem =
+        Tools::generate({{{1, 5}, {15, 19}, {3, 5}}, bindFraction, seed});
 
     std::stringstream s;
-    AllocationTools::write(problem, s);
+    Tools::write(problem, s);
 
-    auto parsed = AllocationTools::read(s);
+    auto parsed = Tools::read(s);
     if (auto e = parsed.takeError()) {
       GTEST_FAIL() << "failed to parse JSON: " << e;
     }
@@ -414,8 +412,8 @@ std::array<Planner::AllocSizeT, 2> boundMemUsage(Planner::Problem &problem,
 }
 
 // Divide the mem usage feasibility interval for `problem` into `limitCount`
-// values and drive `Planner::solve()` through each.
-void runSolveTest(Planner::Problem &problem, int32_t limitCount) {
+// values and drive `Planner::spillAllocate()` through each.
+void runSpillAllocateTest(Planner::Problem &problem, int32_t limitCount) {
   TT_TEST_DEBUG("using problem config with {} variable(s), {} request(s)",
                 problem.variables.size(), problem.requests.size());
 
@@ -445,7 +443,7 @@ void runSolveTest(Planner::Problem &problem, int32_t limitCount) {
   // limits. (Note that both lower and upper feasible limits are used as
   // inclusive bounds, with some additional test validation.)
 
-  std::vector<Planner::AllocSizeT> limits;
+  llvm::SmallVector<Planner::AllocSizeT> limits;
   if (memUsageBounds[1] - memUsageBounds[0] > 100) {
     limits.resize(limitCount);
     const double step =
@@ -496,7 +494,7 @@ void runSolveTest(Planner::Problem &problem, int32_t limitCount) {
 
 // Generate a number of mem planning problems of varying conflict geometry
 // and solve each over its range of mem usage limits.
-TEST(AllocationMappingTest, RandomizedProblems) {
+TEST(AllocationSpillTest, RandomizedProblems) {
 
 #ifdef TT_TESTING_DEBUG
   constexpr int32_t repeats = 20;
@@ -515,27 +513,27 @@ TEST(AllocationMappingTest, RandomizedProblems) {
     // Make a random problem config.
     for (double bindFraction : {0.0, 0.5, 1.0}) {
       const int32_t segmentCount = unif(1, 10);
-      llvm::SmallVector<AllocationTools::GenerateSegmentParms> segmentCfgs;
+      llvm::SmallVector<Tools::GenerateSegmentParms> segmentCfgs;
 
       for (int32_t segment = 0; segment < segmentCount; ++segment) {
         const int32_t neckLength = unif(1, 5);
         const int32_t conflictCount = unif(1, 30);
         segmentCfgs.emplace_back(
-            AllocationTools::GenerateSegmentParms{neckLength, conflictCount});
+            Tools::GenerateSegmentParms{neckLength, conflictCount});
       }
 
-      const AllocationTools::GenerateCfg cfg(std::move(segmentCfgs),
-                                             bindFraction, seed + repeat);
+      const Tools::GenerateCfg cfg(std::move(segmentCfgs), bindFraction,
+                                   seed + repeat);
       TT_TEST_DEBUG("scenario {} cfg: {{{}}}", repeat, cfg);
 
-      Planner::Problem problem = AllocationTools::generate(cfg);
-      runSolveTest(problem, 5);
+      Planner::Problem problem = Tools::generate(cfg);
+      runSpillAllocateTest(problem, 5);
     }
   }
 }
 
 // Run some large-ish problems, with O(10^4) requests.
-TEST(AllocationMappingTest, LargeProblems) {
+TEST(AllocationSpillTest, LargeProblems) {
 
 #ifdef TT_TESTING_DEBUG
   constexpr int32_t targetVarCount = 500;
@@ -555,22 +553,22 @@ TEST(AllocationMappingTest, LargeProblems) {
   for (int32_t segmentCount = 5; segmentCount >= 1; segmentCount -= 2) {
     const int32_t segmentVarCount = targetVarCount / segmentCount;
 
-    llvm::SmallVector<AllocationTools::GenerateSegmentParms> segmentCfgs;
+    llvm::SmallVector<Tools::GenerateSegmentParms> segmentCfgs;
     for (int32_t segment = 0; segment < segmentCount; ++segment) {
       TT_assert(segmentVarCount >= 3);
       const int32_t neckLength = unif(1, segmentVarCount / 3);
       const int32_t conflictCount = (segmentVarCount - neckLength) / 2;
       segmentCfgs.emplace_back(
-          AllocationTools::GenerateSegmentParms{neckLength, conflictCount});
+          Tools::GenerateSegmentParms{neckLength, conflictCount});
     }
 
-    const AllocationTools::GenerateCfg cfg{std::move(segmentCfgs), bindFraction,
-                                           seed + segmentCount};
+    const Tools::GenerateCfg cfg{std::move(segmentCfgs), bindFraction,
+                                 seed + segmentCount};
     TT_TEST_DEBUG("scenario segment count {}, cfg: {{{}}}", segmentCount, cfg);
 
-    Planner::Problem problem = AllocationTools::generate(cfg);
-    runSolveTest(problem, 4);
+    Planner::Problem problem = Tools::generate(cfg);
+    runSpillAllocateTest(problem, 4);
   }
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttir::allocation

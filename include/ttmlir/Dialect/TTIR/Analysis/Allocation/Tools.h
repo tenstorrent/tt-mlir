@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONTOOLS_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONTOOLS_H
+#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_TOOLS_H
+#define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_TOOLS_H
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
 
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
@@ -13,13 +13,11 @@
 #include <cstdint>
 #include <filesystem>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttir::allocation {
 
-using Planner = AllocationPlanner;
-
-/// An API for synthesizing and serializing AllocationPlanner problems without
+/// An API for synthesizing and serializing `Planner` problems without
 /// having to get an IR representation of them first.
-class AllocationTools {
+class Tools {
 public:
   /// A randomly generated Problem is based on a topological sort order of
   /// a DAG comprised of a sequence of "segments". Each segment describes
@@ -72,9 +70,9 @@ public:
                     const std::filesystem::path &file);
 
 private:
-  AllocationTools() = default; // Non-instantiable.
+  Tools() = default; // Non-instantiable.
 };
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttir::allocation
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONTOOLS_H
+#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_TOOLS_H
