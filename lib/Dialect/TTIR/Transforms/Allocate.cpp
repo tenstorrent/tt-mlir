@@ -368,9 +368,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       TT_debug(streams.size() == genericOp.getNumOperands());
 
       GenericOpContext &genericCtx = analysis.generics[genericOp];
-      for (int32_t operandIndex = 0;
-           operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
-           ++operandIndex) {
+      for (std::size_t operandIndex = 0;
+           operandIndex < genericOp.getNumOperands(); ++operandIndex) {
         auto operand = genericOp->getOperand(operandIndex);
         OperandStream &stream = streams[operandIndex];
         // For later IR mutation, it is convenient at this point to gather
@@ -411,7 +410,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     });
 
     if (TT_DEBUG_ENABLED()) {
-      for (auto &[value, valueCtx] : analysis.memrefs) {
+      for ([[maybe_unused]] auto &[value, valueCtx] : analysis.memrefs) {
         TT_ALLOC_TRACE("\t{}:\t{} generic user(s), [{}, {}], {} byte(s)",
                        asOperand(value), valueCtx.genericUsers.size(),
                        valueCtx.live.first, valueCtx.live.last, valueCtx.size);
@@ -421,7 +420,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // Alloc ops that have users other than a `func.return` or `ttir.generic`
     // will be marked as ineligible for memspace remapping.
 
-    int32_t allocsWithNonGenericUsers = 0;
+    [[maybe_unused]] int32_t allocsWithNonGenericUsers = 0;
 
     for (auto &[allocOp, users] : genericUsersMap) {
       for (Operation *user : allocOp->getUsers()) {
@@ -638,10 +637,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return success();
   }
 
-  // Sweep through all allocs in the incoming IR (not associated with operand
-  // streams) and set their address/alignment attribute, *without* changing
-  // their memspace. The latter is not done here to avoid breaking IR validity
-  // and will be fixed in a subsequent step.
+  // Sweep through all allocs in the incoming IR (not just those associated with
+  // operand streams) and set their address/alignment attribute, *without*
+  // changing their memspace. The latter will be fixed in a subsequent step
+  // (which will also restore the IR to a valid state).
   LogicalResult
   assignAllocAddresses(func::FuncOp funcOp,
                        /* TODO const */ FuncAnalysisData &analysis) {
@@ -745,14 +744,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // TODO rename (only analyzes part of `OperandStream`)?..
   static llvm::SmallVector<OperandStream>
   getOperandStreams(ttir::GenericOp genericOp) {
-    const int32_t outputsStart = genericOp.getOutputs().getBeginOperandIndex();
+    const std::size_t outputsStart =
+        genericOp.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
 
     llvm::SmallVector<OperandStream> result;
 
-    for (int32_t operandIndex = 0;
-         operandIndex < static_cast<int32_t>(genericOp.getNumOperands());
-         ++operandIndex) {
+    for (std::size_t operandIndex = 0;
+         operandIndex < genericOp.getNumOperands(); ++operandIndex) {
       OperandStream &stream = result.emplace_back();
 
       stream.isOutput = (operandIndex >= outputsStart);
@@ -855,7 +854,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
                                     ttir::GenericOp op,
                                     const Planner::Request &req,
                                     const MemorySpaceInfo &info,
-                                    const SequenceMapping &mapping) {
+                                    const SequenceMapping &sequence) {
     auto operandMemrefType = mlir::cast<MemRefType>(operand.get().getType());
 
     OpBuilder::InsertionGuard guard(rewriter);
@@ -874,7 +873,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       auto bufferMemref = selectStreamBuffer(rewriter, operandMemrefType);
       auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
       assign(rewriter, buffer, req.offset, info);
-      insertDealloc(rewriter, buffer, req.last, mapping);
+      insertDealloc(rewriter, buffer, req.last, sequence);
 
       auto stream = rewriter.create<ttir::StreamLayoutOp>(
           op.getLoc(), streamMemref, operand.get(), buffer);
@@ -915,8 +914,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
   static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
                             Planner::SequenceT position,
-                            const SequenceMapping &mapping) {
-    Operation *lastOp = mapping.positionMap[position];
+                            const SequenceMapping &sequence) {
+    Operation *lastOp = sequence.positionMap[position];
     if (!llvm::isa<func::ReturnOp>(lastOp)) {
       OpBuilder::InsertionGuard guard(rewriter);
       {
