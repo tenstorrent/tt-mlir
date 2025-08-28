@@ -47,13 +47,15 @@ ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
           outputType.getShape().begin(), outputType.getShape().end())));
 }
 
+template <typename Conv2dOpType>
 class ConvertToFlattenedConv2dPattern
-    : public OpConversionPattern<ttir::Conv2dOp> {
+    : public OpConversionPattern<Conv2dOpType> {
 public:
-  using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
+  using OpConversionPattern<Conv2dOpType>::OpConversionPattern;
+  using OpAdaptor = typename Conv2dOpType::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(Conv2dOpType op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto inputType = op.getInput().getType();
@@ -63,14 +65,26 @@ public:
         op.getInput(), getNHWFlattenedType(inputType), rewriter);
 
     auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
-        getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
+        rewriter.getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
-    auto newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
-        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-        adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
-        adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
-        flattenedCompatInfoAttr);
+    Conv2dOpType newConv;
+    if constexpr (std::is_same_v<Conv2dOpType, ttir::ConvTranspose2dOp>) {
+      newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
+          adaptor.getStride(), adaptor.getPadding(), adaptor.getOutputPadding(),
+          adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
+    } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
+      newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
+          adaptor.getStride(), adaptor.getPadding(), adaptor.getDilation(),
+          adaptor.getGroups(), flattenedCompatInfoAttr);
+    } else {
+      static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
+                    "Unsupported Conv2dOpType");
+    }
 
     Value output = generateReshape(newConv, outputType, rewriter);
 
@@ -138,7 +152,8 @@ public:
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
     conversionPatterns
-        .add<ConvertToFlattenedConv2dPattern,
+        .add<ConvertToFlattenedConv2dPattern<ttir::Conv2dOp>,
+             ConvertToFlattenedConv2dPattern<ttir::ConvTranspose2dOp>,
              Pooling2dFlattenedCompatOpConversionPattern<ttir::MaxPool2dOp>,
              Pooling2dFlattenedCompatOpConversionPattern<ttir::AvgPool2dOp>>(
             typeConverter, &getContext());
@@ -151,6 +166,10 @@ public:
     target.addDynamicallyLegalOp<ttir::Conv2dOp>([&](ttir::Conv2dOp op) {
       return op.getFlattenedCompatInfo() != nullptr;
     });
+    target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
+        [&](ttir::ConvTranspose2dOp op) {
+          return op.getFlattenedCompatInfo() != nullptr;
+        });
     target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
       return op.getFlattenedCompatInfo() != nullptr;
     });
