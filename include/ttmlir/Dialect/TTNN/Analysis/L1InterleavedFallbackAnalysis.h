@@ -77,11 +77,11 @@ private:
   // available after LegalOpLayoutsAnalysis).
   std::vector<OpConfig> getL1InterleavedLayoutConfigs(Operation *op) const;
 
-  // Check if operation has exactly one user that is immediate next in schedule.
+  // Check if op's first user is immediate next op in schedule.
   bool hasImmediateConsumer(Operation *op) const;
 
-  // Check if operation produces model output (i.e. its user is a return op).
-  bool producesModelOutput(Operation *op) const;
+  // Check if operation has a return op user.
+  bool hasReturnOpUser(Operation *op) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
