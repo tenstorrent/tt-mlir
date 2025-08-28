@@ -1009,21 +1009,47 @@ public:
         op.getLoc(), transposedWeightType, weight, permutation);
 
     // Reshape bias from 4D (1,1,1,O) to 1D (O) for TOSA.
-    auto biasType = cast<RankedTensorType>(bias.getType());
-    auto biasShape = biasType.getShape();
+    // If bias is not provided, create a zero bias tensor.
+    Value reshapedBias = nullptr;
+    if (bias) {
+      auto biasType = cast<RankedTensorType>(bias.getType());
+      auto biasShape = biasType.getShape();
 
-    SmallVector<int64_t> reshapedBiasShape = {biasShape[3]};
-    auto reshapedBiasType =
-        RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
-    auto shapeType = tosa::shapeType::get(rewriter.getContext(), 1);
-    SmallVector<int64_t> shapeValues = {biasShape[3]};
-    auto attr = rewriter.getIndexTensorAttr(shapeValues);
-    auto shapeOp =
-        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+      SmallVector<int64_t> reshapedBiasShape = {biasShape[3]};
+      auto reshapedBiasType =
+          RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 1);
+      SmallVector<int64_t> shapeValues = {biasShape[3]};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
-    auto reshapedBias = rewriter.create<tosa::ReshapeOp>(
-        op.getLoc(), reshapedBiasType, bias, shapeOp.getResult());
+      reshapedBias = rewriter
+                         .create<tosa::ReshapeOp>(op.getLoc(), reshapedBiasType,
+                                                  bias, shapeOp.getResult())
+                         .getResult();
+    } else {
+      int64_t outputChannels = weightShape[0];
+      auto biasElementType =
+          cast<RankedTensorType>(input.getType()).getElementType();
+      auto biasType = RankedTensorType::get({outputChannels}, biasElementType);
 
+      Attribute zeroAttr;
+      if (isa<FloatType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APFloat::getZero(
+                cast<FloatType>(biasElementType).getFloatSemantics()));
+      } else if (isa<IntegerType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APInt::getZero(cast<IntegerType>(biasElementType).getWidth()));
+      } else {
+        return rewriter.notifyMatchFailure(op, "Unsupported bias element type");
+      }
+      reshapedBias = rewriter.create<tosa::ConstOp>(
+          op.getLoc(), biasType, cast<DenseElementsAttr>(zeroAttr));
+    }
     // Expand stride if it contains only one element.
     SmallVector<int64_t> expandedStrides;
     if (auto stridesArray = dyn_cast<DenseI32ArrayAttr>(strides)) {
@@ -1141,7 +1167,7 @@ public:
 
     auto conv2dOp = rewriter.create<tosa::Conv2DOp>(
         op.getLoc(), actualResultType, input, transposedWeight.getResult(),
-        reshapedBias.getResult(), expandedPaddingAttr, expandedStridesAttr,
+        reshapedBias, expandedPaddingAttr, expandedStridesAttr,
         expandedDilationsAttr, TypeAttr::get(accType));
 
     // Slice the result back to the original expected shape if needed.
