@@ -80,20 +80,28 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
     SmallVector<Value> indices = {index(rewriter, loc, 0),
                                   index(rewriter, loc, 0)};
     SmallVector<Value> sourceIndices;
+
+    // TODO(#4717): This call alone should be enough to get the tile indices,
+    // but currently it returns block index instead. Once fixed, we can remove
+    // all the other calculations below.
     affine::resolveIndicesIntoOpWithOffsetsAndStrides(
         rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
         subViewOp.getDroppedDims(), indices, sourceIndices);
+
     auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
     Value rtIdx = index(rewriter, loc, resultTy.getShape()[0]);
     Value ktIdx = index(rewriter, loc, resultTy.getShape()[1]);
     Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
+
     // Convert the resolved source row offset to a block-row index.
     Value rowBlockIdx =
         rewriter.create<arith::DivSIOp>(loc, sourceIndices[0], rtIdx);
     Value rowBase =
         rewriter.create<arith::MulIOp>(loc, rowBlockIdx, tilesPerBlock);
     return rewriter.create<arith::AddIOp>(loc, rowBase, sourceIndices[1]);
-  } else if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
+  }
+
+  if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
     // We have not blocked this input. Ignore the cast and start from index 0 of
     // the input.
     return index(rewriter, loc, 0);
@@ -107,11 +115,15 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
     return rewriter.getRemappedValue(loadOp.getMemref());
-  } else if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
+  }
+
+  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
     memref::SubViewOp subViewOp =
         mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
     return rewriter.getRemappedValue(subViewOp.getSource());
-  } else if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
+  }
+
+  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
     memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
     return rewriter.getRemappedValue(castOp.getSource());
   }
