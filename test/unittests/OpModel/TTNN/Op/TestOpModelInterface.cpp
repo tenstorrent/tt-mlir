@@ -3349,4 +3349,37 @@ TEST_F(OpModelBase, RandOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, DeallocateOpInterface) {
+  // Test basic DeallocateOp with L1 memory
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto inputTensor = createEmptyTensor(tensorShape);
+  auto deallocate =
+      builder.create<DeallocateOp>(builder.getUnknownLoc(), inputTensor,
+                                   /*force=*/false);
+
+  auto backend = dyn_cast<OpModel>(deallocate.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    // Hardcoded to return zero; deallocate op has no memory footprint.
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DeallocateOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GE(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for DeallocateOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

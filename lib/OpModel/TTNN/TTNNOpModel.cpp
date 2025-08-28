@@ -2457,6 +2457,44 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// DeallocateOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<DeallocateOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, bool force) {
+  // sgholamiTT: DeallocateOp's invoke method in tt-metal returns void. So it
+  // cannot be called via a call to query_op_constraints (see
+  // extract_output_tensor usage). Besides, DeallocateOp has no memory usage as
+  // it simply deallocates memory. So I decided to return an empty
+  // OpConstraints, instead of returning an error.
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t>
+OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                    TTNNLayoutAttr inputLayout, bool force) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto deallocateOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::deallocate, device,
+                                           inputSpec, force);
+  };
+
+  return operation::getOpRuntime(deallocateOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(

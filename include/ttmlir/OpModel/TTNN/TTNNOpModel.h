@@ -616,6 +616,22 @@ struct OpModel<MatmulOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// DeallocateOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<DeallocateOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, bool force);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             bool force);
+};
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
