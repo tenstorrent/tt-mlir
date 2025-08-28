@@ -716,22 +716,27 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                        "the last dimension of the output tensor");
   }
 
-  uint32_t batchSize = getBatchSize();
-  if (batchSize != inputType.getDimSize(0)) {
-    return emitOpError("Batch size attribute must match the first "
-                       "dimension of the input tensor");
-  }
+  // If The input shape is unflattened then verify the input shape.
+  if (getBatchSize() * getInputHeight() * getInputWidth() !=
+      inputType.getDimSize(2)) {
 
-  uint32_t inputHeight = getInputHeight();
-  if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
-    return emitOpError("Input height attribute must match the second "
-                       "dimension of the input tensor");
-  }
+    uint32_t batchSize = getBatchSize();
+    if (batchSize != inputType.getDimSize(0)) {
+      return emitOpError("Batch size attribute must match the first "
+                         "dimension of the input tensor");
+    }
 
-  uint32_t inputWidth = getInputWidth();
-  if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
-    return emitOpError("Input width attribute must match the third "
-                       "dimension of the input tensor");
+    uint32_t inputHeight = getInputHeight();
+    if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
+      return emitOpError("Input height attribute must match the second "
+                         "dimension of the input tensor");
+    }
+
+    uint32_t inputWidth = getInputWidth();
+    if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
+      return emitOpError("Input width attribute must match the third "
+                         "dimension of the input tensor");
+    }
   }
 
   llvm::ArrayRef<int32_t> stride = getStride();
@@ -803,8 +808,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   int32_t kernelHeight = kernelShape[2];
   int32_t kernelWidth = kernelShape[3];
 
-  int32_t Hin = inputType.getDimSize(inputType.getRank() - 3);
-  int32_t Win = inputType.getDimSize(inputType.getRank() - 2);
+  int32_t Hin = getInputHeight();
+  int32_t Win = getInputWidth();
 
   int32_t expectedHOut = (Hin - 1) * stride[0] - 2 * padding[0] +
                          dilation[0] * (kernelHeight - 1) + outputPadding[0] +

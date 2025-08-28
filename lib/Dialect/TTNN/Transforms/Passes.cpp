@@ -186,10 +186,13 @@ public:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (!funcOp->getUses().empty()) {
-        mlir::WalkResult::skip();
+      if (!funcOp->getUses().empty() ||
+          ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
       }
+
       forwardFuncOps.push_back(funcOp);
+      return mlir::WalkResult::advance();
     });
 
     // Iterate over all func ops and add input tensor generator functions.

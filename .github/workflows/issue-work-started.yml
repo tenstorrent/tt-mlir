@@ -16,8 +16,8 @@ on:
 
   # Daily schedule to check all issues and update Work Started field
   schedule:
-    # Run at 11 PM UTC daily (23:00)
-    - cron: '0 23 * * *'
+    # Run at 11 PM Central Time (5 AM UTC the next day)
+    - cron: '0 5 * * *'
 
 permissions:
   repository-projects: write

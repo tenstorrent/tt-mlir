@@ -25,6 +25,30 @@ static mlir::Type getElemType(mlir::Type t) {
   return shaped.getElementType();
 };
 
+// Helper function to wrap a value in ToTensorOp (if needed) to conform to
+// bufferization API expectations
+static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
+                                                   mlir::Value value,
+                                                   mlir::Location loc) {
+  if (mlir::isa<mlir::RankedTensorType>(value.getType())) {
+    return value;
+  }
+
+  // We need to convert from memref to tensor, so the result type should be a
+  // tensor type and the input should be the memref value
+  auto shapedType = mlir::dyn_cast<mlir::ShapedType>(value.getType());
+  if (!shapedType) {
+    return value; // Return original if not a shaped type
+  }
+
+  auto tensorType = mlir::RankedTensorType::get(shapedType.getShape(),
+                                                shapedType.getElementType());
+
+  return rewriter
+      .create<mlir::bufferization::ToTensorOp>(loc, tensorType, value)
+      .getResult();
+}
+
 //===----------------------------------------------------------------------===//
 // TileMatmulBlockOp
 //===----------------------------------------------------------------------===//
@@ -228,8 +252,11 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   Value src = nullptr;
   // NOLINTNEXTLINE
   if (isSrcRemote()) {
+    auto srcToTensor =
+        wrapValueInTensorCompatibleType(rewriter, getSrc(), getLoc());
+
     auto maybeSrc =
-        mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+        mlir::bufferization::getBuffer(rewriter, srcToTensor, options, state);
     if (failed(maybeSrc)) {
       return maybeSrc;
     }
@@ -241,8 +268,11 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   Value dst = nullptr;
   // NOLINTNEXTLINE
   if (isDstRemote()) {
+    auto dstToTensor =
+        wrapValueInTensorCompatibleType(rewriter, getDst(), getLoc());
+
     auto maybeDst =
-        mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+        mlir::bufferization::getBuffer(rewriter, dstToTensor, options, state);
     if (failed(maybeDst)) {
       return maybeDst;
     }

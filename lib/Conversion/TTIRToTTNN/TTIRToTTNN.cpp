@@ -1108,15 +1108,25 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Please run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
     auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
     auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
@@ -1167,28 +1177,14 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Transposed convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C).
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    ttnn::ConvTranspose2dOp newConv = rewriter.create<ttnn::ConvTranspose2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+    rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
+        op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
+        adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
         /*memoryConfig=*/nullptr);
 
-    // Restore the normal shape (N x H x W x C).
-    Value output = ttir_to_ttnn::utils::generateReshape(
-        newConv, outputShape, rewriter,
-        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshape"));
-
-    rewriter.replaceOp(op, output);
     return success();
   }
 
