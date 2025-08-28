@@ -8458,6 +8458,9 @@ int32_t main() {
   std::chrono::high_resolution_clock::time_point warmup_start =
       std::chrono::high_resolution_clock::now();
   ::std::vector<::ttnn::Tensor> v2 = forward(v1);
+  for (::ttnn::Tensor item : v2) {
+    ttnn::from_device(item, true);
+  }
   std::chrono::high_resolution_clock::time_point warmup_end =
       std::chrono::high_resolution_clock::now();
   auto warmup_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -8478,7 +8481,10 @@ int32_t main() {
   std::cout << "Running additional warmup..." << std::endl;
   for (int i = 0; i < warmup_loop_count; i++) {
     warmup_start = std::chrono::high_resolution_clock::now();
-    forward(v1);
+    ::std::vector<::ttnn::Tensor> v3 = forward(v1);
+    for (::ttnn::Tensor item : v3) {
+      ttnn::from_device(item, true);
+    }
     warmup_end = std::chrono::high_resolution_clock::now();
     warmup_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
         warmup_end - warmup_start);
@@ -8508,7 +8514,10 @@ int32_t main() {
 
   for (int i = 0; i < loop_count; ++i) {
     auto start = std::chrono::high_resolution_clock::now();
-    forward(v1);
+    ::std::vector<::ttnn::Tensor> v4 = forward(v1);
+    for (::ttnn::Tensor item : v4) {
+      ttnn::from_device(item, true);
+    }
     auto end = std::chrono::high_resolution_clock::now();
     auto duration =
         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
