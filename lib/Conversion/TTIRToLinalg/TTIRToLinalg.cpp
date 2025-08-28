@@ -987,6 +987,7 @@ public:
 private:
   LogicalResult decomposeToLinalg(ttir::GatherOp op, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
+    llvm::errs() << "[GatherLowering] hello Mountagha.\n";  
     auto loc = op.getLoc();
     Value input = adaptor.getInput();
     Value startIndices = adaptor.getStartIndices();

@@ -829,7 +829,7 @@ private:
   // Example: expectedOutputShape = [2, 3, 4, 5], offsetDims = [1, 3]
   // -> embeddingOutputShape = [2, 4, 15] -reshape-> [2, 4, 3, 5] -permute-> [2,
   // 3, 4, 5]
-  static ttir::PermuteOp reshapeAndPermuteOutput(
+  static mlir::Value reshapeAndPermuteOutput(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> output,
       ::mlir::TypedValue<::mlir::RankedTensorType> expectedOutput,
@@ -852,17 +852,38 @@ private:
          offsetDimsIndex++) {
       outputPermutation.push_back(offsetDims[offsetDimsIndex]);
     }
+    // auto permutedOutputShape = ttmlir::utils::applyPermutation(
+    //    expectedOutputType.getShape(), outputPermutation);
+    auto invPerm = ttmlir::utils::inversePermutation(outputPermutation);
     auto permutedOutputShape = ttmlir::utils::applyPermutation(
-        expectedOutputType.getShape(), outputPermutation);
+        expectedOutputType.getShape(), invPerm);
+
     auto reshapedOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
         output, permutedOutputShape);
 
+    //return ttir::utils::createDPSOp<ttir::PermuteOp>(
+    //    rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
+    //    expectedOutputType.getShape(), expectedOutputType.getElementType(),
+    //    expectedOutputType.getEncoding(), reshapedOutput,
+    //    ttmlir::utils::inversePermutation(outputPermutation));
+    // If the reshape already landed on the expected shape, no permute needed.
+    if (llvm::ArrayRef<int64_t>(permutedOutputShape) == expectedOutputShape) {
+      return reshapedOutput.getResult();
+    }
+    // Emit permute only if it’s not identity.
+    bool isIdentity = true;
+    for (int64_t i = 0, e = (int64_t)invPerm.size(); i < e; ++i) {
+      if (invPerm[i] != i) { isIdentity = false; break; }
+    }
+    if (isIdentity)
+      return reshapedOutput.getResult();
+
     return ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
-        expectedOutputType.getShape(), expectedOutputType.getElementType(),
-        expectedOutputType.getEncoding(), reshapedOutput,
-        ttmlir::utils::inversePermutation(outputPermutation));
+               rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
+               expectedOutputType.getShape(), expectedOutputType.getElementType(),
+               expectedOutputType.getEncoding(), reshapedOutput, invPerm)
+        .getResult();
   }
 
   static ttir::ReshapeOp

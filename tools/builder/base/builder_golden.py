@@ -1035,6 +1035,141 @@ def index_golden(input_tensor, dim, begin, end, step):
     index = torch.tensor(indices)
     return torch.index_select(input_tensor, dim=dim, index=index)
 
+def gather_golden3(
+    input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
+) -> torch.Tensor:
+    """
+    Golden for StableHLO/TTIR-like gather covering:
+      - No operand/start_indices batching dims
+      - index_vector_dim is implicit (1D) or the last dim (>=2D)
+      - collapsed_slice_dims == start_index_map
+      - slice_sizes specify the per-operand-dim extents
+      - offset_dims positions the (non-collapsed) slice dims inside the result
+    """
+
+    # ----- unpack attrs -----
+    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
+    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
+    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
+    start_indices_batching_dims = unpack_mlir_attr(kwargs.get("start_indices_batching_dims", []))
+    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
+    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    _indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
+
+    x = input_tensor
+    idx = start_indices_tensor
+    device = x.device if hasattr(x, "device") else None
+
+    rank = x.dim()
+    assert len(slice_sizes) == rank, "slice_sizes must match operand rank"
+    assert set(collapsed_slice_dims) == set(start_index_map), \
+        "This golden assumes collapsed_slice_dims == start_index_map"
+    assert len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0, \
+        "Batching dims not supported in this golden"
+    # collapsed dims must have slice size 1
+    for d in collapsed_slice_dims:
+        assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
+
+    # ---- normalize indices shape & index_vector_dim semantics ----
+    # Case A: 1D indices (simple): K == 1, implicit vector dim
+    # Case B: ND indices: last dim stores the K-vector (we assume helper set it that way)
+    if idx.dim() == 0:
+        # scalar → [1]
+        idx = idx.unsqueeze(0)
+    # If simple (K=1, no explicit vector dim), keep as [N]
+    # If complex, we expect index_vector_dim == idx.ndim - 1
+    if len(start_index_map) == 1 and index_vector_dim == idx.ndim:
+        # matches your helper for simple 1D: index_vector_dim == len(indices_shape)
+        pass
+    else:
+        # Expect the conventional "last dim holds the vector"
+        assert index_vector_dim == idx.ndim - 1, \
+            "This golden expects index_vector_dim == last dimension for multi-d indices"
+
+    # Determine batch shape and flatten indices to [B, K]
+    if idx.ndim == 1:  # simple path, K == 1
+        batch_shape = idx.shape  # [N]
+        K = 1
+        idx_flat = idx.reshape(-1, 1).long()
+    else:
+        K = idx.shape[-1]
+        assert K == len(start_index_map), "index vector length must match start_index_map"
+        batch_shape = idx.shape[:-1]
+        idx_flat = idx.reshape(-1, K).long()
+
+    # Bounds check (optional but helpful)
+    for k, d in enumerate(start_index_map):
+        if torch.any(idx_flat[:, k] < 0) or torch.any(idx_flat[:, k] + slice_sizes[d] > x.size(d)):
+            raise IndexError("gather start indices out of bounds for operand dim {}".format(d))
+
+    # Build the natural slice_shape (operand order, skipping collapsed dims)
+    slice_dims_natural = [d for d in range(rank) if d not in collapsed_slice_dims]
+    natural_slice_shape = [slice_sizes[d] for d in slice_dims_natural]
+
+    # Number of non-collapsed dims must match offset_dims count
+    assert len(slice_dims_natural) == len(offset_dims), \
+        "offset_dims must have one entry per non-collapsed slice dim"
+
+    # For each batch vector of indices, slice x accordingly
+    B = int(torch.tensor(batch_shape).prod()) if len(batch_shape) > 0 else 1
+    slices = []
+    for b in range(B):
+        starts = [0] * rank
+        ends = [0] * rank
+        # Fill starts/ends from index vector for mapped dims
+        for k, d in enumerate(start_index_map):
+            starts[d] = int(idx_flat[b, k].item())
+            ends[d]   = starts[d] + slice_sizes[d]
+        # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
+        for d in range(rank):
+            if d not in start_index_map:
+                starts[d] = 0
+                ends[d]   = slice_sizes[d]
+
+        # Build the per-dim slice
+        slicer = tuple(slice(starts[d], ends[d]) for d in range(rank))
+        sub = x[slicer]  # shape equals slice_sizes in operand order
+
+        # Remove collapsed dims (size-1) to get natural slice shape
+        if len(collapsed_slice_dims) > 0:
+            sub = sub.squeeze(dim=tuple(sorted(collapsed_slice_dims)))
+
+        slices.append(sub)
+
+    # Stack over batch → tensor with shape batch_shape + natural_slice_shape
+    if len(slices) == 1 and batch_shape == ():
+        gathered = slices[0]
+    else:
+        gathered = torch.stack(slices, dim=0).reshape(*batch_shape, *natural_slice_shape)
+
+    # Now position the slice dims inside the result according to offset_dims.
+    # Current order: [B0, B1, ..., Slice0, Slice1, ...]
+    batch_rank = len(batch_shape)
+    slice_rank = len(natural_slice_shape)
+    result_rank = batch_rank + slice_rank
+
+    # Compute desired positions: place slice dims at offset_dims, batch dims fill the rest in order.
+    # Build a mapping from current indices → desired indices.
+    # current indices: 0..batch_rank-1 (batch), batch_rank..batch_rank+slice_rank-1 (slice)
+    # desired indices: of length result_rank with slice dims at 'offset_dims'
+    remaining_positions = [p for p in range(result_rank) if p not in offset_dims]
+    assert len(remaining_positions) == batch_rank, "offset_dims inconsistent with batch rank"
+
+    desired_index_for_current = [None] * result_rank
+    # map batch dims
+    for b_i in range(batch_rank):
+        desired_index_for_current[b_i] = remaining_positions[b_i]
+    # map slice dims
+    for s_i in range(slice_rank):
+        desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
+
+    # Permute if needed
+    if desired_index_for_current != list(range(result_rank)):
+        gathered = gathered.permute(*desired_index_for_current)
+
+    return gathered.to(device=device)
+
 def gather_golden2(
     input_tensor: torch.Tensor, start_indices_tensor: torch.Tensor, **kwargs
 ) -> torch.Tensor:
@@ -2332,7 +2467,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
     ttir.SliceStaticOp: slice_golden,
-    ttir.GatherOp: gather_golden2,
+    ttir.GatherOp: gather_golden3,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: torch.matmul,
