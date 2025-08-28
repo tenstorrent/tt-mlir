@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <numeric>
 
 namespace mlir::tt::ttnn {
 
@@ -3217,6 +3218,134 @@ TEST_F(OpModelBase, FullOpInterface) {
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExpF.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  mlir::Type elementType = builder.getI32Type();
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  auto outputLayout = CreateTiledLayoutInt32(tensorShape, BufferType::L1,
+                                             TensorMemoryLayout::Interleaved);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<int32_t> data = {1, 2, 3, 4};
+  llvm::ArrayRef<int32_t> dataRef(data);
+
+  mlir::DenseElementsAttr attr =
+      mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+  auto constant =
+      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 3, 4};
+  mlir::Type elementType =
+      builder.getIntegerType(16, false); // unsigned 16-bit (u16)
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<uint16_t> data;
+  data.resize(std::accumulate(tensorShape.begin(), tensorShape.end(), 1,
+                              std::multiplies<uint16_t>()));
+  std::iota(data.begin(), data.end(), 1);
+  llvm::ArrayRef<uint16_t> dataRef(data);
+  mlir::DenseElementsAttr attr =
+      mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+  auto constant =
+      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(constant), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, RandOpInterface) {
+  // Test RandOp with default parameters
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create device value using GetDeviceOp
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
+  auto randOp = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), device,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
+      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr);
+
+  // Test RandOp interface
+  auto backend = dyn_cast<OpModel>(randOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(randOp), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (default params); Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test RandOp with custom parameters
+  auto randOpCustom = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType,
+      ttnn::ShapeAttr::get(&context, tensorShape), device,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
+      builder.getF32FloatAttr(-1.0),   // low
+      builder.getF32FloatAttr(2.0),    // high
+      builder.getUI32IntegerAttr(42)); // seed
+
+  // Test RandOp interface with custom parameters
+  auto backendCustom = dyn_cast<OpModel>(randOpCustom.getOperation());
+  auto constraintsExpCustom = backendCustom.getOpConstraints(
+      getInputLayouts(randOpCustom), OpConfig(nullptr));
+  if (constraintsExpCustom) {
+    auto l1 = constraintsExpCustom.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (custom params); Error="
+           << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
   }
 }
 

@@ -10,14 +10,14 @@ on:
         required: true
         type: string
 
-  # Automatic trigger for issue changes
+  # Automatic trigger for any issue activity
   issues:
-    types: [edited]
+    types: [opened, edited, closed, reopened, assigned, unassigned, labeled, unlabeled]
 
   # Daily schedule to check all issues and update Work Started field
   schedule:
-    # Run at 11 PM UTC daily (23:00)
-    - cron: '0 23 * * *'
+    # Run at 11 PM Central Time (5 AM UTC the next day)
+    - cron: '0 5 * * *'
 
 permissions:
   repository-projects: write
@@ -42,7 +42,6 @@ jobs:
             # Issue events
             issue_number="${{ github.event.issue.number }}"
             echo "Issue event triggered for issue #$issue_number"
-
           else
             echo "Unknown trigger type: ${{ github.event_name }}, skipping"
             exit 0
@@ -196,7 +195,7 @@ jobs:
         run: |
           source $GITHUB_ENV
 
-          # Query to get the current Status field value
+          # Query to get the current Status field value with timestamp
           QUERY='query($itemId: ID!) {
             node(id: $itemId) {
               ... on ProjectV2Item {
@@ -204,13 +203,24 @@ jobs:
                   nodes {
                     ... on ProjectV2ItemFieldSingleSelectValue {
                       field {
-                        ... on ProjectV2SingleSelectField {
+                        ... on ProjectV2Field {
                           id
                           name
                         }
                       }
                       name
                       optionId
+                      updatedAt
+                    }
+                    ... on ProjectV2ItemFieldDateValue {
+                      field {
+                        ... on ProjectV2Field {
+                          id
+                          name
+                        }
+                      }
+                      date
+                      updatedAt
                     }
                   }
                 }
@@ -235,10 +245,15 @@ jobs:
             exit 0
           fi
 
-          # Extract Status field value using both field ID and name for accuracy
-          STATUS_VALUE=$(echo "$RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+          # Extract Status field value and its update timestamp
+          # For single select fields, we need to find by matching known Status values
+          STATUS_VALUE=$(echo "$RESPONSE" | jq -r \
                          '.data.node.fieldValues.nodes[] |
-                          select(.field.id==$status_field_id or .field.name=="Status") | .name')
+                          select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
+
+          STATUS_UPDATED_AT=$(echo "$RESPONSE" | jq -r \
+                              '.data.node.fieldValues.nodes[] |
+                               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
           # Extract Work Started field value to check if it's already set
           WORK_STARTED_VALUE=$(echo "$RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
@@ -247,8 +262,18 @@ jobs:
 
           if [[ "$STATUS_VALUE" == "In Progress" ]]; then
             if [[ -z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null" ]]; then
-              echo "Status is 'In Progress' and Work Started is empty - proceeding with update"
-              echo "should_update=true" >> $GITHUB_OUTPUT
+              # Convert timestamp to date format (YYYY-MM-DD)
+              if [[ -n "$STATUS_UPDATED_AT" && "$STATUS_UPDATED_AT" != "null" ]]; then
+                status_date=$(echo "$STATUS_UPDATED_AT" | cut -d'T' -f1)
+                echo "Status changed to 'In Progress' on: $status_date (from timestamp: $STATUS_UPDATED_AT)"
+                echo "should_update=true" >> $GITHUB_OUTPUT
+                echo "work_started_date=$status_date" >> $GITHUB_OUTPUT
+              else
+                echo "Could not determine when status changed - using current date as fallback"
+                current_date=$(date +%Y-%m-%d)
+                echo "should_update=true" >> $GITHUB_OUTPUT
+                echo "work_started_date=$current_date" >> $GITHUB_OUTPUT
+              fi
             else
               echo "Status is 'In Progress' but Work Started already set to '$WORK_STARTED_VALUE' - skipping to avoid overwriting"
               echo "should_update=false" >> $GITHUB_OUTPUT
@@ -264,13 +289,14 @@ jobs:
       - name: Update Work Started Field
         if: steps.check_status.outputs.should_update == 'true'
         run: |
-          current_date=$(date +%Y-%m-%d)
-          echo "Setting Work Started date to: $current_date"
+          source $GITHUB_ENV
+          work_started_date="${{ steps.check_status.outputs.work_started_date }}"
+          echo "Setting Work Started date to: $work_started_date (date when status changed to 'In Progress')"
 
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
             -H "Content-Type: application/json" \
-            -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ steps.get_item_id.outputs.item_id }}\\\", fieldId: \\\"${{ env.work_started_field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+            -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"${{ steps.get_item_id.outputs.item_id }}\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$work_started_date\\\" } }) { clientMutationId } }\" }" \
             https://api.github.com/graphql)
 
           ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
@@ -324,7 +350,7 @@ jobs:
                               '.data.node.fieldValues.nodes[] |
                                select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
 
-          echo "Work Started field updated to: $WORK_STARTED_VALUE"
+          echo "Work Started field set to: $WORK_STARTED_VALUE (date when status changed to 'In Progress')"
 
   # Bulk processing job for scheduled runs
   bulk_update_work_started:
@@ -488,19 +514,31 @@ jobs:
               continue
             fi
 
-            # Check Status and Work Started fields
+            # Check Status and Work Started fields with timestamps
             STATUS_QUERY='query($itemId: ID!) {
               node(id: $itemId) {
                 ... on ProjectV2Item {
                   fieldValues(first: 20) {
                     nodes {
                       ... on ProjectV2ItemFieldSingleSelectValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         name
+                        updatedAt
                       }
                       ... on ProjectV2ItemFieldDateValue {
-                        field { id name }
+                        field {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                        }
                         date
+                        updatedAt
                       }
                     }
                   }
@@ -520,10 +558,15 @@ jobs:
               continue
             fi
 
-            # Extract Status field value
-            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg status_field_id "$status_field_id" \
+            # Extract Status field value and its update timestamp
+            # For single select fields, we need to find by matching known Status values
+            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
               '.data.node.fieldValues.nodes[] |
-               select(.field.id==$status_field_id or .field.name=="Status") | .name')
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
+
+            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
+              '.data.node.fieldValues.nodes[] |
+               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
 
             # Extract Work Started field value
             WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
@@ -534,19 +577,26 @@ jobs:
             if [[ "$STATUS_VALUE" == "In Progress" && (-z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null") ]]; then
               echo "Issue #$issue_number has Status='In Progress' but no Work Started date - updating..."
 
-              current_date=$(date +%Y-%m-%d)
+              # Use the date when status changed to 'In Progress', with fallback to current date
+              if [[ -n "$STATUS_UPDATED_AT" && "$STATUS_UPDATED_AT" != "null" ]]; then
+                work_started_date=$(echo "$STATUS_UPDATED_AT" | cut -d'T' -f1)
+                echo "Using status change date: $work_started_date (from timestamp: $STATUS_UPDATED_AT)"
+              else
+                work_started_date=$(date +%Y-%m-%d)
+                echo "Could not determine status change date, using current date: $work_started_date"
+              fi
 
               MUTATION_RESPONSE=$(curl -s -X POST \
                 -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                 -H "Content-Type: application/json" \
-                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$work_started_date\\\" } }) { clientMutationId } }\" }" \
                 https://api.github.com/graphql)
 
               MUTATION_ERRORS=$(echo "$MUTATION_RESPONSE" | jq -r '.errors // empty')
               if [[ -n "$MUTATION_ERRORS" && "$MUTATION_ERRORS" != "null" ]]; then
                 echo "Error updating Work Started for issue #$issue_number: $MUTATION_ERRORS"
               else
-                echo "✅ Updated Work Started for issue #$issue_number to $current_date"
+                echo "✅ Updated Work Started for issue #$issue_number to $work_started_date (date when status changed)"
                 updated_count=$((updated_count + 1))
               fi
             else

@@ -19,6 +19,23 @@ module {
   }
 }
 
+func.func @conv_transpose2d_simple(%arg0: tensor<1x64x64x256xbf16>, %arg1: tensor<256x256x16x16xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x73x67x256xbf16> {
+    %0 = ttir.empty() : tensor<1x73x67x256xbf16>
+    // CHECK: %[[RESHAPE1:[0-9]+]] = "ttir.reshape"
+    // CHECK: %[[CONV:[0-9]+]] = "ttir.conv_transpose2d"(%[[RESHAPE1]]
+    // CHECK: #ttir<flattened_compat batch_size = 1, input_height = 64, input_width = 64>
+    // CHECK: %[[RESHAPE2:[0-9]+]] = "ttir.reshape"(%[[CONV]]
+    %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
+            <{
+              stride = 1: i32,
+              padding = array<i32: 3, 6, 3, 6>,
+              output_padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32}
+            > : (tensor<1x64x64x256xbf16>, tensor<256x256x16x16xbf16>, tensor<1x1x1x256xbf16>, tensor<1x73x67x256xbf16>) -> tensor<1x73x67x256xbf16>
+    return %1 : tensor<1x73x67x256xbf16>
+  }
+
 module {
   func.func @max_pool2d_simple(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = tensor.empty() : tensor<1x30x30x64xbf16>
