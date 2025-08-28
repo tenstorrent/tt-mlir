@@ -662,6 +662,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withBufferType(BufferType bufferType);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayout memLayout);
+    TTNNLayoutAttr withLayout(Layout layout, ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
