@@ -23,25 +23,6 @@
 #include <type_traits>
 #include <utility>
 
-namespace mlir::tt::ttir {
-
-// Define some convenience macros local to `Analysis`.
-
-#define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
-  TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
-
-#define TT_ALLOC_TRACE(/* fmt, args */...)                                     \
-  TTMLIR_TRACE(ttmlir::LogComponent::Allocator, __VA_ARGS__)
-
-#define TT_ALLOC_ERROR(/* fmt, args */...)                                     \
-  do {                                                                         \
-    auto &OS = llvm::errs();                                                   \
-    OS.enable_colors(true);                                                    \
-    OS.changeColor(llvm::raw_ostream::RED, /*bold=*/true);                     \
-    OS << llvm::formatv(__VA_ARGS__) << "\n";                                  \
-    OS.resetColor();                                                           \
-  } while (false)
-
 // clang-format off
 #ifndef TT_IMPL_ASSERT_LOC_INFO
 
@@ -63,6 +44,34 @@ namespace mlir::tt::ttir {
 
 #endif
 // clang-format on
+
+// TODO move into allocator-specific sub-ns?
+namespace mlir::tt::ttir {
+
+inline bool debugEnabled() {
+  return (llvm::DebugFlag &&
+          ttmlir::isLogLevelEnabled(ttmlir::LogLevel::Debug));
+}
+
+#define TT_UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
+#define TT_DEBUG_ENABLED() TT_UNLIKELY(mlir::tt::ttir::debugEnabled())
+
+// Define some convenience macros local to `Analysis`.
+
+#define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
+  TTMLIR_DEBUG(::ttmlir::LogComponent::Allocator, __VA_ARGS__)
+
+#define TT_ALLOC_TRACE(/* fmt, args */...)                                     \
+  TTMLIR_TRACE(::ttmlir::LogComponent::Allocator, __VA_ARGS__)
+
+#define TT_ALLOC_ERROR(/* fmt, args */...)                                     \
+  do {                                                                         \
+    auto &OS = ::llvm::errs();                                                 \
+    OS.enable_colors(true);                                                    \
+    OS.changeColor(::llvm::raw_ostream::RED, /*bold=*/true);                   \
+    OS << llvm::formatv(__VA_ARGS__) << "\n";                                  \
+    OS.resetColor();                                                           \
+  } while (false)
 
 template <typename Enum>
 [[nodiscard]] constexpr std::underlying_type_t<Enum> ordinal(Enum e) {
