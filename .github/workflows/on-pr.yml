@@ -45,6 +45,7 @@ jobs:
   downstream-checks:
     runs-on: ubuntu-latest
     needs: build-and-test
+    if: github.event.pull_request.head.ref == 'uplift'
     strategy:
       matrix:
         projects: [
