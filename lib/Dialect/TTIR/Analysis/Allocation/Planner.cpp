@@ -72,7 +72,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 }
 // ............................................................................
 
-Planner::SolveStats Planner::spillAllocate(Problem &problem,
+Planner::SpillStats Planner::spillAllocate(Problem &problem,
                                            AllocSizeT memUsageLimit) {
   TT_assert(problem.valid());
 
