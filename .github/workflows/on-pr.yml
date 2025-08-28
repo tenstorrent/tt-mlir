@@ -65,7 +65,7 @@ jobs:
               --repo ${{ env.TARGET_REPO }} --ref main \
               --field mlir_override=${{ github.event.pull_request.head.sha }} \
               --field preset=push \
-              --field run-on=All
+              --field run_on=All
           else
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
