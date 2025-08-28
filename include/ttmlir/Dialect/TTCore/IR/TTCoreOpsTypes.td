@@ -359,6 +359,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
+
+    // Returns the explicit index_map if present; otherwise returns an
+    // identity map of the provided rank.
+    mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
   }];
 }
 

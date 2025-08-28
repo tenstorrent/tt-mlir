@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -85,8 +86,8 @@ public:
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
       auto *ctx = rewriter.getContext();
-      AffineMap map =
-          calculateReblockMap(fromTy.getShape(), toTy.getShape(), ctx);
+      AffineMap map = mlir::tt::ttir::utils::calculateReblockMap(
+          fromTy.getShape(), toTy.getShape(), ctx);
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
       auto enc = ttcore::MetalLayoutAttr::get(

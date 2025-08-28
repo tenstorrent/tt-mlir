@@ -820,6 +820,15 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
                                       getLogicalShape().size());
 }
 
+mlir::AffineMap
+MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
+  mlir::AffineMap map = getIndexAffineMap();
+  if (!map || map.getNumResults() == 0) {
+    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
+  }
+  return map;
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,

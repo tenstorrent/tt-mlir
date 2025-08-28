@@ -2929,48 +2929,6 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 //===----------------------------------------------------------------------===//
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
-// Calculate a reblocking affine map from inputShape to outputShape.
-mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                    mlir::ArrayRef<int64_t> outputShape,
-                                    mlir::MLIRContext *ctx) {
-  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
-
-  // Assume the shapes are sharded s.t. first half is grid dims, second half is
-  // shard dims.
-  size_t rank = inputShape.size();
-  assert(rank % 2 == 0);
-  size_t halfRank = rank / 2;
-
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
-  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
-  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
-
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
-
-  // Convert grid/shard coordinates to a flat canonical representation.
-  for (size_t i = 0; i < halfRank; i++) {
-    auto dG = getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
-
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[j] = dG * outputShardShape[i] + dS;
-  }
-  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  // Converts from flat canonical back to grid/shard coordinates.
-  for (size_t i = 0; i < halfRank; i++) {
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dS % inputShardShape[i];
-  }
-  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  // Compose the maps: input -> canonical -> output.
-  return canonicalToInput.compose(outputToCanonical);
-}
-
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   auto inputType = mlir::cast<mlir::ShapedType>(getInput().getType());
   auto resultType = mlir::cast<mlir::ShapedType>(getResult().getType());
@@ -3024,12 +2982,10 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     auto inputEncoding =
         mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-    // Preserve any explicit index_map on the encoding (e.g., transpose).
-    mlir::AffineMap map = inputEncoding.getIndexAffineMap();
-    if (!map || map.getNumResults() == 0) {
-      map = mlir::AffineMap::getMultiDimIdentityMap(
-          static_cast<unsigned>(outputShape.size()), builder.getContext());
-    }
+    // Preserve any explicit index_map on the encoding (e.g., transpose),
+    // otherwise use identity of the correct rank.
+    mlir::AffineMap map = inputEncoding.getIndexAffineMapOrIdentity(
+        static_cast<unsigned>(outputShape.size()));
 
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
@@ -3040,7 +2996,7 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
   } else {
     auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
-    mlir::AffineMap view = calculateReblockMap(
+    mlir::AffineMap view = mlir::tt::ttir::utils::calculateReblockMap(
         inputType.getShape(), outputShape, builder.getContext());
     auto viewAttr =
         mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
