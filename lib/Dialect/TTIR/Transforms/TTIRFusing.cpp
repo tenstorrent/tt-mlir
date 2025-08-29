@@ -16,7 +16,7 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-// Check if we can fuse conv2d followed by add into conv2d with bias.
+// Check if we can fuse conv followed by add into conv with bias.
 template <typename ConvOpType>
 class TTIRConvWithBiasTemplate : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
@@ -54,7 +54,7 @@ public:
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
     rewriter.replaceAllOpUsesWith(srcOp, convOp);
-    // The original conv2d op will be removed by DCE since it's no longer
+    // The original conv op will be removed by DCE since it's no longer
     // used.
     return mlir::success();
   }
@@ -82,14 +82,13 @@ private:
         mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
             .getShape();
 
-    if (biasShape.size() != outputShape.size() ||
-        biasShape[outputFeatureDim] != outputShape[outputFeatureDim]) {
+    if (biasShape.size() != outputShape.size()) {
       return false;
     }
 
     auto featureDimSize =
         convOp.getResult().getType().getShape()[outputFeatureDim];
-    for (auto [dim, dimSize] : llvm::enumerate(bias.getType().getShape())) {
+    for (auto [dim, dimSize] : llvm::enumerate(biasShape)) {
       if (dim == outputFeatureDim && dimSize != featureDimSize) {
         return false;
       }
