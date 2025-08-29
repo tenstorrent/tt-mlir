@@ -436,219 +436,296 @@ jobs:
             fi
           }
 
-          # convert to file to read array
-          readarray -t issue_numbers < /tmp/issue_numbers.txt
-          echo "Processing all issues to check Status and update Work Started..."
-          processed_count=0
-          updated_count=0
-          array_length=$(( ${#issue_numbers[@]} - 1 ))
-          index=0
-
-          while true; do
-            if [[ $processed_count -ge $array_length ]]; then
-              break
-            fi
-            issue_number="${issue_numbers[$processed_count]}"
-
-            echo "Processing issue #$issue_number..."
-
-            # Get issue node ID
-            issue_details=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
-              "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
-            issue_id=$(echo "$issue_details" | jq -r '.node_id')
-
-            if [[ -z "$issue_id" || "$issue_id" == "null" ]]; then
-              echo "Could not get issue ID for #$issue_number, skipping..."
-              # Bump processed count
-              processed_count=$((processed_count + 1))
-              continue
-            fi
-
-            # Find item ID in project (reuse existing pagination logic)
-            found_item_id=""
-            cursor=""
-            page_count=1
+          run_bulk_update() {
+            local processed_count=0
+            local updated_count=0
+            local array_length=$(( ${#issue_numbers[@]} - 1 ))
+            local issue_number
+            local found_item_id
+            local cursor
+            local page_count
+            local QUERY
+            local JSON_PAYLOAD
+            local RESPONSE
+            local ERRORS
+            local ITEM_ID
+            local has_next_page
+            local STATUS_QUERY
+            local STATUS_JSON_PAYLOAD
+            local STATUS_RESPONSE
+            local STATUS_ERRORS
+            local STATUS_VALUE
+            local STATUS_UPDATED_AT
+            local WORK_STARTED_VALUE
+            local MUTATION_RESPONSE
+            local MUTATION_ERRORS
+            local work_started_date
+            local processed_count
+            local updated_count
+            local array_length
+            local issue_number
+            local found_item_id
+            local cursor
+            local page_count
+            local QUERY
+            local JSON_PAYLOAD
+            local RESPONSE
+            local ERRORS
+            local ITEM_ID
+            local has_next_page
+            local STATUS_QUERY
+            local STATUS_JSON_PAYLOAD
+            local STATUS_RESPONSE
+            local STATUS_ERRORS
+            local STATUS_VALUE
+            local STATUS_UPDATED_AT
+            local WORK_STARTED_VALUE
+            local MUTATION_RESPONSE
+            local MUTATION_ERRORS
+            local work_started_date
+            local processed_count
+            local updated_count
+            local array_length
+            local issue_number
+            local found_item_id
+            local page_count
 
             while true; do
-
-              if [[ -z "$cursor" ]]; then
-                QUERY='query($projectId: ID!) {
-                  node(id: $projectId) {
-                    ... on ProjectV2 {
-                      items(first: 100) {
-                        pageInfo { hasNextPage endCursor }
-                        nodes {
-                          id
-                          content { ... on Issue { id } }
-                        }
-                      }
-                    }
-                  }
-                }'
-                JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" \
-                  '{ query: $query, variables: { projectId: $projectId }}')
-              else
-                QUERY='query($projectId: ID!, $cursor: String!) {
-                  node(id: $projectId) {
-                    ... on ProjectV2 {
-                      items(first: 100, after: $cursor) {
-                        pageInfo { hasNextPage endCursor }
-                        nodes {
-                          id
-                          content { ... on Issue { id } }
-                        }
-                      }
-                    }
-                  }
-                }'
-                JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" --arg cursor "$cursor" \
-                  '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+              if [[ $processed_count -ge $array_length ]]; then
+                break
               fi
+              issue_number="${issue_numbers[$processed_count]}"
 
-              RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
-                -H "Content-Type: application/json" -d "$JSON_PAYLOAD" https://api.github.com/graphql)
+              echo "Processing issue #$issue_number..."
 
-              if ! handle_rate_limit "$RESPONSE"; then
+              # Get issue node ID
+              issue_details=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+              issue_id=$(echo "$issue_details" | jq -r '.node_id')
+
+              if [[ -z "$issue_id" || "$issue_id" == "null" ]]; then
+                echo "Could not get issue ID for #$issue_number, skipping..."
+                # Bump processed count
+                processed_count=$((processed_count + 1))
                 continue
               fi
 
-              ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
-              if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
-                echo "GraphQL Error finding issue #$issue_number: $ERRORS"
-                break
-              fi
+              # Find item ID in project (reuse existing pagination logic)
+              found_item_id=""
+              cursor=""
+              page_count=1
 
-              ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
-                '.data.node.items.nodes[]? | select(.content.id==$issue_id) | .id')
+              while true; do
 
-              if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
-                found_item_id="$ITEM_ID"
-                break
-              fi
-
-              has_next_page=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage // false')
-              if [[ "$has_next_page" != "true" ]]; then
-                break
-              fi
-
-              cursor=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
-
-              if [[ $page_count -gt 100 ]]; then
-                echo "Searched 100 pages for issue #$issue_number. Stopping."
-                break
-              fi
-            done
-
-            if [[ -z "$found_item_id" ]]; then
-              echo "Issue #$issue_number not found in project, skipping..."
-              # Bump processed count
-              processed_count=$((processed_count + 1))
-              continue
-            fi
-
-            # Check Status and Work Started fields with timestamps
-            STATUS_QUERY='query($itemId: ID!) {
-              node(id: $itemId) {
-                ... on ProjectV2Item {
-                  fieldValues(first: 20) {
-                    nodes {
-                      ... on ProjectV2ItemFieldSingleSelectValue {
-                        field {
-                          ... on ProjectV2Field {
+                if [[ -z "$cursor" ]]; then
+                  QUERY='query($projectId: ID!) {
+                    node(id: $projectId) {
+                      ... on ProjectV2 {
+                        items(first: 100) {
+                          pageInfo { hasNextPage endCursor }
+                          nodes {
                             id
-                            name
+                            content { ... on Issue { id } }
                           }
                         }
-                        name
-                        updatedAt
                       }
-                      ... on ProjectV2ItemFieldDateValue {
-                        field {
-                          ... on ProjectV2Field {
+                    }
+                  }'
+                  JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" \
+                    '{ query: $query, variables: { projectId: $projectId }}')
+                else
+                  QUERY='query($projectId: ID!, $cursor: String!) {
+                    node(id: $projectId) {
+                      ... on ProjectV2 {
+                        items(first: 100, after: $cursor) {
+                          pageInfo { hasNextPage endCursor }
+                          nodes {
                             id
-                            name
+                            content { ... on Issue { id } }
                           }
                         }
-                        date
-                        updatedAt
+                      }
+                    }
+                  }'
+                  JSON_PAYLOAD=$(jq -n --arg query "$QUERY" --arg projectId "$project_id" --arg cursor "$cursor" \
+                    '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+                fi
+
+                RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                  -H "Content-Type: application/json" -d "$JSON_PAYLOAD" https://api.github.com/graphql)
+
+                if ! handle_rate_limit "$RESPONSE"; then
+                  continue
+                fi
+
+                ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
+                if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
+                  echo "GraphQL Error finding issue #$issue_number: $ERRORS"
+                  break
+                fi
+
+                ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
+                  '.data.node.items.nodes[]? | select(.content.id==$issue_id) | .id')
+
+                if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
+                  found_item_id="$ITEM_ID"
+                  break
+                fi
+
+                has_next_page=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage // false')
+                if [[ "$has_next_page" != "true" ]]; then
+                  break
+                fi
+
+                cursor=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
+
+                if [[ $page_count -gt 100 ]]; then
+                  echo "Searched 100 pages for issue #$issue_number. Stopping."
+                  break
+                fi
+              done
+
+              if [[ -z "$found_item_id" ]]; then
+                echo "Issue #$issue_number not found in project, skipping..."
+                # Bump processed count
+                processed_count=$((processed_count + 1))
+                continue
+              fi
+
+              # Check Status and Work Started fields with timestamps
+              STATUS_QUERY='query($itemId: ID!) {
+                node(id: $itemId) {
+                  ... on ProjectV2Item {
+                    fieldValues(first: 20) {
+                      nodes {
+                        ... on ProjectV2ItemFieldSingleSelectValue {
+                          field {
+                            ... on ProjectV2Field {
+                              id
+                              name
+                            }
+                          }
+                          name
+                          updatedAt
+                        }
+                        ... on ProjectV2ItemFieldDateValue {
+                          field {
+                            ... on ProjectV2Field {
+                              id
+                              name
+                            }
+                          }
+                          date
+                          updatedAt
+                        }
                       }
                     }
                   }
                 }
-              }
-            }'
+              }'
 
-            STATUS_JSON_PAYLOAD=$(jq -n --arg query "$STATUS_QUERY" --arg itemId "$found_item_id" \
-              '{ query: $query, variables: { itemId: $itemId }}')
+              STATUS_JSON_PAYLOAD=$(jq -n --arg query "$STATUS_QUERY" --arg itemId "$found_item_id" \
+                '{ query: $query, variables: { itemId: $itemId }}')
 
-            STATUS_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
-              -H "Content-Type: application/json" -d "$STATUS_JSON_PAYLOAD" https://api.github.com/graphql)
+              STATUS_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                -H "Content-Type: application/json" -d "$STATUS_JSON_PAYLOAD" https://api.github.com/graphql)
 
-            if ! handle_rate_limit "$STATUS_RESPONSE"; then
-              continue
-            fi
-
-            STATUS_ERRORS=$(echo "$STATUS_RESPONSE" | jq -r '.errors // empty')
-            if [[ -n "$STATUS_ERRORS" && "$STATUS_ERRORS" != "null" ]]; then
-              echo "Error checking fields for issue #$issue_number: $STATUS_ERRORS"
-              # Bump processed count
-              processed_count=$((processed_count + 1))
-              continue
-            fi
-
-            # Extract Status field value and its update timestamp
-            # For single select fields, we need to find by matching known Status values
-            STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
-              '.data.node.fieldValues.nodes[] |
-               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
-
-            STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
-              '.data.node.fieldValues.nodes[] |
-               select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
-
-            # Extract Work Started field value
-            WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
-              '.data.node.fieldValues.nodes[] |
-               select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
-
-            # Check if Status is "In Progress" and Work Started is empty
-            if [[ "$STATUS_VALUE" == "In Progress" && (-z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null") ]]; then
-              echo "Issue #$issue_number has Status='In Progress' but no Work Started date - updating..."
-
-              # Use the date when status changed to 'In Progress', with fallback to current date
-              if [[ -n "$STATUS_UPDATED_AT" && "$STATUS_UPDATED_AT" != "null" ]]; then
-                work_started_date=$(echo "$STATUS_UPDATED_AT" | cut -d'T' -f1)
-                echo "Using status change date: $work_started_date (from timestamp: $STATUS_UPDATED_AT)"
-              else
-                work_started_date=$(date +%Y-%m-%d)
-                echo "Could not determine status change date, using current date: $work_started_date"
-              fi
-
-              MUTATION_RESPONSE=$(curl -s -X POST \
-                -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
-                -H "Content-Type: application/json" \
-                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$work_started_date\\\" } }) { clientMutationId } }\" }" \
-                https://api.github.com/graphql)
-
-              if ! handle_rate_limit "$MUTATION_RESPONSE"; then
+              if ! handle_rate_limit "$STATUS_RESPONSE"; then
                 continue
               fi
 
-              MUTATION_ERRORS=$(echo "$MUTATION_RESPONSE" | jq -r '.errors // empty')
-              if [[ -n "$MUTATION_ERRORS" && "$MUTATION_ERRORS" != "null" ]]; then
-                echo "Error updating Work Started for issue #$issue_number: $MUTATION_ERRORS"
-              else
-                echo "✅ Updated Work Started for issue #$issue_number to $work_started_date (date when status changed)"
-                updated_count=$((updated_count + 1))
+              STATUS_ERRORS=$(echo "$STATUS_RESPONSE" | jq -r '.errors // empty')
+              if [[ -n "$STATUS_ERRORS" && "$STATUS_ERRORS" != "null" ]]; then
+                echo "Error checking fields for issue #$issue_number: $STATUS_ERRORS"
+                # Bump processed count
+                processed_count=$((processed_count + 1))
+                continue
               fi
-            else
-              echo "Issue #$issue_number: Status='$STATUS_VALUE', Work Started='$WORK_STARTED_VALUE' - no update needed"
-            fi
+
+              # Extract Status field value and its update timestamp
+              # For single select fields, we need to find by matching known Status values
+              STATUS_VALUE=$(echo "$STATUS_RESPONSE" | jq -r \
+                '.data.node.fieldValues.nodes[] |
+                select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .name')
+
+              STATUS_UPDATED_AT=$(echo "$STATUS_RESPONSE" | jq -r \
+                '.data.node.fieldValues.nodes[] |
+                select(.name and (.name=="In Progress" or .name=="Assigned" or .name=="Screen" or .name=="Blocked" or .name=="Done" or .name=="In Review")) | .updatedAt')
+
+              # Extract Work Started field value
+              WORK_STARTED_VALUE=$(echo "$STATUS_RESPONSE" | jq -r --arg work_started_field_id "$work_started_field_id" \
+                '.data.node.fieldValues.nodes[] |
+                select(.field.id==$work_started_field_id or .field.name=="Work Started") | .date')
+
+              # Check if Status is "In Progress" and Work Started is empty
+              if [[ "$STATUS_VALUE" == "In Progress" && (-z "$WORK_STARTED_VALUE" || "$WORK_STARTED_VALUE" == "null") ]]; then
+                echo "Issue #$issue_number has Status='In Progress' but no Work Started date - updating..."
+
+                # Use the date when status changed to 'In Progress', with fallback to current date
+                if [[ -n "$STATUS_UPDATED_AT" && "$STATUS_UPDATED_AT" != "null" ]]; then
+                  work_started_date=$(echo "$STATUS_UPDATED_AT" | cut -d'T' -f1)
+                  echo "Using status change date: $work_started_date (from timestamp: $STATUS_UPDATED_AT)"
+                else
+                  work_started_date=$(date +%Y-%m-%d)
+                  echo "Could not determine status change date, using current date: $work_started_date"
+                fi
+
+                MUTATION_RESPONSE=$(curl -s -X POST \
+                  -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                  -H "Content-Type: application/json" \
+                  -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"$project_id\\\", itemId: \\\"$found_item_id\\\", fieldId: \\\"$work_started_field_id\\\", value: { date: \\\"$work_started_date\\\" } }) { clientMutationId } }\" }" \
+                  https://api.github.com/graphql)
+
+                if ! handle_rate_limit "$MUTATION_RESPONSE"; then
+                  continue
+                fi
+
+                MUTATION_ERRORS=$(echo "$MUTATION_RESPONSE" | jq -r '.errors // empty')
+                if [[ -n "$MUTATION_ERRORS" && "$MUTATION_ERRORS" != "null" ]]; then
+                  echo "Error updating Work Started for issue #$issue_number: $MUTATION_ERRORS"
+                else
+                  echo "✅ Updated Work Started for issue #$issue_number to $work_started_date (date when status changed)"
+                  updated_count=$((updated_count + 1))
+                fi
+              else
+                echo "Issue #$issue_number: Status='$STATUS_VALUE', Work Started='$WORK_STARTED_VALUE' - no update needed"
+              fi
 
 
-            # Bump processed count
-            processed_count=$((processed_count + 1))
+              # Bump processed count
+              processed_count=$((processed_count + 1))
 
-          done
+            done
+            }
+
+          # convert to file to read array
+          readarray -t issue_numbers < /tmp/issue_numbers.txt
+          echo "Processing all issues to check Status and update Work Started..."
+
+          # Calculate how many groups we need dynamically
+          max_group_size=100
+          total_groups=$(( (${#issue_numbers[@]} + max_group_size - 1) / max_group_size ))
+
+          echo "Total groups needed: $total_groups"
+          echo ""
+
+          for ((group=0; group<total_groups; group++)); do
+            group_elements=()
+            count=0
+            
+            for i in "${!issue_numbers[@]}"; do
+                # Check if this element belongs to current group using dynamic group size
+                if [ $((i / max_group_size)) -eq $group ]; then
+                    group_elements+=("${issue_numbers[$i]}")
+                    ((count++))
+                fi
+              done
+              # background jobs to async run them
+              ( run_bulk_update $group_elements ) &
+            done
+
+            # wait for all background jobs to finish
+            wait
+
 
           echo "Summary: Processed $processed_count issues, updated $updated_count Work Started fields"
