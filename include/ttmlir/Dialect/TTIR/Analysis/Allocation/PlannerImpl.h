@@ -174,7 +174,8 @@ public:
   /// A `Variable` represents a discrete decision for which of `Space`s to
   /// be placed.
   struct Variable {
-    //! This variable's requests, a (possibly empty) set of those for each possible placement.
+    //! This variable's requests, a (possibly empty) set of those for each
+    //! possible placement.
     VariableDomain domain = {};
     //! Current placement space (indexes into `domain`).
     Space placement = Space::NA;
@@ -254,11 +255,13 @@ public:
   /// @note Copy-constructible, copy-assignable.
   /// @see allocation::Tools for randomized testing, JSON serialization, etc
   struct Problem {
-    //! All requests of all variables in the problem; indexed into by `Variable::domain[*]`.
+    //! All requests of all variables in the problem; indexed into by
+    //! `Variable::domain[*]`.
     llvm::SmallVector<VarRequest> requests;
     //! All variables in the problem.
     llvm::SmallVector<Variable> variables;
-    //! A subset of `variables` that are bound as far as spilling heuristics are concerned.
+    //! A subset of `variables` that are bound as far as spilling heuristics are
+    //! concerned.
     VariableIndexSet bound;
 
     const Variable &variable(IndexT varIndex) const {
@@ -290,7 +293,7 @@ public:
           (const_cast<const Problem *>(this))->request(reqIndex));
     }
 
-    template <typename /* void(VariableBuilder &) */F>
+    template <typename /* void(VariableBuilder &) */ F>
     IndexT def(F &&requests) {
       VariableBuilder builder{*this};
       requests(builder);
@@ -331,8 +334,7 @@ public:
     AllocSizeT maxLoad;
 
     AllocateStats(AllocSizeT maxSize, AllocSizeT memUsage, AllocSizeT maxLoad)
-        : maxSize(maxSize), memUsage(memUsage), maxLoad(maxLoad) {
-    }
+        : maxSize(maxSize), memUsage(memUsage), maxLoad(maxLoad) {}
     AllocateStats(const AllocateStats &rhs) = default;
     AllocateStats &operator=(const AllocateStats &rhs) = default;
 
