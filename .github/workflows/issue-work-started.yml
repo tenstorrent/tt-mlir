@@ -438,7 +438,6 @@ jobs:
           }
 
           run_bulk_update() {
-            set -x
             local processed_count=0
             local updated_count=0
             local group=$1
