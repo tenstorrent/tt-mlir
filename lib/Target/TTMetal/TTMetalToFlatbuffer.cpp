@@ -169,18 +169,30 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
 
   // NOTE: for DRAM, the coreRangeSet is a core range set from (0,0) to
   // (num_banks=12,1)
-  constexpr int32_t numBanks = 12;
+  // constexpr int32_t numBanks = 12;
   std::vector<target::Dim2dRange> coreRangeSet = {
-      target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(numBanks, 1))};
+      target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(1, 1))};
+
+  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
+  auto memrefShardShape = shardLayout.getShardShape(memref);
 
   uint64_t pageSize = device.getMemrefSizeBytes(memref);
-  uint64_t shardSize = pageSize;
-  uint64_t size = pageSize * numBanks;
+  // uint64_t shardSize = pageSize;
+  uint64_t size = pageSize;
 
   // shard shape is (num_elems, 1)
-  target::Dim2d shardShape(shardSize, 1);
-  target::Dim2d pageShape(pageSize, 1);
-  target::Dim2d tensorShapeInPages(numBanks, 1);
+  target::Dim2d shardShape(memrefShardShape[0], memrefShardShape[1]);
+  target::Dim2d pageShape(memrefShardShape[0], memrefShardShape[1]);
+  target::Dim2d tensorShapeInPages(1, 1);
+
+  llvm::dbgs() << "  page size:    " << pageSize << " \n";
+  llvm::dbgs() << "  overall size: " << size << " \n";
+  llvm::dbgs() << "  shard shape:  " << shardShape.x() << "x" << shardShape.y()
+               << " \n";
+  llvm::dbgs() << "  page shape:   " << pageShape.x() << "x" << pageShape.y()
+               << " \n";
+  llvm::dbgs() << "  tensor shape: " << tensorShapeInPages.x() << "x"
+               << tensorShapeInPages.y() << " \n";
 
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
@@ -343,6 +355,9 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
     if (isSharded) {
+
+      llvm::dbgs() << "SHARDED memref: " << memref << " \n";
+
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape);
@@ -361,6 +376,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                          shardedBufferConfig.Union(), circularBufferConfig)
                          .Union();
     } else {
+      llvm::dbgs() << "INTERLEAVED memref: " << memref << " \n";
       // must be interleaved if not sharded
       flatbuffers::Offset<target::metal::InterleavedBufferConfig>
           interleavedBufferConfig =
