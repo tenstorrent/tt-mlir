@@ -703,7 +703,7 @@ jobs:
               echo ""
               if [ $count -gt 0 ]; then
                 # background jobs to async run them
-                ( run_bulk_update "${group_elements[@]}" "$group" ) &
+                ( run_bulk_update "$group_elements" "$group" ) &
               fi
             done
 
