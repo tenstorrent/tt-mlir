@@ -8,9 +8,10 @@
 include "mlir/IR/Interfaces.td"
 
 def TTNN_KernelInterface: AttrInterface<"KernelInterface"> {
-  let summary = "TTNN Generic KernelInterface";
+  let summary = "Kernel interface";
   let cppNamespace = "::mlir::tt::ttnn";
   let description = [{
+    Kernel interface for TTNN generic operation kernels
   }];
   let methods = [
     InterfaceMethod<
