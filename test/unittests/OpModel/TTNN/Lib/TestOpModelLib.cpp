@@ -3504,4 +3504,77 @@ TEST_F(OpModelTest, FillCacheOp) {
   }
 }
 
+TEST_F(OpModelTest, UpdateCacheOp) {
+  // Test basic UpdateCacheOp with DRAM cache, input, and update_index tensors
+  const llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  const llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  const llvm::SmallVector<int64_t> updateIndexShape = {1};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayoutDRAM = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayout(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr cacheLayoutL1 = CreateTiledLayout(
+      cacheShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayout(
+      updateIndexShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  // Test UpdateCacheOp constraints with batch_offset = 0
+  uint32_t batchOffset = 0;
+  auto constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_EQ(opCstr.cbL1PeakSize, 1310720);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  }
+
+  // Test with L1 output layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 cache layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 input layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutL1,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with all L1 layouts
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutL1,
+      updateIndexShape, updateIndexLayoutL1, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 1310720);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
+
+  // Test UpdateCacheOp runtime estimation
+  auto runtimeExp = OpModel<UpdateCacheOp>::getOpRuntime(
+      cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
 } // namespace mlir::tt::ttnn::op_model
