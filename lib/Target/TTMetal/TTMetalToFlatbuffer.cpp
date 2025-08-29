@@ -167,27 +167,48 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                        MemRefType memref,
                                        ttcore::DeviceAttr device) {
 
-  // NOTE: for DRAM, the coreRangeSet is a core range set from (0,0) to
-  // (num_banks=12,1)
-  constexpr int32_t numBanks = 12;
-  std::vector<target::Dim2dRange> coreRangeSet = {
-      target::Dim2dRange(target::Dim2d(0, 0), target::Dim2d(numBanks, 1))};
+  // The code below configures the sharded buffer AS-IF it was a Nx1 sharded
+  // DRAM tensor large enough to hold all the shards distributed across all DRAM
+  // banks. However the shapes and size here are **dummy values**, such that
+  // the buffer spec occupies that exact size of the underlying D2M DRAM buffer.
+  // However the shapes in the spec DO NOT actually correspond to the D2M tensor
+  // or shard shape.
+  //
+  // This kludge is due to D2M DRAM shard->bank mapping being _cyclic_, which
+  // cannot be represented by the ShardedBufferConfig. Host<->Device transfers
+  // will have to be properly fixed using BufferDistributionSpec to describe how
+  // sharded D2M DRAM buffers are actually laid out.
+  //
+  // NOTE: For the special case of a single shard mapped to a single DRAM bank,
+  // the shapes and size here are incidentally correct. So host
+  // enqueue_write_buffer and enqeue_read_buffer commands will work correctly.
 
-  uint64_t pageSize = device.getMemrefSizeBytes(memref);
-  uint64_t shardSize = pageSize;
-  uint64_t size = pageSize * numBanks;
+  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
+  auto memrefGridShape = shardLayout.getGridShape(memref);
+  uint64_t actualShardSize = device.getMemrefSizeBytes(memref);
+  uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
 
-  // shard shape is (num_elems, 1)
-  target::Dim2d shardShape(shardSize, 1);
-  target::Dim2d pageShape(pageSize, 1);
-  target::Dim2d tensorShapeInPages(numBanks, 1);
+  // determine how many DRAM banks are actually used by D2M
+  constexpr uint64_t numDRAMBanks = 12;
+  uint64_t numDRAMBanksUsed = std::min(numDRAMBanks, gridVolume);
+  std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
+      target::Dim2d(0, 0), target::Dim2d(numDRAMBanksUsed, 1))};
+
+  uint64_t actualShardsPerBank = std::ceil(float(gridVolume) / numDRAMBanks);
+
+  // compute dummy shapes that occupy same space as actual D2M memref
+  target::Dim2d dummyShardShape(actualShardsPerBank, actualShardSize);
+  target::Dim2d dummyPageShape(actualShardsPerBank, actualShardSize);
+  uint64_t dummyShardSize = dummyShardShape.x() * dummyShardShape.y();
+  target::Dim2d dummyTensorShapeInPages(numDRAMBanksUsed, 1);
+  uint64_t dummyTensorSize = numDRAMBanksUsed * dummyShardSize;
 
   auto shardSpec = target::metal::CreateShardSpecDirect(
-      *cache.fbb, &coreRangeSet, &shardShape);
+      *cache.fbb, &coreRangeSet, &dummyShardShape);
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
-      *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
-  return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
-                                                  shardSpecBuffer);
+      *cache.fbb, shardSpec, &dummyPageShape, &dummyTensorShapeInPages);
+  return target::metal::CreateShardedBufferConfig(
+      *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
