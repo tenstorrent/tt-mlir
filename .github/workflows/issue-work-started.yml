@@ -680,7 +680,7 @@ jobs:
           echo "Processing all issues to check Status and update Work Started..."
 
           # Calculate how many groups we need dynamically
-          max_group_size=100
+          max_group_size=200
           total_groups=$(( (${#issue_numbers[@]} + max_group_size - 1) / max_group_size ))
 
           echo "Total groups needed: $total_groups"
