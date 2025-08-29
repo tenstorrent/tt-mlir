@@ -425,7 +425,7 @@ public:
 
           // Update output data type for ops that have output data type
           // attribute.
-          if (op->hasTrait<HasOutputDTypeTrait>()) {
+          if (op->hasTrait<HasDTypeTrait>()) {
             ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
                 op->getContext(), layoutAttr.getDataType());
             op->setAttr(ttmlir::utils::g_outputDtypeAttrName, newDataTypeAttr);

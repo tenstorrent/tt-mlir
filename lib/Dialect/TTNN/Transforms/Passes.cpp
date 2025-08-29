@@ -343,9 +343,9 @@ private:
 
     // Create a new tensor of ones.
     //
-    ttnn::OnesOp onesOp =
-        rewriter.create<ttnn::OnesOp>(loc, tensorType, shapeAttr, dTypeAttr,
-                                      tensorLayoutAttr, nullptr, nullptr);
+    ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
+        loc, tensorType, /*device=*/nullptr, shapeAttr, dTypeAttr,
+        tensorLayoutAttr, /*memory_config=*/nullptr);
 
     // If tensor is meant to be on device, add ToDevice op.
     //

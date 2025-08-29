@@ -27,7 +27,7 @@ module attributes {} {
             out_channels = 64 : i32,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
-            output_dtype = #ttcore.supportedDataTypes<bf16>
+            dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     // CHECK-NEXT: "ttnn.conv2d"(%[[CONV2D_INPUT]], %[[CONV2D_WEIGHTS]], %[[CONV2D_BIAS]], %[[DEVICE_OP]])
     %3 = "ttnn.reshape"(%2) <{shape = [1 : i32, 30 : i32, 30 : i32, 64 : i32]}> : (tensor<1x1x900x64xbf16>) -> tensor<1x30x30x64xbf16>
@@ -61,7 +61,7 @@ module attributes {} {
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
             output_padding = array<i32: 0, 0>,
-            output_dtype = #ttcore.supportedDataTypes<bf16>
+            dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     // CHECK-NEXT: "ttnn.conv_transpose2d"(%[[CONV2D_INPUT]], %[[CONV2D_WEIGHTS]], %[[CONV2D_BIAS]], %[[DEVICE_OP]])
     // CHECK-SAME: !ttcore.tile<32x32, bf16>
@@ -91,7 +91,7 @@ module attributes {} {
             out_channels = 64 : i32,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
-            output_dtype = #ttcore.supportedDataTypes<bf16>
+            dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     // CHECK-NEXT: "ttnn.conv2d"(%[[CONV2D_INPUT]], %[[CONV2D_WEIGHTS]], %[[DEVICE_OP]])
     // CHECK-SAME: !ttcore.tile<32x32, bf16>
@@ -121,7 +121,7 @@ module attributes {} {
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>,
             output_padding = array<i32: 0, 0>,
-            output_dtype = #ttcore.supportedDataTypes<bf16>
+            dtype = #ttcore.supportedDataTypes<bf16>
           }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     // CHECK-NEXT: "ttnn.conv_transpose2d"(%[[CONV2D_INPUT]], %[[CONV2D_WEIGHTS]], %[[DEVICE_OP]])
     // CHECK-SAME: !ttcore.tile<32x32, bf16>
