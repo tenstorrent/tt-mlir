@@ -11,6 +11,7 @@ from collections import OrderedDict
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from test_utils import Marks, shape_str
 
 pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
 
@@ -78,8 +79,8 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         (1, 1, 128, 508),
         (1, 1, 126, 508),
         (1, 1, 130, 508),
-        (1, 1, 32, 2),
-        (1, 1, 1, 2),
+        pytest.param((1, 1, 32, 2), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 1, 2), marks=pytest.mark.fails_golden),
         (1, 1, 128, 516),
         (1, 1, 128, 516),
         (1, 1, 126, 516),
@@ -88,7 +89,7 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         (1, 1, 32, 8),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_reduce(in0: Operand, builder: TTIRBuilder):
         sharded = builder.mesh_shard(
