@@ -78,15 +78,15 @@ table KernelArgBufferAddressOfTensor {
   tensor_index: uint32;
 }
 
-table KernelArgSemaphore {
-  semaphore_id: uint32;
+table KernelArgSemaphoreAt {
+  semaphore_index: uint32;
 }
 
 union KernelArgType {
   KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
-  KernelArgSemaphore,
+  KernelArgSemaphoreAt,
 }
 
 table KernelArg {
