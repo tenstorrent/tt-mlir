@@ -974,7 +974,9 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
+def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Fill static cache tensor.";
   let description = [{
       Fills the `cache` tensor in-place with values from `input` at `batch_offset`.

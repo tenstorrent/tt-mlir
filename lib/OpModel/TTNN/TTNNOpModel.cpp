@@ -2494,6 +2494,78 @@ OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::fill_cache, device, cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     fillCacheOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::fill_cache, device,
+                                           cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpRuntime(fillCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//

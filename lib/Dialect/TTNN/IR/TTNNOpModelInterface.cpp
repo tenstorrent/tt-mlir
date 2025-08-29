@@ -1804,6 +1804,43 @@ AllocOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// FillCacheOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+FillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<FillCacheOp>::getOpConstraints, *this, deviceGrid,
+      cacheShape, inputs[0], inputShape, inputs[1], getBatchOffset(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+FillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<FillCacheOp>::getOpRuntime, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], getBatchOffset(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

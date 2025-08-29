@@ -3382,4 +3382,48 @@ TEST_F(OpModelBase, DeallocateOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, FillCacheOpInterface) {
+  // Test FillCacheOp with cache and input tensors
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(cacheShape);
+
+  // Create FillCacheOp with batch_offset = 0
+  auto fillCache = builder.create<FillCacheOp>(
+      builder.getUnknownLoc(), outputType, cacheTensor, inputTensor,
+      builder.getI32IntegerAttr(0));
+
+  // Test OpModel interface
+  auto backend = dyn_cast<OpModel>(fillCache.getOperation());
+  ASSERT_TRUE(backend);
+
+  // Test getOpConstraints
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
+    // Basic validation that constraints are reasonable
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing constraints for FillCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for FillCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn
