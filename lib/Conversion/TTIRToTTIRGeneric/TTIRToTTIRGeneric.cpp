@@ -728,7 +728,7 @@ void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
+    const llvm::SmallVector<int64_t> &targetGridShape) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -760,12 +760,7 @@ void populateTTIRToTTIRGenericPatterns(
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
 
   // Matmul.
-  if (useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
-  }
-  else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
-  }
+  patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   // clang-format on
 }
 

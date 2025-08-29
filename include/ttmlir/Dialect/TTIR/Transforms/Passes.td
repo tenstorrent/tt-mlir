@@ -84,6 +84,9 @@ def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mli
        - This pass only works on affine ops.
   }];
   let dependentDialects = ["::mlir::tt::ttir::TTIRDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
+  ];
 }
 
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {

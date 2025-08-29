@@ -116,11 +116,13 @@ def test_matmul_multi_core_8otpc(
     ],
 )
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
+@pytest.mark.parametrize("use_tile_matmul", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes(
     shape: tuple[int, ...],
     dst_register_size_tiles: int,
+    use_tile_matmul: bool,
     target: str,
     request,
 ):
@@ -144,6 +146,7 @@ def test_matmul_ttnn_shapes(
     options = [
         f"max-dst-register-size-tiles={dst_register_size_tiles}",
         f"matmul-interchange=2,0,1",
+        f"use-tile-matmul={use_tile_matmul}",
     ]
     compile_ttir_to_flatbuffer(
         matmul_blocking,

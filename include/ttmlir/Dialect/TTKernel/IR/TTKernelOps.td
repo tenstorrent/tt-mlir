@@ -265,6 +265,46 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpT
     }];
 }
 
+def TTKernel_MatmulBlockInitOp : TTKernel_InitOp<"mm_block_init"> {
+    let summary = "Matmul init function";
+    let description = [{
+      Initialization for matmul_block operation. Must be called before matmul_block.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose, I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
+}
+
+def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
+    let summary = "Matmul short init function";
+    let description = [{
+      A short version of matmul_block initialization.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
+}
+
+def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
+    let summary = "Matmul tiles operation";
+    let description = [{
+      Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
+      different input CBs and writes the result to DST. The DST register buffer
+      must be in acquired state via *acquire_dst* call. This call is blocking and
+      is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb_id,
+                         TTKernel_CB:$in1_cb_id,
+                         IndexLike:$in0_tile_idx,
+                         IndexLike:$in1_tile_idx,
+                         IndexLike:$dst_tile_idx,
+                         I32:$transpose,
+                         I32:$ct_dim,
+                         I32:$rt_dim,
+                         I32:$kt_dim,
+                         I32:$nt_dim);
+}
+
+
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let summary = "Short init function";
     let description = [{
