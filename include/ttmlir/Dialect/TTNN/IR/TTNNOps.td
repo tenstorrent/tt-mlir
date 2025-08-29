@@ -2451,9 +2451,9 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
 def TTNN_GenericOp : TTNN_Op<"generic", [HasMemoryConfigTrait,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
-    let summary = "Generic op.";
+    let summary = "Generic operation.";
     let description = [{
-      Generic operation.
+      Generic operation capable of running a program with custom kernels.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
