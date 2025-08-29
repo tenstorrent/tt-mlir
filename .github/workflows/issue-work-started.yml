@@ -440,7 +440,7 @@ jobs:
           run_bulk_update() {
             local processed_count=0
             local updated_count=0
-            local issue_numbers=("$1")
+            local issue_numbers=$1
             local group=$2
             local array_length=$(( ${#issue_numbers[@]} - 1 ))
             local issue_number
