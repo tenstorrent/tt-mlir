@@ -5,15 +5,14 @@
 import ast
 import inspect
 import functools
-import textwrap
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
-from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
+from ttmlir.passes import pykernel_compile_pipeline, ttkernel_to_cpp
 
-from .kernel_types import *
-from .common.ast_base import PyKernelAstBase
-from .common.utils import _discover_dialect_ops
+from .kernel_types import ClassRegistry, Arguments
+from .base_ast import PyKernelAstBase
+from .utils import _discover_dialect_ops, _cleanup_source_code
 
 
 class TTKernelCompiler(PyKernelAstBase):
@@ -396,7 +395,7 @@ class TTKernelCompiler(PyKernelAstBase):
                 raise ValueError(
                     "Array Initialization must follow [dtype, *shape] syntax."
                 )
-            dtype = self.visit(node.annotation.elts[0])
+            # dtype = self.visit(node.annotation.elts[0])
             # We are creating a list with the shape from elts now, use dynamic types to allow for creating variadic index memrefs
             var_type = IntegerType.get_signless(32, self.ctx)
 
@@ -914,14 +913,7 @@ def ttkernel_compile(
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
             # Code to deal with identation issues
-            source_code = inspect.getsource(f)
-            source_code = textwrap.dedent(source_code)
-            cleaned = [
-                line
-                for line in source_code.splitlines()
-                if not line.strip().startswith("@")
-            ]
-            source_code = "\n".join(cleaned)
+            source_code = _cleanup_source_code(f)
 
             if verbose is True:
                 # Create easily index-able object to store source code:
