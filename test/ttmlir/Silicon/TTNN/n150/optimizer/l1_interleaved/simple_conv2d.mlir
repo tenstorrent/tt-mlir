@@ -20,13 +20,16 @@ module @L1InterleavedTestConv2D attributes {} {
   }
 }
 
+// CHECK-DAG: #[[DRAM_1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
+// CHECK-DAG: #[[DRAM_2:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
 // CHECK-DAG: #[[L1_1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
 // CHECK-DAG: #[[L1_2:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
-// CHECK-DAG: #[[L1_3:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
 
-// CHECK: %{{.*}} = "ttnn.reshape"{{.*}} -> tensor<{{.*}}, #[[L1_2]]>
-// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_2]]>
-// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_3]]>
-// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_3]]>
 // CHECK: %{{.*}} = "ttnn.reshape"{{.*}} -> tensor<{{.*}}, #[[L1_1]]>
-// CHECK: return{{.*}} : tensor<{{.*}}, #[[L1_1]]>
+// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_1]]>
+// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_2]]>
+// CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[L1_2]]>
+
+// As output is the return value, not beneficial to move to L1, will always stay in DRAM.
+// CHECK: %{{.*}} = "ttnn.reshape"{{.*}} -> tensor<{{.*}}, #[[DRAM_2]]>
+// CHECK: return{{.*}} : tensor<{{.*}}, #[[DRAM_2]]>

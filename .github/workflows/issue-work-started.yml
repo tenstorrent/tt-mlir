@@ -14,10 +14,10 @@ on:
   issues:
     types: [opened, edited, closed, reopened, assigned, unassigned, labeled, unlabeled]
 
-  # Test schedule to check all issues and update Work Started field
+  # Daily schedule to check all issues and update Work Started field
   schedule:
-    # Test cron - runs every 30 minutes for testing
-    - cron: '*/30 * * * *'
+    # Run at 11 PM Central Time (5 AM UTC the next day)
+    - cron: '0 5 * * *'
 
 permissions:
   repository-projects: write

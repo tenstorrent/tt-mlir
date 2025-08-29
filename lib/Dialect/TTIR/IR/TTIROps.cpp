@@ -1249,8 +1249,28 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
                           : std::nullopt;
 
   if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
+    // Check that bias has the same rank as the output tensor
+    auto outputType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+    if (biasType->getRank() != outputType.getRank()) {
+      return emitOpError(
+          "Bias tensor must have the same rank as the output tensor");
+    }
+
+    auto outputShape = outputType.getShape();
+    size_t outputFeatureDimension =
+        getConvolutionLayout().getOutputFeatureDimension();
+
+    // Check that bias has size 1 in all dimensions except the output feature
+    // dimension, which must match the output feature size.
+    for (auto [dim, dimSize] : llvm::enumerate(biasType->getShape())) {
+      if (dim == outputFeatureDimension &&
+          dimSize != outputShape[outputFeatureDimension]) {
+        return emitOpError("Bias size must match output feature dimension");
+      }
+      if (dim != outputFeatureDimension && dimSize != 1) {
+        return emitOpError("Bias tensor must have size 1 in all dimensions "
+                           "except the output feature dimension");
+      }
     }
   }
 
