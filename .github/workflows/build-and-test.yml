@@ -103,7 +103,7 @@ jobs:
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
-    runs-on: ${{ needs.build-image.outputs.runner }}
+    runs-on: tt-ubuntu-2204-n300-200gb-stable
 
 
     container:
