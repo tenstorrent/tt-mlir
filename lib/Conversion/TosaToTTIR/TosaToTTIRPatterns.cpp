@@ -4,9 +4,7 @@
 
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -460,10 +458,10 @@ void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
     addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
     addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
     addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-    addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
     addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
     addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
     addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+    addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
     patterns.add<TosaToTTIRClampOpConversionPattern,
                  TosaToTTIRConcatOpConversionPattern,
