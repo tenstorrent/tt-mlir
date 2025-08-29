@@ -441,8 +441,9 @@ jobs:
             set -x
             local processed_count=0
             local updated_count=0
-            local issue_numbers=$1
-            local group=$2
+            local group=$1
+            # Declare issue_numbers as an array and populate it from remaining arguments
+            local issue_numbers=("${@:2}")
             local array_length=$(( ${#issue_numbers[@]} - 1 ))
             local issue_number
             local found_item_id
@@ -704,7 +705,7 @@ jobs:
               echo ""
               if [ $count -gt 0 ]; then
                 # background jobs to async run them
-                ( run_bulk_update "$group_elements" "$group" ) &
+                ( run_bulk_update "$group" "${group_elements[@]}" ) &
               fi
             done
 
