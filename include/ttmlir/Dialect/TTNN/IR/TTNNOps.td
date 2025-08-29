@@ -1039,7 +1039,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait]> {
+def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{
       Takes in a tensor of shape [batch_size, num_heads, sequence_size, head_size],

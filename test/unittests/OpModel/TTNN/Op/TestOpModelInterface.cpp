@@ -1427,6 +1427,51 @@ TEST_F(OpModelBase, morehCumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
+  // create ConcatenateHeadsOp
+  // Input shape: [batch_size, num_heads, sequence_size, head_size]
+  // Output shape: [batch_size, sequence_size, num_heads * head_size]
+
+  // Define test tensor shapes based on typical transformer architecture
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto concatenateHeads = builder.create<ConcatenateHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  // test ConcatenateHeadsOp interface
+  auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for ConcatenateHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(concatenateHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ConcatenateHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
