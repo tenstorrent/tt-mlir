@@ -364,9 +364,6 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
     if (isSharded) {
-
-      llvm::dbgs() << "SHARDED memref: " << memref << " \n";
-
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape);
@@ -385,7 +382,6 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                          shardedBufferConfig.Union(), circularBufferConfig)
                          .Union();
     } else {
-      llvm::dbgs() << "INTERLEAVED memref: " << memref << " \n";
       // must be interleaved if not sharded
       flatbuffers::Offset<target::metal::InterleavedBufferConfig>
           interleavedBufferConfig =
