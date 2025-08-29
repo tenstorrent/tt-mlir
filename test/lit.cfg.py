@@ -55,6 +55,9 @@ if config.enable_opmodel:
 if lit_config.params.get("TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS", "") == "1":
     config.available_features.add("perf")
 
+if os.path.exists("/opt/tenstorrent/sfpi/compiler/bin/riscv32-tt-elf-g++"):
+    config.available_features.add("sfpi")
+
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
@@ -120,8 +123,10 @@ config.substitutions.append(("%ttmlir_libs", config.ttmlir_libs_dir))
 
 config.test_root = os.path.join(config.ttmlir_source_dir, "test")
 config.scripts_root = os.path.join(config.ttmlir_source_dir, "tools/scripts")
+config.models_root = os.path.join(config.ttmlir_source_dir, "test/ttmlir/models")
 
 config.substitutions.append(("%ttmlir_test_root", config.test_root))
+config.substitutions.append(("%models", config.models_root))
 config.substitutions.append(("%ttmlir_scripts_root", config.scripts_root))
 
 # Tweak the PATH to include the tools dir.

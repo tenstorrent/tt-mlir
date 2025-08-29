@@ -1109,6 +1109,19 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_InvokeSFPIOp : TTKernel_SFPUOp<"invoke_sfpi", [NoTerminator]> {
+    let summary = "";
+    let description = [{}];
+
+    let arguments = (ins);
+
+    let regions = (region AnyRegion:$region);
+
+    let assemblyFormat = [{
+      attr-dict-with-keyword $region
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel CB operations
 //===----------------------------------------------------------------------===//
@@ -1665,7 +1678,7 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     }];
 }
 
-def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
+def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     let summary = "MyX";
     let description = [{
       Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
@@ -1679,7 +1692,7 @@ def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
     }];
 }
 
-def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
+def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let summary = "MyY";
     let description = [{
       Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
@@ -2037,7 +2050,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
 
     let hasVerifier = 1;
 
-    let assemblyFormat = "`(` $fmt `,` $argv `)` attr-dict `:` `(` type($argv) `)`";
+    let assemblyFormat = "`(` $fmt (`,` $argv^)? `)` attr-dict `:` functional-type($argv, results)";
 
     let extraClassDeclaration = [{
       template <typename... Args>

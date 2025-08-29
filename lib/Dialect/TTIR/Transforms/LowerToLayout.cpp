@@ -6,10 +6,12 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWERTOLAYOUT
@@ -58,20 +60,56 @@ public:
     }
 
     // Get the shapes to determine if we need a view.
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
 
     Value viewInput = op.getInput();
 
     // If grid shapes differ, we need a view to reblock.
-    auto inputGridShape = inputLayout.getGridShape(inputType);
     auto outputGridShape = outputLayout.getGridShape(outputType);
+    auto inputGridShape = inputLayout.getGridShape(inputType);
 
-    if (inputGridShape != outputGridShape) {
-      viewInput = rewriter
-                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
-                                            outputType.getShape())
-                      .getResult();
+    bool isSrcDram =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+    bool isDstDram =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+
+    // If src or dst operand is DRAM they must be remote
+    // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
+    // local)
+    bool isSrcDramOrReblock =
+        isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
+
+    assert(!(isSrcDramOrReblock && isDstDram) &&
+           "input and output cannot both be remote");
+
+    auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
+                                 RankedTensorType toTy) -> Value {
+      auto *ctx = rewriter.getContext();
+      AffineMap map = mlir::tt::ttir::utils::calculateReblockMap(
+          fromTy.getShape(), toTy.getShape(), ctx);
+      auto baseLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
+      auto enc = ttcore::MetalLayoutAttr::get(
+          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
+          baseLayout.getMemorySpace(), map);
+      auto resultTy =
+          RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
+      return rewriter
+          .create<ViewLayoutOp>(op.getLoc(), resultTy, fromVal,
+                                /*reinterpretLayout=*/false)
+          .getResult();
+    };
+
+    if (isSrcDramOrReblock) {
+      viewInput = buildConcreteView(op.getInput(), inputType, outputType);
+    }
+
+    Value viewOutput = op.getOutput();
+    if (isDstDram) {
+      auto outTensorTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+      viewOutput = buildConcreteView(op.getOutput(), outTensorTy, inputType);
     }
 
     const size_t gridRank = outputGridShape.size();
@@ -80,13 +118,18 @@ public:
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
+    auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, viewInput, op.getOutput(),
+        op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          auto dma = builder.create<ttir::DMAOp>(
-              loc, viewInput, mlir::cast<AffineMapAttr>(indexingMaps[0]),
-              blockArgs[1]);
+          DMAOp dma = isSrcDramOrReblock
+                          ? builder.create<ttir::DMAOp>(
+                                loc, viewInput, indexingMap, blockArgs[1])
+                          : builder.create<ttir::DMAOp>(
+                                loc, blockArgs[0], viewOutput, indexingMap);
           builder.create<ttir::DMAWaitOp>(loc, dma);
+          builder.create<YieldOp>(loc, blockArgs[1]);
         },
         ThreadType::Datamovement);
 
@@ -111,6 +154,7 @@ public:
           } else {
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
+          builder.create<YieldOp>(loc, blockArgs[1]);
         });
 
     return success();
@@ -170,6 +214,7 @@ public:
   RankedTensorType
   createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
                      ttcore::MetalLayoutAttr baseLayout,
+                     ArrayRef<int64_t> workerGridShape,
                      std::optional<ttcore::MemorySpace> newMemSpace = {},
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
@@ -198,9 +243,8 @@ public:
 
     // Create new layout
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), gridShape.size(),
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
-        baseLayout.getDimAlignments());
+        ctx, baseLayout.getLogicalShape(), workerGridShape,
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
@@ -213,13 +257,11 @@ public:
       tileShapeForPhysical = {};
     }
 
-    // Derive physical shape
-    llvm::SmallVector<int64_t> physicalShape =
-        ttcore::MetalLayoutAttr::derivePhysicalShape(
-            baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-            newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
+    // Create new device tensor shape.
+    llvm::SmallVector<int64_t> deviceShape =
+        newLayout.getDeviceShape(gridShape, tileShapeForPhysical);
 
-    return RankedTensorType::get(physicalShape, elementType, newLayout);
+    return RankedTensorType::get(deviceShape, elementType, newLayout);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
@@ -242,21 +284,25 @@ public:
     bool outputL1 =
         outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
 
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+    llvm::ArrayRef<int64_t> workerGridShape =
+        deviceAttr.getWorkerGrid().getShape();
+
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // Read into L1, then do other conversions.
       // If we're going from no grid -> grid, we need to use the output grid.
       if (!hasInputLayout && hasOutputLayout) {
         auto gridShape = outputLayout.getGridShape(outputType);
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               ttcore::MemorySpace::DeviceL1, gridShape);
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), inputType, inputLayout, workerGridShape,
+            ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use input's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               ttcore::MemorySpace::DeviceL1);
+                               workerGridShape, ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
     } else if (!outputL1) {
@@ -267,33 +313,33 @@ public:
       // input grid.
       if (!hasOutputLayout && hasInputLayout) {
         auto gridShape = inputLayout.getGridShape(inputType);
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               ttcore::MemorySpace::DeviceL1, gridShape);
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), outputType, outputLayout, workerGridShape,
+            ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use output's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               ttcore::MemorySpace::DeviceL1);
+                               workerGridShape, ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
     } else if (ttcore::isTiled(inputType) != ttcore::isTiled(outputType)) {
       // Prioritize moving tiled data
       if (ttcore::isTiled(inputType)) {
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               /*memSpace=*/{},
-                               /*grid=*/{}, inputType.getElementType(),
-                               ttcore::getTensorTileShapeOrEmpty(inputType));
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), outputType, outputLayout, workerGridShape,
+            /*memSpace=*/{},
+            /*grid=*/{}, inputType.getElementType(),
+            ttcore::getTensorTileShapeOrEmpty(inputType));
         bounce(rewriter, op, bounceType);
       } else {
         assert(ttcore::isTiled(outputType));
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               /*memSpace=*/{},
-                               /*grid=*/{}, outputType.getElementType(),
-                               ttcore::getTensorTileShape(outputType));
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), inputType, inputLayout, workerGridShape,
+            /*memSpace=*/{},
+            /*grid=*/{}, outputType.getElementType(),
+            ttcore::getTensorTileShape(outputType));
         bounce(rewriter, op, bounceType);
       }
     } else if (components.isLayoutChange && ttcore::isTiled(inputType)) {
@@ -305,10 +351,10 @@ public:
       }
 
       // Create untiled version with scalar type
-      auto bounceType =
-          createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                             /*memSpace=*/{}, /*grid=*/{}, scalarType,
-                             /*tileShape=*/std::nullopt);
+      auto bounceType = createModifiedType(
+          rewriter.getContext(), inputType, inputLayout, workerGridShape,
+          /*memSpace=*/{}, /*grid=*/{}, scalarType,
+          /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
       assert(!components.isLayoutChange &&
@@ -316,7 +362,7 @@ public:
              "not supported");
       // Keep output layout but with input's grid
       auto bounceType = createModifiedType(
-          rewriter.getContext(), outputType, outputLayout,
+          rewriter.getContext(), outputType, outputLayout, workerGridShape,
           /*memSpace=*/{}, inputLayout.getGridShape(inputType));
       bounce(rewriter, op, bounceType);
     } else {

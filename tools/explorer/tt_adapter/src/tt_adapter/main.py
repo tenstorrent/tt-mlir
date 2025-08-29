@@ -15,8 +15,8 @@ OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
 OPTIMIZATION_POLICIES = {
     OPTIMIZER_DISABLED_POLICY: False,
     "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
-    "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
-    "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
+    # "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
+    # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
 }
 
 
@@ -39,6 +39,7 @@ def settings_to_overrides(settings, artifacts_dir):
     else:
         override_handler.set_enable_optimizer(True)
         override_handler.set_enable_memory_layout_analysis(False)
+        override_handler.set_enable_l1_interleaved_fallback_analysis(False)
         override_handler.set_memory_layout_analysis_policy(
             OPTIMIZATION_POLICIES[optimization_policy]
         )
@@ -124,10 +125,6 @@ def settings_to_overrides(settings, artifacts_dir):
                         conv2d_config_override.set_enable_split_reader_from_str(
                             attr["value"]
                         )
-                    case "enable_subblock_padding":
-                        conv2d_config_override.set_enable_subblock_padding_from_str(
-                            attr["value"]
-                        )
                     case _:
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
             if not output_layout_override.empty():
@@ -149,9 +146,7 @@ class TTAdapter(model_explorer.Adapter):
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir", "ttnn"],
-        settings={
-            "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
-        },
+        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys())},
     )
     model_runner = None
 

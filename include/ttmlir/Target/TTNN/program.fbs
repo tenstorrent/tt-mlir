@@ -10,6 +10,7 @@ include "ttmlir/Target/TTNN/operations/data_movement.fbs";
 include "ttmlir/Target/TTNN/operations/deallocate.fbs";
 include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
+include "ttmlir/Target/TTNN/operations/generic_op.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
 include "ttmlir/Target/TTNN/operations/load_cached.fbs";
@@ -20,8 +21,10 @@ include "ttmlir/Target/TTNN/operations/mlir_native.fbs";
 include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
+include "ttmlir/Target/TTNN/operations/rand.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
+include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
 namespace tt.target.ttnn;
 
@@ -33,6 +36,7 @@ union OpType {
   CaptureOrExecuteTraceOp,
   CollectivePermuteOp,
   ConcatOp,
+  ConcatenateHeadsOp,
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
@@ -53,6 +57,7 @@ union OpType {
   FromDeviceOp,
   FullOp,
   FuncCallOp,
+  GenericOp,
   GetDeviceOp,
   LinearOp,
   LoadCachedOp,
@@ -68,12 +73,14 @@ union OpType {
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  RandOp,
   ReductionArgMaxOp,
   ReductionOp,
   ReductionProdOp,
   ReduceScatterOp,
   RepeatInterleaveOp,
   RepeatOp,
+  RMSNormOp,
   ReshapeOp,
   SliceOp,
   SoftmaxOp,

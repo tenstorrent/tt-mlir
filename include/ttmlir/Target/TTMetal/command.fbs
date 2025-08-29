@@ -37,10 +37,6 @@ table DeallocateBufferCommand {
   ref: BufferRef;
 }
 
-table CreateEventCommand {
-  ref: EventRef;
-}
-
 table EnqueueRecordEventCommand {
   ref: EventRef;
 }
@@ -50,10 +46,6 @@ table EnqueueWaitForEventCommand {
 }
 
 table EventSynchronizeCommand {
-  ref: EventRef;
-}
-
-table EventQueryCommand {
   ref: EventRef;
 }
 
@@ -72,6 +64,15 @@ table CpuCommand {
 table FinishCommand {
 }
 
+table MeshShardCommand {
+  src: BufferRef;
+  dst: BufferRef;
+  shard_type: MeshShardType;
+  shard_direction: MeshShardDirection;
+  shard_shape: [int64];
+  shard_dims: [int64];
+}
+
 union CommandType {
   HostAllocCommand,
   ReturnCommand,
@@ -80,14 +81,13 @@ union CommandType {
   EnqueueReadBufferCommand,
   CreateBufferCommand,
   DeallocateBufferCommand,
-  CreateEventCommand,
   EnqueueRecordEventCommand,
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,
-  EventQueryCommand,
   MemrefCopyCommand,
   CpuCommand,
   FinishCommand,
+  MeshShardCommand,
 }
 
 table Command {

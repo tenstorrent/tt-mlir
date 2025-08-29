@@ -122,17 +122,6 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
   }];
 }
 
-def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Analyze the graph and select optimal layouts, insert to_layout where needed.
-  }];
-
-  list<Option> options = [
-        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
-    ];
-}
-
 def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
@@ -517,6 +506,10 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
         to a target that only supports a subset of the element types.
   }];
+
+  list<Option> options = [
+    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
+  ];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">

@@ -52,9 +52,11 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -62,6 +64,7 @@
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
+#include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -247,6 +250,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
@@ -254,6 +261,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::RandOp: {
+    return operations::rand::run(op->type_as_RandOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
@@ -267,6 +277,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
@@ -361,7 +374,7 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
-    ::tt::tt_metal::DumpMeshDeviceProfileResults(context->getMeshDevice());
+    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
     counter = 0;
   }
 #endif

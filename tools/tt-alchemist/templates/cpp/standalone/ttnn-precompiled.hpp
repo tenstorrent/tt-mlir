@@ -8,9 +8,7 @@
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
-#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
-#include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -48,6 +46,11 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+
+template <typename... T>
+std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
 
 namespace ttnn {
 

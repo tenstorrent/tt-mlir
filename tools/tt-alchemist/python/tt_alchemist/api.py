@@ -52,6 +52,7 @@ class TTAlchemistAPI:
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
             ctypes.c_bool,  # is_local
+            ctypes.c_char_p,  # pipeline_options
         ]
         self.lib.tt_alchemist_TTAlchemist_generateCpp.restype = ctypes.c_bool
 
@@ -60,15 +61,12 @@ class TTAlchemistAPI:
             ctypes.c_char_p,  # input_file
             ctypes.c_char_p,  # output_dir
             ctypes.c_bool,  # is_local
+            ctypes.c_char_p,  # pipeline_options
         ]
         self.lib.tt_alchemist_TTAlchemist_generatePython.restype = ctypes.c_bool
 
     def _load_library(self):
-        """Load the tt-alchemist shared library.
-
-        First tries to load from the package directory, then falls back to TT_MLIR_HOME.
-        """
-        # First try to load from the package directory
+        """Load the tt-alchemist shared library."""
         package_dir = os.path.dirname(os.path.abspath(__file__))
         lib_path = os.path.join(package_dir, "lib", "libtt-alchemist-lib.so")
 
@@ -111,7 +109,7 @@ class TTAlchemistAPI:
             self.instance_ptr, input_file.encode("utf-8")
         )
 
-    def generate_cpp(self, input_file, output_dir, local=True):
+    def generate_cpp(self, input_file, output_dir, local=True, pipeline_options=""):
         """Generate a solution with the generated C++ code.
 
         This generates a directory with all necessary files to build and run the generated code,
@@ -122,6 +120,7 @@ class TTAlchemistAPI:
             output_dir: Path to the output directory where the solution will be generated.
             local: Whether to generate for local execution (True) or standalone deployment (False).
                    Local mode uses development environment libraries, standalone bundles all dependencies.
+            pipeline_options: Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc').
 
         Returns:
             bool: True if successful, False otherwise.
@@ -131,9 +130,10 @@ class TTAlchemistAPI:
             input_file.encode("utf-8"),
             output_dir.encode("utf-8"),
             local,
+            pipeline_options.encode("utf-8"),
         )
 
-    def generate_python(self, input_file, output_dir, local=True):
+    def generate_python(self, input_file, output_dir, local=True, pipeline_options=""):
         """Generate a solution with the generated Python code.
 
         This generates a directory with all necessary files to build and run the generated code,
@@ -144,6 +144,7 @@ class TTAlchemistAPI:
             output_dir: Path to the output directory where the solution will be generated.
             local: Whether to generate for local execution (True) or standalone deployment (False).
                    Local mode uses development environment libraries, standalone bundles all dependencies.
+            pipeline_options: Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc').
 
         Returns:
             bool: True if successful, False otherwise.
@@ -153,6 +154,7 @@ class TTAlchemistAPI:
             input_file.encode("utf-8"),
             output_dir.encode("utf-8"),
             local,
+            pipeline_options.encode("utf-8"),
         )
 
 
@@ -183,7 +185,7 @@ def model_to_python(input_file):
     return api.model_to_python(input_file)
 
 
-def generate_cpp(input_file, output_dir, local=True):
+def generate_cpp(input_file, output_dir, local=True, pipeline_options=""):
     """Generate a solution with the generated C++ code.
 
     This generates a directory with all necessary files to build and run the generated code,
@@ -194,15 +196,16 @@ def generate_cpp(input_file, output_dir, local=True):
         output_dir: Path to the output directory where the solution will be generated.
         local: Whether to generate for local execution (True) or standalone deployment (False).
                Local mode uses development environment libraries, standalone bundles all dependencies.
+        pipeline_options: Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc').
 
     Returns:
         bool: True if successful, False otherwise.
     """
     api = TTAlchemistAPI.get_instance()
-    return api.generate_cpp(input_file, output_dir, local)
+    return api.generate_cpp(input_file, output_dir, local, pipeline_options)
 
 
-def generate_python(input_file, output_dir, local=True):
+def generate_python(input_file, output_dir, local=True, pipeline_options=""):
     """Generate a solution with the generated Python code.
 
     This generates a directory with all necessary files to build and run the generated code,
@@ -213,9 +216,10 @@ def generate_python(input_file, output_dir, local=True):
         output_dir: Path to the output directory where the solution will be generated.
         local: Whether to generate for local execution (True) or standalone deployment (False).
                Local mode uses development environment libraries, standalone bundles all dependencies.
+        pipeline_options: Pipeline options string (e.g., 'enable-optimizer=true system-desc-path=/path/to/desc').
 
     Returns:
         bool: True if successful, False otherwise.
     """
     api = TTAlchemistAPI.get_instance()
-    return api.generate_python(input_file, output_dir, local)
+    return api.generate_python(input_file, output_dir, local, pipeline_options)

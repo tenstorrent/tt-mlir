@@ -29,6 +29,13 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis)
 
+      .def("set_enable_l1_interleaved_fallback_analysis",
+           &tt::ttnn::OptimizerOverridesHandler::
+               setEnableL1InterleavedFallbackAnalysis)
+      .def("get_enable_l1_interleaved_fallback_analysis",
+           &tt::ttnn::OptimizerOverridesHandler::
+               getEnableL1InterleavedFallbackAnalysis)
+
       .def("set_enable_memory_layout_analysis_policy",
            &tt::ttnn::OptimizerOverridesHandler::
                setEnableMemoryLayoutAnalysisPolicy)
@@ -53,6 +60,11 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
 
       .def("set_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::setMeshShape)
       .def("get_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::getMeshShape)
+
+      .def("set_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::setTensorL1UsageCap)
+      .def("get_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::getTensorL1UsageCap)
 
       .def("get_insert_memreconfig", &tt::ttnn::OptimizerOverridesHandler::
                                          getInsertMemReconfigNanobindWrapper)
@@ -241,9 +253,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
                   enableWeightsDoubleBuffer)
       .def_rw("enable_split_reader",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSplitReader)
-      .def_rw(
-          "enable_subblock_padding",
-          &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSubblockPadding)
       .def("set_weights_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
@@ -340,11 +349,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
              obj.enableSplitReader = (value == "True");
-           })
-      .def("set_enable_subblock_padding_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             obj.enableSubblockPadding = (value == "True");
            })
       .def("empty", &mlir::tt::ttnn::Conv2dConfigOverrideParams::empty);
 }

@@ -479,10 +479,13 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
-  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  ::ttnn::MeshShape shape(meshShape);
+Device openMeshDevice(const MeshDeviceOptions &options) {
+  std::optional<::ttnn::MeshShape> meshShape = std::nullopt;
+  if (options.meshShape.has_value()) {
+    LOG_ASSERT(options.meshShape.value().size() == 2,
+               "Mesh shape must be 2D for now");
+    meshShape = ::ttnn::MeshShape(options.meshShape.value());
+  }
 
   LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
   ::ttnn::MeshCoordinate offset(options.meshOffset);
@@ -494,7 +497,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   ::tt::tt_metal::DispatchCoreType dispatchCoreTypeValue =
       tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
 
-  ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
+  ::ttnn::MeshDeviceConfig meshConfig(meshShape, offset, options.deviceIds);
 
   std::shared_ptr<::ttnn::MeshDevice> meshDevice =
       ::ttnn::MeshDevice::create(meshConfig, l1SmallSize, traceRegionSize,
@@ -534,7 +537,7 @@ void closeMeshDevice(Device parentMesh) {
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
   ttnnMeshDevice.close();
 }
@@ -663,7 +666,7 @@ void dumpMemoryReport(Device deviceHandle) {
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
 }
 
-void dumpDeviceProfileResults(Device deviceHandle) {
+void readDeviceProfilerResults(Device deviceHandle) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
@@ -671,7 +674,7 @@ void dumpDeviceProfileResults(Device deviceHandle) {
              "Mesh device must be a parent mesh");
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  ::tt::tt_metal::DumpMeshDeviceProfileResults(ttnnMeshDevice);
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
 }
 
@@ -1018,6 +1021,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MorehCumSumOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RandOp: {
+    tensorRef = opContext.type_as_RandOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     tensorRef = opContext.type_as_ReductionArgMaxOp()->out();
     break;
@@ -1098,6 +1105,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_BatchNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRef = opContext.type_as_RMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1146,6 +1157,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_BeginTraceCaptureOp()->trace_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1159,6 +1174,12 @@ getOpOutputRef(OpContext opContextHandle,
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
     return std::nullopt;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    LOG_FATAL("GenericOp runtime to be implemented.");
+    auto size = opContext.type_as_GenericOp()->io_tensors()->size();
+    tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
@@ -1196,6 +1217,9 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RandOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -1278,7 +1302,8 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
+    tensorRefs = {opContext.type_as_EmbeddingOp()->input(),
+                  opContext.type_as_EmbeddingOp()->weight()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
@@ -1348,6 +1373,16 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_BatchNormOp()->running_var(),
                   opContext.type_as_BatchNormOp()->weight(),
                   opContext.type_as_BatchNormOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRefs = {opContext.type_as_RMSNormOp()->input()};
+    if (opContext.type_as_RMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->weight());
+    }
+    if (opContext.type_as_RMSNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
@@ -1431,6 +1466,17 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
     for (const auto *input :
          *opContext.type_as_CaptureOrExecuteTraceOp()->inputs()) {
+      tensorRefs.push_back(input);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    LOG_FATAL("GenericOp runtime to be implemented.");
+    for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
     break;

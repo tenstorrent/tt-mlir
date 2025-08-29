@@ -93,7 +93,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -116,7 +116,6 @@ struct TTIRToTTNNBackendPipelineOptions
   // * enable_act_double_buffer: [true, false]
   // * enable_weights_double_buffer: [true, false]
   // * enable_split_reader: [true, false]
-  // * enable_subblock_padding: [true, false]
   //
   // For more details on parameter values see conv2d_op.hpp in tt-metal.
   //
@@ -132,6 +131,13 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
+      llvm::cl::init(false)};
+
+  // If this option is true, run L1 interleaved layout analysis.
+  //
+  Option<bool> l1InterleavedFallbackAnalysisEnabled{
+      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
+      llvm::cl::desc("Enable DRAM to L1 interleaved fallback optimization."),
       llvm::cl::init(false)};
 
   // If this option is true, insert memory reconfiguration ops.
@@ -191,6 +197,18 @@ struct TTIRToTTNNBackendPipelineOptions
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
 
+  // Option to override maximum percent of L1 storage that can be used
+  // by tensors in Optimizer analysis.
+  // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
+  // storage can be used by tensors.
+  // The default value is 0.8.
+  //
+  Option<float> tensorL1UsageCap{
+      *this, OptionNames::tensorL1UsageCap,
+      llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
+                     "Analysis and Memory Layout Analysis. [0.0-1.0]"),
+      llvm::cl::init(0.8f)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> layoutWorkaroundsEnabled{
@@ -202,11 +220,6 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> decompositionWorkaroundsEnabled{
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
-      llvm::cl::init(true)};
-
-  Option<bool> repeatFoldingWorkaroundEnabled{
-      *this, "enable-repeat-folding-workaround-pass",
-      llvm::cl::desc("Enable repeat folding workaround pass."),
       llvm::cl::init(true)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
@@ -275,6 +288,11 @@ struct TTIRToTTNNBackendPipelineOptions
           "Set to enable quantized data type conversion pass. "
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
+
+  Option<bool> enableBfp8Conversion{
+      *this, "enable-bfp8-conversion",
+      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

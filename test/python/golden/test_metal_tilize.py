@@ -6,14 +6,21 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
-from ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
+from builder.base.builder import Operand, Shape
+from builder.base import builder_golden
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
+
+
+pytestmark = pytest.mark.frontend("ttir")
+
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-def test_tilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_tilize(shape: Shape, target: str, request):
     def tilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -22,13 +29,17 @@ def test_tilize(shape: Shape, request):
 
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, tiled=True),
+            output_type=builder.get_metal_tensor_layout(shape, tiled=True),
             unit_attrs=unit_attrs,
         )
 
+        # Provide an explicit identity index_map for the view output type.
+        id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, tiled=False),
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, index_map=id_map
+            ),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
@@ -41,10 +52,10 @@ def test_tilize(shape: Shape, request):
 
         return from_device
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         tilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -56,7 +67,8 @@ def test_tilize(shape: Shape, request):
     reason="Issue #3486: Unit testing untilize hits some unexpected lowering behaviour."
 )
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-def test_untilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_untilize(shape: Shape, target: str, request):
     def untilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -64,18 +76,24 @@ def test_untilize(shape: Shape, request):
     ):
 
         input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-        golden_output = builder.untilize_golden(input)
+        golden_output = builder_golden.get_golden_function(
+            ttir.ToLayoutOp, tilize=False
+        )(input)
         builder.set_graph_input_output([input], [golden_output])
 
         to_device = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), False),
+            output_type=builder.get_metal_tensor_layout(shape, (1, 1), False),
             unit_attrs=unit_attrs,
         )
 
+        # Provide an explicit identity index_map for the view output type.
+        id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
         view_as_tiled = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.get_metal_tensor_layout(
+                shape, (1, 1), True, index_map=id_map
+            ),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
@@ -88,10 +106,10 @@ def test_untilize(shape: Shape, request):
 
         return from_device
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         untilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -100,7 +118,8 @@ def test_untilize(shape: Shape, request):
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
-def test_tilize_untilize(shape: Shape, request):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_tilize_untilize(shape: Shape, target: str, request):
     def tilize_untilize(
         in0: Operand,
         builder: TTIRBuilder,
@@ -108,7 +127,7 @@ def test_tilize_untilize(shape: Shape, request):
     ):
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.get_metal_tensor_layout(shape, (1, 1), True),
             unit_attrs=unit_attrs,
         )
         from_device = builder.untilize(
@@ -118,10 +137,10 @@ def test_tilize_untilize(shape: Shape, request):
         )
         return from_device
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         tilize_untilize,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

@@ -55,9 +55,11 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/upsample.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/rand/rand.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
@@ -65,6 +67,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/capture_or_execute_trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/end_trace_capture.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/execute_trace.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/concatenate_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

@@ -46,8 +46,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "output_layout#row_major:"
                     "enable_act_double_buffer#false:"
                     "enable_weights_double_buffer#false:"
-                    "enable_split_reader#false:"
-                    "enable_subblock_padding#false";
+                    "enable_split_reader#false";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
                              "override-conv2d-config", arg, parsedOverride);
@@ -84,8 +83,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_FALSE(params.enableWeightsDoubleBuffer.value());
   ASSERT_TRUE(params.enableSplitReader.has_value());
   ASSERT_FALSE(params.enableSplitReader.value());
-  ASSERT_TRUE(params.enableSubblockPadding.has_value());
-  ASSERT_FALSE(params.enableSubblockPadding.value());
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
@@ -114,7 +111,6 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   ASSERT_FALSE(params.enableActDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableWeightsDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableSplitReader.has_value());
-  ASSERT_FALSE(params.enableSubblockPadding.has_value());
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
@@ -475,6 +471,19 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
   ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 }
 
+// Test the setEnableL1InterleavedFallbackAnalysis method
+TEST_F(TestOptimizerOverrideHandler,
+       TestSetEnableL1InterleavedFallbackAnalysis) {
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
+  ASSERT_TRUE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(false);
+  ASSERT_FALSE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+}
+
 // Test the setEnableMemoryLayoutAnalysisPolicy method
 TEST_F(TestOptimizerOverrideHandler, TestSetEnableMemoryLayoutAnalysisPolicy) {
 
@@ -653,6 +662,13 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMeshShape) {
   ASSERT_EQ(optimizerOverridesHandler.getMeshShape()[1], meshShape[1]);
 }
 
+// Test the setTensorL1UsageCap method
+TEST_F(TestOptimizerOverrideHandler, TestSetTensorL1UsageCap) {
+
+  optimizerOverridesHandler.setTensorL1UsageCap(1);
+  ASSERT_EQ(optimizerOverridesHandler.getTensorL1UsageCap(), 1);
+}
+
 // Test the toString method
 TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
@@ -661,6 +677,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
+  options += "l1-interleaved-fallback-analysis-enabled=true ";
   options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
@@ -670,6 +687,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(

@@ -45,9 +45,7 @@ void registerBinaryBindings(nb::module_ &m) {
            &tt::runtime::Binary::getProgramInputsAsJson)
       .def("get_program_outputs_as_json",
            &tt::runtime::Binary::getProgramOutputsAsJson)
-      .def("get_program_mlir_as_json",
-           &tt::runtime::Binary::getProgramMlirAsJson)
-      .def("get_program_cpp", &tt::runtime::Binary::getProgramCpp)
+      .def("get_mlir_as_json", &tt::runtime::Binary::getMlirAsJson)
       .def("get_tensor_cache",
            [](tt::runtime::Binary &bin) {
              return bin.getConstEvalTensorCache();

@@ -26,6 +26,7 @@
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
+#include "ttmlir/Target/TTNN/operations/rand_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -801,25 +802,23 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
   llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
-  ::tt::target::ttnn::MeshShardDirection meshShardDirection;
+  ::tt::target::MeshShardDirection meshShardDirection;
   if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
-    meshShardDirection =
-        ::tt::target::ttnn::MeshShardDirection::FullToShardShape;
+    meshShardDirection = ::tt::target::MeshShardDirection::FullToShardShape;
   } else if (shardDirection ==
              mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
-    meshShardDirection =
-        ::tt::target::ttnn::MeshShardDirection::ShardToFullShape;
+    meshShardDirection = ::tt::target::MeshShardDirection::ShardToFullShape;
   } else {
     llvm_unreachable("unhandled mesh_shard direction");
   }
 
-  ::tt::target::ttnn::MeshShardType meshShardType;
+  ::tt::target::MeshShardType meshShardType;
   if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
+    meshShardType = ::tt::target::MeshShardType::Replicate;
   } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
+    meshShardType = ::tt::target::MeshShardType::Devices;
   } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Identity;
+    meshShardType = ::tt::target::MeshShardType::Identity;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
   }
@@ -877,6 +876,37 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
       *cache.fbb, input, runningMean, runningVar, op.getTraining(),
       op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
       weight, bias, memoryConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
+createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateRMSNormOp(*cache.fbb, input, weight, bias,
+                                             op.getEpsilon().convertToFloat(),
+                                             memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
@@ -997,6 +1027,8 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Add;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Multiply;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalRightShiftOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalRightShift;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, SubtractOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::Subtract;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, EqualOp>) {
@@ -1056,6 +1088,9 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, MinimumOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum;
+  } else if constexpr (std::is_same_v<EltwiseBinaryCompositeOp,
+                                      LogicalLeftShiftOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
@@ -1140,15 +1175,6 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
       // Recurse on the returned value.
       return getAttrFromConstantChain<AttrType>(returnOp.getOperand(0),
                                                 expectedTypeMsg);
-    }
-  }
-  if constexpr (std::is_same_v<AttrType, int32_t>) {
-    // typecast first op for per-tensor zp
-    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
-      firstInput = typeCastOp.getInput();
-    } else {
-      llvm_unreachable(
-          "Expected ttnn.typecast as defining op for per-tensor zp.");
     }
   }
   ttnn::FullOp fullOp =
@@ -1609,6 +1635,26 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RandOp>
+createRandOp(FlatbufferObjectCache &cache, RandOp op) {
+  auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  ::tt::target::DataType dtype =
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
+  ::tt::target::TensorLayout layout =
+      ::mlir::tt::ttnn::utils::toTargetTensorLayout(op.getLayout());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig());
+  float low = op.getLow().convertToFloat();
+  float high = op.getHigh().convertToFloat();
+  uint32_t seed = op.getSeed();
+
+  return ::tt::target::ttnn::CreateRandOp(
+      *cache.fbb, size, cache.at<::tt::target::DeviceRef>(device), dtype,
+      layout, memoryConfig, low, high, seed, out);
+}
+
 template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
@@ -1640,21 +1686,48 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       op.getUseMulticore(), memoryConfig);
 }
 
+template <typename SliceOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
+  ::tt::target::ttnn::SliceOpType type;
+  ::tt::target::ttnn::SliceOpParams paramsType =
+      ::tt::target::ttnn::SliceOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<SliceOp, SliceDynamicOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceDynamicOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceDynamicOpParams;
+    auto begins = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBegins()));
+    auto ends = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getEnds()));
+    params =
+        ::tt::target::ttnn::CreateSliceDynamicOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else if constexpr (std::is_same_v<SliceOp, SliceStaticOp>) {
+    type = ::tt::target::ttnn::SliceOpType::SliceStaticOp;
+    paramsType = ::tt::target::ttnn::SliceOpParams::SliceStaticOpParams;
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> begins =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache,
+                                                          op.getBegins());
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> ends =
+        arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
+    params =
+        ::tt::target::ttnn::CreateSliceStaticOpParams(*cache.fbb, begins, ends)
+            .Union();
+  } else {
+    llvm_unreachable("Unhandled SliceOp");
+  }
+
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
-  auto begins =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
-  auto ends =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getEnds());
   auto step =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getStep());
 
-  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, in, out, begins, ends,
-                                           step);
+  return ::tt::target::ttnn::CreateSliceOp(*cache.fbb, type, in, out, step,
+                                           paramsType, params);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SortOp>
@@ -1707,11 +1780,29 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  ::flatbuffers::Offset<void> extraParams = 0;
+  ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
+  if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::AvgPool2dExtraParams;
+    extraParams = ::tt::target::ttnn::CreateAvgPool2dExtraParams(
+                      *cache.fbb, op.getCountIncludePad())
+                      .Union();
+  } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
+    extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dExtraParams;
+    extraParams =
+        ::tt::target::ttnn::CreateMaxPool2dExtraParams(*cache.fbb).Union();
+  } else {
+    llvm_unreachable("unhandled Pool2dOp");
+  }
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getInPlaceHalo());
+      dilation, extraParamsType, extraParams, memoryConfig,
+      toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
+      op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
@@ -1855,6 +1946,18 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
       executeProgramIdx, &inputs, &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
+createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateConcatenateHeadsOp(*cache.fbb, in, out,
+                                                      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -1920,6 +2023,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseBinaryOp(cache, subtractOp),
                            debugString, locInfo);
   }
+  if (auto logicalRightShiftOp = dyn_cast<LogicalRightShiftOp>(op);
+      logicalRightShiftOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryOp(cache, logicalRightShiftOp),
+                           debugString, locInfo);
+  }
   if (auto divOp = dyn_cast<DivideOp>(op); divOp) {
     return createOperation(cache, createEltwiseBinaryOp(cache, divOp),
                            debugString, locInfo);
@@ -1964,6 +2073,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, bitwiseAndOp),
                            debugString, locInfo);
+  }
+  if (auto logicalLeftShiftOp = dyn_cast<LogicalLeftShiftOp>(op);
+      logicalLeftShiftOp) {
+    return createOperation(
+        cache, createEltwiseBinaryCompositeOp(cache, logicalLeftShiftOp),
+        debugString, locInfo);
   }
   if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
     return createOperation(cache,
@@ -2241,6 +2356,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createConcatOp(cache, concatOp), debugString,
                            locInfo);
   }
+  if (auto randOp = dyn_cast<RandOp>(op); randOp) {
+    return createOperation(cache, createRandOp(cache, randOp), debugString,
+                           locInfo);
+  }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
                            debugString, locInfo);
@@ -2253,9 +2372,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
-  if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
-    return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
-                           locInfo);
+  if (auto sliceStaticOp = dyn_cast<SliceStaticOp>(op); sliceStaticOp) {
+    return createOperation(cache, createSliceOp(cache, sliceStaticOp),
+                           debugString, locInfo);
+  }
+  if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
+    return createOperation(cache, createSliceOp(cache, sliceDynamicOp),
+                           debugString, locInfo);
   }
   if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {
     return createOperation(cache, createSortOp(cache, sortOp), debugString,
@@ -2291,6 +2414,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
     return createOperation(cache, createOp(cache, batchNormOp), debugString,
+                           locInfo);
+  }
+  if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
+    return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
@@ -2343,6 +2470,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
         cache, createOp(cache, captureOrExecuteTraceOp, programIndexMap),
         debugString, locInfo);
   }
+  if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
+      concatenateHeadsOp) {
+    return createOperation(cache, createOp(cache, concatenateHeadsOp),
+                           debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2372,13 +2504,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
+  flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
+      toMLIR(fbb, "ttnn", rootModule);
 
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               module->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
+      debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2469,7 +2603,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
-      ::ttmlir::getGitHash(), systemDesc, &programs);
+      ::ttmlir::getGitHash(), systemDesc, binaryMLIR, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

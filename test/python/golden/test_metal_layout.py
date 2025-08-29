@@ -6,10 +6,14 @@ import pytest
 import torch
 from typing import List
 
-from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
+
+from builder.base.builder import Operand
+from builder.ttir.ttir_builder import TTIRBuilder
+from builder.base.builder_utils import compile_ttir_to_flatbuffer
+
+pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
@@ -19,6 +23,7 @@ from ttmlir.ir import *
 @pytest.mark.parametrize("shard_mul_y", [3])
 @pytest.mark.parametrize("shard_mul_x", [2])
 @pytest.mark.parametrize("tiled", [False])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_to_layout(
     input_grid_y: int,
     input_grid_x: int,
@@ -27,6 +32,7 @@ def test_to_layout(
     shard_mul_y: int,
     shard_mul_x: int,
     tiled: bool,
+    target: str,
     request,
 ):
     tile_size = 32 if tiled else 4  # 4 because of 16byte noc alignment
@@ -44,13 +50,13 @@ def test_to_layout(
     ):
         to_device = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape),
+            output_type=builder.get_metal_tensor_layout(shape),
             unit_attrs=unit_attrs,
             loc="to_device",
         )
         reblock = builder.to_layout(
             in0,
-            output_type=builder.metal_tensor_layout(shape),
+            output_type=builder.get_metal_tensor_layout(shape),
             unit_attrs=unit_attrs,
             loc="reblock",
         )
@@ -62,10 +68,10 @@ def test_to_layout(
         )
         return from_device
 
-    compile_to_flatbuffer(
+    compile_ttir_to_flatbuffer(
         to_layout,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

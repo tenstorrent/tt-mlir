@@ -11,6 +11,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/deallocate.fbs
   operations/eltwise.fbs
   operations/embedding.fbs
+  operations/generic_op.fbs
   operations/kv_cache.fbs
   operations/layout.fbs
   operations/load_cached.fbs
@@ -21,8 +22,10 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/moreh_cumsum.fbs
   operations/normalization.fbs
   operations/pool.fbs
+  operations/rand.fbs
   operations/reduction.fbs
   operations/trace.fbs
+  operations/transformer.fbs
 )
 
 set(TTNN_FBS_GEN_SOURCES

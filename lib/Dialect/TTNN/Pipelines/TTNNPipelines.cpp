@@ -86,11 +86,14 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
         options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.l1InterleavedFallbackAnalysisEnabled =
+        options.l1InterleavedFallbackAnalysisEnabled;
     optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
     optimizerOptions.memoryLayoutAnalysisPolicy =
         options.memoryLayoutAnalysisPolicy;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+    optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
@@ -113,8 +116,8 @@ void createTTNNPipelineLoweringPasses(
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   TTNNWorkaroundsOptions workaroundOptions{
-      options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
-      options.repeatFoldingWorkaroundEnabled};
+      options.layoutWorkaroundsEnabled,
+      options.decompositionWorkaroundsEnabled};
 
   if (options.optimizerPassEnabled) {
     workaroundOptions.optimizerEnabled = true;
@@ -145,7 +148,11 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
-  pm.addPass(ttir::createElementTypeNormalization());
+  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+  elementTypeNormalizationOptions.enableBfp8Conversion =
+      options.enableBfp8Conversion;
+  pm.addPass(
+      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).

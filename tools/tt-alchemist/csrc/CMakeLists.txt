@@ -1,12 +1,10 @@
-# Configure envs
-#
-if(NOT DEFINED ENV{TT_MLIR_HOME})
-  message(FATAL_ERROR "TT_MLIR_HOME environment variable is not set")
-endif()
-
 # Set TT_ALCHEMIST_HOME
 #
-set(TT_ALCHEMIST_HOME $ENV{TT_MLIR_HOME}/tools/tt-alchemist)
+set(TT_ALCHEMIST_HOME ${PROJECT_SOURCE_DIR}/tools/tt-alchemist)
+
+# Set TT_MLIR_HOME - not to be confused with $ENV{TT_MLIR_HOME}
+#
+set(TT_MLIR_HOME ${PROJECT_SOURCE_DIR})
 
 # Define target names
 #
@@ -47,7 +45,7 @@ target_include_directories(${ALCHEMIST_LIBRARY_NAME}
 
 target_link_directories(${ALCHEMIST_LIBRARY_NAME}
   PUBLIC
-    $ENV{TT_MLIR_HOME}/lib
+    ${PROJECT_BINARY_DIR}/lib
 )
 
 # Link libraries
@@ -133,11 +131,13 @@ add_custom_command(
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_stl.so
   DEPENDS ${ALCHEMIST_LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy $ENV{TT_METAL_BUILD_HOME}/lib/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_stl.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMENT "Copying shared libraries to Python package"
 )
 

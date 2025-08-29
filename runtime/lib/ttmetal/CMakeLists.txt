@@ -13,6 +13,7 @@ add_library(TTRuntimeTTMetal
   STATIC
   runtime.cpp
   executor.cpp
+  meshshard_utils.cpp
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
 set_property(TARGET TTRuntimeTTMetal PROPERTY CXX_STANDARD 20)

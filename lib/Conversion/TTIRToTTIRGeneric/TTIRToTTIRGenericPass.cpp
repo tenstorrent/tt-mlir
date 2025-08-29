@@ -77,8 +77,6 @@ struct TTIRToTTIRGenericPass final
           >();
     }
 
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(moduleOp);
-
     TypeConverter typeConverter;
     {
       // Dialect conversion requires 1:1 (null) type conversion rule at a
@@ -88,9 +86,8 @@ struct TTIRToTTIRGenericPass final
 
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(
-        &ctx, patterns, typeConverter,
-        {useTileMatmul, defaultInputMemSpace, defaultOutputMemSpace},
-        deviceAttr.getWorkerGrid().getRank());
+        &ctx, patterns, typeConverter, defaultInputMemSpace,
+        defaultOutputMemSpace, getTargetGridShape(), useTileMatmul);
 
     if (failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {
@@ -98,7 +95,19 @@ struct TTIRToTTIRGenericPass final
     }
   }
 
-}; // end of class
+  // Helper to get defined device shape if an override is not provided.
+  SmallVector<int64_t> getTargetGridShape() {
+    if (!overrideDeviceShape.empty()) {
+      return llvm::to_vector(overrideDeviceShape);
+    }
+
+    // Get from device if no override given.
+    mlir::ModuleOp moduleOp = getOperation();
+    ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
+    assert(device && "Device not found");
+    return llvm::to_vector(device.getWorkerGrid().getShape());
+  }
+};
 } // namespace
 } // namespace mlir::tt::ttir
 // ............................................................................

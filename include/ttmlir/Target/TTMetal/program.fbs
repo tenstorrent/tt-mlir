@@ -13,11 +13,6 @@ enum EthType : ushort {
   Receiver,
 }
 
-enum UnpackToDestMode : uint8 {
-    Fp32,
-    Default,
-}
-
 table NocConfig {
   noc_index: NocIndex;
 }
