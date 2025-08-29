@@ -53,6 +53,7 @@ union BufferDetail {
 
 table BufferDesc {
   shape: [int];
+  dim_alignments: [int];
   data_type: DataType;
   element_shape: Dim2d;
   buffer_detail: BufferDetail;

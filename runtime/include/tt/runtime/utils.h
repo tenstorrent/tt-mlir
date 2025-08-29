@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
+#include <cstdlib>
 #include <memory>
+#include <numeric>
 #include <type_traits>
 
 #pragma clang diagnostic push
@@ -15,8 +17,25 @@
 
 namespace tt::runtime::utils {
 
-inline std::shared_ptr<void> malloc_shared(size_t size) {
-  return std::shared_ptr<void>(std::malloc(size), std::free);
+template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+T alignUp(const T val, const T alignment) {
+  if (alignment == 0 || alignment == 1) {
+    return val;
+  }
+  return ((val + alignment - 1) / alignment) * alignment;
+}
+
+inline std::shared_ptr<void> mallocShared(const size_t size,
+                                          const size_t alignment) {
+  return std::shared_ptr<void>(
+      std::aligned_alloc(alignment, alignUp(size, alignment)), std::free);
+}
+
+inline std::shared_ptr<void> callocShared(const size_t size,
+                                          const size_t alignment) {
+  auto buf = mallocShared(size, alignment);
+  memset(buf.get(), 0, alignUp(size, alignment));
+  return buf;
 }
 
 template <typename T>
@@ -53,16 +72,6 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
     assert(false && "Unsupported element size for data type");
     return 0;
   }
-}
-
-inline std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignElems = 32;
-  return dataTypeElementSize(dataType) * numAlignElems;
-}
-
-inline std::int64_t tileAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignRows = 32;
-  return tileRowAlignment(dataType) * numAlignRows;
 }
 
 inline bool isSupportedDataType(::tt::target::DataType dataType) {
@@ -117,6 +126,14 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   }
 }
 
+template <typename Iter>
+auto calculateVolume(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   // Scalar case:
@@ -133,15 +150,22 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   return stride;
 }
 
+template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+inline std::vector<uint32_t>
+calculateAlignedStride(const std::vector<T> &shape,
+                       const std::vector<T> &alignments) {
+  const size_t rank = shape.size();
+  std::vector<T> alignedShape(rank, 1);
+  for (size_t i = 0; i < rank; i++) {
+    alignedShape[i] = alignUp(shape[i], alignments[i]);
+  }
+  return calculateStride(alignedShape);
+}
+
 template <class... Ts>
 struct overloaded : Ts... {
   using Ts::operator()...;
 };
-
-template <typename T>
-T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
 
 namespace detail {
 

@@ -381,9 +381,19 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
+  auto hostLayout =
+      mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(memref.getLayout());
+  std::vector<int32_t> dimAlignments;
+  if (hostLayout) {
+    dimAlignments = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        hostLayout.getDimAlignments());
+  } else {
+    dimAlignments = std::vector<int32_t>(shape.size(), 1);
+  }
+
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, toFlatbuffer(cache, dtype), &elementShape,
-      bufferDetailType, bufferDetail);
+      *cache.fbb, &shape, &dimAlignments, toFlatbuffer(cache, dtype),
+      &elementShape, bufferDetailType, bufferDetail);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>

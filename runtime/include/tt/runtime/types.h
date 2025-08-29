@@ -7,9 +7,7 @@
 
 #include <cassert>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "tt/runtime/utils.h"
@@ -165,34 +163,55 @@ struct RuntimeCheckedConstObjectImpl {
 } // namespace detail
 
 struct TensorDesc {
-  std::vector<std::uint32_t> shape;
-  std::vector<std::uint32_t> stride;
-  std::uint32_t itemsize;
-  ::tt::target::DataType dataType;
-  std::int64_t alignment = 1;
+  std::vector<uint32_t> shape = {};  // Logical
+  std::vector<uint32_t> stride = {}; // Logical
+  uint32_t itemsize = 0;
+  ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
+
+  // Members below are for metal tensors only.
+  std::vector<uint32_t> dimAlignments = {};
 
   TensorDesc() = default;
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
-        alignment(alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
-                   dataType, alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
-  std::int64_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                           std::multiplies<int64_t>());
+  TensorDesc(const std::vector<uint32_t> &shape,
+             const std::vector<uint32_t> &stride, uint32_t itemsize,
+             ::tt::target::DataType dataType,
+             const std::vector<uint32_t> &dimAlignments)
+      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
+        dimAlignments(dimAlignments) {}
+
+  TensorDesc(const std::vector<uint32_t> &shape,
+             const std::vector<uint32_t> &stride,
+             ::tt::target::DataType dataType,
+             const std::vector<uint32_t> &dimAlignments)
+      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
+                   dataType, dimAlignments) {}
+
+  TensorDesc(const std::vector<uint32_t> &shape,
+             ::tt::target::DataType dataType,
+             const std::vector<uint32_t> &dimAlignments)
+      : TensorDesc(shape, utils::calculateStride(shape), dataType,
+                   dimAlignments) {}
+
+  TensorDesc(const std::vector<uint32_t> &shape,
+             ::tt::target::DataType dataType)
+      : TensorDesc(shape, dataType, std::vector<uint32_t>(shape.size(), 1)) {}
+
+  size_t volume() const {
+    return utils::calculateVolume(shape.cbegin(), shape.cend());
   }
-  std::int64_t sizeBytes() const {
-    return utils::alignUp(volume() * itemsize, alignment);
+
+  size_t alignedVolume() const {
+    std::vector<uint32_t> alignedShape(shape.size(), 0);
+    for (size_t i = 0; i < shape.size(); i++) {
+      alignedShape[i] = utils::alignUp(shape[i], dimAlignments[i]);
+    }
+    return utils::calculateVolume(alignedShape.cbegin(), alignedShape.cend());
   }
+
+  size_t sizeBytes() const { return alignedVolume() * itemsize; }
+
+  bool isPadded() const { return volume() != alignedVolume(); }
 };
 
 struct MemoryView {

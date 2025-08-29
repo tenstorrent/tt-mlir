@@ -222,10 +222,15 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  TensorDesc desc(shape, bufferDesc->data_type(),
-                  utils::tileAlignment(bufferDesc->data_type()));
-  size_t size = desc.sizeBytes();
-  auto data = std::shared_ptr<void>(std::malloc(size), std::free);
+  std::vector<std::uint32_t> dimAlignments(
+      bufferDesc->dim_alignments()->begin(),
+      bufferDesc->dim_alignments()->end());
+  assert(shape.size() == dimAlignments.size());
+  TensorDesc desc(shape, bufferDesc->data_type(), dimAlignments);
+  const size_t size = desc.sizeBytes();
+
+  // Default zero-fill & align to the largest supported data type.
+  auto data = utils::callocShared(size, sizeof(float));
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
