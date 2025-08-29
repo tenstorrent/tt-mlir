@@ -11,6 +11,7 @@ from collections import OrderedDict
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from test_utils import Marks, shape_str
 
 pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
 
@@ -219,7 +220,6 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -432,7 +432,6 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -486,7 +485,6 @@ def test_matmul_and_binary_op(
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -538,7 +536,6 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
     )
 
 
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [

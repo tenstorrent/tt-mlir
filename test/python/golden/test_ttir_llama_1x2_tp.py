@@ -163,7 +163,6 @@ def golden_part2(
 
 
 # llama attention part 1 with 1x2
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -372,7 +371,6 @@ def test_llama_attention_1x2_tp_part1(
 
 
 # llama attention part 2 with 1x2
-@pytest.mark.skip(reason="failed with new CCL op - skip temporarily")
 @pytest.mark.parametrize(
     "shapes",
     [
