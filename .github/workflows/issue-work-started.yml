@@ -459,6 +459,8 @@ jobs:
 
             if [[ -z "$issue_id" || "$issue_id" == "null" ]]; then
               echo "Could not get issue ID for #$issue_number, skipping..."
+              # Bump processed count
+              processed_count=$((processed_count + 1))
               continue
             fi
 
@@ -539,6 +541,8 @@ jobs:
 
             if [[ -z "$found_item_id" ]]; then
               echo "Issue #$issue_number not found in project, skipping..."
+              # Bump processed count
+              processed_count=$((processed_count + 1))
               continue
             fi
 
@@ -587,6 +591,8 @@ jobs:
             STATUS_ERRORS=$(echo "$STATUS_RESPONSE" | jq -r '.errors // empty')
             if [[ -n "$STATUS_ERRORS" && "$STATUS_ERRORS" != "null" ]]; then
               echo "Error checking fields for issue #$issue_number: $STATUS_ERRORS"
+              # Bump processed count
+              processed_count=$((processed_count + 1))
               continue
             fi
 
