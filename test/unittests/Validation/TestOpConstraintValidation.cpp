@@ -2,18 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 
-#include "../OpModel/TTNN/OpModelFixture.h"
-
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -26,7 +25,7 @@
 using namespace mlir::tt::ttnn;
 using namespace mlir::tt;
 
-class OpConstraintValidatorTest : public ::testing::Test {
+class OpConstraintValidationTest : public ::testing::Test {
 public:
   mlir::MLIRContext context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
@@ -86,56 +85,47 @@ public:
   }
 };
 
-// Test validateOperation with empty input layouts.
-TEST_F(OpConstraintValidatorTest, ValidateOperationEmptyLayouts) {
-  OpConstraintValidator::ValidationOptions options(false);
-  OpConstraintValidator validator(options);
-
-  auto addOp = createMockAddOp();
-  std::vector<TTNNLayoutAttr> emptyLayouts;
-  OpConfig mockConfig = createTestConfig();
-
-  auto result = validator.validateOperation(addOp, emptyLayouts, mockConfig);
-
-  EXPECT_FALSE(result.success);
-  EXPECT_EQ(result.errorMessage, "No input layouts provided");
-}
-
 // Test validateOperation with real AddOp and proper layouts.
-TEST_F(OpConstraintValidatorTest, ValidateOperationRealAddOp) {
-  OpConstraintValidator::ValidationOptions options(false);
-  OpConstraintValidator validator(options);
-
+TEST_F(OpConstraintValidationTest, ValidateOperationRealAddOp) {
   auto addOp = createMockAddOp();
   auto layouts = ttnn::utils::extractInputLayouts(addOp);
   OpConfig config = createTestConfig();
 
-  auto result = validator.validateOperation(addOp, layouts, config);
+  auto result =
+      op_constraint_validation::validateOperation(addOp, layouts, config);
 
   // This should either succeed or fail gracefully (not crash)
   // The exact result depends on OpModel implementation
-  EXPECT_TRUE(result.success || !result.errorMessage.empty());
+  if (result) {
+    EXPECT_GE(result->configIndex, 0u);
+  } else {
+    // Consume the error to avoid assertion failure
+    std::string errorMsg = llvm::toString(result.takeError());
+    EXPECT_FALSE(errorMsg.empty());
+  }
 }
 
 // Test validateWithMultipleAttributes with real AddOp.
-TEST_F(OpConstraintValidatorTest, ValidateWithMultipleAttributesRealAddOp) {
-  OpConstraintValidator::ValidationOptions options(false);
-  OpConstraintValidator validator(options);
-
+TEST_F(OpConstraintValidationTest, ValidateWithMultipleAttributesRealAddOp) {
   auto addOp = createMockAddOp();
   auto layouts = ttnn::utils::extractInputLayouts(addOp);
 
   // Create 10 empty attributes
-  std::vector<OpConfig::OpSpecificAttrs> attrs(10);
+  std::vector<OpConfig> configs(10);
 
   // Test with null reference configs (should succeed if validation passes)
-  auto results = validator.validateWithMultipleAttributes(
-      addOp, layouts, attrs, /*referenceConfigs=*/nullptr);
+  auto results = op_constraint_validation::validateWithMultipleAttributes(
+      addOp, layouts, configs, /*referenceConfigs=*/{});
 
-  EXPECT_EQ(results.size(), 10);
-
-  // Should either succeed or fail gracefully (not crash)
-  for (const auto &result : results) {
-    EXPECT_TRUE(result.success || !result.errorMessage.empty());
+  if (results) {
+    EXPECT_EQ(results->size(), 10);
+    // All results should be valid if function succeeded
+    for (const auto &result : *results) {
+      EXPECT_GE(result.configIndex, 0u);
+    }
+  } else {
+    // Function failed gracefully - consume error to avoid assertion failure
+    std::string errorMsg = llvm::toString(results.takeError());
+    EXPECT_FALSE(errorMsg.empty());
   }
 }

@@ -1,5 +1,5 @@
 add_mlir_unittest(ValidationTests
-    TestOpConstraintValidator.cpp
+    TestOpConstraintValidation.cpp
     PARTIAL_SOURCES_INTENDED
 )
 

@@ -2,32 +2,33 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttnn {
 
-OpConstraintValidator::OpConstraintValidator(const ValidationOptions &options)
-    : options_(options) {}
+namespace op_constraint_validation {
 
-OpConstraintValidator::ValidationResult
-OpConstraintValidator::validateOperation(
-    Operation *op, const std::vector<TTNNLayoutAttr> &inputLayouts,
-    const OpConfig &config) {
+llvm::Expected<ValidationResult>
+validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                  const OpConfig &config) {
 
-  if (inputLayouts.empty()) {
-    return ValidationResult(false, 0, {}, "No input layouts provided");
+  // Validate input layout count matches operation input count
+  if (inputLayouts.size() != op->getNumOperands()) {
+    llvm::report_fatal_error(
+        llvm::Twine("Input layout count (") + llvm::Twine(inputLayouts.size()) +
+        llvm::Twine(") doesn't match operation input count (") +
+        llvm::Twine(op->getNumOperands()) + llvm::Twine(")"));
   }
 
   // Call core constraint validation.
@@ -35,87 +36,76 @@ OpConstraintValidator::validateOperation(
 
   if (constraintResult) {
     TTNNLayoutAttr actualOutput = constraintResult.get();
-    return ValidationResult(true, 0, actualOutput, "");
+    return ValidationResult(0, actualOutput);
   }
-  std::string errorMsg = llvm::toString(constraintResult.takeError());
-  return ValidationResult(false, 0, {}, errorMsg);
+  return constraintResult.takeError();
 }
 
-std::vector<OpConstraintValidator::ValidationResult>
-OpConstraintValidator::validateWithMultipleAttributes(
-    Operation *op, const std::vector<TTNNLayoutAttr> &inputLayouts,
-    const std::vector<OpConfig::OpSpecificAttrs> &opSpecificAttrs,
-    const std::vector<OpConfig> *referenceConfigs) {
+llvm::Expected<std::vector<ValidationResult>>
+validateWithMultipleAttributes(Operation *op,
+                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                               llvm::ArrayRef<OpConfig> opConfigs,
+                               llvm::ArrayRef<OpConfig> referenceConfigs) {
 
   std::vector<ValidationResult> results;
 
-  if (inputLayouts.empty()) {
-    // Return failure for all attributes if no input layouts.
-    for (size_t i = 0; i < opSpecificAttrs.size(); ++i) {
-      results.push_back(
-          ValidationResult(false, 0, {}, "No input layouts provided"));
-    }
-    return results;
+  // Validate input layout count matches operation input count
+  if (inputLayouts.size() != op->getNumOperands()) {
+    llvm::report_fatal_error(
+        llvm::Twine("Input layout count (") + llvm::Twine(inputLayouts.size()) +
+        llvm::Twine(") doesn't match operation input count (") +
+        llvm::Twine(op->getNumOperands()) + llvm::Twine(")"));
   }
 
-  for (const auto &opSpecificAttr : opSpecificAttrs) {
-    // 1. Create test config with current op-specific attribute.
-    OpConfig testConfig(nullptr, opSpecificAttr);
-
-    // 2. Call core constraint checking.
+  for (const auto &testConfig : opConfigs) {
+    // 1. Call core constraint checking.
     auto constraintResult = validateConstraints(op, inputLayouts, testConfig);
 
     if (constraintResult) {
       TTNNLayoutAttr actualOutput = constraintResult.get();
 
-      // 3. Search referenceConfigs for matching (outputLayout +
+      // 2. Search referenceConfigs for matching (outputLayout +
       // opSpecificAttr).
-      if (referenceConfigs != nullptr) {
+      if (!referenceConfigs.empty()) {
         bool foundMatch = false;
-        for (size_t i = 0; i < referenceConfigs->size(); ++i) {
-          if ((*referenceConfigs)[i].outputLayout == actualOutput &&
-              (*referenceConfigs)[i].opSpecificAttrs == opSpecificAttr) {
-            results.push_back(ValidationResult(true, i, actualOutput, ""));
+        for (size_t i = 0; i < referenceConfigs.size(); ++i) {
+          if (referenceConfigs[i].outputLayout == actualOutput &&
+              referenceConfigs[i].opSpecificAttrs ==
+                  testConfig.opSpecificAttrs) {
+            results.push_back(ValidationResult(i, actualOutput));
             foundMatch = true;
             break;
           }
         }
 
         if (!foundMatch) {
-          // No matching config found.
-          results.push_back(ValidationResult(false, 0, actualOutput,
-                                             "No matching reference config"));
+          // No matching config found - return early with error
+          return llvm::createStringError("No matching reference config found");
         }
       } else {
         // No reference configs to search - consider validation success as
         // match.
-        results.push_back(ValidationResult(true, 0, actualOutput, ""));
+        results.push_back(ValidationResult(0, actualOutput));
       }
     } else {
-      // Constraint checking failed.
-      std::string errorMsg = llvm::toString(constraintResult.takeError());
-      results.push_back(ValidationResult(false, 0, {}, errorMsg));
+      // Constraint checking failed - return early with error
+      return constraintResult.takeError();
     }
   }
 
   return results;
 }
 
-llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
-    Operation *op, const std::vector<TTNNLayoutAttr> &inputLayouts,
-    const OpConfig &config) {
+llvm::Expected<TTNNLayoutAttr>
+validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                    const OpConfig &config) {
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
   if (!backend) {
     std::string errorMsg = "Backend constraints are not implemented for op " +
                            op->getName().getStringRef().str();
-
-    if (options_.fatalErrorOnUnsupportedOp) {
-      llvm::report_fatal_error(llvm::Twine(errorMsg));
-    }
-
-    return llvm::createStringError(errorMsg);
+    llvm::report_fatal_error(llvm::Twine(errorMsg));
   }
 
   // Constraints are implemented for this op.
@@ -158,34 +148,26 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
                outputLayout, static_cast<int>(outputLayout.getLayout()),
                static_cast<int>(outputLayout.getDataType()));
 
-  if (options_.compareOutputLayout && config.outputLayout &&
-      outputLayout != config.outputLayout) {
-    std::string message = "Output layout mismatch: backend returned layout "
-                          "doesn't match requested config layout";
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Config output layout: {}, backend output layout: {}",
-                 config.outputLayout, outputLayout);
-    return llvm::createStringError("[Optimizer] " + message);
-  }
-
   // Get usable L1 cache size from device.
   ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
       op->getParentOfType<ModuleOp>()->getAttr(ttcore::SystemDescAttr::name));
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
+  // TODO(rpavlovicTT): pass tensorL1UsageCap as parameter. Use the one from
+  // PipelineOptions added in fe415d34d95a777f38e7864a84a618bd946b35ca.
   constexpr float tensorL1UsageCap = 0.8;
 
   // Calculate total L1 usage from all input layouts.
   uint64_t totalInputL1Usage = 0;
   for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
-    if (inputLayout.getBufferType() == BufferType::L1 ||
-        inputLayout.getBufferType() == BufferType::L1Small) {
+    if (inputLayout.getBufferType() == BufferType::L1) {
       totalInputL1Usage += inputLayout.getShardSizeInBytes();
     }
   }
 
+  // TODO(rpavlovicTT): switch to new constraints usage API once it is ready.
+  // https://github.com/tenstorrent/tt-mlir/issues/4143
   bool l1UsageValid = (totalInputL1Usage + tensorUsage + cBUsagePeak) <
                       tensorL1UsageCap * usableL1CacheSize;
 
@@ -211,4 +193,5 @@ llvm::Expected<TTNNLayoutAttr> OpConstraintValidator::validateConstraints(
   return outputLayout;
 }
 
+} // namespace op_constraint_validation
 } // namespace mlir::tt::ttnn

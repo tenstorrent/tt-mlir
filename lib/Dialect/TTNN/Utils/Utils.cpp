@@ -209,11 +209,6 @@ std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op) {
   std::vector<TTNNLayoutAttr> inputLayouts;
 
   for (auto operand : op->getOperands()) {
-    // Skip device type operands.
-    if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
-      continue;
-    }
-
     // Extract layout from tensor type.
     if (auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType())) {
       if (auto layout =
