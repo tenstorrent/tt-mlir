@@ -708,7 +708,7 @@ jobs:
             done
 
             # wait for all background jobs to finish
-            wait
+            wait < <(jobs -p)
 
 
           echo "Summary: Processed $processed_count issues, updated $updated_count Work Started fields"
