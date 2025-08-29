@@ -88,6 +88,7 @@ module @L1InterleavedRuntimeSupportTypecastSlice attributes {} {
     %31 = "ttir.add"(%29, %7, %30) : (tensor<1x32x8400xf32>, tensor<1x32x8400xf32>, tensor<1x32x8400xf32>) -> tensor<1x32x8400xf32>
 
     %32 = ttir.empty() : tensor<1x16x8400xf32>
+    // As output is the return value, not beneficial to move to L1, will always stay in DRAM anyway.
     // CHECK: %{{.*}} = "ttnn.slice_static"{{.*}} -> tensor<1x16x8400xf32, #[[DRAM_LAYOUT3]]>
     %33 = "ttir.slice_static"(%31, %32) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 16 : i32, 8400 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x32x8400xf32>, tensor<1x16x8400xf32>) -> tensor<1x16x8400xf32>
 
