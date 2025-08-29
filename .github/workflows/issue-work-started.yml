@@ -441,9 +441,14 @@ jobs:
           echo "Processing all issues to check Status and update Work Started..."
           processed_count=0
           updated_count=0
+          array_length=$(( ${#issue_numbers[@]} - 1 ))
+          index=0
 
-          # for length in issue_numbers readarray
-          for issue_number in "${issue_numbers[@]}"; do
+          while true; do
+            if [[ $processed_count -ge $array_length ]]; then
+              break
+            fi
+            issue_number="${issue_numbers[$processed_count]}"
 
             echo "Processing issue #$issue_number..."
 
