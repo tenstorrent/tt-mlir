@@ -66,16 +66,16 @@ union KernelConfig {
 }
 
 
-table KernelArgCBPort {
-  idx: uint32;
+table KernelArgCBBufferIndex {
+  buffer_index: uint32;
 }
 
 table KernelArgBufferAddress {
-  addr: uint32;
+  address: uint32;
 }
 
 table KernelArgBufferAddressOfTensor {
-  tensor_idx: uint32;
+  tensor_index: uint32;
 }
 
 table KernelArgSemaphore {
@@ -83,7 +83,7 @@ table KernelArgSemaphore {
 }
 
 union KernelArgType {
-  KernelArgCBPort,
+  KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
   KernelArgSemaphore,
