@@ -420,6 +420,7 @@ jobs:
           echo "Total open issues found: $total_issues"
 
       - name: Process All Issues
+        shell: bash
         run: |
           handle_rate_limit() {
             local response="$1"
@@ -705,6 +706,7 @@ jobs:
           # Calculate how many groups we need dynamically
           max_group_size=100
           total_groups=$(( (${#issue_numbers[@]} + max_group_size - 1) / max_group_size ))
+          set -x
 
           echo "Total groups needed: $total_groups"
           echo ""
