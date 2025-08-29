@@ -719,11 +719,15 @@ jobs:
                 # Check if this element belongs to current group using dynamic group size
                 if [ $((i / max_group_size)) -eq $group ]; then
                     group_elements+=("${issue_numbers[$i]}")
-                    ((count++))
+                    ((++count))
                 fi
               done
-              # background jobs to async run them
-              ( run_bulk_update $group_elements ) &
+              
+              echo "Group $((group + 1)): Processing $count issues"
+              if [ $count -gt 0 ]; then
+                # background jobs to async run them
+                ( run_bulk_update "${group_elements[@]}" ) &
+              fi
             done
 
             # wait for all background jobs to finish
