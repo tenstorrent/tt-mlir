@@ -46,7 +46,7 @@ jobs:
     needs: ignore-files
     if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
     runs-on:
-      - builder
+      - tt-ubuntu-2204-n300-200gb-stable
     outputs:
       docker-image-harbor: ${{ steps.build.outputs.docker-image-harbor }}
       docker-image: ${{ steps.build.outputs.docker-image }}
