@@ -4,8 +4,6 @@
 
 #include "ttmlir/Dialect/TTIR/Analysis/Allocation/Tools.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -56,15 +54,17 @@ void parseArrayAsIntegerSet(const llvm::json::Array &array, IntegerSet &out) {
   }
 }
 
-std::optional<Planner::Space> parseSpace(llvm::StringRef s) {
+using Space = PlannerImpl::Space;
+
+std::optional<Space> parseSpace(llvm::StringRef s) {
   if ("scratch" == s) {
-    return Planner::Space::Scratch;
+    return Space::Scratch;
   }
   if ("spill" == s) {
-    return Planner::Space::Spill;
+    return Space::Spill;
   }
   if ("NA" == s) {
-    return Planner::Space::NA;
+    return Space::NA;
   }
   return {};
 }
@@ -94,8 +94,7 @@ struct Node {
 };
 
 struct Graph {
-  // Using this as a "stable vector" structure.
-  llvm::SmallVector<std::unique_ptr<Node>> nodes;
+  llvm::SmallVector<std::unique_ptr<Node>> nodes; // A "stable vector".
 
   NodeID nodeCount() const { return nodes.size(); }
 
@@ -120,8 +119,8 @@ struct Graph {
     return addEdge(node(u), node(v));
   }
 
-  Planner::Problem generateProblem(const llvm::SmallVector<NodeID> &order,
-                                   double bindFraction, uint64_t seed) {
+  Tools::Problem generateProblem(const llvm::SmallVector<NodeID> &order,
+                                 double bindFraction, uint64_t seed) {
     llvm::SmallVector<int32_t> mapping(nodeCount());
     for (int32_t i = 0; i < static_cast<int32_t>(order.size()); ++i) {
       mapping[order[i]] = i;
@@ -144,7 +143,7 @@ struct Graph {
     // "output", a value that is described by two different groups of requests,
     // representing "scratch" and "spill" memory requirements, correspondingly.
 
-    Planner::Problem problem;
+    Tools::Problem problem;
 
     std::mt19937_64 gen{seed};
     auto unif = [&gen](int32_t a, int32_t b) {
@@ -156,27 +155,25 @@ struct Graph {
 
     for (const NodeID v : order) {
 
-      const Planner::AllocSizeT stream_buf_size = unif(2, 1009) * 32;
-      const Planner::AllocSizeT src_data_size = 16 * stream_buf_size;
+      const int32_t streamBufSize = unif(2, 1009) * 32;
+      const int32_t tensorDataSize = 16 * streamBufSize;
 
-      problem.def([&](Planner::VariableBuilder &b) {
+      problem.def([&](PlannerImpl::VariableBuilder &b) {
         {
-          const std::array<int32_t, 2> var_live = liveness.find(v)->second;
+          const std::array<int32_t, 2> live = liveness.find(v)->second;
 
-          b.request(Planner::Space::Scratch, src_data_size, var_live[0],
-                    var_live[1]);
+          b.request(Space::Scratch, tensorDataSize, live[0], live[1]);
         }
         {
           for (const NodeID succ : node(v).adj) {
-            const std::array<int32_t, 2> succ_live =
-                liveness.find(succ)->second;
-            const Planner::SequenceT t = succ_live[1];
+            const std::array<int32_t, 2> live = liveness.find(succ)->second;
+            const int32_t t = live[1];
 
-            b.request(Planner::Space::Spill, stream_buf_size, t, t);
+            b.request(Space::Spill, streamBufSize, t, t);
           }
         }
         if (unifDouble() < bindFraction) {
-          b.bind(Planner::Space::Scratch);
+          b.bind(Space::Scratch);
         }
       });
     }
@@ -227,7 +224,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   return os;
 }
 
-Planner::Problem Tools::generate(const GenerateCfg &cfg) {
+Tools::Problem Tools::generate(const GenerateCfg &cfg) {
   TT_assertv(!cfg.segments.empty(), "expected a non-empty list of segments");
 
   Graph g;
@@ -242,48 +239,48 @@ Planner::Problem Tools::generate(const GenerateCfg &cfg) {
     const int32_t c = parms.conflictCount;
     TT_assert(c > 0);
 
-    llvm::SmallVector<std::reference_wrapper<Node>> h_nodes{};
+    llvm::SmallVector<std::reference_wrapper<Node>> hNodes{};
 
     for (int32_t i = 0; i < h; ++i) {
-      Node &n = h_nodes.emplace_back(g.addNode());
+      Node &n = hNodes.emplace_back(g.addNode());
       if (i) {
-        g.addEdge(h_nodes[i - 1], n);
+        g.addEdge(hNodes[i - 1], n);
       }
     }
 
-    llvm::SmallVector<std::reference_wrapper<Node>> c_nodes{};
+    llvm::SmallVector<std::reference_wrapper<Node>> cNodes{};
 
     for (int32_t i = 0; i < 2 * c; ++i) {
-      c_nodes.emplace_back(g.addNode());
+      cNodes.emplace_back(g.addNode());
     }
     for (int32_t i = 0; i < c; ++i) {
-      g.addEdge(c_nodes[i], c_nodes[2 * c - 1 - i]); // "vertical"
+      g.addEdge(cNodes[i], cNodes[2 * c - 1 - i]); // "vertical"
 
-      g.addEdge(c_nodes[i], c_nodes[i + 1]);
+      g.addEdge(cNodes[i], cNodes[i + 1]);
       if (i < c - 1) {
-        g.addEdge(c_nodes[2 * c - 2 - i], c_nodes[2 * c - 1 - i]);
+        g.addEdge(cNodes[2 * c - 2 - i], cNodes[2 * c - 1 - i]);
       }
     }
 
-    // connect "h" and "c" pieces:
+    // Connect "h" and "c" pieces.
 
-    g.addEdge(h_nodes.back(), c_nodes.front());
+    g.addEdge(hNodes.back(), cNodes.front());
 
     if (s == 0) {
-      // capture start of 'g'
-      start = &h_nodes.front().get();
+      // Capture start of 'g'.
+      start = &hNodes.front().get();
     } else {
-      // connect previous segment to the current one:
-      g.addEdge(*end, h_nodes.front());
+      // Connect previous segment to the current one.
+      g.addEdge(*end, hNodes.front());
     }
-    end = &c_nodes.back().get();
+    end = &cNodes.back().get();
   }
 
-  return g.generateProblem(g.reversePostOrder(*start), cfg.bindFraction,
-                           cfg.seed);
+  auto order = g.reversePostOrder(*start);
+  return g.generateProblem(order, cfg.bindFraction, cfg.seed);
 }
 
-llvm::Expected<Planner::Problem> Tools::read(std::istream &in) {
+llvm::Expected<Tools::Problem> Tools::read(std::istream &in) {
   TT_assertv(in.good(), "couldn't read input stream");
   const std::string content = readAsString(in);
 
@@ -298,26 +295,26 @@ llvm::Expected<Planner::Problem> Tools::read(std::istream &in) {
   llvm::json::Array *variables = obj->get("variables")->getAsArray();
   llvm::json::Array *requests = obj->get("requests")->getAsArray();
 
-  Planner::Problem problem;
+  Tools::Problem problem;
 
   for (llvm::json::Value v : *requests) {
     llvm::json::Array &req = *v.getAsArray();
     TT_assert(req.size() == 5u);
 
-    const Planner::IndexT varIndex = *req[0].getAsInteger();
-    const Planner::SequenceT first = *req[1].getAsInteger();
-    const Planner::SequenceT last = *req[2].getAsInteger();
-    const Planner::AllocSizeT size = *req[3].getAsInteger();
-    const Planner::AllocSizeT offset = *req[4].getAsInteger();
+    const PlannerImpl::IndexT varIndex = *req[0].getAsInteger();
+    const PlannerImpl::SequenceT first = *req[1].getAsInteger();
+    const PlannerImpl::SequenceT last = *req[2].getAsInteger();
+    const PlannerImpl::AllocSizeT size = *req[3].getAsInteger();
+    const PlannerImpl::AllocSizeT offset = *req[4].getAsInteger();
 
     problem.requests.emplace_back(
-        Planner::VarRequest{{{first, last}, size, offset}, varIndex});
+        PlannerImpl::VarRequest{{{first, last}, size, offset}, varIndex});
   }
 
   for (llvm::json::Value v : *variables) {
     llvm::json::Object *var = v.getAsObject();
 
-    Planner::Variable variable;
+    PlannerImpl::Variable variable;
 
     if (auto placement = parseSpace(*var->get("placement")->getAsString())) {
       variable.placement = *placement;
@@ -334,13 +331,12 @@ llvm::Expected<Planner::Problem> Tools::read(std::istream &in) {
     }
 
     if (llvm::json::Object *domain = var->get("domain")->getAsObject()) {
-      for (Planner::Space space = Planner::Space::first;
-           space < Planner::Space::limit; ++space) {
+      for (Space space = Space::begin; space < Space::end; ++space) {
         llvm::json::Array *indices =
             domain->get(to_string(space))->getAsArray();
         TT_assert(indices != nullptr);
 
-        parseArrayAsIntegerSet(*indices, variable.domain[space]);
+        parseArrayAsIntegerSet(*indices, variable.domain[ordinal(space)]);
       }
     } else {
       return llvm::createStringError("failed to parse 'domain'");
@@ -353,7 +349,7 @@ llvm::Expected<Planner::Problem> Tools::read(std::istream &in) {
   return problem;
 }
 
-void Tools::write(const Planner::Problem &problem, std::ostream &out) {
+void Tools::write(const Tools::Problem &problem, std::ostream &out) {
   TT_assertv(out.good(), "couldn't write to output stream");
 
   int32_t width = 0;
@@ -378,18 +374,17 @@ void Tools::write(const Planner::Problem &problem, std::ostream &out) {
 
         out << '{';
         {
-          for (Planner::Space space = Planner::Space::first;
-               space < Planner::Space::limit; ++space) {
-            if (space != Planner::Space::first) {
+          for (Space space = Space::begin; space < Space::end; ++space) {
+            if (space != Space::begin) {
               out << ", ";
             }
             // TODO(vroubtsov) "inline" requests inside variables instead of
-            // using indices to "requests"?
+            // using indices into "requests"?
             out << '"' << to_string(space) << '"' << " : ";
             out << '[';
             {
               bool first = true;
-              for (const auto ri : v.domain[space]) {
+              for (const auto ri : v.domain[ordinal(space)]) {
                 if (first) {
                   first = false;
                 } else {
@@ -435,15 +430,14 @@ void Tools::write(const Planner::Problem &problem, std::ostream &out) {
   out << indent() << '}' << "\n";
 }
 
-llvm::Expected<Planner::Problem>
-Tools::read(const std::filesystem::path &file) {
+llvm::Expected<Tools::Problem> Tools::read(const std::filesystem::path &file) {
   std::ifstream in(file);
   TT_assertv(in.is_open(), "couldn't open output file [{}]", file);
 
   return read(in);
 }
 
-void Tools::write(const Planner::Problem &problem,
+void Tools::write(const Tools::Problem &problem,
                   const std::filesystem::path &file) {
   TT_assertv(problem.valid(), "expected a valid problem");
 

@@ -19,13 +19,6 @@ namespace mlir::tt::ttir::allocation {
 
 using std::int32_t;
 
-using Request = Planner::Request;
-using AllocSizeT = Planner::AllocSizeT;
-using SequenceT = Planner::SequenceT;
-using IndexT = Planner::IndexT;
-
-// ............................................................................
-
 bool Planner::Problem::valid() const {
   const int32_t varCount = variables.size();
   const int32_t reqCount = requests.size();
@@ -44,7 +37,7 @@ bool Planner::Problem::valid() const {
   for (int32_t varIndex = 0; varIndex < varCount; ++varIndex) {
     const Variable &var = variables[varIndex];
     if (bound.contains(varIndex)) {
-      if (!(var.placement < limit)) {
+      if (!(var.placement < Space::end)) {
         TT_ALLOC_ERROR("bound variable #{} does not have its placement set: {}",
                        varIndex, static_cast<int32_t>(var.placement));
         return false;
@@ -71,154 +64,15 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   return os << s.str();
 }
 // ............................................................................
-
-Planner::SpillStats Planner::spillAllocate(Problem &problem,
-                                           AllocSizeT memUsageLimit) {
-  TT_assert(problem.valid());
-
-  const Algorithm algorithm = Algorithm::Greedy;
-  TT_ALLOC_DEBUG("solution limit set at {}, using '{}' base algorithm over {} "
-                 "var(s) ({} bound)",
-                 memUsageLimit, algorithm, problem.variables.size(),
-                 problem.bound.size());
-
-  // Start with every (unbound) variable placed into scratch space.
-  problem.reset(Space::Scratch);
-
-  AllocateStats stats = allocate(problem, algorithm);
-  if (stats.memUsage <= memUsageLimit) {
-    TT_ALLOC_DEBUG("no spilling was required");
-    return {0, 0, stats};
-  }
-
-  const int32_t varCount = problem.variables.size();
-  const int32_t freeVarCount = varCount - problem.bound.size();
-
-  if (freeVarCount == 0) {
-    TT_ALLOC_ERROR(
-        "can't find feasible allocation because all {} var(s) are bound",
-        varCount);
-    return {0, 0, stats};
-  }
-
-  TT_debug(freeVarCount > 0);
-
-  Problem work = problem;
-  const AnalysisStats metrics = analyze(work, memUsageLimit);
-
-  struct SpillPriority {
-    AllocSizeT worstSize = 0;
-    int32_t worstMaxConflictSize = 0;
-    bool inContentionGroup = false;
-    // TODO total live range duration OR some cumsum of conflict counts
-    // (approximate interference graph edge counts)
-    IndexT varIndex = -1;
-  };
-
-  std::vector<SpillPriority> priorities;
-  priorities.reserve(freeVarCount);
-
-  auto byPriority = make_lexicographical_field_comparator<std::greater<>>(
-      // clang-format off
-    &SpillPriority::inContentionGroup,
-    &SpillPriority::worstSize,
-    &SpillPriority::worstMaxConflictSize
-      // clang-format on
-  );
-
-  for (IndexT varIndex = 0; varIndex < varCount; ++varIndex) {
-    if (work.bound.contains(varIndex)) {
-      continue;
-    }
-    const Planner::Variable &var = work.variable(varIndex);
-    TT_assert_limit(var.placement, Space::limit);
-
-    SpillPriority varPriority;
-    {
-      varPriority.varIndex = varIndex;
-
-      for (const IndexT reqIndex : var.domain[var.placement]) {
-        const AnalysisStats::RequestMetrics &reqMetrics =
-            metrics.requestMetrics[reqIndex];
-
-        varPriority.worstSize =
-            std::max(varPriority.worstSize, work.request(reqIndex).size);
-        varPriority.worstMaxConflictSize = std::max(
-            varPriority.worstMaxConflictSize, reqMetrics.maxConflictSize);
-        varPriority.inContentionGroup |= reqMetrics.inContentionGroup;
-      }
-    }
-    priorities.emplace_back(varPriority);
-  }
-  TT_debug(static_cast<int32_t>(priorities.size()) == freeVarCount);
-
-  std::sort(priorities.begin(), priorities.end(), byPriority);
-
-  int32_t spilledCount = -1;
-  int32_t stepCount;
-
-  int32_t lo = 0;
-  int32_t hi = priorities.size() - 1;
-
-  for (stepCount = 1; lo <= hi; ++stepCount) {
-    const int32_t mid = lo + ((hi - lo) >> 1);
-    TT_ALLOC_DEBUG("[step {}] lo/hi/mid: {}/{}/{}", stepCount, lo, hi, mid);
-
-    work.reset(Space::Scratch);
-    for (int32_t k = 0; k <= mid; ++k) {
-      TT_debug(!work.bound.contains(priorities[k].varIndex));
-      work.variable(priorities[k].varIndex).placement = Space::Spill;
-    }
-
-    const AllocateStats midStats = allocate(work, algorithm);
-    TT_ALLOC_DEBUG("[step {}] mem usage/limit: {}/{}", stepCount,
-                   midStats.memUsage, memUsageLimit);
-
-    if (midStats.memUsage <= memUsageLimit) {
-      hi = mid - 1;
-
-      problem = work;
-      stats = midStats;
-      spilledCount = mid + 1;
-    } else {
-      lo = mid + 1;
-    }
-  }
-
-  if (spilledCount < 0) {
-    TT_ALLOC_ERROR("failed to allocate within usage limit {} after spilling "
-                   "all {} var(s)",
-                   memUsageLimit, freeVarCount);
-    return {stepCount, -1, stats};
-  }
-
-  // Post-condition: `problem` is set to the last midpoint solution.
-
-  TT_debug(spilledCount > 0);
-  TT_debug(stats.memUsage <= memUsageLimit);
-
-  TT_ALLOC_DEBUG("converged after spilling {} var(s) out of {}", spilledCount,
-                 priorities.size());
-
-  return {stepCount, spilledCount, stats};
-}
+// PlannerImpl.
 // ............................................................................
-
-template <Planner::Algorithm Algorithm>
-class PlannerImpl {
-public:
-  static inline Planner::AllocateStats allocate(Planner::Problem &problem);
-};
-// ............................................................................
-
 //
 // A simple bumper allocator. It ignores live ranges and thus can't reuse
 // memory.
 //
 template <>
-inline Planner::AllocateStats
-PlannerImpl<Planner::Algorithm::Simple>::allocate(Planner::Problem &problem) {
-
+Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Simple>(
+    Planner::Problem &problem) {
   // Not required for correctness, but for easier result interpretation
   // visit allocation requests in IR preorder.
 
@@ -238,7 +92,7 @@ PlannerImpl<Planner::Algorithm::Simple>::allocate(Planner::Problem &problem) {
     if (var.placement == Planner::Space::NA) {
       continue;
     }
-    for (const auto reqIndex : var.domain[var.placement]) {
+    for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
       pq.push(reqIndex);
     }
     ++varCount;
@@ -278,8 +132,8 @@ PlannerImpl<Planner::Algorithm::Simple>::allocate(Planner::Problem &problem) {
 //     formed by already placed requests; if no such gap is found, extend
 //     the solution makespan.
 template <>
-inline Planner::AllocateStats
-PlannerImpl<Planner::Algorithm::Greedy>::allocate(Planner::Problem &problem) {
+Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Greedy>(
+    Planner::Problem &problem) {
 
   auto &requests = problem.requests;
 
@@ -294,7 +148,7 @@ PlannerImpl<Planner::Algorithm::Greedy>::allocate(Planner::Problem &problem) {
     if (var.placement == Planner::Space::NA) {
       continue;
     }
-    for (const auto reqIndex : var.domain[var.placement]) {
+    for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
       pq.push(reqIndex);
     }
     ++varCount;
@@ -304,8 +158,10 @@ PlannerImpl<Planner::Algorithm::Greedy>::allocate(Planner::Problem &problem) {
                  pq.size());
 
   // An index of already visited requests in increasing offset order.
-  std::multimap<AllocSizeT, IndexT>
-      allocatedOrderedByOffset; // TODO unique w/index, switch to DenseMap
+  // TODO(vroubtsov) using std::multimap allows some undesired (but not
+  // incorrect) non-determinism b/w equal offsets, add some uniqizer e.g.
+  // IR preorder index?
+  std::multimap<AllocSizeT, IndexT> allocatedOrderedByOffset;
 
   AllocSizeT memUsage = 0;
   AllocSizeT maxSize = 0;
@@ -365,27 +221,13 @@ PlannerImpl<Planner::Algorithm::Greedy>::allocate(Planner::Problem &problem) {
 }
 // ............................................................................
 
-Planner::AllocateStats Planner::allocate(Problem &problem,
-                                         Algorithm algorithm) {
-  switch (algorithm) {
-  case Algorithm::Simple:
-    return PlannerImpl<Algorithm::Simple>::allocate(problem);
-  case Algorithm::Greedy:
-    return PlannerImpl<Algorithm::Greedy>::allocate(problem);
-  }
-}
-// ............................................................................
-
-Planner::AnalysisStats Planner::analyze(const Problem &solution,
-                                        const AllocSizeT watermark) {
+Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
+                                            const AllocSizeT watermark) {
   TT_assert(solution.valid());
 
-  // All variables placed into 'space' by 'solution' and marked for lowering by
-  // 'watermark'. Also, requests of those variables that triggered the inclusion
-  // (in general, a subset of all requests in variables' domains).
   Planner::AnalysisStats analysis;
 
-  std::vector<IndexT> requests; // TODO rename
+  std::vector<IndexT> requests;
 
   using IntervalTree = llvm::IntervalTree<SequenceT, IndexT>;
 
@@ -396,7 +238,7 @@ Planner::AnalysisStats Planner::analyze(const Problem &solution,
     if (var.placement == Space::NA) {
       continue;
     }
-    for (const auto reqIndex : var.domain[var.placement]) {
+    for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
       const Request &req = solution.request(reqIndex);
 
       requests.emplace_back(reqIndex);
@@ -412,10 +254,6 @@ Planner::AnalysisStats Planner::analyze(const Problem &solution,
     TT_assertv(req.offset >= 0, "unexpected unallocated request {}", req);
 
     SequenceT position = req.first;
-
-    // First, determine if mem usage at 'position' marks it as being inside a
-    // contention group.
-
     AllocSizeT usage = 0;
 
     const auto conflicts = iv.getContaining(position);
@@ -436,6 +274,165 @@ Planner::AnalysisStats Planner::analyze(const Problem &solution,
   return analysis;
 }
 // ............................................................................
+// Planner.
+// ............................................................................
+
+Planner::AllocateStats Planner::allocate(Problem &problem,
+                                         Algorithm algorithm) {
+  switch (algorithm) {
+  case Algorithm::Simple:
+    return allocateImpl<Algorithm::Simple>(problem);
+  case Algorithm::Greedy:
+    return allocateImpl<Algorithm::Greedy>(problem);
+  }
+}
+// ............................................................................
+
+Planner::SpillStats Planner::spillAllocate(Problem &problem,
+                                           AllocSizeT memUsageLimit,
+                                           Algorithm algorithm) {
+  TT_assert(problem.valid());
+
+  TT_ALLOC_DEBUG("solution limit set at {}, using '{}' base algorithm over {} "
+                 "var(s) ({} bound)",
+                 memUsageLimit, algorithm, problem.variables.size(),
+                 problem.bound.size());
+
+  // Start with every (unbound) variable placed into scratch space.
+  problem.reset(Space::Scratch);
+
+  AllocateStats stats = allocate(problem, algorithm);
+  if (stats.memUsage <= memUsageLimit) {
+    TT_ALLOC_DEBUG("no spilling was required");
+    return {0, 0, stats};
+  }
+
+  const int32_t varCount = problem.variables.size();
+  const int32_t freeVarCount = varCount - problem.bound.size();
+
+  if (freeVarCount == 0) {
+    TT_ALLOC_ERROR(
+        "can't find feasible allocation because all {} var(s) are bound",
+        varCount);
+    return {0, 0, stats};
+  }
+  TT_debug(freeVarCount > 0);
+
+  // The overall idea here is to rank decision variables in terms of their
+  // contribution to mem pressure and liveness conflicts in the current
+  // not-yet-spilled set, spill them in that priority order, and attempt
+  // to fit what's left in scratch via our existing `allocate()`.
+  //
+  // It is tempting to re-rank variables each time the set of spills changes
+  // (because we are removing conflict edges when we spill, etc) but that seems
+  // difficult to conceptualize without some kind of backtracking and/or making
+  // a very expensive algorithm for large models. So for now we simply rank
+  // once at the beginning of an infeasible solution and then bisect on that
+  // ordering until we hit the feasibility upper bound.
+
+  Problem work = problem;
+  const AnalysisStats metrics = analyze(work, memUsageLimit);
+
+  // Heuristic measure of variable utility for spilling.
+  // TODO(vroubtsov) proper cumsum of conflict counts instead of max would be
+  // similar to edge counts in reg allocator algorithms.
+  // TODO(vroubtsov) might be a good idea to consider live range length or
+  // request "area" but would need to use canonicalized logical times first.
+  struct SpillPriority {
+    AllocSizeT worstSize = 0;
+    int32_t worstMaxConflictSize = 0;
+    bool inContentionGroup = false;
+    IndexT varIndex = -1;
+  };
+
+  std::vector<SpillPriority> priorities;
+  priorities.reserve(freeVarCount);
+
+  // clang-format off
+  auto byPriority = make_lexicographical_field_comparator<std::greater<>>(
+    &SpillPriority::inContentionGroup,   // Contributor to a contention group.
+    &SpillPriority::worstSize,           // Largest mem size of a request.
+    &SpillPriority::worstMaxConflictSize // Largest conflict set size contributed to.
+  );
+  // clang-format on
+
+  for (IndexT varIndex = 0; varIndex < varCount; ++varIndex) {
+    if (work.bound.contains(varIndex)) {
+      continue;
+    }
+    const Planner::Variable &var = work.variable(varIndex);
+    TT_assert_limit(ordinal(var.placement), ordinal(Space::end));
+
+    SpillPriority varPriority;
+    {
+      varPriority.varIndex = varIndex;
+
+      for (const IndexT reqIndex : var.domain[ordinal(var.placement)]) {
+        const AnalysisStats::RequestMetrics &reqMetrics =
+            metrics.requestMetrics[reqIndex];
+
+        varPriority.worstSize =
+            std::max(varPriority.worstSize, work.request(reqIndex).size);
+        varPriority.worstMaxConflictSize = std::max(
+            varPriority.worstMaxConflictSize, reqMetrics.maxConflictSize);
+        varPriority.inContentionGroup |= reqMetrics.inContentionGroup;
+      }
+    }
+    priorities.emplace_back(varPriority);
+  }
+  TT_debug(priorities.size() == static_cast<std::size_t>(freeVarCount));
+
+  std::sort(priorities.begin(), priorities.end(), byPriority);
+
+  int32_t spilledCount = -1;
+  int32_t stepCount;
+
+  int32_t lo = 0;
+  int32_t hi = priorities.size() - 1;
+
+  for (stepCount = 1; lo <= hi; ++stepCount) {
+    const int32_t mid = lo + ((hi - lo) >> 1);
+    TT_ALLOC_DEBUG("[step {}] lo/hi/mid: {}/{}/{}", stepCount, lo, hi, mid);
+
+    work.reset(Space::Scratch);
+    for (int32_t k = 0; k <= mid; ++k) {
+      TT_debug(!work.bound.contains(priorities[k].varIndex));
+      work.variable(priorities[k].varIndex).placement = Space::Spill;
+    }
+
+    const AllocateStats midStats = allocate(work, algorithm);
+    TT_ALLOC_DEBUG("[step {}] mem usage/limit: {}/{}", stepCount,
+                   midStats.memUsage, memUsageLimit);
+
+    if (midStats.memUsage <= memUsageLimit) {
+      hi = mid - 1;
+
+      problem = work;
+      stats = midStats;
+      spilledCount = mid + 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+
+  if (spilledCount < 0) {
+    TT_ALLOC_ERROR("failed to allocate within usage limit {} after spilling "
+                   "all {} var(s)",
+                   memUsageLimit, freeVarCount);
+    return {stepCount, -1, stats};
+  }
+
+  // Post-condition: `problem` is set to the last midpoint solution.
+
+  TT_debug(spilledCount > 0);
+  TT_debug(stats.memUsage <= memUsageLimit);
+
+  TT_ALLOC_DEBUG("converged after spilling {} var(s) out of {}", spilledCount,
+                 priorities.size());
+
+  return {stepCount, spilledCount, stats};
+}
+// ............................................................................
 
 Planner::AllocateStats Planner::verify(const Problem &solution) {
   // Use an interval tree to both verify interval conflicts and calculate max
@@ -448,21 +445,20 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
   // sweep is guaranteed to visit each such conflict edge, either when visiting
   // the first interval or when visiting the second. And hence no load
   // contributions will be missed by the sweep.
-
   using IntervalTree = llvm::IntervalTree<SequenceT, IndexT>;
 
   IntervalTree::Allocator allocator;
   IntervalTree iv(allocator);
 
-  // All requests referenced by 'solution.variables' placed into 'space'.
-  std::vector<Planner::IndexT> requests; // TODO rename
+  // All requests referenced by enabled 'solution.variables'.
+  std::vector<Planner::IndexT> requests;
   [[maybe_unused]] int32_t varCount = 0;
 
   for (const Variable &var : solution.variables) {
     if (var.placement == Space::NA) {
       continue;
     }
-    for (const auto reqIndex : var.domain[var.placement]) {
+    for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
       const Request &req = solution.request(reqIndex);
 
       requests.emplace_back(reqIndex);

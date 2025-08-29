@@ -295,7 +295,7 @@ struct S0 {
 };
 } // namespace
 
-TEST(AllocationToolsTest, UtilTypes) {
+TEST(AllocationToolsTest, Utils) {
   const S0 a{1, 1.0, 1};
 
   const S0 b{2, 1.0, 1};
@@ -465,7 +465,7 @@ void runSpillAllocateTest(Planner::Problem &problem, int32_t limitCount) {
     problem.reset();
 
     const Planner::SpillStats solveStats =
-        Planner::spillAllocate(problem, limits[l]);
+        Planner::spillAllocate(problem, limits[l], algorithm);
     TT_TEST_DEBUG("[limit {}] took {} step(s), spilled {} variable(s)",
                   limits[l], solveStats.stepsTaken, solveStats.spillCount);
 
