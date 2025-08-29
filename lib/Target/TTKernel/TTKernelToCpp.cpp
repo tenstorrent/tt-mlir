@@ -39,6 +39,9 @@ public:
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
 
+    builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
+                                      /*isStandard=*/false);
+
     emitDebugPrint();
 
     if (threadType == ThreadType::Noc) {

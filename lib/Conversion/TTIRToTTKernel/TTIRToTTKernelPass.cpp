@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -47,6 +48,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
+    target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
