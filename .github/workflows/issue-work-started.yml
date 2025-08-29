@@ -463,35 +463,8 @@ jobs:
             local MUTATION_RESPONSE
             local MUTATION_ERRORS
             local work_started_date
-            local processed_count
-            local updated_count
-            local array_length
-            local issue_number
-            local found_item_id
-            local cursor
-            local page_count
-            local QUERY
-            local JSON_PAYLOAD
-            local RESPONSE
-            local ERRORS
-            local ITEM_ID
-            local has_next_page
-            local STATUS_QUERY
-            local STATUS_JSON_PAYLOAD
-            local STATUS_RESPONSE
-            local STATUS_ERRORS
-            local STATUS_VALUE
-            local STATUS_UPDATED_AT
-            local WORK_STARTED_VALUE
-            local MUTATION_RESPONSE
-            local MUTATION_ERRORS
-            local work_started_date
-            local processed_count
-            local updated_count
-            local array_length
-            local issue_number
-            local found_item_id
-            local page_count
+            local issue_details
+            local issue_id
 
             while true; do
               if [[ $processed_count -ge $array_length ]]; then
