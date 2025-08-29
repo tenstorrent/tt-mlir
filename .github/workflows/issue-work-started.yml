@@ -440,6 +440,8 @@ jobs:
           run_bulk_update() {
             local processed_count=0
             local updated_count=0
+            local issue_numbers=("$1")
+            local group=$2
             local array_length=$(( ${#issue_numbers[@]} - 1 ))
             local issue_number
             local found_item_id
@@ -497,7 +499,7 @@ jobs:
               fi
               issue_number="${issue_numbers[$processed_count]}"
 
-              echo "Processing issue #$issue_number..."
+              echo "Group $group: Processing issue #$issue_number..."
 
               # Get issue node ID
               issue_details=$(curl -s -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
@@ -725,7 +727,7 @@ jobs:
               echo "Group $((group + 1)): Processing $count issues"
               if [ $count -gt 0 ]; then
                 # background jobs to async run them
-                ( run_bulk_update "${group_elements[@]}" ) &
+                ( run_bulk_update "${group_elements[@]}" "$group" ) &
               fi
             done
 
