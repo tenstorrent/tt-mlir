@@ -283,8 +283,8 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     [
         # [(8192, 784), (784, 16384)],
         [(1024, 32), (32, 512)],
-        pytest.param([(1024, 16), (16, 512)], marks=pytest.mark.fails_golden),
-        pytest.param([(1024, 8), (8, 512)], marks=pytest.mark.fails_golden),
+        [(1024, 16), (16, 512)],
+        [(1024, 8), (8, 512)],
         [(256, 128), (128, 124)],
         [(256, 128), (128, 132)],
         [(1024, 8), (8, 512)],
