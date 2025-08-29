@@ -11,8 +11,6 @@
 #include "ttmlir/Utils.h"
 
 #include <cstdint>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/Attributes.h>
 #include <numeric>
 #include <optional>
 
