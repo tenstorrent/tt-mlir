@@ -12,7 +12,6 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
-#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -21,7 +20,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <cstdint>
-#include <llvm/Support/Casting.h>
 #include <numeric>
 #include <optional>
 
