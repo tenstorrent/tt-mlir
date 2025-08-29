@@ -48,18 +48,30 @@ jobs:
     if: github.event.pull_request.head.ref == 'uplift'
     strategy:
       matrix:
-        target-repo: ['tenstorrent/tt-forge-fe', 'tenstorrent/tt-torch', 'tenstorrent/tt-xla']
+        projects: [
+          { name: "tenstorrent/tt-forge-fe", workflow-name: "on-pr.yml" },
+          { name: "tenstorrent/tt-torch", workflow-name: "on-pr.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-test.yml" },
+        ]
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      TARGET_REPO: ${{ matrix.target-repo }}
-      WORKFLOW_NAME: 'on-pr.yml'
+      TARGET_REPO: ${{ matrix.projects.name }}
+      WORKFLOW_NAME: ${{ matrix.projects.workflow-name }}
     steps:
       - name: Trigger ${{ env.TARGET_REPO }} tests
         shell: bash
         run: |
-          gh workflow run ${{ env.WORKFLOW_NAME }} \
-            --repo ${{ env.TARGET_REPO }} --ref main \
-            --field mlir_override=${{ github.event.pull_request.head.sha }}
+          if [[ "${{ env.TARGET_REPO }}" == "tenstorrent/tt-xla" ]]; then
+            gh workflow run ${{ env.WORKFLOW_NAME }} \
+              --repo ${{ env.TARGET_REPO }} --ref main \
+              --field mlir_override=${{ github.event.pull_request.head.sha }} \
+              --field preset=push \
+              --field run_on=All
+          else
+            gh workflow run ${{ env.WORKFLOW_NAME }} \
+              --repo ${{ env.TARGET_REPO }} --ref main \
+              --field mlir_override=${{ github.event.pull_request.head.sha }}
+          fi
           gh run list --workflow=${{ env.WORKFLOW_NAME }} --repo ${{ env.TARGET_REPO }} --limit 1
           echo "Triggered ${{ env.TARGET_REPO }} with tt-mlir ${{ github.event.pull_request.head.sha }}"
           echo "### Triggered [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) with tt-mlir ${{ github.event.pull_request.head.sha }} :rocket:" >> $GITHUB_STEP_SUMMARY

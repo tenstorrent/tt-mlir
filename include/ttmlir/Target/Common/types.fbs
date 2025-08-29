@@ -155,3 +155,15 @@ table MLIR {
   name: string;
   source: string;
 }
+
+enum MeshShardDirection: uint32 {
+  FullToShardShape,
+  ShardToFullShape,
+}
+
+enum MeshShardType: uint32 {
+  Identity,
+  Replicate,
+  Maximal,
+  Devices,
+}

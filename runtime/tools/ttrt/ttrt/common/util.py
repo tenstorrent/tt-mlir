@@ -180,6 +180,7 @@ def get_topk_diff(golden, calculated, top_k, relative=False):
         diff_nz = torch.abs((calculated + 1.0) / (golden + 1.0)) - 1.0
         diff = torch.where(torch.isfinite(diff), diff, diff_nz)
 
+    top_k = min(top_k, diff.numel())
     top_values, top_indices = torch.topk(diff.flatten(), top_k)
 
     golden_shape = golden.shape

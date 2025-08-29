@@ -802,25 +802,23 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
   llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
-  ::tt::target::ttnn::MeshShardDirection meshShardDirection;
+  ::tt::target::MeshShardDirection meshShardDirection;
   if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
-    meshShardDirection =
-        ::tt::target::ttnn::MeshShardDirection::FullToShardShape;
+    meshShardDirection = ::tt::target::MeshShardDirection::FullToShardShape;
   } else if (shardDirection ==
              mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
-    meshShardDirection =
-        ::tt::target::ttnn::MeshShardDirection::ShardToFullShape;
+    meshShardDirection = ::tt::target::MeshShardDirection::ShardToFullShape;
   } else {
     llvm_unreachable("unhandled mesh_shard direction");
   }
 
-  ::tt::target::ttnn::MeshShardType meshShardType;
+  ::tt::target::MeshShardType meshShardType;
   if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
+    meshShardType = ::tt::target::MeshShardType::Replicate;
   } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
+    meshShardType = ::tt::target::MeshShardType::Devices;
   } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Identity;
+    meshShardType = ::tt::target::MeshShardType::Identity;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
   }

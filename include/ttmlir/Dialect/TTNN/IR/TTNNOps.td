@@ -1012,7 +1012,9 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw",
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
+def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Moreh cummulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
@@ -1070,7 +1072,9 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
-def TTNN_SortOp : TTNN_Op<"sort"> {
+def TTNN_SortOp : TTNN_Op<"sort",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Sort op.";
   let description = [{
     Sorts elements of a tensor along a given dimension.
@@ -1124,7 +1128,9 @@ def TTNN_TransposeOp : TTNN_Op<"transpose",
     let hasVerifier = 1;
 }
 
-def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat interleave op.";
     let description = [{
       Repeats elements of a tensor along a specified dimension.
@@ -1194,7 +1200,9 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
     let hasFolder = 1;
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_Op<"repeat",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
@@ -1212,7 +1220,9 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PadOp: TTNN_Op<"pad"> {
+def TTNN_PadOp: TTNN_Op<"pad",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Pad op.";
   let description = [{
     Pad input tensor by padding the input_shape to output_shape using the provided value.
@@ -1743,7 +1753,9 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
     ];
 }
 
-def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Clamp op.";
   let description = [{
     Clamp tensor values to a specified range using min/max as tensor.
@@ -1774,11 +1786,10 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
 }
 
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTCore_CreationOpTrait] # traits>;
+    TTNN_Op<mnemonic, [TTCore_CreationOpTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1795,9 +1806,7 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty",
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_CreationOp<"arange",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1867,8 +1876,7 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait,
-  DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1906,9 +1914,7 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
-def TTNN_FullOp : TTNN_CreationOp<"full",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_FullOp : TTNN_CreationOp<"full"> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
