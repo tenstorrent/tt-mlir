@@ -60,10 +60,11 @@ public:
   }
 
 private:
-  bool isFusable(ConvOpType convOp,
-                 mlir::TypedValue<mlir::RankedTensorType> bias) const {
+  std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+  isFusable(ConvOpType convOp,
+            mlir::TypedValue<mlir::RankedTensorType> bias) const {
     if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
-      return false;
+      return std::nullopt;
     }
 
     size_t outputFeatureDim = 0;
@@ -77,27 +78,31 @@ private:
                     "Unsupported ConvOpType");
     }
 
+    if (auto bcastOp =
+            mlir::dyn_cast_if_present<BroadcastOp>(bias.getDefiningOp())) {
+      bias = bcastOp.getInput();
+    }
     auto biasShape = bias.getType().getShape();
     auto outputShape =
         mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
             .getShape();
 
     if (biasShape.size() != outputShape.size()) {
-      return false;
+      return std::nullopt;
     }
 
     auto featureDimSize =
         convOp.getResult().getType().getShape()[outputFeatureDim];
     for (auto [dim, dimSize] : llvm::enumerate(biasShape)) {
       if (dim == outputFeatureDim && dimSize != featureDimSize) {
-        return false;
+        return std::nullopt;
       }
       if (dim != outputFeatureDim && dimSize != 1) {
-        return false;
+        return std::nullopt;
       }
     }
 
-    return true;
+    return bias;
   }
 
   std::optional<std::pair<ConvOpType, mlir::Value>>
@@ -106,11 +111,11 @@ private:
     auto rhs = srcOp.getRhs();
     auto lhsConvOp = lhs.getDefiningOp<ConvOpType>();
     auto rhsConvOp = rhs.getDefiningOp<ConvOpType>();
-    if (isFusable(lhsConvOp, rhs)) {
-      return std::make_pair(lhsConvOp, rhs);
+    if (auto fusableBias = isFusable(lhsConvOp, rhs)) {
+      return std::make_pair(lhsConvOp, *fusableBias);
     }
-    if (isFusable(rhsConvOp, lhs)) {
-      return std::make_pair(rhsConvOp, lhs);
+    if (auto fusableBias = isFusable(rhsConvOp, lhs)) {
+      return std::make_pair(rhsConvOp, *fusableBias);
     }
     return std::nullopt;
   }
