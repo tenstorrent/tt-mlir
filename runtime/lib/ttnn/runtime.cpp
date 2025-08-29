@@ -1177,7 +1177,8 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
     LOG_WARNING("GenericOp runtime to be implemented.");
-    tensorRef = opContext.type_as_GenericOp()->out();
+    auto size = opContext.type_as_GenericOp()->io_tensors()->size();
+    tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1475,7 +1476,7 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
     LOG_WARNING("GenericOp runtime to be implemented.");
-    for (const auto *input : *opContext.type_as_GenericOp()->inputs()) {
+    for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
     break;

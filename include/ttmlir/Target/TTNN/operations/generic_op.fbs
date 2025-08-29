@@ -37,7 +37,7 @@ table KernelCBFormat {
 table KernelCBDescriptor {
   total_size: uint32;
   core_range: tt.target.ttnn.CoreRangeSet;
-  kernel_cb_formats: [KernelCBFormat];
+  formats: [KernelCBFormat];
 }
 
 table ComputeKernelConfig {
@@ -102,9 +102,9 @@ table KernelCoreRTArgs {
 }
 
 table KernelDescriptor {
-  kernel_source: string;
+  source: string;
   source_type: SourceType = SOURCE_CODE;
-  kernel_config: KernelConfig;
+  config: KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
   rt_args: [KernelCoreRTArgs];
@@ -124,7 +124,6 @@ table ProgramDescriptor {
 }
 
 table GenericOp {
-  inputs: [tt.target.ttnn.TensorRef];
-  program_desc: ProgramDescriptor;
-  out: tt.target.ttnn.TensorRef;
+  io_tensors: [tt.target.ttnn.TensorRef];
+  program: ProgramDescriptor;
 }
