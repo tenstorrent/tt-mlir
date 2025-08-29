@@ -8,7 +8,7 @@ import pytest
 from typing import List, Tuple
 from collections import OrderedDict
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder import Operand, Shape, GoldenCheckLevel
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
@@ -349,13 +349,6 @@ def test_llama_attention_1x2_tp_part1(
         output83 = builder.unsqueeze(output81, 0)  # [1, 32, 128, 64]
         output83 = shard_to_full_device(output83, builder, 3)
 
-        builder.set_graph_input_output(
-            input_tensors,
-            [
-                golden_part1(*input_tensors),
-            ],
-        )
-
         return output83
 
     compile_ttir_to_flatbuffer(
@@ -459,13 +452,6 @@ def test_llama_attention_1x2_tp_part2(
         output113 = builder.matmul(output111, arg14)  # [128, 2048]
         output115 = builder.unsqueeze(output113, 0)  # [1, 128, 2048]
         output115 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
-
-        builder.set_graph_input_output(
-            input_tensors,
-            [
-                golden_part2(*input_tensors),
-            ],
-        )
 
         return output115
 

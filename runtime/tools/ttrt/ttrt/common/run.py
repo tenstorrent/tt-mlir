@@ -703,14 +703,15 @@ class Run:
                         golden_inputs = []
 
                         for i in range(program.num_inputs()):
-                            golden_tensor = None
+                            golden_tensor = {}
 
                             if not self["--disable-golden"]:
                                 golden_tensor = bin.fbb.get_debug_info_golden(
                                     f"input_{i}"
                                 )
 
-                            if golden_tensor is not None:
+                            if len(golden_tensor) != 0:
+                                golden_tensor = golden_tensor[0]
                                 golden_tensor_torch = golden_tensor_to_torch(
                                     golden_tensor
                                 )
@@ -738,10 +739,13 @@ class Run:
                         if not self["--disable-golden"]:
                             golden_outputs_torch = []
                             for idx in range(0, len(program.output_tensors)):
+                                golden_tensor = {}
                                 golden_tensor = bin.fbb.get_debug_info_golden(
                                     f"output_{idx}"
                                 )
-                                if golden_tensor is not None:
+
+                                if len(golden_tensor) != 0:
+                                    golden_tensor = golden_tensor[0]
                                     golden_tensor_torch = golden_tensor_to_torch(
                                         golden_tensor
                                     )
