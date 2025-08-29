@@ -19,8 +19,8 @@ class TTIRGenericMergeDatamovementThreadsRewritePattern
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  // returns true if the region contains only a ttir.await
-  // associated with the output CB
+  // Returns true if the region contains only a ttir.await
+  // associated with the output CB.
   static bool isLocalAwaitForOutputCB(Region &region,
                                       unsigned outputOperandsIndex) {
     assert(region.getBlocks().size() == 1);
@@ -55,31 +55,22 @@ public:
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    unsigned kInputs = op.getInputs().size();
-    unsigned kOutputs = op.getOutputs().size();
-    unsigned kDMAHWThreads = chipDesc.getNumDatamovementThreads();
+    unsigned numInputs = op.getInputs().size();
+    unsigned numOutputs = op.getOutputs().size();
+    unsigned numDMAHWThreads = chipDesc.getNumDatamovementThreads();
 
-    // handling special case of single datamovement region is very clumsy and
-    // achieves nothing, so skip it
-    if (kInputs + kOutputs < 2) {
+    // Ops with # operands <= # DMA HW Threads don't need to be merged.
+    if (numInputs + numOutputs <= numDMAHWThreads) {
       return failure();
     }
 
-    if (outputOperandsIndex >= op.getNumRegions()) {
-      return failure();
-    }
+    // The final merged region will always have numDMAHWThreads datamovement
+    // threads and 1 compute thread.
+    SmallVector<Attribute> threads(
+        numDMAHWThreads,
+        rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+    threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
-    llvm::SmallDenseSet<unsigned> mergedIndices;
-    for (unsigned i = kDMAHWThreads; i <= outputOperandsIndex; ++i) {
-      mergedIndices.insert(i);
-    }
-
-    SmallVector<Attribute> threads;
-    for (unsigned idx = 0; idx < op.getThreads().size(); ++idx) {
-      if (!mergedIndices.contains(idx)) {
-        threads.push_back(op.getThreads()[idx]);
-      }
-    }
     size_t numNewRegions = threads.size();
 
     auto newGeneric = rewriter.create<GenericOp>(
@@ -95,9 +86,9 @@ public:
 
     // Copy initial dma threads to newGeneric. Merging to an empty block
     // results in discarding cb block args, so we must copy the first
-    // kDMAHWThreads blocks instead of uniformly merge everything
+    // numDMAHWThreads blocks instead of uniformly merging everything.
     unsigned regionIndex = 0;
-    for (unsigned i = 0; i < kDMAHWThreads; ++i) {
+    for (unsigned i = 0; i < numDMAHWThreads; ++i) {
       assert(op.getRegion(i).getBlocks().size() == 1 &&
              "all datamovement regions should have exactly one block");
       rewriter.modifyOpInPlace(op, [&] {
@@ -105,25 +96,25 @@ public:
       });
     }
 
-    // Merge remaining dma threads into existing dma regions in newGeneric.
-    // IMPORTANT: output dma blocks MUST be merged after all input dma blocks in
+    // Merge remaining DMA threads into existing DMA regions in newGeneric.
+    // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
     // a region.
     unsigned dmaInputThreadsMerged = 0;
-    for (unsigned i = kDMAHWThreads; i <= outputOperandsIndex; ++i) {
+    for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
       assert(op.getRegion(i).getBlocks().size() == 1 &&
              "all datamovement regions should have exactly one block");
       Block *mergeSrcBlock = &op.getRegion(i).front();
 
       unsigned dmaMergeTargetIndex = 0;
       if (isLocalAwaitForOutputCB(op.getRegion(i), outputOperandsIndex)) {
-        // Merge trivial output dma into compute region
+        // Merge trivial output DMA into compute region.
         dmaMergeTargetIndex = newGeneric->getNumRegions() - 1;
       } else if (i == outputOperandsIndex) {
-        // Always merge output to last dma region (associated with NOC1).
-        dmaMergeTargetIndex = kDMAHWThreads - 1;
+        // Always merge output to last DMA region (associated with NOC1).
+        dmaMergeTargetIndex = numDMAHWThreads - 1;
       } else {
-        // Merge input dma threads to alternate dma regions.
-        dmaMergeTargetIndex = dmaInputThreadsMerged % kDMAHWThreads;
+        // Merge input DMA threads to alternate DMA regions.
+        dmaMergeTargetIndex = dmaInputThreadsMerged % numDMAHWThreads;
         dmaInputThreadsMerged++;
       }
       Block *mergeDestBlock =
@@ -159,7 +150,7 @@ public:
         mlir::tt::ttcore::SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
     moduleOp.walk([&](GenericOp op) {
-      // assert that the op has a valid HW thread selection
+      // Assert that the op has a valid HW thread selection.
       if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
                                 chipDesc.getNumDatamovementThreads())) {
         op.emitError("invalid number of regions (")
