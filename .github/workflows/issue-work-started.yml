@@ -428,7 +428,7 @@ jobs:
 
             error_code=$(echo "$response" | grep -oP 'API rate limit exceeded')
             if [[ "$error_code" == "API rate limit exceeded" ]]; then
-              sleep_time=$(shuf -i3-10 -n1)
+              sleep_time=$(shuf -i10-20 -n1)
               echo "Rate limited, sleeping for $sleep_time seconds"
               sleep $sleep_time
               return 1
