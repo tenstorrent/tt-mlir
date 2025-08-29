@@ -455,6 +455,21 @@ public:
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), weight, kernelPermutation);
 
+    // If bias is provided, it needs to be reshaped to match the expected shape
+    Value biasValue = adaptor.getBias();
+    if (biasValue) {
+      auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
+      auto biasPermutation = generateConvPermutation(op, conv2dLayout);
+      auto biasOutputShape = ::ttmlir::utils::applyPermutation(
+          biasType.getShape(), biasPermutation);
+      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
+                                              biasOutputShape.end());
+      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
+          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
+          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
+    }
+
     mlir::Value newConv;
     if (isTransposed) {
       // [TODO](mmanzoor) Verify the implementation of transposed convolution
@@ -502,7 +517,7 @@ public:
     } else {
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
+          biasValue, strideAttr, paddingAttr, dilationAttr, groupsAttr,
           /*flattenedCompatInfo=*/nullptr);
     }
 
