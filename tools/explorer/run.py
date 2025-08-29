@@ -30,6 +30,9 @@ parser.add_argument(
     help="Disable execution of models from the UI",
     action="store_true",
 )
+parser.add_argument(
+    "-c", "--cors_host", help="The Host to allow for CORS requests", default=None
+)
 
 args = parser.parse_args()
 
@@ -42,4 +45,5 @@ model_explorer.visualize_from_config(
     port=args.port,
     host=args.url,
     enable_execution=not args.no_model_execution,
+    cors_host=args.cors_host,
 )
