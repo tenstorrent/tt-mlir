@@ -725,6 +725,9 @@ jobs:
               done
               
               echo "Group $((group + 1)): Processing $count issues"
+              echo "Contents: ${group_elements[@]}"
+              echo "--------------------------------"
+              echo ""
               if [ $count -gt 0 ]; then
                 # background jobs to async run them
                 ( run_bulk_update "${group_elements[@]}" "$group" ) &
