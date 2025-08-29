@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_TOOLS_H
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_TOOLS_H
 
-#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/Allocation/PlannerImpl.h"
 
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
@@ -59,15 +59,15 @@ public:
                                          const GenerateCfg &obj);
   };
 
-  static Planner::Problem generate(const GenerateCfg &cfg);
+  using Problem = PlannerImpl::Problem;
 
-  static llvm::Expected<Planner::Problem> read(std::istream &in);
-  static llvm::Expected<Planner::Problem>
-  read(const std::filesystem::path &file);
+  static Problem generate(const GenerateCfg &cfg);
 
-  static void write(const Planner::Problem &problem, std::ostream &out);
-  static void write(const Planner::Problem &problem,
-                    const std::filesystem::path &file);
+  static llvm::Expected<Problem> read(std::istream &in);
+  static llvm::Expected<Problem> read(const std::filesystem::path &file);
+
+  static void write(const Problem &problem, std::ostream &out);
+  static void write(const Problem &problem, const std::filesystem::path &file);
 
 private:
   Tools() = default; // Non-instantiable.

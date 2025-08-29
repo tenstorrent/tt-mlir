@@ -53,6 +53,7 @@ using namespace allocation;
 using AllocSizeT = Planner::AllocSizeT;
 using SequenceT = Planner::SequenceT;
 using IndexT = Planner::IndexT;
+
 using LiveRange = Planner::LiveRange;
 
 struct MemorySpaceInfo {
@@ -142,7 +143,7 @@ struct OperandStream {
   bool requiresStream =
       false; // be it L1 or DRAM TODO rename smth like requiresInterCoreStream ?
 
-  std::array<int32_t, Planner::Space::limit> reqIndex = {-1, -1};
+  std::array<int32_t, ordinal(Planner::Space::end)> reqIndex = {-1, -1};
 };
 
 // root memref -> OperandStream
@@ -177,13 +178,13 @@ struct SequenceMapping {
 };
 
 struct FuncAnalysisData {
-  SequenceMapping sequence;
+  SequenceMapping sequencing;
   llvm::DenseMap<mlir::Value, MemrefValueContext> memrefs;
   llvm::DenseMap<ttir::GenericOp, GenericOpContext> generics;
-  std::array<Planner::Problem, Planner::Space::limit> problems;
+  std::array<Planner::Problem, ordinal(Planner::Space::end)> problems;
 
   const Planner::Problem &problem(Planner::Space space) const {
-    return problems[space];
+    return problems[ordinal(space)];
   }
 
   Planner::Problem &problem(Planner::Space space) {
@@ -286,10 +287,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     llvm::DenseMap<Operation *, LivenessClosure> livenessJoinGraph;
 
     funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
-      const SequenceT position = analysis.sequence.size();
+      const SequenceT position = analysis.sequencing.size();
 
-      analysis.sequence.operationMap[op] = position;
-      analysis.sequence.positionMap.emplace_back(op);
+      analysis.sequencing.operationMap[op] = position;
+      analysis.sequencing.positionMap.emplace_back(op);
 
       if (llvm::isa<memref::AllocOp, ttir::ViewLayoutOp, ttir::StreamLayoutOp>(
               op)) {
@@ -304,8 +305,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         closure.live = {position, -1};
       }
     });
-    TT_debug(analysis.sequence.operationMap.size() ==
-             analysis.sequence.positionMap.size());
+    TT_debug(analysis.sequencing.operationMap.size() ==
+             analysis.sequencing.positionMap.size());
 
     // Ops in `livenessJoinGraph` form a graph of Values and their users where
     // some Values have their original SSA liveness "extended" by stream op
@@ -316,8 +317,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     for (auto &[op, closure] : livenessJoinGraph) {
       // Initial maxLast values are from the SSA liveness calculation.
-      auto i = analysis.sequence.operationMap.find(closure.lastOp);
-      TT_debug(i != analysis.sequence.operationMap.end());
+      auto i = analysis.sequencing.operationMap.find(closure.lastOp);
+      TT_debug(i != analysis.sequencing.operationMap.end());
       closure.live.last = i->second;
     }
 
@@ -503,8 +504,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         // For each possible variable placement, add mem requests for L1 stream
         // buffers if the variable must be streamed when it backs a generic op
         // operand.
-        for (Planner::Space placement = Planner::Space::first;
-             placement < Planner::Space::limit; ++placement) {
+        for (Planner::Space placement = Planner::Space::begin;
+             placement < Planner::Space::end; ++placement) {
 
           const ttcore::MemorySpace placementMemspace =
               asMemorySpace(placement);
@@ -538,10 +539,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
               // ops themselves, without any other interposing allocs, it is
               // mathematically correct to see all such buffers' live ranges as
               // coinciding with the generic op's logical time.
-              const SequenceT firstAndLast = analysis.sequence[user];
+              const SequenceT firstAndLast = analysis.sequencing[user];
 
-              TT_debug(stream.reqIndex[placement] < 0);
-              stream.reqIndex[placement] = b.request(
+              TT_debug(stream.reqIndex[ordinal(placement)] < 0);
+              stream.reqIndex[ordinal(placement)] = b.request(
                   placement,
                   ttmlir::utils::alignUp(bufferSize, memInfo.alignment),
                   firstAndLast, firstAndLast);
@@ -705,7 +706,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
               .Case([&](memref::AllocOp op) {
                 remap(rewriter, op, remappedMemorySpace);
                 insertDealloc(rewriter, op, memrefCtx.live.last,
-                              analysis.sequence);
+                              analysis.sequencing);
               })
               .Case([&](ttir::ViewLayoutOp op) {
                 remap(rewriter, op, remappedMemorySpace);
@@ -721,15 +722,15 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
           const Planner::Space finalPlacement =
               asPlannerSpace(remappedMemorySpace);
-          TT_debug(stream.reqIndex[finalPlacement] >= 0);
+          TT_debug(stream.reqIndex[ordinal(finalPlacement)] >= 0);
           const Planner::Request &req =
-              L1solution.request(stream.reqIndex[finalPlacement]);
+              L1solution.request(stream.reqIndex[ordinal(finalPlacement)]);
 
           // Note that this will take care of inserting the dealloc for the
           // stream buffer.
           auto &operand = genericOp->getOpOperand(operandIndex);
           if (failed(insertStream(rewriter, operand, genericOp, req, L1memInfo,
-                                  analysis.sequence))) {
+                                  analysis.sequencing))) {
             return failure();
           }
         }
@@ -854,7 +855,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
                                     ttir::GenericOp op,
                                     const Planner::Request &req,
                                     const MemorySpaceInfo &info,
-                                    const SequenceMapping &sequence) {
+                                    const SequenceMapping &sequencing) {
     auto operandMemrefType = mlir::cast<MemRefType>(operand.get().getType());
 
     OpBuilder::InsertionGuard guard(rewriter);
@@ -873,7 +874,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       auto bufferMemref = selectStreamBuffer(rewriter, operandMemrefType);
       auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
       assign(rewriter, buffer, req.offset, info);
-      insertDealloc(rewriter, buffer, req.last, sequence);
+      insertDealloc(rewriter, buffer, req.last, sequencing);
 
       auto stream = rewriter.create<ttir::StreamLayoutOp>(
           op.getLoc(), streamMemref, operand.get(), buffer);
@@ -914,8 +915,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
   static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
                             Planner::SequenceT position,
-                            const SequenceMapping &sequence) {
-    Operation *lastOp = sequence.positionMap[position];
+                            const SequenceMapping &sequencing) {
+    Operation *lastOp = sequencing.positionMap[position];
     if (!llvm::isa<func::ReturnOp>(lastOp)) {
       OpBuilder::InsertionGuard guard(rewriter);
       {
