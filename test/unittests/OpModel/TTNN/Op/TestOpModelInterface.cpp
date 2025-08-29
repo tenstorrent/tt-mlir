@@ -3349,4 +3349,126 @@ TEST_F(OpModelBase, RandOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, DeallocateOpInterface) {
+  // Test basic DeallocateOp with L1 memory
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto inputTensor = createEmptyTensor(tensorShape);
+  auto deallocate =
+      builder.create<DeallocateOp>(builder.getUnknownLoc(), inputTensor,
+                                   /*force=*/false);
+
+  auto backend = dyn_cast<OpModel>(deallocate.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    // Hardcoded to return zero; deallocate op has no memory footprint.
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DeallocateOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GE(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for DeallocateOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, FillCacheOpInterface) {
+  // Test FillCacheOp with cache and input tensors
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(cacheShape);
+
+  // Create FillCacheOp with batch_offset = 0
+  auto fillCache = builder.create<FillCacheOp>(
+      builder.getUnknownLoc(), outputType, cacheTensor, inputTensor,
+      builder.getI32IntegerAttr(0));
+
+  // Test OpModel interface
+  auto backend = dyn_cast<OpModel>(fillCache.getOperation());
+  ASSERT_TRUE(backend);
+
+  // Test getOpConstraints
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
+    // Basic validation that constraints are reasonable
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing constraints for FillCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for FillCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, UpdateCacheOpInterface) {
+  // Test UpdateCacheOp with cache, input, and update_index tensors
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  llvm::SmallVector<int64_t> updateIndexShape = {1};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+  auto updateIndexTensor = createEmptyTensor(updateIndexShape);
+
+  // Create UpdateCacheOp with batch_offset = 0 (no result type - it's in-place)
+  auto updateCache = builder.create<UpdateCacheOp>(
+      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
+      builder.getI32IntegerAttr(0));
+
+  // Test OpModel interface
+  auto backend = dyn_cast<OpModel>(updateCache.getOperation());
+  ASSERT_TRUE(backend);
+
+  // Test getOpConstraints
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(updateCache.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
+    // Basic validation that constraints are reasonable
+    EXPECT_EQ(cbSize, 1310720);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 32768);
+  } else {
+    FAIL() << "Missing constraints for UpdateCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(updateCache.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for UpdateCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

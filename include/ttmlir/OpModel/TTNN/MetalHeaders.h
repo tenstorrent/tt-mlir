@@ -45,6 +45,7 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
