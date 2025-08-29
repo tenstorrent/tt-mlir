@@ -17,7 +17,7 @@
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
-::tt::tt_metal::CBFormatDescriptor processCBFormatDescriptor(
+::tt::tt_metal::CBFormatDescriptor createCBFormatDescriptor(
     const ::tt::target::ttnn::KernelCBFormat &kernel_cb_format) {
   uint8_t buffer_index = kernel_cb_format.buffer_index();
   uint32_t page_size = kernel_cb_format.page_size();
@@ -30,16 +30,15 @@ namespace tt::runtime::ttnn::operations::generic_op {
 }
 
 ::tt::tt_metal::CBDescriptor
-processCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cb_desc) {
-  // Right now, metal assumes there is only one CBFormatDescriptor per
-  // KernelDescriptor
-  LOG_DEBUG("processing cb descriptor: ", cb_desc.total_size());
+createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cb_desc) {
+  // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
+  LOG_DEBUG("createing cb descriptor: ", cb_desc.total_size());
   tt::tt_metal::CBDescriptor cb_descriptor = {
       .total_size = cb_desc.total_size(),
       .core_ranges =
           tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cb_desc.core_range()),
       .format_descriptors = {
-          processCBFormatDescriptor(*cb_desc.formats()->Get(0))}};
+          createCBFormatDescriptor(*cb_desc.formats()->Get(0))}};
   return cb_descriptor;
 }
 
@@ -90,12 +89,11 @@ convertNocMode(const tt::target::ttnn::NocMode &noc_mode) {
   }
 }
 
-::tt::tt_metal::KernelDescriptor::ConfigDescriptor
-processKernelConfigDescriptor(
+::tt::tt_metal::KernelDescriptor::ConfigDescriptor createKernelConfigDescriptor(
     const ::tt::target::ttnn::KernelDescriptor &kernel_desc) {
   switch (kernel_desc.config_type()) {
   case ::tt::target::ttnn::KernelConfig::ComputeKernelConfig: {
-    LOG_DEBUG("processing compute kernel config");
+    LOG_DEBUG("createing compute kernel config");
     const auto *compute_config = kernel_desc.config_as_ComputeKernelConfig();
     std::vector<UnpackToDestMode> unpack_to_dest_modes(
         compute_config->unpack_to_dest_modes()->size());
@@ -123,11 +121,11 @@ processKernelConfigDescriptor(
         .noc_mode = convertNocMode(data_movement_config->noc_mode())};
   }
   case ::tt::target::ttnn::KernelConfig::ReaderKernelConfig: {
-    LOG_DEBUG("processing reader kernel config");
+    LOG_DEBUG("createing reader kernel config");
     return ::tt::tt_metal::ReaderConfigDescriptor();
   }
   case ::tt::target::ttnn::KernelConfig::WriterKernelConfig: {
-    LOG_DEBUG("processing writer kernel config");
+    LOG_DEBUG("createing writer kernel config");
     return ::tt::tt_metal::WriterConfigDescriptor();
   }
   default: {
@@ -136,7 +134,7 @@ processKernelConfigDescriptor(
   }
 }
 
-std::vector<uint32_t> processKernelArgs(
+std::vector<uint32_t> createKernelArgs(
     const ::tt::target::ttnn::KernelCoreArgs &args,
     std::optional<std::reference_wrapper<const std::vector<::ttnn::Tensor>>>
         io_tensors = std::nullopt) {
@@ -145,12 +143,13 @@ std::vector<uint32_t> processKernelArgs(
   for (unsigned int i = 0; i < size; i++) {
     const auto *kernel_arg = args.args()->Get(i);
     switch (kernel_arg->arg_type()) {
-    case ::tt::target::ttnn::KernelArgType::KernelArgCBPort: {
-      core_args[i] = kernel_arg->arg_as_KernelArgCBPort()->idx();
+    case ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex: {
+      core_args[i] =
+          kernel_arg->arg_as_KernelArgCBBufferIndex()->buffer_index();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddress: {
-      core_args[i] = kernel_arg->arg_as_KernelArgBufferAddress()->addr();
+      core_args[i] = kernel_arg->arg_as_KernelArgBufferAddress()->address();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor: {
@@ -158,14 +157,15 @@ std::vector<uint32_t> processKernelArgs(
           io_tensors.has_value(),
           "IO tensors must be provided for KernelArgBufferAddressOfTensor");
       uint32_t tensor_idx =
-          kernel_arg->arg_as_KernelArgBufferAddressOfTensor()->tensor_idx();
+          kernel_arg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
       core_args[i] = io_tensors->get()[tensor_idx].buffer()->address();
       LOG_DEBUG("rt arg index of tensor: ", tensor_idx,
                 " buffer address: ", core_args[i]);
       break;
     }
-    case ::tt::target::ttnn::KernelArgType::KernelArgSemaphore: {
-      core_args[i] = kernel_arg->arg_as_KernelArgSemaphore()->semaphore_id();
+    case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
+      core_args[i] =
+          kernel_arg->arg_as_KernelArgSemaphoreAt()->semaphore_index();
       break;
     }
     default: {
@@ -177,18 +177,18 @@ std::vector<uint32_t> processKernelArgs(
 }
 
 ::tt::tt_metal::KernelDescriptor
-processKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
-                        const std::vector<::ttnn::Tensor> &io_tensors) {
+createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
+                       const std::vector<::ttnn::Tensor> &io_tensors) {
   std::string kernel_source = kernel_desc.source()->str();
   LOG_DEBUG("kernel source: ", kernel_source);
   CoreRangeSet core_ranges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernel_desc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs common_runtime_args =
-      processKernelArgs(*kernel_desc.common_rt_args());
+      createKernelArgs(*kernel_desc.common_rt_args());
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compile_time_args =
-      processKernelArgs(*kernel_desc.ct_args());
+      createKernelArgs(*kernel_desc.ct_args());
 
-  LOG_DEBUG("processing runtime args: ", kernel_desc.rt_args()->size());
+  LOG_DEBUG("createing runtime args: ", kernel_desc.rt_args()->size());
   auto size_x = kernel_desc.rt_args()->size();
   auto size_y = kernel_desc.rt_args()->Get(0)->args()->size();
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtime_args(
@@ -197,8 +197,8 @@ processKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
   for (unsigned int i = 0; i < size_x; i++) {
     for (unsigned int j = 0; j < size_y; j++) {
       ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs core_runtime_args =
-          processKernelArgs(*kernel_desc.rt_args()->Get(i)->args()->Get(j),
-                            io_tensors);
+          createKernelArgs(*kernel_desc.rt_args()->Get(i)->args()->Get(j),
+                           io_tensors);
       runtime_args[i][j] = core_runtime_args;
     }
   }
@@ -212,46 +212,23 @@ processKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
       .defines = {},
       .runtime_args = runtime_args,
       .common_runtime_args = common_runtime_args,
-      .config = processKernelConfigDescriptor(kernel_desc)};
+      .config = createKernelConfigDescriptor(kernel_desc)};
 
   return kernel_descriptor;
 }
 
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
+  auto size = op->io_tensors()->size();
   std::vector<::ttnn::Tensor> io_tensors;
-  for (const auto *input : *op->io_tensors()) {
-    auto runtime_tensor = tensorPool.getRuntimeTensorAndValidate(input);
-    io_tensors.push_back(tensorPool.getTTNNTensorAndValidate(input));
+  // This relies on the ttnn binary program being built with input tensors that
+  // includes the output tensor If not, we need to allocate the output tensor
+  // here. Revisit later when flatbuffer translation is pushed.
+  for (const auto *io_tensor : *op->io_tensors()) {
+    io_tensors.push_back(tensorPool.getTTNNTensorAndValidate(io_tensor));
   }
-  // Ensure output tensor exists and is included as part of io_tensors
-  // if (!tensorPool.contains(op->out())) {
-  //     LOG_DEBUG("Output tensor not found in tensor pool, creating it.");
-  //     ::ttnn::Shape out_shape =
-  //     ::tt::runtime::ttnn::operations::utils::toTTNNShape(*op->out()->desc()->shape());
-  //     ::ttnn::DataType out_dtype =
-  //     ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
-  //     ::ttnn::Layout out_layout =
-  //     ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
-
-  //     ::ttnn::Tensor out_tensor;
-  //     LOG_ASSERT(::tt::runtime::ttnn::utils::inDeviceMemory(op->out()),
-  //     "Output tensor must be in device memory");
-  //     std::optional<::ttnn::MemoryConfig> memcfg =
-  //     ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-  //         ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  //     LOG_ASSERT(memcfg.has_value(), "Memory config is required for device
-  //     tensors");
-  //     ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  //     out_tensor = ::ttnn::empty(out_shape, out_dtype, out_layout,
-  //     &meshDevice, memcfg.value());
-  //     tensorPool.insertTTNNTensorAndValidate(op->out(), out_tensor);
-  // }
-  // io_tensors.push_back(tensorPool.getTTNNTensorAndValidate(op->out()));
 
   // program_descriptor is initialized with pre-allocated SmallVector capacity
-  // for kernels and cbs push_back should only allocate to heap if the
-  // SmallVector capacity is exceeded
   LOG_DEBUG("creating program descriptor");
   const auto *program_desc = op->program();
   tt::tt_metal::ProgramDescriptor program_descriptor;
@@ -259,16 +236,17 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   for (const tt::target::ttnn::KernelDescriptor *kernel_desc :
        *program_desc->kernels()) {
     program_descriptor.kernels.push_back(
-        processKernelDescriptor(*kernel_desc, io_tensors));
+        createKernelDescriptor(*kernel_desc, io_tensors));
   }
   LOG_DEBUG("creating cbs");
   for (const tt::target::ttnn::KernelCBDescriptor *cb_desc :
        *program_desc->cbs()) {
-    program_descriptor.cbs.push_back(processCBDescriptor(*cb_desc));
+    program_descriptor.cbs.push_back(createCBDescriptor(*cb_desc));
   }
   LOG_DEBUG("running generic op");
   ::ttnn::Tensor output = ::ttnn::generic_op(io_tensors, program_descriptor);
-  // tensorPool.insertTTNNTensorAndValidate(io_tensors, output);
+  tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                         output);
 }
 
 } // namespace tt::runtime::ttnn::operations::generic_op
