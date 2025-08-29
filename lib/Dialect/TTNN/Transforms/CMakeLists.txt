@@ -3,15 +3,15 @@ if (TTMLIR_ENABLE_OPMODEL)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
-        Optimizer.cpp
-        OperationValidationAndFallback.cpp
         Passes.cpp
+        OptimizerPasses/OperationValidationAndFallback.cpp
+        OptimizerPasses/Optimizer.cpp
+        OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNUniqueLocs.cpp
-        TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp

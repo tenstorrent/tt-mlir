@@ -4,18 +4,18 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidator.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Support/Logger.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
 
 #include <cassert>
 #include <cstddef>
-#include <mlir/IR/Types.h>
 #include <vector>
 
 using namespace mlir;
@@ -43,26 +43,18 @@ public:
     size_t operationsFixed = 0;
     size_t operationsFailed = 0;
 
-    // Create validator configured not to throw on unsupported ops.
-    OpConstraintValidator validator(
-        OpConstraintValidator::ValidationOptions(/*fatalOnUnsupported=*/false));
-
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
-        return;
-      }
-
-      // llvm::SmallVector<Type> funcResultTypes;
-
-      func.walk([&](Operation *operation) {
+      func.walk([&](Operation *operation) -> WalkResult {
         // Skip operations without results
         if (operation->getNumResults() == 0) {
-          return;
+          return WalkResult::skip();
         }
 
         // Skip operations that are not OpModel castable (can't be validated)
+        // TODO(rpavlovic): we should have all ops implement OpModel interface
+        // eventually. Then this check becomes an assert.
         if (!mlir::dyn_cast<OpModel>(operation)) {
-          return;
+          return WalkResult::skip();
         }
 
         totalOperationsChecked++;
@@ -74,22 +66,19 @@ public:
               << "OperationValidationAndFallback: No output layout found in "
                  "operation result type encoding";
           signalPassFailure();
-          return;
+          return WalkResult::interrupt();
         }
 
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
             utils::extractInputLayouts(operation);
 
-        if (inputLayouts.empty()) {
-          return;
-        }
-
         // Test original configuration
-        OpConstraintValidator::ValidationResult originalResult =
-            validator.validateOperation(operation, inputLayouts, config);
+        llvm::Expected<op_constraint_validation::ValidationResult>
+            originalResult = op_constraint_validation::validateOperation(
+                operation, inputLayouts, config);
 
-        if (originalResult.success) {
+        if (originalResult) {
           operationsValid++;
           TTMLIR_TRACE(
               ttmlir::LogComponent::OpValidation,
@@ -99,6 +88,7 @@ public:
           // Pretend we fixed it for now.
           operationsFixed++;
         }
+        return WalkResult::advance();
       });
     });
 
