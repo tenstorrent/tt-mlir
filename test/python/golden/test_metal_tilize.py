@@ -33,9 +33,13 @@ def test_tilize(shape: Shape, target: str, request):
             unit_attrs=unit_attrs,
         )
 
+        # Provide an explicit identity index_map for the view output type.
+        id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.get_metal_tensor_layout(shape, tiled=False),
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, index_map=id_map
+            ),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
@@ -83,9 +87,13 @@ def test_untilize(shape: Shape, target: str, request):
             unit_attrs=unit_attrs,
         )
 
+        # Provide an explicit identity index_map for the view output type.
+        id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
         view_as_tiled = builder.view_layout(
             to_device,
-            output_type=builder.get_metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.get_metal_tensor_layout(
+                shape, (1, 1), True, index_map=id_map
+            ),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
