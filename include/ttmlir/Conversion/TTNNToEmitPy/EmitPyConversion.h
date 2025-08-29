@@ -590,7 +590,7 @@ struct EmitPyTypeConverter<::ttnn::BufferType> {
       rso << "TRACE";
       break;
     case ttnn::BufferType::SystemMemory:
-      llvm_unreachable("Unsupported ttnn.ShardOrientation");
+      llvm_unreachable("Unsupported ttnn.BufferType: SystemMemory");
       break;
     }
 
