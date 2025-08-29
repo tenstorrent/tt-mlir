@@ -163,6 +163,14 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining SCF operations to control flow and LLVM dialect.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
+  // Embed CUDA target attributes for flatbuffer translation.
+  transforms::EmbedCudaTargetAttributesOptions embedCudaTargetAttributesOptions;
+  embedCudaTargetAttributesOptions.chip = options.chip;
+  embedCudaTargetAttributesOptions.features = options.features;
+  embedCudaTargetAttributesOptions.opt_level = options.optLevel;
+  manager.addPass(transforms::createEmbedCudaTargetAttributes(
+      embedCudaTargetAttributesOptions));
 }
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
