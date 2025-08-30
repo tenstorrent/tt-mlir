@@ -78,6 +78,9 @@ void irToFile(mlir::Operation *op, std::string filename);
 // dims to tile size (32). E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
+// Extract input layouts from operation operands, skipping device type operands.
+std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op);
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TTNNLayoutAttr layout,

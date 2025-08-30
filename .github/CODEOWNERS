@@ -127,8 +127,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /include/ttmlir/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
 /include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /include/ttmlir/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
+/include/ttmlir/Dialect/TTNN/Validation @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Transforms/Optimizer.cpp @tenstorrent/forge-developers-mlir-optimizer
+/lib/Dialect/TTNN/Validation/ @tenstorrent/forge-developers-mlir-optimizer
 /lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /lib/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Dialect/TTNN/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
