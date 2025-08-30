@@ -22,6 +22,17 @@ public:
 
   LogicalResult matchAndRewrite(ttnn::AllGatherOp op,
                                 PatternRewriter &rewriter) const override;
+
+  LogicalResult rewriteAllGatherHighRank(ttnn::AllGatherOp op,
+                                         PatternRewriter &rewriter) const;
+
+  LogicalResult rewriteAllGatherLowRank(ttnn::AllGatherOp op,
+                                        PatternRewriter &rewriter) const;
+
+  LogicalResult applyReshapedAllGather(ttnn::AllGatherOp op,
+                                       PatternRewriter &rewriter,
+                                       ArrayRef<int64_t> preShape,
+                                       int64_t adjustedGatherDim) const;
 };
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition
