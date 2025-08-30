@@ -417,7 +417,7 @@ Planner::SpillStats Planner::spillAllocate(Problem &problem,
 
   if (spilledCount < 0) {
     TT_ALLOC_ERROR("failed to allocate within usage limit {} after spilling "
-                   "all {} var(s)",
+                   "all {} free var(s)",
                    memUsageLimit, freeVarCount);
     return {stepCount, -1, stats};
   }
