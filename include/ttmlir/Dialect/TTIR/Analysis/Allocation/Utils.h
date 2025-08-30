@@ -25,16 +25,16 @@
 // clang-format off
 #ifndef TT_IMPL_ASSERT_LOC_INFO
 
-# define TT_assert(condition)                            ((void)0)
-# define TT_assertv(condition, /* message[, args] */...) ((void)0)
+# define TT_assert(condition)                            assert(condition)
+# define TT_assertv(condition, /* message[, args] */...) assert(condition)
 
 # define TT_assert_open_range(x, a, b)                   ((void)0)
 # define TT_assert_limit(x, limit)                       ((void)0)
 # define TT_assert_exclusive_range(x, a, b)              ((void)0)
 # define TT_assert_inclusive_range(x, a, b)              ((void)0)
 
-# define TT_debug(condition)                             ((void)0)
-# define TT_debugv(condition, /* message[, args] */...)  ((void)0)
+# define TT_debug(condition)                             assert(condition)
+# define TT_debugv(condition, /* message[, args] */...)  assert(condition)
 
 # define TT_debug_open_range(x, a, b)                    ((void)0)
 # define TT_debug_limit(x, limit)                        ((void)0)

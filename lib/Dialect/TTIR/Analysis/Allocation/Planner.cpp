@@ -492,7 +492,7 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
         // 'conflict' and 'request' must not overlap in memory space.
         // Note that a memory range is considered half-open, i.e. [offset,
         // offset+size).
-        const bool memOverlap =
+        [[maybe_unused]] const bool memOverlap =
             std::max(req.offset, conflict.offset) <
             std::min(req.offset + req.size, conflict.offset + conflict.size);
         TT_assertv(!memOverlap, "memory overlap b/w {} and {}", req, conflict);
