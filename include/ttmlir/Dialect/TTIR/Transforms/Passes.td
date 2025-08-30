@@ -439,6 +439,9 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let options = [
+    Option<"allowOutputSpilling", "allow-output-spilling", "bool", /*default=*/"false", "Make generic outputs eligible for spilling to DRAM.">
+  ];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
