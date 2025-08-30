@@ -225,13 +225,14 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   TensorDesc desc(shape, bufferDesc->data_type(),
                   utils::tileAlignment(bufferDesc->data_type()));
   size_t size = desc.sizeBytes();
+  size_t size_unaligned = desc.sizeBytesUnaligned();
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
   if (command->data() != nullptr) {
-    assert(command->data()->size() == size);
-    std::memcpy(data.get(), command->data()->data(), size);
+    assert(command->data()->size() == size_unaligned);
+    std::memcpy(data.get(), command->data()->data(), size_unaligned);
   }
 
   auto meshShape = meshDevice->shape();
