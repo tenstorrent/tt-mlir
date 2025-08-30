@@ -52,7 +52,8 @@ inline bool debugEnabled() {
 }
 
 #define TT_UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
-#define TT_DEBUG_ENABLED() TT_UNLIKELY(mlir::tt::ttir::debugEnabled())
+#define TT_DEBUG_ENABLED()                                                     \
+  TT_UNLIKELY(mlir::tt::ttir::allocation::debugEnabled())
 
 // Define some convenience macros local to `Analysis`.
 

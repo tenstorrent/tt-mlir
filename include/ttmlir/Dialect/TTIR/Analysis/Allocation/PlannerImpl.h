@@ -193,19 +193,10 @@ public:
 
   struct Problem; // Forward.
 
-  /// Syntactic sugar helper for adding variables and requests to a `Problem`.
-  /// Use as in
-  /// @code
-  ///   problem.def([](Planner::VariableBuilder &b) {
-  ///     b.request(Planner::Space::Scratch, scratchRequest, 1, 2);
-  ///     b.request(Planner::Space::Spill, 10 * scratchRequest, 1, 2);
-  ///     ...can b.place(), b.bind(), etc...
-  ///   });
-  /// @endcode
   struct VariableBuilder {
     IndexT request(Space space, AllocSizeT size, SequenceT first,
                    SequenceT last) {
-      const auto reqIndex = (parent->requests.size() + requests.size());
+      const IndexT reqIndex = (parent->requests.size() + requests.size());
       requests.emplace_back(Request{{first, last}, size, -1});
       spaces.emplace_back(space);
       return reqIndex;
@@ -217,7 +208,7 @@ public:
     }
 
     VariableBuilder &bind(Space space) {
-      const auto varIndex = static_cast<IndexT>(parent->variables.size());
+      const IndexT varIndex = parent->variables.size();
       parent->bound.insert(varIndex);
       return place(space);
     }
@@ -229,14 +220,14 @@ public:
 
     // Complete new variable definition.
     IndexT add() {
-      const auto varIndex = static_cast<IndexT>(parent->variables.size());
+      const IndexT varIndex = parent->variables.size();
       Variable &variable = parent->variables.emplace_back();
 
       variable.placement = placement;
 
       TT_debug(requests.size() == spaces.size());
       for (std::size_t i = 0; i < requests.size(); ++i) {
-        const auto reqIndex = static_cast<IndexT>(parent->requests.size());
+        const IndexT reqIndex = parent->requests.size();
         parent->requests.emplace_back(
             VarRequest{std::move(requests[i]), varIndex});
         variable.domain[ordinal(spaces[i])].insert(reqIndex);
@@ -293,6 +284,15 @@ public:
           (const_cast<const Problem *>(this))->request(reqIndex));
     }
 
+    /// Syntactic sugar helper for adding variables and requests to a `Problem`.
+    /// Use as in
+    /// @code
+    ///   problem.def([](Planner::VariableBuilder &b) {
+    ///     b.request(Planner::Space::Scratch, scratchRequest, 1, 2);
+    ///     b.request(Planner::Space::Spill, 10 * scratchRequest, 1, 2);
+    ///     ...can b.place(), b.bind(), etc...
+    ///   });
+    /// @endcode
     template <typename /* void(VariableBuilder &) */ F>
     IndexT def(F &&requests) {
       VariableBuilder builder{*this};
@@ -300,7 +300,7 @@ public:
       return builder.add();
     };
 
-    // Reset placements of all all unbound variables.
+    // Reset placements and offsets for all unbound variables.
     void reset(Space placement = Space::NA) {
       for (IndexT varIndex = 0;
            varIndex < static_cast<IndexT>(variables.size()); ++varIndex) {
@@ -375,9 +375,6 @@ public:
   };
 
 protected:
-  template <Algorithm Algorithm>
-  static AllocateStats allocateImpl(Problem &problem);
-
   struct AnalysisStats {
     struct RequestMetrics {
       std::int32_t maxConflictSize = 0;
@@ -385,6 +382,9 @@ protected:
     };
     llvm::SmallVector<RequestMetrics> requestMetrics;
   };
+
+  template <Algorithm Algorithm>
+  static AllocateStats allocateImpl(Problem &problem);
 
   static AnalysisStats analyze(const Problem &solution, AllocSizeT watermark);
 };
