@@ -542,85 +542,88 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
                 "memref: {}", memref);
 
       TT_debug(memrefCtx.varIndex < 0);
-      memrefCtx.varIndex = problem.def([&, &memref = memref,
-                                        &memrefCtx = memrefCtx](
-                                           Planner::VariableBuilder &b) {
-        // If `memref` is being defined inside `funcOp` and is initially placed
-        // in L1, it will require scratch memory to hold its tensor data.
-        if (memref.getDefiningOp<memref::AllocOp>() &&
-            memspace == MemorySpace::DeviceL1) {
-          const auto &memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
+      memrefCtx.varIndex =
+          problem.def([&, &memref = memref,
+                       &memrefCtx = memrefCtx](Planner::VariableBuilder &b) {
+            // If `memref` is being defined inside `funcOp` and is initially
+            // placed in L1, it will require scratch memory to hold its tensor
+            // data.
+            if (memref.getDefiningOp<memref::AllocOp>() &&
+                memspace == MemorySpace::DeviceL1) {
+              const auto &memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
-          memrefCtx.reqIndex = b.request(
-              PlannerSpace::Scratch,
-              ttmlir::utils::alignUp(memrefCtx.size, memInfo.alignment),
-              memrefCtx.live.first, memrefCtx.live.last);
-        }
-
-        // This decision variable must be bound to its incoming memspace in
-        // any of these cases:
-        //  - if it is placed in DRAM *explicitly*;
-        //  - if it has non-generic op users or has zero generic op users;
-        //  - if it the output of a generic op and the enabled pass options
-        //  do not allow output spilling.
-        const bool bound = (memspace == MemorySpace::DeviceDRAM) ||
-                           memrefCtx.genericUsers.empty() ||
-                           memrefCtx.hasNonGenericUsers ||
-                           (memrefCtx.usedForOutput && !allowOutputSpilling);
-        if (bound) {
-          b.bind(asPlannerSpace(memspace));
-        }
-
-        // For each possible variable placement, add mem requests for L1 stream
-        // buffers if the variable must be streamed when it backs a generic op
-        // operand.
-        for (PlannerSpace placement = PlannerSpace::begin;
-             placement < PlannerSpace::end; ++placement) {
-
-          const MemorySpace placementMemspace = asMemorySpace(placement);
-          if (bound && placementMemspace != memspace) {
-            // A bound variable only needs its domain populated for its fixed
-            // (incoming) memspace.
-            continue;
-          }
-
-          const auto &memInfo = memSpaces[ordinal(placementMemspace)];
-
-          for (ttir::GenericOp user : memrefCtx.genericUsers) {
-            GenericOpContext &genericCtx = analysis.generics[user];
-            OperandContext &operandCtx =
-                genericCtx.operands.find(memref)->second;
-
-            // An operand stream is required under any of these conditions:
-            // - streaming was earlier determined as required due to inter-core
-            // data movement needs;
-            // - the final memref placement is `Spill` (i.e. DRAM memspace).
-            if (operandCtx.requiresStream ||
-                (placement == PlannerSpace::Spill)) {
-              if (!operandCtx.bufferType) {
-                // In principle, buffer shape/size could depend on whether the
-                // stream is out of L1 or DRAM... but not right now.
-                operandCtx.bufferType =
-                    selectStreamBuffer(rewriter, memrefCtx.type);
-              }
-              const AllocSizeT bufferSize =
-                  device.getMemrefSizeBytes(operandCtx.bufferType);
-
-              // Because we will insert stream buffer allocs just before generic
-              // ops themselves, without any other interposing allocs, it is
-              // mathematically correct to see all such buffers' live ranges as
-              // single position coinciding with the generic op's logical time.
-              const SequenceT firstAndLast = analysis.sequencing[user];
-
-              TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
-              operandCtx.reqIndex[ordinal(placement)] = b.request(
-                  placement,
-                  ttmlir::utils::alignUp(bufferSize, memInfo.alignment),
-                  firstAndLast, firstAndLast);
+              memrefCtx.reqIndex = b.request(
+                  PlannerSpace::Scratch,
+                  ttmlir::utils::alignUp(memrefCtx.size, memInfo.alignment),
+                  memrefCtx.live.first, memrefCtx.live.last);
             }
-          }
-        }
-      });
+
+            // This decision variable must be bound to its incoming memspace in
+            // any of these cases:
+            //  - if it is placed in DRAM *explicitly*;
+            //  - if it has non-generic op users or has zero generic op users;
+            //  - if it the output of a generic op and the enabled pass options
+            //  do not allow output spilling.
+            const bool bound =
+                (memspace == MemorySpace::DeviceDRAM) ||
+                memrefCtx.genericUsers.empty() ||
+                memrefCtx.hasNonGenericUsers ||
+                (memrefCtx.usedForOutput && !allowOutputSpilling);
+            if (bound) {
+              b.bind(asPlannerSpace(memspace));
+            }
+
+            // For each possible variable placement, add mem requests for L1
+            // stream buffers if the variable must be streamed when it backs a
+            // generic op operand.
+            for (PlannerSpace placement = PlannerSpace::begin;
+                 placement < PlannerSpace::end; ++placement) {
+
+              const MemorySpace placementMemspace = asMemorySpace(placement);
+              if (bound && placementMemspace != memspace) {
+                // A bound variable only needs its domain populated for its
+                // fixed (incoming) memspace.
+                continue;
+              }
+
+              const auto &memInfo = memSpaces[ordinal(placementMemspace)];
+
+              for (ttir::GenericOp user : memrefCtx.genericUsers) {
+                GenericOpContext &genericCtx = analysis.generics[user];
+                OperandContext &operandCtx =
+                    genericCtx.operands.find(memref)->second;
+
+                // An operand stream is required under any of these conditions:
+                // - streaming was earlier determined as required due to
+                // inter-core data movement needs;
+                // - the final memref placement is `Spill` (i.e. DRAM memspace).
+                if (operandCtx.requiresStream ||
+                    (placement == PlannerSpace::Spill)) {
+                  if (!operandCtx.bufferType) {
+                    // In principle, buffer shape/size could depend on whether
+                    // the stream is out of L1 or DRAM... but not right now.
+                    operandCtx.bufferType =
+                        selectStreamBuffer(rewriter, memrefCtx.type);
+                  }
+                  const AllocSizeT bufferSize =
+                      device.getMemrefSizeBytes(operandCtx.bufferType);
+
+                  // Because we will insert stream buffer allocs just before
+                  // generic ops themselves, without any other interposing
+                  // allocs, it is mathematically correct to see all such
+                  // buffers' live ranges as single position coinciding with the
+                  // generic op's logical time.
+                  const SequenceT firstAndLast = analysis.sequencing[user];
+
+                  TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
+                  operandCtx.reqIndex[ordinal(placement)] = b.request(
+                      placement,
+                      ttmlir::utils::alignUp(bufferSize, memInfo.alignment),
+                      firstAndLast, firstAndLast);
+                }
+              }
+            }
+          });
     }
 
     TT_ALLOC_TRACE("L1 planner problem:\n{}", problem);
