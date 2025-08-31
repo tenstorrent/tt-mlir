@@ -21,7 +21,7 @@ module @test_multiply_decomposition attributes {} {
     // CHECK: %[[OUTPUT_PERMUTE:[0-9]+]] = "ttnn.permute"(%[[MULTIPLY]])
     // CHECK-SAME: permutation = array<i64: 2, 3, 0, 1>
     // CHECK: return %[[OUTPUT_PERMUTE]]
-    %2 = "ttnn.multiply"(%0, %1) <{output_dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<2048x1024x1x1xf32, #ttnn_layout>, tensor<2048x1024x1x1xf32, #ttnn_layout>) -> tensor<2048x1024x1x1xf32, #ttnn_layout>
+    %2 = "ttnn.multiply"(%0, %1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<2048x1024x1x1xf32, #ttnn_layout>, tensor<2048x1024x1x1xf32, #ttnn_layout>) -> tensor<2048x1024x1x1xf32, #ttnn_layout>
     return %2 : tensor<2048x1024x1x1xf32, #ttnn_layout>
   }
 
@@ -29,7 +29,7 @@ module @test_multiply_decomposition attributes {} {
     // CHECK-LABEL: func.func public @test_multiply_no_workaround
     // CHECK: "ttnn.multiply"(%arg0, %arg1)
     // CHECK-NOT: "ttnn.permute"
-    %0 = "ttnn.multiply"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x128x160xf32, #ttnn_layout_small>, tensor<1x1x128x160xf32, #ttnn_layout_small>) -> tensor<1x1x128x160xf32, #ttnn_layout_small>
+    %0 = "ttnn.multiply"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x128x160xf32, #ttnn_layout_small>, tensor<1x1x128x160xf32, #ttnn_layout_small>) -> tensor<1x1x128x160xf32, #ttnn_layout_small>
     return %0 : tensor<1x1x128x160xf32, #ttnn_layout_small>
   }
 }

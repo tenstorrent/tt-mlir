@@ -20,12 +20,13 @@ GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter, mlir::Block *block);
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
-ToLayoutOp createToLayoutOp(
-    mlir::Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
-    RewriterBase &rewriter, Layout targetTensorLayout,
-    BufferType targetTensorBufferType,
-    std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-    ttcore::DataType targetTensorDataType, llvm::StringRef locSuffix = "");
+ToLayoutOp createToLayoutOp(mlir::Operation *op,
+                            mlir::TypedValue<RankedTensorType> inputValue,
+                            RewriterBase &rewriter, Layout targetTensorLayout,
+                            BufferType targetTensorBufferType,
+                            TensorMemoryLayoutAttr targetTensorMemoryLayout,
+                            ttcore::DataType targetTensorDataType,
+                            llvm::StringRef locSuffix = "");
 } // namespace mlir::tt::ttnn::utils
 
 #endif
