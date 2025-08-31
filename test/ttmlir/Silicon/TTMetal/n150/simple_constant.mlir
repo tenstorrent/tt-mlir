@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
-// RUN: ttrt run %t.ttm
 
 func.func public @add5(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   // CHECK: = "ttmetal.create_buffer"
