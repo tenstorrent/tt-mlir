@@ -2746,9 +2746,9 @@ def test_gather(
             [0, 2],
             [1],
             [1, 16, 1],
-            marks=pytest.mark.xfail(
-                reason="General gather not implemented; see issue #3849"
-            ),
+            # marks=pytest.mark.xfail(
+            #    reason="General gather not implemented; see issue #3849"
+            #),
         ),  # Complex indices
     ],
     ids=["simple_1d", "complex_indices"],
