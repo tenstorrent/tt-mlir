@@ -62,7 +62,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
         emitter.emit(eltwiseBinaryOp.getRhs()),
-        emitter.emit(eltwiseBinaryOp.getOutputDtype(), "dtype"),
+        emitter.emit(eltwiseBinaryOp.getDtype(), "dtype"),
         emitter.emit(std::nullopt, "memory_config") |
             emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
     };
