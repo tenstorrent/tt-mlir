@@ -64,13 +64,15 @@ public:
         mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
 
     // Create two input tensors using OnesOp (simpler than EmptyOp)
-    auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
-                                         ShapeAttr::get(&context, inputShape),
-                                         nullptr, nullptr, nullptr, nullptr);
+    auto input1 = builder.create<OnesOp>(
+        builder.getUnknownLoc(), tensorType,
+        /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
+        /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
-                                         ShapeAttr::get(&context, inputShape),
-                                         nullptr, nullptr, nullptr, nullptr);
+    auto input2 = builder.create<OnesOp>(
+        builder.getUnknownLoc(), tensorType,
+        /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
+        /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
     // Create AddOp
     return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
