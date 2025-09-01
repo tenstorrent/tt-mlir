@@ -37,12 +37,30 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
       return;
     }
+    // Skip output of Conv2D that uses matmul under the hood, inefficient in L1.
+    if (utils::isConv2DConvertibleToMatMul(op)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
+                   "uses matmul, inefficient in L1.",
+                   op->getName());
+      return;
+    }
 
     for (auto *user : op->getUsers()) {
       // Skip operations that have DRAM input in runtime even when configured as
       // L1 via this analysis.
       // TODO(bmalesevic,#4505): remove this after they are supported in runtime
       if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(user)) {
+        return;
+      }
+      // Skip input of Conv2D that uses matmul under the hood, inefficient in
+      // L1.
+      if (utils::isConv2DConvertibleToMatMul(user)) {
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
+            "uses matmul, inefficient in L1.",
+            op->getName());
         return;
       }
     }

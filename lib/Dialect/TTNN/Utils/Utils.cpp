@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -13,6 +14,7 @@
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -305,6 +307,44 @@ bool producesL1Layout(Operation *op) {
 bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
+}
+
+/// Check if a Conv2D operation would be converted to MatMul
+/// (1x1 kernel, stride=1, padding=0, groups=1)
+bool isConv2DConvertibleToMatMul(Operation *op) {
+  auto conv2dOp = dyn_cast<ttnn::Conv2dOp>(op);
+  if (!conv2dOp) {
+    return false;
+  }
+
+  // Get weight tensor to check kernel size
+  RankedTensorType weightType =
+      mlir::cast<RankedTensorType>(conv2dOp.getWeight().getType());
+  llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+  // Check kernel size is 1x1
+  if (weightShape[2] != 1 || weightShape[3] != 1) {
+    return false;
+  }
+
+  // Check all stride values are 1
+  auto stride = conv2dOp.getStride();
+  if (llvm::any_of(stride, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
+  // Check all padding values are 0
+  auto padding = conv2dOp.getPadding();
+  if (llvm::any_of(padding, [](int32_t v) { return v != 0; })) {
+    return false;
+  }
+
+  // Check groups = 1
+  if (conv2dOp.getGroups() != 1) {
+    return false;
+  }
+
+  return true;
 }
 
 } // namespace mlir::tt::ttnn::utils
