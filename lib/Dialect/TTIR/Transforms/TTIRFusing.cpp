@@ -78,8 +78,7 @@ private:
                     "Unsupported ConvOpType");
     }
 
-    if (auto bcastOp =
-            mlir::dyn_cast_if_present<BroadcastOp>(bias.getDefiningOp())) {
+    if (auto bcastOp = bias.getDefiningOp<BroadcastOp>()) {
       bias = bcastOp.getInput();
     }
     auto biasShape = bias.getType().getShape();
