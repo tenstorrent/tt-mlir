@@ -109,6 +109,8 @@ bool producesL1Layout(Operation *op);
 
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

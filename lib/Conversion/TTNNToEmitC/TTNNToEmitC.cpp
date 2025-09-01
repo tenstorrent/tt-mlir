@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -2644,6 +2645,31 @@ public:
       return failure();
     }
 
+    rewriter.setInsertionPointToStart(moduleOp.getBody());
+    rewriter.create<emitc::GlobalOp>(
+        srcOp.getLoc(), /*sym_name=*/"is_first_call", rewriter.getI1Type(),
+        rewriter.getBoolAttr(true));
+    rewriter.create<emitc::GlobalOp>(
+        srcOp.getLoc(), /*sym_name=*/"trace_id",
+        getTypeConverter()->convertType(
+            mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
+        /*initial_value=*/nullptr);
+
+    llvm::SmallVector<emitc::GlobalOp> inputVariable;
+    for (auto [i, input] : llvm::enumerate(adaptor.getInputs())) {
+      inputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
+          srcOp.getLoc(), /*sym_name=*/"input_" + std::to_string(i),
+          getTypeConverter()->convertType(input.getType()),
+          /*initial_value=*/nullptr));
+    }
+    llvm::SmallVector<emitc::GlobalOp> outputVariable;
+    for (auto [i, output] : llvm::enumerate(srcOp.getResults())) {
+      outputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
+          srcOp.getLoc(), /*sym_name=*/"output_" + std::to_string(i),
+          getTypeConverter()->convertType(output.getType()),
+          /*initial_value=*/nullptr));
+    }
+
     std::string funcName = "capture_or_execute_trace";
 
     // Create emitc.func with the stateful logic at module level
@@ -2664,57 +2690,148 @@ public:
 
     // Create function body with stateful logic
     auto *block = funcOp.addEntryBlock();
+
     rewriter.setInsertionPointToStart(block);
 
-    // Add static variable declaration
-    rewriter.create<emitc::VerbatimOp>(srcOp.getLoc(),
-                                       "static bool is_first_call = true;");
-
-    // Create placeholders for all arguments (need them twice - once for each
-    // branch)
-    std::string placeholders;
-    llvm::raw_string_ostream rso(placeholders);
-    llvm::interleaveComma(
-        llvm::SmallVector<std::string>(block->getArguments().size(), "{}"),
-        rso);
-    rso.flush();
-
-    // Create conditional logic using VerbatimOp
-    std::string conditionalCode =
-        "if (is_first_call) {{\n"
-        "  is_first_call = false;\n"
-        "  return " +
-        srcOp.getCaptureCallee().str() + "(" + placeholders +
-        ");\n"
-        "} else {{\n"
-        "  return " +
-        srcOp.getExecuteCallee().str() + "(" + placeholders +
-        ");\n"
-        "}";
-
-    // We need to provide arguments twice since we use them in both branches
-    mlir::SmallVector<mlir::Value> allArgs;
-    for (auto arg : block->getArguments()) {
-      allArgs.push_back(arg);
+    // Prepare symbol refs for globals
+    auto &ctx = *rewriter.getContext();
+    auto isFirstSym = SymbolRefAttr::get(&ctx, "is_first_call");
+    auto traceIdSym = SymbolRefAttr::get(&ctx, "trace_id");
+    llvm::SmallVector<FlatSymbolRefAttr> inputSyms;
+    for (unsigned i = 0; i < inputVariable.size(); ++i) {
+      inputSyms.push_back(
+          SymbolRefAttr::get(&ctx, ("input_" + std::to_string(i)).c_str()));
     }
-    for (auto arg : block->getArguments()) {
-      allArgs.push_back(arg);
+    llvm::SmallVector<FlatSymbolRefAttr> outputSyms;
+    for (unsigned i = 0; i < outputVariable.size(); ++i) {
+      outputSyms.push_back(
+          SymbolRefAttr::get(&ctx, ("output_" + std::to_string(i)).c_str()));
     }
 
-    rewriter.create<emitc::VerbatimOp>(srcOp.getLoc(), conditionalCode,
-                                       allArgs);
+    // Load condition is_first_call
+    auto isFirstLValue = rewriter.create<emitc::GetGlobalOp>(
+        srcOp.getLoc(), emitc::LValueType::get(rewriter.getI1Type()),
+        isFirstSym);
+    auto cond = rewriter.create<emitc::LoadOp>(
+        srcOp.getLoc(), rewriter.getI1Type(), isFirstLValue);
 
-    // Since the verbatim code contains return statements, this won't be reached
-    // but we need a terminator for the block. Create a dummy return.
-    if (resultTypes.size() == 1) {
-      // Create a dummy return value using CallOpaqueOp (this is unreachable)
-      auto dummyValue = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(), resultTypes[0], "/* unreachable */", nullptr, nullptr,
-          mlir::ValueRange{});
-      rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), dummyValue.getResult(0));
-    } else {
-      rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), mlir::Value{});
+    // Create if statement with then/else blocks
+    auto ifOp = rewriter.create<emitc::IfOp>(srcOp.getLoc(), cond.getResult(),
+                                             /*add_then_block=*/true,
+                                             /*add_else_block=*/true);
+
+    // THEN: first call path
+    {
+      Block &thenBlock = ifOp.getThenRegion().getBlocks().front();
+      rewriter.setInsertionPointToStart(&thenBlock);
+
+      // is_first_call = false;
+      auto isFirstLValueThen = rewriter.create<emitc::GetGlobalOp>(
+          srcOp.getLoc(), emitc::LValueType::get(rewriter.getI1Type()),
+          isFirstSym);
+      auto falseC = rewriter.create<mlir::arith::ConstantOp>(
+          srcOp.getLoc(), rewriter.getI1Type(), rewriter.getBoolAttr(false));
+      rewriter.create<emitc::AssignOp>(srcOp.getLoc(), isFirstLValueThen,
+                                       falseC);
+
+      // v = capture_callee(args...)
+      auto autoTy = emitc::OpaqueType::get(&ctx, "auto");
+      auto captureTuple = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{autoTy}, srcOp.getCaptureCallee(), nullptr,
+          nullptr, block->getArguments());
+
+      // trace_id = std::get<0>(v)
+      auto traceIdLValue = rewriter.create<emitc::GetGlobalOp>(
+          srcOp.getLoc(),
+          emitc::LValueType::get(getTypeConverter()->convertType(
+              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))),
+          traceIdSym);
+      auto get0 = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(),
+          TypeRange{getTypeConverter()->convertType(
+              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))},
+          "::std::get<0>", nullptr, nullptr,
+          ValueRange{captureTuple.getResult(0)});
+      rewriter.create<emitc::AssignOp>(srcOp.getLoc(), traceIdLValue,
+                                       get0.getResult(0));
+
+      // auto actual_output = std::get<1>(v) [not needed when returning via
+      // global]
+      (void)ctx;
+
+      // input_i = std::get<inputBaseIndex + i>(v)
+      const unsigned inputBaseIndex = 2;
+      for (unsigned i = 0; i < inputVariable.size(); ++i) {
+        auto inLV = rewriter.create<emitc::GetGlobalOp>(
+            srcOp.getLoc(),
+            emitc::LValueType::get(getTypeConverter()->convertType(
+                adaptor.getInputs()[i].getType())),
+            inputSyms[i]);
+        std::string getName =
+            "::std::get<" + std::to_string(inputBaseIndex + i) + ">";
+        auto getIn = rewriter.create<emitc::CallOpaqueOp>(
+            srcOp.getLoc(),
+            TypeRange{getTypeConverter()->convertType(
+                adaptor.getInputs()[i].getType())},
+            getName, nullptr, nullptr, ValueRange{captureTuple.getResult(0)});
+        rewriter.create<emitc::AssignOp>(srcOp.getLoc(), inLV,
+                                         getIn.getResult(0));
+      }
+
+      // output_0 = std::get<inputBaseIndex + numInputs>(v)
+      if (resultTypes.size() != 1) {
+        (void)resultTypes;
+        rewriter.create<emitc::YieldOp>(srcOp.getLoc());
+      } else {
+        const unsigned outputBaseIndex =
+            inputBaseIndex + static_cast<unsigned>(inputVariable.size());
+        auto out0LV = rewriter.create<emitc::GetGlobalOp>(
+            srcOp.getLoc(), emitc::LValueType::get(resultTypes[0]),
+            outputSyms[0]);
+        std::string getOut0Name =
+            "::std::get<" + std::to_string(outputBaseIndex) + ">";
+        auto getOut0 = rewriter.create<emitc::CallOpaqueOp>(
+            srcOp.getLoc(), TypeRange{resultTypes[0]}, getOut0Name, nullptr,
+            nullptr, ValueRange{captureTuple.getResult(0)});
+        rewriter.create<emitc::AssignOp>(srcOp.getLoc(), out0LV,
+                                         getOut0.getResult(0));
+
+        // finish then block
+        rewriter.create<emitc::YieldOp>(srcOp.getLoc());
+      }
     }
+
+    // ELSE: execute path
+    {
+      Block &elseBlock = ifOp.getElseRegion().getBlocks().front();
+      rewriter.setInsertionPointToStart(&elseBlock);
+
+      // execute_callee(trace_id)
+      auto traceIdLValueElse = rewriter.create<emitc::GetGlobalOp>(
+          srcOp.getLoc(),
+          emitc::LValueType::get(getTypeConverter()->convertType(
+              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))),
+          traceIdSym);
+      auto traceIdVal = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          getTypeConverter()->convertType(
+              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
+          traceIdLValueElse);
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, srcOp.getExecuteCallee(), nullptr,
+          nullptr, ValueRange{traceIdVal.getResult()});
+
+      // finish else block
+      rewriter.create<emitc::YieldOp>(srcOp.getLoc());
+    }
+
+    // After the if-then-else, load the result and return it from the function.
+    rewriter.setInsertionPointAfter(ifOp);
+    auto out0LVRet = rewriter.create<emitc::GetGlobalOp>(
+        srcOp.getLoc(), emitc::LValueType::get(resultTypes[0]), outputSyms[0]);
+    auto out0ValRet = rewriter.create<emitc::LoadOp>(srcOp.getLoc(),
+                                                     resultTypes[0], out0LVRet);
+    rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), out0ValRet.getResult());
 
     // Replace the original operation with a call to our new function
     auto resultType =
