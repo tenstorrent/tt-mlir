@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 #include <atomic>
 
@@ -16,13 +17,6 @@ namespace mlir::tt::ttnn {
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 using TraceSmallString = llvm::SmallString<64>;
-
-static ::mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
-  return ::mlir::RankedTensorType::get(
-      /*shape=*/{},
-      ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
-      ttnn::TraceIdAttr::get(ctx));
-}
 
 class TTNNTraceHoistTransform
     : public impl::TTNNTraceHoistTransformBase<TTNNTraceHoistTransform> {
@@ -309,7 +303,7 @@ private:
     // output slots
     llvm::SmallVector<mlir::Type> outputTypes;
 
-    outputTypes.push_back(getTraceIdType(context));
+    outputTypes.push_back(utils::getTraceIdType(context));
 
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
       outputTypes.push_back(outputType);
@@ -410,7 +404,8 @@ private:
 
     // now, we can capture the trace
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
-        runAndCaptureTraceFunc.getLoc(), getTraceIdType(context), deviceOp,
+        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
+        deviceOp,
         /*cq_id=*/0);
 
     auto captureTraceCall = builder.create<func::CallOp>(
@@ -455,7 +450,7 @@ private:
     }
 
     llvm::SmallVector<mlir::Type> inputTypes;
-    inputTypes.push_back(getTraceIdType(context));
+    inputTypes.push_back(utils::getTraceIdType(context));
 
     llvm::SmallVector<mlir::Type> outputTypes;
 
