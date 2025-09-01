@@ -15,6 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
 #include <vector>
@@ -22,6 +23,10 @@
 namespace mlir::tt::ttnn {
 
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
+  llvm::outs() << "L1InterleavedFallbackAnalysis: Starting analysis with "
+                  "usable L1 cache "
+                  "size: "
+               << analysisInput.usableL1CacheSize << " bytes.\n";
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved.
   analysisInput.funcOp->walk([&](Operation *op) {
@@ -44,6 +49,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // Skip output of Conv2D that uses matmul under the hood, inefficient for L1
     // interleaved.
     if (utils::isConv2DConvertibleToMatMul(op)) {
+      llvm::outs() << "Skip output of Conv2d with matmul, loc: " << op->getLoc()
+                   << "\n";
+      llvm::outs() << "The skipped output op: ";
+      op->dump();
+      llvm::outs() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
                    "uses matmul, inefficient for L1 interleaved.",
@@ -65,6 +75,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       // Skip input of Conv2D that uses matmul under the hood, inefficient for
       // L1 interleaved.
       if (utils::isConv2DConvertibleToMatMul(user)) {
+        llvm::outs() << "Skip input of Conv2d with matmul, loc: "
+                     << op->getLoc() << "\n";
+        llvm::outs() << "The skipped output op: ";
+        op->dump();
+        llvm::outs() << "\n";
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
