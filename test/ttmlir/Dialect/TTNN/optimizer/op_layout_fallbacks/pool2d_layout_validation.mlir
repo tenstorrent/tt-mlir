@@ -13,12 +13,10 @@ module attributes {} {
   func.func @max_pool2d_with_tile_f32_input(%arg0: tensor<1x1x16384x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x4096x32xbf16, #ttnn_layout_tile_bf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
-    // The post-optimizer validation should detect that max_pool2d requires:
+    // The op validation pass should detect that max_pool2d requires:
     // 1. BFloat16 data type for input
     // 2. Returns row-major layout
-    // Therefore, the optimizer should insert two conversions:
-    // 1. Convert input from tile_f32 to row_major_bf16
-    // 2. Convert output from tile_bf16 to row_major_bf16
+    // Therefore, the pass will insert the necessary type conversion and revert output layout ops.
 
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>

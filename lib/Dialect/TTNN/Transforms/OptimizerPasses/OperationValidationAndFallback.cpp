@@ -80,15 +80,14 @@ void generateAllCombinations(
     std::vector<TTNNLayoutAttr> &currentCombination, double currentDistance,
     std::vector<CombinationCandidate> &allCombinations);
 
-OpConstraintValidator::ValidationResult
-testFallbackCombination(OpConstraintValidator &validator, Operation *op,
-                        const OpConfig &originalConfig,
+llvm::Expected<op_constraint_validation::ValidationResult>
+testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                         const std::vector<TTNNLayoutAttr> &inputLayouts);
 
 void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
-    const OpConstraintValidator::ValidationResult &result,
+    const op_constraint_validation::ValidationResult &result,
     const OpConfig &config);
 
 void applyInputOperandChange(Operation *operation,
@@ -157,12 +156,32 @@ public:
                 operation, inputLayouts, config);
 
         if (originalResult) {
+          if (originalResult->actualOutputLayout != config.outputLayout) {
+            // Output layout mismatch - need to update the IR to match the
+            // expected layout and insert necessary conversions back to the
+            // expected layout.
+            TTMLIR_DEBUG(
+                ttmlir::LogComponent::OpValidation,
+                "Operation {} at {} passed validation with original config "
+                "but output layouts mismatch: expected output layout: {}, "
+                "backend output layout: {}",
+                operation->getName(), operation->getLoc(), config.outputLayout,
+                originalResult->actualOutputLayout);
+            // Passing inputLayouts as both original and working layouts
+            // because we didn't change input layouts.
+            fallbacks::applyFallbackTransformations(
+                operation, inputLayouts, inputLayouts, originalResult.get(),
+                config);
+          } else {
+            TTMLIR_TRACE(
+                ttmlir::LogComponent::OpValidation,
+                "Operation {} at {} passed validation with original config",
+                operation->getName(), operation->getLoc());
+          }
           operationsValid++;
-          TTMLIR_TRACE(
-              ttmlir::LogComponent::OpValidation,
-              "Operation {} at {} passed validation with original config",
-              operation->getName(), operation->getLoc());
         } else {
+          llvm::consumeError(originalResult.takeError());
+
           // Original config failed, try fallback configurations
           if (fallbacks::tryFallbacks(operation, inputLayouts, config)) {
             operationsFixed++;
@@ -252,14 +271,6 @@ bool tryFallbacks(Operation *operation,
       "Testing fallback combinations for operation {} at {} with {} operands",
       operation->getName(), operation->getLoc(), originalInputLayouts.size());
 
-  // Create our own validator for fallback testing
-  // Don't compare output layout in this context - let backend decide.
-  // However, we will send output config to the validator to ensure DRAM
-  // Interleaved memory layout.
-  OpConstraintValidator fallbackValidator(
-      OpConstraintValidator::ValidationOptions(
-          /*fatalOnUnsupported=*/false, /*compareOutput=*/false));
-
   // Create fallback combinations for each operand
   std::vector<std::vector<TTNNLayoutAttr>> operandFallbacks;
   for (size_t i = 0; i < originalInputLayouts.size(); ++i) {
@@ -290,17 +301,20 @@ bool tryFallbacks(Operation *operation,
 
   // Test combinations in order of increasing distance
   for (const auto &candidate : allCombinations) {
-    auto result = testFallbackCombination(fallbackValidator, operation, config,
-                                          candidate.layouts);
-    if (result.success) {
-      // Found working solution, apply transformations
-      applyFallbackTransformations(operation, originalInputLayouts,
-                                   candidate.layouts, result, config);
-      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                   "Found working fallback combination with {} operands",
-                   candidate.layouts.size());
-      return true;
+    auto result = testFallbackCombination(operation, config, candidate.layouts);
+    if (auto error = result.takeError()) {
+      // Combination failed
+      llvm::consumeError(std::move(error));
+      continue;
     }
+
+    // Found working solution, apply transformations
+    applyFallbackTransformations(operation, originalInputLayouts,
+                                 candidate.layouts, result.get(), config);
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Found working fallback combination with {} operands",
+                 candidate.layouts.size());
+    return true;
   }
 
   return false;
@@ -383,14 +397,29 @@ double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to) {
   bool toIsFloat =
       (to == ttcore::DataType::Float32 || to == ttcore::DataType::BFloat16);
 
+  // Helper function to check if conversion is an upcast (lower -> higher
+  // precision)
+  auto isUpcast = [](ttcore::DataType from, ttcore::DataType to) -> bool {
+    // BFloat16 -> Float32 is upcast
+    if (from == ttcore::DataType::BFloat16 && to == ttcore::DataType::Float32) {
+      return true;
+    }
+    // Int32 -> UInt32 or UInt32 -> Int32 are lateral moves (not upcasts)
+    return false;
+  };
+
   if (fromIsInt && toIsInt) {
-    return LOW_COST; // Both integers: Int32 <-> UInt32 is close
+    return LOW_COST; // Both integers: Int32 <-> UInt32 is lateral move
   }
   if (fromIsFloat && toIsFloat) {
-    return LOW_COST; // Both floating point: Float32 <-> BFloat16 is close
+    if (isUpcast(from, to)) {
+      return MID_COST; // Upcast (BFloat16 -> Float32) is more expensive
+    }
+    return LOW_COST; // Downcast (Float32 -> BFloat16) is cheaper
   }
 
-  // Cross-category changes are more expensive
+  // Cross-category changes are more expensive as they are not safe conversions
+  // wrt. precision
   return MID_COST;
 }
 
@@ -399,7 +428,10 @@ double calculateLayoutDistance(Layout from, Layout to) {
   if (from == to) {
     return NO_COST;
   }
-  return MID_COST; // RowMajor <-> Tile conversion
+
+  // RowMajor <-> Tile conversion is low cost as it's safer
+  // than changing dtype
+  return LOW_COST;
 }
 
 // Calculate total distance for a layout transformation
@@ -453,9 +485,8 @@ void generateAllCombinations(
 }
 
 // Test a specific combination of fallback layouts for an operation
-OpConstraintValidator::ValidationResult
-testFallbackCombination(OpConstraintValidator &validator, Operation *op,
-                        const OpConfig &originalConfig,
+llvm::Expected<op_constraint_validation::ValidationResult>
+testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                         const std::vector<TTNNLayoutAttr> &inputLayouts) {
 
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
@@ -466,15 +497,15 @@ testFallbackCombination(OpConstraintValidator &validator, Operation *op,
   testConfig.outputLayout =
       testConfig.outputLayout.withMemoryLayout(TensorMemoryLayout::Interleaved);
 
-  auto result = validator.validateOperation(op, inputLayouts, testConfig);
-  return result;
+  return op_constraint_validation::validateOperation(op, inputLayouts,
+                                                     testConfig);
 }
 
 // Apply fallback transformations to the operation
 void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
-    const OpConstraintValidator::ValidationResult &result,
+    const op_constraint_validation::ValidationResult &result,
     const OpConfig &config) {
 
   // Apply input operand changes for each operand that was transformed
