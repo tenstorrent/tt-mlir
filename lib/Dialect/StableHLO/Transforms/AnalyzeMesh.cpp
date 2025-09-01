@@ -254,12 +254,14 @@ public:
         return;
       }
 
-      // If mesh is 1D, we will bump it up to 2D mesh with dim0 as 1.
+      // If mesh is 0D or 1D, we will bump it up to 2D mesh with dim0 as 1.
       llvm::SmallVector<int64_t> originalMeshShape =
           shardy_utils::getMeshShapeFromMeshAttr(
               parsedMeshOps[0].getMeshAttr());
       llvm::SmallVector<int64_t> newMeshShape = originalMeshShape;
-      if (newMeshShape.size() == 1) {
+      if (newMeshShape.size() == 0) {
+        newMeshShape = {1, 1};
+      } else if (newMeshShape.size() == 1) {
         newMeshShape = {1, newMeshShape[0]};
       }
 
