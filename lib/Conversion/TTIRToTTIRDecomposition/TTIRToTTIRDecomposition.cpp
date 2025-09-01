@@ -440,9 +440,9 @@ public:
     auto weight = adaptor.getWeight();
     // TTNN api handles reversing weights internally for transposed convolution.
     // So ttir.reverse op is ignored and its input is used as weight.
-    if (isTransposed &&
-        isa<mlir::tt::ttir::ReverseOp>(weight.getDefiningOp())) {
-      weight = weight.getDefiningOp()->getOperand(0);
+    if (auto reverseOp = weight.getDefiningOp<mlir::tt::ttir::ReverseOp>();
+        isTransposed && reverseOp) {
+      weight = reverseOp.getInput();
     }
     auto weightType = mlir::cast<RankedTensorType>(weight.getType());
     auto kernelPermutation = generateConvKernelPermutation(
@@ -512,7 +512,7 @@ public:
       });
       newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
           rewriter, op->getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
+          biasValue, inputDilationAttr, paddingAttr, outputPaddingAttr,
           dilationAttr, groupsAttr);
     } else {
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
