@@ -10,8 +10,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -111,6 +109,9 @@ bool producesL1Layout(Operation *op);
 bool producesTiledTensorLayout(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
+
+// Check if conv2D uses matmul (1x1 kernel, stride=1, padding=0, groups=1)
+bool isConv2DConvertibleToMatMul(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
