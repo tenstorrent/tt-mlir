@@ -14,8 +14,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/Support/Casting.h"
-
 #include "llvm/Support/raw_ostream.h"
+
 #include <algorithm>
 #include <cassert>
 #include <vector>
@@ -52,7 +52,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       llvm::outs() << "Skip output of Conv2d with matmul, loc: " << op->getLoc()
                    << "\n";
       llvm::outs() << "The skipped output op: ";
-      op->dump();
+      op->dumpPretty();
       llvm::outs() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
@@ -78,7 +78,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
         llvm::outs() << "Skip input of Conv2d with matmul, loc: "
                      << op->getLoc() << "\n";
         llvm::outs() << "The skipped output op: ";
-        op->dump();
+        op->dumpPretty();
         llvm::outs() << "\n";
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
