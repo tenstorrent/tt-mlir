@@ -1017,7 +1017,7 @@ private:
   // optimizer to determine if a memory reconfig is needed for non-sharded ops.
   void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
     func->walk([&](Operation *op) {
-      if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
+      if (!isa<ttnn::MaxPool2dOp, ttnn::AvgPool2dOp, ttnn::UpsampleOp>(op)) {
         return;
       }
 
@@ -1061,9 +1061,9 @@ private:
         return;
       }
 
-      if (isa<ttnn::MaxPool2dOp>(op)) {
-        // Unequivocally surround MaxPool2d with RM. Ideally we should query op
-        // constraints to see if RM is supported. But issue
+      if (isa<ttnn::MaxPool2dOp, ttnn::AvgPool2dOp>(op)) {
+        // Unequivocally surround MaxPool2d and AvgPool2dOp with RM. Ideally we
+        // should query op constraints to see if RM is supported. But issue
         // https://github.com/tenstorrent/tt-metal/issues/24358 blocks usage
         // of getOpConstraints for MaxPool2d.
         // TODO(rpavlovicTT): fix it once getOpConstraints is supported for
