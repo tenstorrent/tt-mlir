@@ -86,8 +86,56 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
   return covered.all();
 }
 
+// Identify which producer results must be preserved in fused op
+static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
+                                                            GenericOp consumer,
+                                                            OpOperand *fused) {
+  llvm::SmallDenseSet<int> keep;
+  // Only single output currently supported by TTIR GenericOp; be robust if
+  // extended.
+  for (auto it : llvm::enumerate(producer->getResults())) {
+    int idx = static_cast<int>(it.index());
+    // Preserve if used by something other than the consumer
+    bool hasOtherUse = llvm::any_of(it.value().getUsers(), [&](Operation *u) {
+      return u != consumer.getOperation();
+    });
+    if (hasOtherUse) {
+      keep.insert(idx);
+      continue;
+    }
+    // In doubt about dropping, conservatively keep for now.
+    // TODO: Refine like linalg's invertibility concat check.
+  }
+  return keep;
+}
+
 static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
                                  OpOperand *use) {
+
+  // skip fusing operands that have users other than consumer
+  auto preserveForOtherUsers = 
+    getPreservedProducerResults(producer, consumer, use);
+
+  if (!preserveForOtherUsers.empty()) {
+    return false;
+  }
+
+  // NOTE: this only works under assumption that the operand that we're
+  // fusing over only has a single user!
+  //
+  // fused op can't have more than set amount of operands
+  // due to number of CBs that can fit in L1
+  //
+  // TODO(mbagherbeikTT) figure out where to move this constant
+  unsigned int kFusedOpOperandLimit = 32; 
+  unsigned int consumerOperands = consumer->getNumOperands();
+  unsigned int producerOperands = consumer->getNumOperands();
+
+  // -2 since were removing 1 operand from both consumer and producer
+  if ((consumerOperands + producerOperands - 2) > kFusedOpOperandLimit) {
+    return false;
+  }
+
   if (!hasCompatibleBlocking(producer, consumer)) {
     return false;
   }
@@ -127,34 +175,15 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
   return arg.compose(inv).compose(consMapForFused);
 }
 
-// Identify which producer results must be preserved in fused op
-static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
-                                                            GenericOp consumer,
-                                                            OpOperand *fused) {
-  llvm::SmallDenseSet<int> keep;
-  // Only single output currently supported by TTIR GenericOp; be robust if
-  // extended.
-  for (auto it : llvm::enumerate(producer->getResults())) {
-    int idx = static_cast<int>(it.index());
-    // Preserve if used by something other than the consumer
-    bool hasOtherUse = llvm::any_of(it.value().getUsers(), [&](Operation *u) {
-      return u != consumer.getOperation();
-    });
-    if (hasOtherUse) {
-      keep.insert(idx);
-      continue;
-    }
-    // In doubt about dropping, conservatively keep for now.
-    // TODO: Refine like linalg's invertibility concat check.
-  }
-  return keep;
-}
-
 struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const override {
+    if(consumer.hasTrait<TTIRSkipOpEltWiseFusionTrait>()) {
+      return failure();
+    }
+
     if (!consumer.isComputeOnlyForm()) {
       return failure();
     }

@@ -140,3 +140,23 @@ mlir::tt::ttir::impl::verifyBroadcastable(mlir::Operation *op) {
 
   return success();
 }
+
+mlir::LogicalResult
+mlir::tt::ttir::impl::verifySkipOpEltWiseFusionTrait(mlir::Operation *op) {
+  // is op -> is generic op -> is compute
+  if (!op) {
+    return mlir::failure();
+  }
+
+  auto genOp = dyn_cast_or_null<GenericOp>(op);
+  if (!genOp) {
+    return mlir::failure();
+  }
+
+  if (!genOp.isComputeOnlyForm()) {
+    return failure();
+  }
+  
+  // This trait marks operations that should be skipped during elementwise fusion
+  return mlir::success();
+}

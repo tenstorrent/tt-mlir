@@ -355,6 +355,7 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
@@ -379,6 +380,7 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{

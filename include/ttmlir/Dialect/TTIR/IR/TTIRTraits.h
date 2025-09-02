@@ -15,6 +15,7 @@ bool verifyBinaryIdempotence(mlir::Operation *op);
 mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op);
 mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op);
 mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
+mlir::LogicalResult verifySkipOpEltWiseFusionTrait(mlir::Operation *op);
 mlir::OpFoldResult foldInvolution(mlir::Operation *op);
 mlir::OpFoldResult foldIdempotence(mlir::Operation *op);
 mlir::OpFoldResult foldBinaryIdempotence(mlir::Operation *op);
@@ -87,6 +88,15 @@ struct Broadcastable : public OpTrait::TraitBase<ConcreteType, Broadcastable> {
 public:
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     return impl::verifyBroadcastable(op);
+  }
+};
+
+template <typename ConcreteType>
+struct TTIRSkipOpEltWiseFusionTrait
+    : public OpTrait::TraitBase<ConcreteType, TTIRSkipOpEltWiseFusionTrait> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifySkipOpEltWiseFusionTrait(op);
   }
 };
 
