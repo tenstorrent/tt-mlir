@@ -1067,17 +1067,14 @@ public:
   mlir::LogicalResult
   matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
     // Numerator must be poolingOp.
-    llvm::outs() << "Trying to match div op for avg pool fusion...\n";
     PoolingOp numerator = op.getLhs().getDefiningOp<PoolingOp>();
     if (!numerator) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched numerator pooling op...\n";
     // Numerator must have the Sum pooling method.
     if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched numerator sum pooling method...\n";
     // Denominator must trace through first operands to pooling op.
     Value currentDenominator = op.getRhs();
     PoolingOp denominator;
@@ -1085,10 +1082,7 @@ public:
       if (!currentDenominator.getDefiningOp()) {
         return mlir::failure();
       }
-      llvm::outs()
-          << "Tracing through op: "
-          << currentDenominator.getDefiningOp()->getName().getStringRef()
-          << "\n";
+
       // We expect that the pooling denominator is only reshaped (for rank
       // change) and broadcasted if any ops lies between at all. If any other
       // ops lie between the denominator pooling op and the div op, then we
@@ -1096,24 +1090,18 @@ public:
       if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
         return mlir::failure();
       }
-      llvm::outs()
-          << "Tracing through op: "
-          << currentDenominator.getDefiningOp()->getName().getStringRef()
-          << "\n";
+
       currentDenominator = currentDenominator.getDefiningOp()->getOperand(0);
     }
     denominator = currentDenominator.getDefiningOp<PoolingOp>();
-    llvm::outs() << "Matched denominator pooling op...\n";
     // The denominator must have the Sum pooling method.
     if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched denominator sum pooling method...\n";
     // Denominator pooling op must have the same number of inputs as numerator.
     if (numerator.getInputs().size() != denominator.getInputs().size()) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched same number of inputs...\n";
     // Denominator pooling op must have all inputs be either a FullOp or a
     // ConstantOp.
     if (!llvm::all_of(denominator.getInputs(), [](Value v) {
@@ -1143,13 +1131,11 @@ public:
                                denominator.getWindowDilations())) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched all attributes except padding...\n";
     // The padding attribute of the denominator must
     // be all zeros.
     if (denominator.getPadding().empty()) {
       return mlir::failure();
     }
-    llvm::outs() << "Denominator padding: ";
     for (int64_t paddingValue : denominator.getPadding()) {
       if (paddingValue != 0) {
         return mlir::failure();
@@ -1171,7 +1157,6 @@ public:
           return mlir::failure();
         }
 
-        llvm::outs() << "Denominator input is a FullOp...\n";
         if (isa<IntegerAttr>(inputOp.getFillValue())) {
           int64_t value = dyn_cast<IntegerAttr>(inputOp.getFillValue())
                               .getValue()
@@ -1317,10 +1302,11 @@ private:
 class GlobalAvgPoolPattern : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
+public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Match the specific pattern: reshape(multiply(sum, 1/n))
+    // Match the specific pattern: reshape(multiply(sum, 1/h*w))
     // and replace it with avg_pool.
 
     MultiplyOp multiplyOp = reshapeOp.getInput().getDefiningOp<MultiplyOp>();
@@ -1329,68 +1315,124 @@ class GlobalAvgPoolPattern : public mlir::OpRewritePattern<ReshapeOp> {
       return mlir::failure();
     }
     llvm::outs() << "Matched multiply op...\n";
+
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!sumOp) {
-      llvm::outs() << "No sum op found\n";
+    if (!validateSumOp(sumOp)) {
+      llvm::outs() << "Sum op validation failed\n";
       return mlir::failure();
     }
     llvm::outs() << "Matched sum op...\n";
-    // Check that the multiply's rhs is a constant 1/n
+
+    auto input = sumOp.getInput();
+    auto inputShape = input.getType().getShape();
+
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    if (!validateFullOp(fullOp, inputShape)) {
+      llvm::outs() << "Fill value is not valid\n";
+      return mlir::failure();
+    }
+
+    llvm::outs() << "Fill value is valid...\n";
+    PoolingConfig poolingConfig = createPoolingConfig(inputShape);
+
+    rewriter.replaceOpWithNewOp<PoolingOp>(
+        reshapeOp, reshapeOp->getResultTypes(), input, reshapeOp.getOutput(),
+        PoolingMethod::Average, poolingConfig.windowDimensions,
+        poolingConfig.windowStrides, poolingConfig.baseDilations,
+        poolingConfig.windowDilations, poolingConfig.padding);
+    llvm::outs() << "Replaced with avg_pool...\n";
+    return mlir::success();
+  };
+
+private:
+  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
     if (!fullOp) {
       llvm::outs() << "No full op found\n";
-      return mlir::failure();
+      return false;
     }
-    llvm::outs() << "Matched full op...\n";
+
     Attribute fillValueAttr = fullOp.getFillValue();
     if (!fillValueAttr) {
-      llvm::outs() << "No fill value found\n";
-      return mlir::failure();
+      llvm::outs() << "No fill value attribute\n";
+      return false;
     }
     if (!isa<FloatAttr>(fillValueAttr)) {
-      llvm::outs() << "Fill value is not a float\n";
-      return mlir::failure();
+      llvm::outs() << "Fill value attribute is not a float\n";
+      return false;
     }
     float fillValue =
         dyn_cast<FloatAttr>(fillValueAttr).getValue().convertToFloat();
-    if (fillValue <= 0.0 || fillValue > 1.0) {
-      llvm::outs() << "Fill value is not in (0, 1]: " << fillValue << "\n";
-      return mlir::failure();
+    int64_t inputRank = inputShape.size();
+    int64_t inputHeight = inputShape[inputRank - 2];
+    int64_t inputWidth = inputShape[inputRank - 1];
+    float expectedValue = 1.0 / (inputHeight * inputWidth);
+    if (std::abs(fillValue - expectedValue) > 1e-4) {
+      llvm::outs() << "Fill value " << fillValue
+                   << " does not match expected value: " << expectedValue
+                   << "\n";
+
+      return false;
     }
-    auto input = sumOp.getInput();
-    auto inputShape = input.getType().getShape();
-    int64_t input_height = inputShape[inputShape.size() - 2];
-    int64_t input_width = inputShape[inputShape.size() - 1];
-    float expected_value = 1.0 / (input_height * input_width);
-    if (std::abs(fillValue - expected_value) > 1e-6) {
-      llvm::outs() << "Fill value is not approximately 1/(h*w): " << fillValue
-                   << " vs expected " << expected_value << "\n";
-      return mlir::failure();
+    return true;
+  }
+  bool validateSumOp(SumOp sumOp) const {
+    if (!sumOp) {
+      return false;
+    }
+    if (sumOp.getKeepDim()) {
+      return false;
+    }
+    if (!sumOp.getDimArg()) {
+      return false;
+    }
+    if (sumOp.getInput().getType().getShape().size() != 4) {
+      return false;
     }
 
-    llvm::outs() << "Matched fill value 1/(h*w)...\n";
-
-    // Check that the sum op has only one input
-    if (!sumOp->hasOneUse()) {
-      llvm::outs() << "Sum op has more than one input\n";
-      return mlir::failure();
+    // Check that dimensions 2 and 3 are being reduced (height and width)
+    mlir::ArrayAttr reduceDims = *sumOp.getDimArg();
+    if (reduceDims.size() != 2) {
+      return false;
     }
-    llvm::outs() << "Matched sum op with one input...\n";
 
-    llvm::SmallVector<int64_t> windowDimensions = {1, 1, input_height,
-                                                   input_width};
-    llvm::SmallVector<int64_t> windowStrides = {1, 1, 1, 1};
-    llvm::SmallVector<int64_t> baseDilations = {1, 1, 1, 1};
-    llvm::SmallVector<int64_t> windowDilations = {1, 1, 1, 1};
-    llvm::SmallVector<int64_t> padding = {0, 0, 0, 0, 0, 0, 0, 0};
-    int64_t input_rank = inputShape.size();
-    llvm::outs() << "Input tensor rank: " << input_rank << "\n";
-    rewriter.replaceOpWithNewOp<PoolingOp>(
-        reshapeOp, reshapeOp->getResultTypes(), input, reshapeOp.getOutput(),
-        PoolingMethod::Average, windowDimensions, windowStrides, baseDilations,
-        windowDilations, padding);
-    return mlir::success();
+    llvm::SmallVector<int64_t> dims;
+    for (mlir::Attribute reduceDim : reduceDims) {
+      dims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
+    }
+
+    // Sort dimensions to check for [2, 3]
+    llvm::sort(dims);
+    return dims[0] == 2 && dims[1] == 3;
+  }
+
+  struct PoolingConfig {
+    llvm::SmallVector<int64_t> windowDimensions;
+    llvm::SmallVector<int64_t> windowStrides;
+    llvm::SmallVector<int64_t> baseDilations;
+    llvm::SmallVector<int64_t> windowDilations;
+    llvm::SmallVector<int64_t> padding;
   };
+
+  PoolingConfig createPoolingConfig(ArrayRef<int64_t> inputShape) const {
+    PoolingConfig config;
+
+    // Get input dimensions
+    int64_t inputRank = inputShape.size();
+    int64_t inputHeight = inputShape[inputRank - 2];
+    int64_t inputWidth = inputShape[inputRank - 1];
+
+    // Initialize all vectors with appropriate size
+    config.windowDimensions.assign(inputRank, 1);
+    config.windowDimensions[inputRank - 2] = inputHeight;
+    config.windowDimensions[inputRank - 1] = inputWidth;
+
+    config.windowStrides.assign(inputRank, 1);
+    config.baseDilations.assign(inputRank, 1);
+    config.windowDilations.assign(inputRank, 1);
+    config.padding.assign(inputRank * 2, 0);
+
+    return config;
+  }
 };
 
 namespace {
