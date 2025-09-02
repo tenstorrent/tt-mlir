@@ -72,31 +72,20 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
       getResult().getType().getElementType());
 
   if (dtype != outputType) {
-    return emitOpError() << "dtype does not match with output tensor type.";
+    return emitOpError() << "dtype does not match with output tensor type";
   }
 
   float low = getLow().convertToFloat();
   float high = getHigh().convertToFloat();
   if (low >= high) {
-    return emitOpError() << "'low' value must be < 'high' value.";
-  }
-
-  auto layout =
-      mlir::cast<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())
-          .getLayout();
-  if (getLayout() != layout) {
-    return emitOpError() << "Layout argument does not match with output tensor "
-                            "encoding. [Layout = ("
-                         << stringifyEnum(getLayout())
-                         << "), output tensor encoding = ("
-                         << stringifyEnum(layout) << ")].";
+    return emitOpError() << "'low' value must be < 'high' value";
   }
 
   if (!llvm::equal(getResult().getType().getShape(), getSize().getShape())) {
     return emitOpError()
-           << "Size argument does not match with output tensor shape. [Size = ("
+           << "size argument does not match with output tensor shape. [Size = ("
            << getSize().getShape() << "), output tensor shape = ("
-           << getResult().getType().getShape() << ")].";
+           << getResult().getType().getShape() << ")]";
   }
 
   return success();
@@ -111,6 +100,21 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
     return emitOpError("value attribute must be one of "
                        "DenseResourceElementsAttr or DenseElementsAttr.");
+  }
+
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (outputLayout.getBufferType() != BufferType::SystemMemory &&
+      !getDevice()) {
+    return emitOpError("device operand must be specified for non-system memory "
+                       "buffer type");
+  }
+
+  if (outputLayout.getBufferType() == BufferType::SystemMemory && getDevice()) {
+    return emitOpError("device operand must not be specified for system memory "
+                       "buffer type");
   }
 
   return success();
@@ -1062,8 +1066,8 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   ttnn::LayoutAttr tensorLayoutAttr =
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
-  build(builder, state, resultType, shapeAttr, fillValue, dtypeAttr,
-        tensorLayoutAttr, device, /*memory_config=*/nullptr);
+  build(builder, state, resultType, device, shapeAttr, fillValue, dtypeAttr,
+        tensorLayoutAttr, /*memory_config=*/nullptr);
 }
 
 //===----------------------------------------------------------------------===//
