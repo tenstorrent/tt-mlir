@@ -197,7 +197,7 @@ protected:
   }
 
   // Device pointer provided by frontend (not a command line option)
-  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {

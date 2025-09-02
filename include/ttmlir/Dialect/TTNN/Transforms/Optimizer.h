@@ -32,7 +32,7 @@ struct TTNNOptimizerOptions {
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
   float tensorL1UsageCap = 0.8f; // Default to 80% of maximum free space in L1.
-  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

@@ -301,7 +301,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
-  ::tt::tt_metal::distributed::MeshDevice *devicePtr = nullptr;
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 };
 
 // TTIR to EmitC pipeline options.

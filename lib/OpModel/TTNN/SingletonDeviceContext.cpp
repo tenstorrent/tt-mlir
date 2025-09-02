@@ -33,28 +33,17 @@ void SingletonDeviceContext::resetInstance() {
 
 void SingletonDeviceContext::closeInstance() {
   SingletonDeviceContext &instance = getInstance();
-  if (instance.m_isExternalDevice) {
-    // If using an external device, just reset the shared_ptr without closing
-    // the device
-    instance.m_device.reset();
-    instance.m_isExternalDevice = false;
-    return;
-  }
-
   assert(instance.m_device != nullptr && "No device to close");
-  instance.closeDevice();
+  instance.m_device.reset();
 }
 
 void SingletonDeviceContext::setExternalDevice(
-    ::tt::tt_metal::distributed::MeshDevice *device) {
+    std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device) {
   SingletonDeviceContext &instance = getInstance();
   assert(device != nullptr && "External device pointer cannot be null");
   assert(instance.m_device == nullptr &&
          "Device is already initialized. Cannot set external device.");
-  instance.m_device = std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>(
-      device, [](::tt::tt_metal::distributed::MeshDevice *) {
-        // Empty deleter - we don't own this device
-      });
+  instance.m_device = std::move(device);
   instance.m_isExternalDevice = true;
 }
 
@@ -77,14 +66,6 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
-}
-
-void SingletonDeviceContext::closeDevice() {
-  assert(m_device != nullptr &&
-         "Device is not initialized. Cannot close device.");
-  assert(!m_isExternalDevice && "Cannot close device an external device.");
-  m_device->close();
-  m_device.reset();
 }
 
 } // namespace mlir::tt::ttnn::op_model

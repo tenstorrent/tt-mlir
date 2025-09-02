@@ -38,8 +38,8 @@ public:
   static SingletonDeviceContext &getInstance();
 
   // Resets the instance by closing and reopening the device (this is used in
-  // testing). The device needs to be open before calling this function. Assumes
-  // that the device is not externally managed.
+  // testing). The device needs to be open before calling this function. Asserts
+  // that the device is not externally managed (since we cannot close it).
   static void resetInstance();
 
   // Clears the device context and closes the device if needed; when the device
@@ -51,14 +51,10 @@ public:
   // context with a new device.
   static void closeInstance();
 
-  // Sets an externally managed device. The device pointer must remain valid
-  // while the instance is using it. The instance will not attempt to close
-  // the device when `closeInstance()` is called - it will just clear the
-  // pointer.
-  //
-  // This is used when the device is passed to us by the frontend.
-  static void
-  setExternalDevice(::tt::tt_metal::distributed::MeshDevice *device);
+  // Sets an externally managed device - this is used when the device is passed
+  // to us by the frontend.
+  static void setExternalDevice(
+      std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device);
 
   // Opens a new (owned) device. Users need to ensure that we don't have an
   // active device in the current context, otherwise this method will assert.
@@ -79,9 +75,11 @@ private:
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
-  void closeDevice();
-
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
+
+  // This field is technically not needed, but is there to assert that
+  // `resetInstance()` is legal. If we are using an external device, we cannot
+  // reset the instance.
   bool m_isExternalDevice = false;
 
   // todo(arminaleTT): look into dynamically adjusting this
