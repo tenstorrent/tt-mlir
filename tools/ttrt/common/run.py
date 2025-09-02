@@ -543,6 +543,7 @@ class Run:
                         fbb, program_index, input_index
                     )
                     perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
+                    perf_env.tracy_log_input_layout_conversion(True)
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
                             inputs[input_index], device, input_layout, True
@@ -841,6 +842,7 @@ class Run:
                                         perf_env.tracy_log_op_location(
                                             f"loc(arg_{input_idx})"
                                         )
+                                        perf_env.tracy_log_input_layout_conversion(True)
                                         result_tensor = ttrt.runtime.to_layout(
                                             tensor_to_dirty,
                                             device,
