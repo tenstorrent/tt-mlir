@@ -774,17 +774,25 @@ public:
 
     SmallVector<AffineExpr> results;
     results.reserve(deviceRank);
-    results.push_back(rewriter.getAffineDimExpr(1));
-    results.push_back(rewriter.getAffineDimExpr(0));
-    for (unsigned i = 2; i < deviceRank; ++i) {
-      results.push_back(rewriter.getAffineDimExpr(i));
+
+    // Swap pairs of dimensions: (d0, d1, d2, d3, ...) -> (d1, d0, d3, d2, ...)
+    for (unsigned i = 0; i < deviceRank; i += 2) {
+      if (i + 1 < deviceRank) {
+        // Swap each pair
+        results.push_back(rewriter.getAffineDimExpr(i + 1));
+        results.push_back(rewriter.getAffineDimExpr(i));
+      } else {
+        // Odd dimension count - keep last dim as-is
+        results.push_back(rewriter.getAffineDimExpr(i));
+      }
     }
+
     AffineMap transposeMap = AffineMap::get(deviceRank, 0, results, ctx);
 
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
     AffineMap composedMap = transposeMap.compose(
-        inputLayout.getViewAffineMapOrIdentity(deviceRank));
+        inputLayout.getIndexAffineMapOrIdentity(deviceRank));
 
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
@@ -793,18 +801,25 @@ public:
 
     SmallVector<int64_t> resultDeviceShape(inputShape.begin(),
                                            inputShape.end());
-    if (resultDeviceShape.size() >= 2) {
-      std::swap(resultDeviceShape[0], resultDeviceShape[1]);
-    }
+    // For now, we've asserted we're 2D, so we should have 4D on device (grid +
+    // shard).
+    assert(resultDeviceShape.size() == 4);
+    std::swap(resultDeviceShape[0], resultDeviceShape[1]);
+    std::swap(resultDeviceShape[2], resultDeviceShape[3]);
 
     auto viewType = mlir::RankedTensorType::get(
         resultDeviceShape, inputTensorType.getElementType(), resultLayout);
 
-    auto view = rewriter.create<ttir::ViewLayoutOp>(
-        loc, viewType, inputs[0], /*reinterpretLayout=*/false);
+    // Use a stream layout instead of a pure view to avoid race conditions
+    // during transpose (paired tiles may otherwise write into each other).
+    // Create a storage tensor and form a stream from input to the transposed
+    // view.
+    auto storage = rewriter.create<ttir::EmptyOp>(loc, viewType);
+    auto stream = rewriter.create<ttir::StreamLayoutOp>(loc, viewType,
+                                                        inputs[0], storage);
 
     // NOW CREATE THE GENERIC OP WITH TILE TRANSPOSE
-    inputs[0] = view.getResult(); // Use the view as input
+    inputs[0] = stream.getResult(); // Use the stream view as input
 
     // Identity maps since grid shapes now match
     auto identityMap = rewriter.getMultiDimIdentityMap(2);
