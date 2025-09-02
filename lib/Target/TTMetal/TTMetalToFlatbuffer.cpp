@@ -98,18 +98,18 @@ static target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
   assert(false && "Unsupported MathFidelity");
 }
 
-static std::vector<target::metal::UnpackToDestMode>
+static std::vector<target::UnpackToDestMode>
 toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
-  std::vector<target::metal::UnpackToDestMode> result;
+  std::vector<target::UnpackToDestMode> result;
   result.reserve(unpackToDestModes.size());
 
   for (auto mode : unpackToDestModes) {
     switch (mode) {
     case ttmetal::UnpackToDestMode::Fp32:
-      result.push_back(target::metal::UnpackToDestMode::Fp32);
+      result.push_back(target::UnpackToDestMode::Fp32);
       break;
     case ttmetal::UnpackToDestMode::Default:
-      result.push_back(target::metal::UnpackToDestMode::Default);
+      result.push_back(target::UnpackToDestMode::Default);
       break;
     }
   }
