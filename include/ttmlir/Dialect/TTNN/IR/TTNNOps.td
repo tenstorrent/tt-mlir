@@ -1066,7 +1066,8 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr: $dimension);
+                         SI32Attr: $dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1982,7 +1983,8 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     let hasVerifier = 1;
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
@@ -1994,7 +1996,9 @@ def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+def TTNN_DeallocateOp : TTNN_Op<"deallocate",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Deallocate op.";
     let description = [{
       Tensor Deallocate operation
