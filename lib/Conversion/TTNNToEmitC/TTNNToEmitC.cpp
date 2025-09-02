@@ -2636,25 +2636,43 @@ public:
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     /*
-    `capture_or_execute_trace` is a stateful function that on the first call
-    calls `capture_calle` and on the second (and onwards) calls `execute_calle`.
+    The `capture_or_execute_trace` is a function that depends on the global
+    state. On the first call, it calls `capture_calle` and on the second (and
+    onwards) calls `execute_calle`. Pseudo C++ code looks like:
 
-    ttnn::Tensor capture_or_execute_trace(...) {
-      static bool is_first_call = true;
+    bool is_first_call = true;
+    ttnn::MeshTraceId trace_id;
+    ttnn::Tensor global_input_0;
+    ...
+    ttnn::Tensor global_input_n;
+    ttnn::Tensor global_output_0;
+    ...
+    ttnn::Tensor global_output_m;
+
+    std::tuple<ttnn::Tensor,..., ttnn::Tensor> capture_or_execute_trace(
+        ttnn::MeshDevice *device,
+        ttnn::Tensor input_0,..., ttnn::Tensor input_n) {
       if (is_first_call) {
         is_first_call = false;
-        return capture_calle(...);
+        [trace_id,
+         actual_output_0,..., actual_output_m,
+         global_input_0,..., global_input_n,
+         global_output_0,..., global_output_m]
+            = capture_calle(input_0,..., input_n);
+        return actual_output_0,..., actual_output_m;
       } else {
-        return execute_calle(...);
+        return execute_calle(trace_id);
+        return actual_output_0,..., actual_output_m;
       }
     }
     */
-    // Find the module to create the function at module level
+
     auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
     if (!moduleOp) {
       return failure();
     }
 
+    // Skip over includes, to find the insertion point for global variables.
     auto insertionPointOp = moduleOp.getBody()->begin();
     while (mlir::isa<emitc::IncludeOp>(*insertionPointOp)) {
       ++insertionPointOp;
