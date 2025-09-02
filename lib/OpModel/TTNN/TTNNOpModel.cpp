@@ -2520,6 +2520,208 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// DeallocateOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<DeallocateOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, bool force) {
+  // sgholamiTT: DeallocateOp's invoke method in tt-metal returns void. So it
+  // cannot be called via a call to query_op_constraints (see
+  // extract_output_tensor usage). Besides, DeallocateOp has no memory usage as
+  // it simply deallocates memory. So I decided to return an empty
+  // OpConstraints, instead of returning an error.
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t>
+OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                    TTNNLayoutAttr inputLayout, bool force) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto deallocateOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::deallocate, device,
+                                           inputSpec, force);
+  };
+
+  return operation::getOpRuntime(deallocateOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::fill_cache, device, cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     fillCacheOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::fill_cache, device,
+                                           cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpRuntime(fillCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// UpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
+    TTNNLayoutAttr updateIndexLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // TODO(#1510): modify the ttnn::update_cache to take a tensor for
+  // updateIndex.
+  // UpdateIndex is stored as a tensor in mlir, but the ttnn::update_cache
+  // expects a scalar uint32_t. So we need to extract the scalar value from the
+  // tensor which is not possible in compile time (as opposed to the workaround
+  // that is implemented in runtime code in PR 1437). So we use a default value
+  // of 0.
+  uint32_t updateIdx = 0; // Default to first position
+  (void)updateIndexShape;
+  (void)updateIndexLayout;
+
+  auto updateCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(::ttnn::update_cache, device,
+                                               cacheSpec, inputSpec, updateIdx,
+                                               batchOffset);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     updateCacheOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
+    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // TODO(#1510): modify the ttnn::update_cache to take a tensor for
+  // updateIndex.
+  uint32_t updateIdx = 0; // Default to first position
+  (void)updateIndexShape;
+  (void)updateIndexLayout;
+
+  auto updateCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::update_cache, device,
+                                           cacheSpec, inputSpec, updateIdx,
+                                           batchOffset);
+  };
+
+  return operation::getOpRuntime(updateCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
