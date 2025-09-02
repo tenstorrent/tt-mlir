@@ -2060,8 +2060,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
 template <typename OpT>
 std::string getOpRuntimeExpectedErrorMessage(OpT op) {
   auto opName = op->getName().getStringRef();
-  return "opRuntime is not supported for " + opName.str() +
-         " since it requires memory IO.";
+  return "op_runtime is not supported for " + opName.str() +
+         ". Reason: [needs memory IO]";
 }
 
 TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
@@ -3414,6 +3414,9 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
+
   // Test getOpRuntime
   auto runtimeExp = backend.getOpRuntime(
       getInputLayouts(fillCache.getOperation()), OpConfig());
@@ -3458,6 +3461,9 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
     FAIL() << "Missing constraints for UpdateCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  // Need to reset device other wise hangs. See tt-metal issue #25772
+  op_model::SingletonDeviceContext::resetInstance();
 
   // Test getOpRuntime
   auto runtimeExp = backend.getOpRuntime(
