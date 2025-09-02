@@ -46,15 +46,19 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::Shape outputShape =
       operations::utils::toTTNNShape(*op->out()->desc()->shape());
-  ::ttnn::Shape inputShape =
-      operations::utils::toTTNNShape(*op->in()->desc()->shape());
+  // Line RS requires double-sized input for forward/backward
+  const auto &originalShape = *op->in()->desc()->shape();
+  std::vector<uint32_t> modifiedShape{2}; // Start with '2'
+  modifiedShape.insert(modifiedShape.end(), originalShape.begin(),
+                       originalShape.end()); // Fill the rest of the shape
+  ::ttnn::Shape intermediateShape = ::ttnn::Shape(modifiedShape);
   ::ttnn::DataType ttnnDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
       op->out()->desc()->layout()->memory_desc()->data_type());
   ::ttnn::Layout ttnnLayout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
   ::ttnn::Tensor intermediateBuffer =
-      ::ttnn::empty(inputShape, ttnnDtype, ttnnLayout, &meshDevice,
+      ::ttnn::empty(intermediateShape, ttnnDtype, ttnnLayout, &meshDevice,
                     outputMemoryConfig.value());
   ::ttnn::Tensor outputBuffer =
       ::ttnn::empty(outputShape, ttnnDtype, ttnnLayout, &meshDevice,
