@@ -19,10 +19,6 @@
 #include <cstddef>
 #include <vector>
 
-using namespace mlir;
-using namespace mlir::tt;
-using namespace mlir::tt::ttnn;
-
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPERATIONVALIDATIONANDFALLBACK
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -127,6 +123,12 @@ public:
           return WalkResult::skip();
         }
 
+        if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
+          // Skip ToLayout operations - they will be decomposed later, so there
+          // is no point in validating them here.
+          return WalkResult::skip();
+        }
+
         // Skip operations that are not OpModel castable (can't be validated)
         // TODO(rpavlovic): we should have all ops implement OpModel interface
         // eventually. Then this check becomes an assert.
@@ -149,6 +151,11 @@ public:
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
             utils::extractInputLayouts(operation);
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                     "Validating operation {} at {} with {} input layouts",
+                     operation->getName(), operation->getLoc(),
+                     inputLayouts.size());
 
         // Test original configuration
         llvm::Expected<op_constraint_validation::ValidationResult>
