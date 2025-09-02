@@ -20,7 +20,7 @@ class CallbackRuntimeConfig:
         rtol=1e-05,
         save_golden_tensors=False,
         logging=None,
-        enable_golden=False,
+        enable_golden=True,
         enable_memory=False,
         enable_debugger=False,
         golden_report={},
@@ -119,12 +119,13 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     logging.debug("executing golden comparison")
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
+    debug_str = ttrt.runtime.get_op_debug_str(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
+    # op_golden_tensor = binary.get_debug_info_golden(loc)
 
-    if op_golden_tensor is None:
-        logging.debug("Golden tensor is None - skipping golden comparison")
-        return
+    # if op_golden_tensor is None:
+    #     logging.debug("Golden tensor is None - skipping golden comparison")
+    #     return
 
     op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
 
@@ -133,9 +134,38 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         return
 
     rt_buffer = op_output_tensor.get_data_buffer()
-    dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-    assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
-    golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
+    # dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
+    # assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
+    # golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
+    
+    # Get input tensor references for the operation
+    input_refs = ttrt.runtime.get_op_input_refs(op_context, program_context)
+
+    # Convert input references to actual tensors
+    input_tensors = []
+    input_torch_tensors = []
+    for i, input_ref in enumerate(input_refs):
+        # Get the actual tensor from the pool
+        tensor = ttrt.runtime.retrieve_tensor_from_pool(program_context, input_ref)
+        input_tensors.append(tensor)
+
+        # Convert to PyTorch tensor
+        if tensor is not None:
+            rt_data_ptr = tensor.get_data_buffer()
+            rt_dtype = tensor.get_dtype()
+            dtype = ttrt_datatype_to_torch_dtype(rt_dtype)  # Use your existing conversion
+            shape = tensor.get_shape()
+            torch_tensor = torch.frombuffer(rt_data_ptr, dtype=dtype)
+            torch_tensor = torch_tensor.reshape(shape).clone()  # Keep tensor alive
+            input_torch_tensors.append(torch_tensor)
+
+            print(f"Input {i} shape: {shape}, dtype: {dtype}")
+
+    golden_tensor_torch = torch.add(input_torch_tensors[0], input_torch_tensors[1])
+    print(f"golden_tensor_torch shape: {golden_tensor_torch.shape}, dtype: {golden_tensor_torch.dtype}")
+    # Now you have access to all input tensors!
+    # input_tensors[i] - runtime tensor objects
+    # input_torch_tensors[i] - PyTorch tensors
 
     output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
     if callback_runtime_config.save_golden_tensors:
@@ -185,6 +215,8 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         golden_tensor_torch.float().unsqueeze(0),
         output_tensor_torch.float().unsqueeze(0),
     ).item()
+
+    print(f"Results: {results}")
 
     callback_runtime_config.golden_report[loc] = results
 
@@ -264,8 +296,9 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
 
-    if callback_runtime_config.enable_golden:
-        golden(callback_runtime_config, binary, program_context, op_context)
+    # if callback_runtime_config.enable_golden:
+        # golden(callback_runtime_config, binary, program_context, op_context)
+    golden(callback_runtime_config, binary, program_context, op_context)
 
     if callback_runtime_config.enable_memory:
         memory(callback_runtime_config, binary, program_context, op_context)
