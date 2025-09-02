@@ -23,14 +23,12 @@ namespace mlir::tt::ttnn {
 
 namespace detail {
 
-enum class APIType { OpConstraint, OpRunTime };
-
-inline std::string getAPITypeStr(APIType type) {
-  switch (type) {
-  case APIType::OpConstraint:
-    return "op_constraint";
-  case APIType::OpRunTime:
+template <typename T>
+inline std::string getAPITypeStr() {
+  if constexpr (std::is_same_v<T, std::size_t>) {
     return "op_runtime";
+  } else if constexpr (std::is_same_v<T, op_model::OpConstraints>) {
+    return "op_constraint";
   }
 }
 
@@ -55,15 +53,11 @@ inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
 // supported for a specific reason.
 template <typename T>
 static llvm::Expected<T> issueError(mlir::Operation *op,
-                                    ReasonForLackOfSupport reason,
-                                    APIType apiType) {
+                                    ReasonForLackOfSupport reason) {
   static_assert(std::is_same_v<T, std::size_t> ||
                 std::is_same_v<T, op_model::OpConstraints>);
-  assert((std::is_same_v<T, std::size_t> && apiType == APIType::OpRunTime) ||
-         (std::is_same_v<T, op_model::OpConstraints> &&
-          apiType == APIType::OpConstraint));
   auto opName = op->getName().getStringRef();
-  std::string error = getAPITypeStr(apiType) + " is not supported for " +
+  std::string error = getAPITypeStr<T>() + " is not supported for " +
                       opName.str() + ". Reason: [" +
                       getReasonForLackOfSupportStr(reason) + "]";
   return llvm::make_error<llvm::StringError>(error,
@@ -85,12 +79,12 @@ static llvm::Expected<T> issueError(mlir::Operation *op,
 // https://github.com/tenstorrent/tt-mlir/issues/4199#issuecomment-3140045496
 static llvm::Expected<size_t>
 issueErrorForGetOpRuntime(mlir::Operation *op, ReasonForLackOfSupport reason) {
-  return issueError<std::size_t>(op, reason, APIType::OpRunTime);
+  return issueError<std::size_t>(op, reason);
 }
 static llvm::Expected<op_model::OpConstraints>
 issueErrorForGetOpConstraints(mlir::Operation *op,
                               ReasonForLackOfSupport reason) {
-  return issueError<op_model::OpConstraints>(op, reason, APIType::OpConstraint);
+  return issueError<op_model::OpConstraints>(op, reason);
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
