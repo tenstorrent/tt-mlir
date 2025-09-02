@@ -735,7 +735,9 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
 }
 
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -769,7 +771,9 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow",
     }];
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result

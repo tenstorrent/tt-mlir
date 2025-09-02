@@ -1415,7 +1415,8 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
 
-      bool useGreaterThan = false;
+      bool useGreaterThan =
+          std::is_same_v<OpTy, Atan2Op> || std::is_same_v<OpTy, RemainderOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
       EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
@@ -1508,6 +1509,8 @@ using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
 using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
+using OpModelRemainderParam = OpModelBinaryEltwiseParam<RemainderOp>;
+using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -1530,6 +1533,8 @@ TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
 TEST_P(OpModelPowParam, PowOp) { RunTest(); }
+TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
+TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
@@ -1625,6 +1630,20 @@ generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   return ::testing::ValuesIn(newValues);
 }
 
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParamsSameLayout(
+    std::initializer_list<BinaryEltwiseParam> values) {
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
+        (newValues.back().inputA.layout != newValues.back().output.layout)) {
+      newValues.back().expectedResult.expectedLegal = false;
+    }
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
 INSTANTIATE_TEST_SUITE_P(AddTests, OpModelAddParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
@@ -1691,6 +1710,14 @@ INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
 
 INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    RemainderTests, OpModelRemainderParam,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    Atan2Tests, OpModelAtan2Param,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 
