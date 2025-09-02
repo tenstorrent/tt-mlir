@@ -2655,7 +2655,12 @@ public:
       return failure();
     }
 
-    rewriter.setInsertionPointToStart(moduleOp.getBody());
+    auto insertionPointOp = moduleOp.getBody()->begin();
+    while (mlir::isa<emitc::IncludeOp>(*insertionPointOp)) {
+      ++insertionPointOp;
+    }
+    rewriter.setInsertionPoint(&*insertionPointOp);
+
     rewriter.create<emitc::GlobalOp>(
         srcOp.getLoc(), /*sym_name=*/"is_first_call", rewriter.getI1Type(),
         rewriter.getBoolAttr(true));
