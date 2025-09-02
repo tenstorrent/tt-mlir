@@ -87,13 +87,10 @@ llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp);
 
+// Get the sharding attribute for an operand.
 mlir::sdy::TensorShardingAttr
-getShardingForManualComputationArg(mlir::BlockArgument barg);
-
-mlir::sdy::TensorShardingAttr getShardingForOpResult(mlir::OpResult res);
-
-mlir::sdy::TensorShardingAttr getShardingAttr(mlir::Value v,
-                                              mlir::sdy::MeshOp globalMeshOp);
+getOperandShardingAttr(const mlir::OpOperand &operand,
+                       mlir::sdy::MeshOp globalMeshOp);
 
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>

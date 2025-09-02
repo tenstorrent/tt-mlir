@@ -126,9 +126,10 @@ static FailureOr<mlir::OperationState> createNewOperationState(
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
             // 1. Get the sharding for each operand dimension.
             llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
-                operandDimShardings = shardy_utils::getShardingAttr(
-                                          gatherOp.getOperand(), globalMeshOp)
-                                          .getDimShardings();
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        gatherOp.getOperation()->getOpOperand(0), globalMeshOp)
+                        .getDimShardings();
 
             // 2. Copy the current slice_sizes attribute.
             llvm::SmallVector<int64_t> newSliceSizes(gatherOp.getSliceSizes());
