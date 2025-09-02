@@ -3389,12 +3389,11 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
 
   auto cacheTensor = createEmptyTensor(cacheShape);
   auto inputTensor = createEmptyTensor(inputShape);
-  auto outputType = createRankedTensorType(cacheShape);
 
-  // Create FillCacheOp with batch_offset = 0
-  auto fillCache = builder.create<FillCacheOp>(
-      builder.getUnknownLoc(), outputType, cacheTensor, inputTensor,
-      builder.getI32IntegerAttr(0));
+  // Create FillCacheOp with batch_offset = 0 (no result type - it's in-place)
+  auto fillCache =
+      builder.create<FillCacheOp>(builder.getUnknownLoc(), cacheTensor,
+                                  inputTensor, builder.getI32IntegerAttr(0));
 
   // Test OpModel interface
   auto backend = dyn_cast<OpModel>(fillCache.getOperation());
@@ -3407,9 +3406,9 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
     // Basic validation that constraints are reasonable
-    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(cbSize, 4096);
     EXPECT_EQ(peakSize, 0);
-    EXPECT_EQ(outputSize, 0);
+    EXPECT_EQ(outputSize, 32768);
   } else {
     FAIL() << "Missing constraints for FillCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
