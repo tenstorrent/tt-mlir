@@ -37,11 +37,16 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
       return;
     }
-    // Skip output of Conv2D that uses matmul under the hood, inefficient in L1.
+    // Skip Matmul and Linear input, inefficient for L1 interleaved.
+    if (isa<ttnn::MatmulOp, ttnn::LinearOp>(op)) {
+      return;
+    }
+    // Skip output of Conv2D that uses matmul under the hood, inefficient for L1
+    // interleaved.
     if (utils::isConv2DConvertibleToMatMul(op)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
-                   "uses matmul, inefficient in L1.",
+                   "uses matmul, inefficient for L1 interleaved.",
                    op->getName());
       return;
     }
@@ -53,13 +58,17 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(user)) {
         return;
       }
-      // Skip input of Conv2D that uses matmul under the hood, inefficient in
-      // L1.
+      // Skip Matmul and Linear input, inefficient for L1 interleaved.
+      if (isa<ttnn::MatmulOp, ttnn::LinearOp>(user)) {
+        return;
+      }
+      // Skip input of Conv2D that uses matmul under the hood, inefficient for
+      // L1 interleaved.
       if (utils::isConv2DConvertibleToMatMul(user)) {
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
-            "uses matmul, inefficient in L1.",
+            "uses matmul, inefficient for L1 interleaved.",
             op->getName());
         return;
       }
