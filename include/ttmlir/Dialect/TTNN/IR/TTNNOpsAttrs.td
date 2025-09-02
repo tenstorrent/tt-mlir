@@ -739,7 +739,7 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   let genVerifyDecl = 1;
 }
 
-def TTMetal_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kernel_arg_cb_buffer_index"> {
+def TTNN_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kernel_arg_cb_buffer_index"> {
   let summary = "CB argument";
   let description = [{
     TTNN generic kernel argument for CB buffer index.
@@ -749,7 +749,7 @@ def TTMetal_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "ke
   let assemblyFormat = "`<` $buffer_index `>`";
 }
 
-def TTMetal_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
+def TTNN_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
   let summary = "Address of tensor argument";
   let description = [{
     TTNN generic kernel argument for address of tensor at postion in operation tensors array.
@@ -759,7 +759,7 @@ def TTMetal_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor",
   let assemblyFormat = "`<` $tensor_index `>`";
 }
 
-def TTMetal_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_arg_semaphore_at"> {
+def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_arg_semaphore_at"> {
   let summary = "Semaphore argument";
   let description = [{
     TTNN generic kernel argument for semaphore at position in semaphores array in program.
