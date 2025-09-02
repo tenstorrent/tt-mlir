@@ -87,10 +87,6 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
 ::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
-std::optional<ttsl::SmallVector<uint32_t>>
-convertI64SmallVectorToUI32SmallVector(
-    const std::optional<llvm::SmallVector<int64_t>> &input);
-
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig);
 

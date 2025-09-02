@@ -582,6 +582,42 @@ TEST_F(OpModelTest, Slice) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, SliceDynamic) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {4, 32, 32};
+  const llvm::SmallVector<int64_t> beginsShape = {3};
+  const llvm::SmallVector<int64_t> endsShape = {3};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputTensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr beginsLayoutDRAM = CreateTiledLayout(
+      beginsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr endsLayoutDRAM = CreateTiledLayout(
+      endsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      inputTensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  std::optional<llvm::SmallVector<int64_t>> step =
+      llvm::SmallVector<int64_t>{1, 1, 1};
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = OpModel<SliceDynamicOp>::getOpConstraints(
+      CreateWorkerGrid(), inputTensorShape, inputLayoutDRAM, beginsShape,
+      beginsLayoutDRAM, endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<SliceDynamicOp>::getOpRuntime(
+      inputTensorShape, inputLayoutDRAM, beginsShape, beginsLayoutDRAM,
+      endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, ToLayout) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);

@@ -1626,27 +1626,35 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  auto beginsSpecExp =
-      detail::convertToTensorSpec(device, beginsShape, beginsLayout);
-  if (!beginsSpecExp) {
-    return beginsSpecExp.takeError();
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to the end (Capturing the entire tensor results in the
+  // highest memory usage).
+  // Note that this is a fairly accurate approximation since the dynamic version
+  // in metal also converts the three tensors (begins, ends, step) to vectors
+  // and then calls the static version.
+  ::ttsl::SmallVector<int> stepVec =
+      ::ttsl::SmallVector<int>(inputShape.size(), 1);
+  ::ttsl::SmallVector<int> beginsVec =
+      ::ttsl::SmallVector<int>(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec =
+      ::ttsl::SmallVector<int>(inputShape.size());
+  for (size_t i = 0; i < inputShape.size(); ++i) {
+    endsVec[i] = inputShape[i] - 1;
   }
-  ::ttnn::TensorSpec beginsSpec = beginsSpecExp.get();
-
-  auto endsSpecExp = detail::convertToTensorSpec(device, endsShape, endsLayout);
-  if (!endsSpecExp) {
-    return endsSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec endsSpec = endsSpecExp.get();
-
+  (void)beginsVec;
+  (void)endsVec;
+  (void)stepVec;
   // Default values in tt-metal:
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
-  // Create query closure
+  // Create query closure to make a call to the static version of the op:
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::slice, device, inputSpec, beginsSpec, endsSpec,
-        conversion::convertI64SmallVectorToUI32SmallVector(step),
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
         detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
   };
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1674,28 +1682,37 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  auto beginsSpecExp =
-      detail::convertToTensorSpec(device, beginsShape, beginsLayout);
-  if (!beginsSpecExp) {
-    return beginsSpecExp.takeError();
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to the end with a step of 2 (Capturing all possible
+  // stripes of data from the input tensor is the most run time intensive
+  // pattern).
+  // Note that this is a fairly accurate approximation since the dynamic version
+  // in metal also converts the three tensors (begins, ends, step) to vectors
+  // and then calls the static version.
+  ::ttsl::SmallVector<int> stepVec =
+      ::ttsl::SmallVector<int>(inputShape.size(), 2);
+  ::ttsl::SmallVector<int> beginsVec =
+      ::ttsl::SmallVector<int>(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec =
+      ::ttsl::SmallVector<int>(inputShape.size());
+  for (size_t i = 0; i < inputShape.size(); ++i) {
+    endsVec[i] = inputShape[i] - 1;
   }
-  ::ttnn::TensorSpec beginsSpec = beginsSpecExp.get();
-
-  auto endsSpecExp = detail::convertToTensorSpec(device, endsShape, endsLayout);
-  if (!endsSpecExp) {
-    return endsSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec endsSpec = endsSpecExp.get();
-
+  (void)beginsVec;
+  (void)endsVec;
+  (void)stepVec;
   // Default values in tt-metal:
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
 
-  // Create query closure
+  // Create query closure to make a call to the static version of the op:
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::slice, device, inputSpec, beginsSpec, endsSpec,
-        conversion::convertI64SmallVectorToUI32SmallVector(step),
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
         detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
   };
 
