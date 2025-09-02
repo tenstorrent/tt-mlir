@@ -42,51 +42,45 @@ createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cb_desc) {
   return cb_descriptor;
 }
 
-UnpackToDestMode convertUnpackToDestMode(
+static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Fp32) ==
+              static_cast<uint8_t>(UnpackToDestMode::UnpackToDestFp32));
+static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Default) ==
+              static_cast<uint8_t>(UnpackToDestMode::Default));
+inline constexpr UnpackToDestMode convertUnpackToDestMode(
     const tt::target::UnpackToDestMode &unpack_to_dest_mode) {
-  switch (unpack_to_dest_mode) {
-  case ::tt::target::UnpackToDestMode::Fp32: {
-    return UnpackToDestMode::UnpackToDestFp32;
-  }
-  case ::tt::target::UnpackToDestMode::Default: {
-    return UnpackToDestMode::Default;
-  }
-  }
+  return static_cast<UnpackToDestMode>(unpack_to_dest_mode);
 }
 
-::tt::tt_metal::NOC convertNoc(const tt::target::ttnn::Noc &noc) {
-  switch (noc) {
-  case ::tt::target::ttnn::Noc::Noc0: {
-    return ::tt::tt_metal::NOC::NOC_0;
-  }
-  case ::tt::target::ttnn::Noc::Noc1: {
-    return ::tt::tt_metal::NOC::NOC_1;
-  }
-  }
+static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc0) ==
+              static_cast<uint8_t>(::tt::tt_metal::NOC::NOC_0));
+static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc1) ==
+              static_cast<uint8_t>(::tt::tt_metal::NOC::NOC_1));
+inline constexpr ::tt::tt_metal::NOC
+convertNoc(const tt::target::ttnn::Noc &noc) {
+  return static_cast<::tt::tt_metal::NOC>(noc);
 }
 
-::tt::tt_metal::NOC_MODE
+static_assert(
+    static_cast<uint8_t>(::tt::target::ttnn::NocMode::DM_DEDICATED_NOC) ==
+    static_cast<uint8_t>(::tt::tt_metal::NOC_MODE::DM_DEDICATED_NOC));
+static_assert(
+    static_cast<uint8_t>(::tt::target::ttnn::NocMode::DM_DYNAMIC_NOC) ==
+    static_cast<uint8_t>(::tt::tt_metal::NOC_MODE::DM_DYNAMIC_NOC));
+inline constexpr ::tt::tt_metal::NOC_MODE
 convertNocMode(const tt::target::ttnn::NocMode &noc_mode) {
-  switch (noc_mode) {
-  case ::tt::target::ttnn::NocMode::DM_DEDICATED_NOC: {
-    return ::tt::tt_metal::NOC_MODE::DM_DEDICATED_NOC;
-  }
-  case ::tt::target::ttnn::NocMode::DM_DYNAMIC_NOC: {
-    return ::tt::tt_metal::NOC_MODE::DM_DYNAMIC_NOC;
-  }
-  }
+  return static_cast<::tt::tt_metal::NOC_MODE>(noc_mode);
 }
 
-::tt::tt_metal::DataMovementProcessor convertDataMovementProcessor(
+static_assert(
+    static_cast<uint8_t>(::tt::target::ttnn::DataMovementType::RISCV_0) ==
+    static_cast<uint8_t>(::tt::tt_metal::DataMovementProcessor::RISCV_0));
+static_assert(
+    static_cast<uint8_t>(::tt::target::ttnn::DataMovementType::RISCV_1) ==
+    static_cast<uint8_t>(::tt::tt_metal::DataMovementProcessor::RISCV_1));
+inline constexpr ::tt::tt_metal::DataMovementProcessor
+convertDataMovementProcessor(
     const tt::target::ttnn::DataMovementType &data_movement_type) {
-  switch (data_movement_type) {
-  case ::tt::target::ttnn::DataMovementType::RISCV_0: {
-    return ::tt::tt_metal::DataMovementProcessor::RISCV_0;
-  }
-  case ::tt::target::ttnn::DataMovementType::RISCV_1: {
-    return ::tt::tt_metal::DataMovementProcessor::RISCV_1;
-  }
-  }
+  return static_cast<::tt::tt_metal::DataMovementProcessor>(data_movement_type);
 }
 
 ::tt::tt_metal::KernelDescriptor::ConfigDescriptor createKernelConfigDescriptor(
