@@ -24,10 +24,10 @@ module @L1InterleavedTestForkJoin attributes {} {
     %7 = "ttir.relu"(%5, %6) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // Fork: %7 used in two ops
     %8 = ttir.empty() : tensor<64x128xbf16>
-    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
+    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %9 = "ttir.neg"(%7, %8) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     %10 = ttir.empty() : tensor<64x128xbf16>
-    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
+    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %11 = "ttir.abs"(%7, %10) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // Join: add the results
     %12 = ttir.empty() : tensor<64x128xbf16>

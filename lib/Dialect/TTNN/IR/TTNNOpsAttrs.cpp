@@ -183,9 +183,15 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 // tensor memory layout.
 //
 // All examples assume that the tensor is mapped to a 8x8 grid.
+// Examples for TileType:
 // Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {1, 1}
 // Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {1, 4}
 // Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {1, 2}
+//
+// Examples for RowMajor:
+// Example: tensor<1x1024xbf16> -> {1, 16}
+// Example: tensor<512x512xbf16> -> {1, 4096}
+// Example: tensor<32x2049xbf16> -> {1, 1025}
 //
 // return The logical shard shape in case of interleaved tensor memory layout.
 llvm::SmallVector<int64_t>
@@ -193,22 +199,38 @@ TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
     ArrayRef<int64_t> tensorShape, mlir::Type elementType,
     mlir::AffineMap linear, mlir::tt::ttcore::GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
-  assert(mlir::isa<mlir::tt::ttcore::TileType>(elementType));
 
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
+
+  uint64_t numOfGridUnits =
+      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
+                      std::multiplies<std::int64_t>());
+
+  // Create shard shape with all dims set to 1 except the last one which is
+  // set to shardVolume.
+  mlir::SmallVector<std::int64_t> shardShape;
+  shardShape.resize(grid.getShape().size() - 1, 1);
+
+  if (!mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+    // If RowMajor, single shard should be TensorVolume / NumCores rounded up.
+    // So in case of tensor<5120x1024xbf16> on 8x8 grid we have
+    // 5120*1024/64 = 81920 -> shard shape is <1x81920xbf16>
+    int64_t tensorVolume =
+        std::accumulate(physicalShape.begin(), physicalShape.end(), 1,
+                        std::multiplies<int64_t>());
+    int64_t shardVolume = (tensorVolume + numOfGridUnits - 1) / numOfGridUnits;
+    shardShape.push_back(shardVolume);
+    return shardShape;
+  }
+
+  // TileType case
   mlir::SmallVector<std::int64_t> physicalTiledShape =
       mlir::cast<mlir::tt::ttcore::TileType>(elementType)
           .getTiledShape(physicalShape);
   uint64_t numOfTiles =
       std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
                       std::multiplies<std::int64_t>());
-  uint64_t numOfGridUnits =
-      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
-                      std::multiplies<std::int64_t>());
-
-  mlir::SmallVector<std::int64_t> shardShape;
-  shardShape.resize(grid.getShape().size() - 1, 1);
   shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
   return mlir::cast<mlir::tt::ttcore::TileType>(elementType)
       .getScalarShape(shardShape);
