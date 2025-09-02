@@ -7,15 +7,35 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/runtime.h"
 
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::generic_op {
+
+inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &core_type) {
+  switch (core_type) {
+  case ::tt::target::ttnn::CoreType::WORKER: {
+    return CoreType::WORKER;
+  }
+  case ::tt::target::ttnn::CoreType::ETH: {
+    return CoreType::ETH;
+  }
+    LOG_FATAL("Unsupported core type");
+  }
+}
+
+::tt::tt_metal::SemaphoreDescriptor
+createSemaphoreDescriptor(const ::tt::target::ttnn::SemaphoreDescriptor
+                              &kernel_semaphore_descriptor) {
+  return ::tt::tt_metal::SemaphoreDescriptor{
+      .core_type = convertCoreType(kernel_semaphore_descriptor.core_type()),
+      .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
+          *kernel_semaphore_descriptor.core_ranges()),
+      .initial_value = kernel_semaphore_descriptor.initial_value()};
+}
 
 ::tt::tt_metal::CBFormatDescriptor createCBFormatDescriptor(
     const ::tt::target::ttnn::KernelCBFormat &kernel_cb_format) {
@@ -81,6 +101,18 @@ inline constexpr ::tt::tt_metal::DataMovementProcessor
 convertDataMovementProcessor(
     const tt::target::ttnn::DataMovementType &data_movement_type) {
   return static_cast<::tt::tt_metal::DataMovementProcessor>(data_movement_type);
+}
+
+static_assert(static_cast<uint8_t>(::tt::target::ttnn::SourceType::FILE_PATH) ==
+              static_cast<uint8_t>(
+                  ::tt::tt_metal::KernelDescriptor::SourceType::FILE_PATH));
+static_assert(
+    static_cast<uint8_t>(::tt::target::ttnn::SourceType::SOURCE_CODE) ==
+    static_cast<uint8_t>(
+        ::tt::tt_metal::KernelDescriptor::SourceType::SOURCE_CODE));
+inline constexpr ::tt::tt_metal::KernelDescriptor::SourceType
+convertSourceType(const tt::target::ttnn::SourceType &source_type) {
+  return static_cast<::tt::tt_metal::KernelDescriptor::SourceType>(source_type);
 }
 
 ::tt::tt_metal::KernelDescriptor::ConfigDescriptor createKernelConfigDescriptor(
@@ -153,8 +185,6 @@ std::vector<uint32_t> createKernelArgs(
       uint32_t tensor_idx =
           kernel_arg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
       core_args[i] = io_tensors->get()[tensor_idx].buffer()->address();
-      LOG_DEBUG("rt arg index of tensor: ", tensor_idx,
-                " buffer address: ", core_args[i]);
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
@@ -199,8 +229,7 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
   LOG_DEBUG("creating kernel descriptor");
   ::tt::tt_metal::KernelDescriptor kernel_descriptor = {
       .kernel_source = kernel_source,
-      .source_type = ::tt::tt_metal::KernelDescriptor::SourceType::
-          FILE_PATH, // TODO (vtangTT): don't hardcode this
+      .source_type = convertSourceType(kernel_desc.source_type()),
       .core_ranges = core_ranges,
       .compile_time_args = compile_time_args,
       .defines = {},
