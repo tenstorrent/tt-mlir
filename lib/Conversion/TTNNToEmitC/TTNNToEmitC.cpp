@@ -2849,7 +2849,8 @@ public:
 
     rewriter.setInsertionPoint(srcOp);
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, resultType, funcName, nullptr, nullptr, adaptor.getInputs());
+        srcOp, resultType, funcName, nullptr, nullptr,
+        ttmlir::utils::flatten(adaptor.getDevice(), adaptor.getInputs()));
 
     return success();
   }
