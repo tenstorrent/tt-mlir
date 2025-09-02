@@ -1958,6 +1958,25 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlama>
+createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto cosCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCosCache()));
+  auto sinCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSinCache()));
+  auto transMat = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTransMat()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateRotaryEmbeddingLlama(
+      *cache.fbb, in, cosCache, sinCache, transMat, op.getIsDecodeMode(), out,
+      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,

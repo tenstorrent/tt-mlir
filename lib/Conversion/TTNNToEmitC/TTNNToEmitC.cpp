@@ -2448,6 +2448,8 @@ public:
 };
 } // namespace
 
+// ConcatenateHeadsOp conversion pattern
+//
 namespace {
 class ConcatenateHeadsOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
@@ -2473,6 +2475,50 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// RotaryEmbeddingLlamaOp conversion pattern
+//
+namespace {
+class RotaryEmbeddingLlamaOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          tt::ttnn::RotaryEmbeddingLlamaOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.concatenate_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::concatenate_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RotaryEmbeddingLlamaOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RotaryEmbeddingLlamaOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getCosCache()),
+        emitter.emit(srcOp.getSinCache()),
+        emitter.emit(srcOp.getTransMat()),
+        emitter.emit(srcOp.getIsDecodeMode()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -2684,6 +2730,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Transformers ops
   //
   patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 

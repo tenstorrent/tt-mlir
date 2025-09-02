@@ -3223,4 +3223,109 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+LogicalResult RotaryEmbeddingLlamaOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType cosType = getCosCache().getType();
+  RankedTensorType sinType = getSinCache().getType();
+  RankedTensorType transMatType = getTransMat().getType();
+
+  SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
+                                              transMatType};
+  auto dtypePredicate = [](RankedTensorType type) {
+    return isa<BFloat16Type>(type.getElementType());
+  };
+
+  auto tileLayoutPredicate = [](RankedTensorType type) {
+    auto encoding = cast<TTNNLayoutAttr>(type.getEncoding());
+    return encoding.isTiled();
+  };
+
+  auto deviceStoragePredicate = [](RankedTensorType type) {
+    return utils::isTensorOnDevice(type);
+  };
+
+  if (!llvm::all_of(inputTypes, dtypePredicate)) {
+    return emitOpError("all input tensors must be bfloat16 type.");
+  }
+
+  if (!llvm::all_of(inputTypes, tileLayoutPredicate)) {
+    return emitOpError("all input tensors must have tiled layout.");
+  }
+
+  if (!llvm::all_of(inputTypes, deviceStoragePredicate)) {
+    return emitOpError("all input tensors must be on device.");
+  }
+
+  // Cos and sin must have the same shape
+  if (cosType.getShape() != sinType.getShape()) {
+    return emitOpError("cos and sin tensors must have the same shape.");
+  }
+
+  // Head dimension validation
+  int64_t headDim = inputType.getShape().back();
+  if (headDim > 256) {
+    return emitOpError("head dimension must be ≤ 256, got ") << headDim << ".";
+  }
+
+  // Transformation matrix shape validation
+  auto transShape = transMatType.getShape();
+  if (transShape.size() == 4) {
+    return emitOpError("transformation matrix must be at least 2D tensor.");
+  }
+
+  // Check first two dims are 1
+  if (transShape[0] != 1 || transShape[1] != 1) {
+    return emitOpError("Transformation matrix first two dimensions must be 1");
+  }
+
+  // Check last two dims are TILE_HEIGHT x TILE_WIDTH (32x32)
+  if (transShape[transShape.size() - 2] != 32 ||
+      transShape[transShape.size() - 1] != 32) {
+    return emitOpError(
+        "Transformation matrix last two dimensions must be 32x32");
+  }
+
+  // Decode mode specific validations
+  if (getIsDecodeMode()) {
+    if (inputType.getShape()[0] != 1) {
+      return emitOpError("In decode mode, sequence length (dim 0) must be 1");
+    }
+
+    // Check that cos/sin have matching batch size
+    if (inputType.getShape().size() >= 2 && cosType.getShape().size() >= 2) {
+      if (inputType.getShape()[1] != cosType.getShape()[1]) {
+        return emitOpError(
+            "In decode mode, cos/sin must have same batch size as input");
+      }
+    }
+  } else {
+    // Prefill mode validations
+    if (cosType.getShape()[0] != 1) {
+      return emitOpError("In prefill mode, cos/sin first dimension must be 1");
+    }
+    if (cosType.getShape().back() != headDim) {
+      return emitOpError(
+          "In prefill mode, cos/sin last dimension must match head dimension");
+    }
+    // Check num_heads compatibility
+    if (cosType.getShape().size() >= 2 && inputType.getShape().size() >= 2) {
+      int64_t cosNumHeads = cosType.getShape()[1];
+      int64_t inputNumHeads = inputType.getShape()[1];
+      if (cosNumHeads != inputNumHeads && cosNumHeads != 1) {
+        return emitOpError(
+            "Cos/sin num heads must match input num heads or be 1");
+      }
+    }
+  }
+
+  RankedTensorType outputType = getResult().getType();
+
+  // Output shape should match input shape
+  if (outputType.getShape() != inputType.getShape()) {
+    return emitOpError("Output shape must match input shape");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn

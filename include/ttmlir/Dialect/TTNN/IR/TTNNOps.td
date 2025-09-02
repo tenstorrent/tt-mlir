@@ -2421,4 +2421,44 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
+def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama"> {
+    let summary = "Rotary embedding llama operation.";
+    let description = [{
+      Rotary embedding operation specifically optimized for Llama models. This operation
+      applies rotary positional embedding (RoPE) to the input tensor using precomputed
+      cos and sin caches along with a transformation matrix.
+
+      The operation supports both prefill and decode modes:
+      - Prefill mode: Uses interleaved memory layout for longer sequences
+      - Decode mode: Uses height-sharded memory layout for single token processing
+
+      Constraints:
+      - All tensors must be bfloat16 type
+      - All tensors must be on the same device
+      - All tensors must be tilized (TILE layout)
+      - Head dimension must be ≤ 256 and multiple of 32
+      - In decode mode: sequence length must be 1, height-sharded memory layout required
+      - In prefill mode: interleaved memory layout required
+
+      Example:
+      ```mlir
+      %result = ttnn.rotary_embedding_llama(%input, %cos_cache, %sin_cache, %trans_mat)
+        {is_decode_mode = false, memory_config = #ttnn.memory_config<interleaved>}
+        : tensor<1x32x128xbf16>, tensor<1x32x128xbf16>, tensor<1x32x128xbf16>,
+        tensor<1x1x32x32xbf16> -> tensor<1x32x128xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$cos_cache,
+                         AnyRankedTensor:$sin_cache,
+                         AnyRankedTensor:$trans_mat,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif
