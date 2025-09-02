@@ -245,6 +245,7 @@ Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
       iv.insert(req.first, req.last, reqIndex);
     }
   }
+  // NOLINTNEXTLINE
   iv.create();
 
   analysis.requestMetrics.resize(solution.requests.size());
@@ -466,6 +467,7 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
     }
     ++varCount;
   }
+  // NOLINTNEXTLINE
   iv.create();
 
   const int32_t reqCount = requests.size();
