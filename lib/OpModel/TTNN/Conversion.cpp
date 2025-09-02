@@ -471,24 +471,6 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   return config;
 }
 
-::ttnn::operations::reduction::ReduceType
-getReduceType(const ttcore::ReduceType reduceType) {
-  switch (reduceType) {
-  case ttcore::ReduceType::Sum:
-    return ::ttnn::operations::reduction::ReduceType::Sum;
-  case ttcore::ReduceType::Mean:
-    return ::ttnn::operations::reduction::ReduceType::Mean;
-  case ttcore::ReduceType::Max:
-    return ::ttnn::operations::reduction::ReduceType::Max;
-  case ttcore::ReduceType::Min:
-    return ::ttnn::operations::reduction::ReduceType::Min;
-  case ttcore::ReduceType::Std:
-    return ::ttnn::operations::reduction::ReduceType::Std;
-  case ttcore::ReduceType::Var:
-    return ::ttnn::operations::reduction::ReduceType::Var;
-  }
-}
-
 llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores) {

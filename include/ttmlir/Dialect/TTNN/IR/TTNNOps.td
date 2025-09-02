@@ -2052,7 +2052,9 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation

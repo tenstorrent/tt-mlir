@@ -90,9 +90,6 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig);
 
-::ttnn::operations::reduction::ReduceType
-getReduceType(const ttcore::ReduceType reduceType);
-
 template <typename To, std::size_t N, typename From>
 std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   if (vec.size() != N) {
