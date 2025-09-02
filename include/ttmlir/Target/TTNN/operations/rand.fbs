@@ -4,13 +4,13 @@ include "ttmlir/Target/TTNN/types.fbs";
 namespace tt.target.ttnn;
 
 table RandOp {
-  size: [int64];
   device: tt.target.DeviceRef;
-  dtype: tt.target.DataType;
-  layout: tt.target.TensorLayout;
-  memcfg: tt.target.ttnn.MemoryConfig;
+  size: [int64];
   low: float;
   high: float;
   seed: uint32;
+  dtype: tt.target.DataType;
+  layout: tt.target.TensorLayout;
+  memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }

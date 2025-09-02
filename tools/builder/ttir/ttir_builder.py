@@ -38,6 +38,7 @@ class TTIRBuilder(Builder):
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
         grid: Optional[Tuple[int, int]] = None,
+        index_map: Optional[AffineMap] = None,
     ):
         ctx = self._ctx
 
@@ -51,9 +52,14 @@ class TTIRBuilder(Builder):
         worker_grid = [8, 8]
 
         # Create layout with original logical shape.
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, worker_grid, oobVal, memorySpace
-        )
+        if index_map is None:
+            layout = ttcore.ir.MetalLayoutAttr.get(
+                ctx, logical_shape, worker_grid, oobVal, memorySpace
+            )
+        else:
+            layout = ttcore.ir.MetalLayoutAttr.get(
+                ctx, logical_shape, worker_grid, oobVal, memorySpace, index_map
+            )
 
         shard_shape = []
         for l, g in zip(logical_shape, grid_shape):
