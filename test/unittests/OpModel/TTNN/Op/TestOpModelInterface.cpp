@@ -110,15 +110,6 @@ public:
         builder.getUnknownLoc(), rankedTensorType, nullptr,
         ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
-
-  // mlir::Value createEmptyTensorUInt32(llvm::ArrayRef<int64_t> tensorShape,
-  //                                     TTNNLayoutAttr layout = nullptr) {
-  //   RankedTensorType rankedTensorType = createRankedTensorType(
-  //       tensorShape, builder.getIntegerType(32, false), layout);
-  //   return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
-  //                                 ShapeAttr::get(&context, tensorShape),
-  //                                 nullptr, nullptr, nullptr, nullptr);
-  // }
 };
 struct ExpectedResult {
   bool expectedLegal = false;
