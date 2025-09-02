@@ -142,6 +142,7 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
     }
   }
 
+  assert(latestDefOp != nullptr);
   rewriter.setInsertionPointAfter(latestDefOp);
 }
 
