@@ -22,106 +22,6 @@ namespace mlir::tt::stablehlo {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
-struct ConditionalShardyRoundTripPass : public OperationPass<ModuleOp> {
-  ConditionalShardyRoundTripPass() : OperationPass(TypeID::get<ConditionalShardyRoundTripPass>()) {}
-  
-  void runOnOperation() override {
-    ModuleOp module = getOperation();
-    
-    // Check for SDY annotations (native format)  
-    bool needsRoundTripImport = mlir::tt::shardy_utils::sdyAnnotationsExist(module);
-    
-    // Also check for round-trip Shardy format
-    if (!needsRoundTripImport) {
-      // Check for round-trip attributes
-      if (mlir::sdy::tryGetFrontendAttr<mlir::DictionaryAttr>(module, mlir::sdy::kMeshesRoundTripAttr).has_value()) {
-        needsRoundTripImport = true;
-      }
-      
-      // Check for round-trip custom calls using simple iteration
-      if (!needsRoundTripImport) {
-        for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
-          funcOp.walk([&](::mlir::stablehlo::CustomCallOp customCall) {
-            llvm::StringRef targetName = customCall.getCallTargetName();
-            if (targetName == mlir::sdy::kGlobalToLocalShapeCallTargetName || 
-                targetName == mlir::sdy::kLocalToGlobalShapeCallTargetName ||
-                targetName == mlir::sdy::kFuncResultShardingTargetName) {
-              needsRoundTripImport = true;
-            }
-          });
-          if (needsRoundTripImport) break;
-        }
-      }
-    }
-    
-    // Only run round-trip import if module needs it
-    if (needsRoundTripImport) {
-      // Fix frontend attributes: transfer from custom calls to CallOp
-      // This is needed because JAX/XLA puts attributes on custom calls instead of CallOps
-      module.walk([&](mlir::func::FuncOp func) {
-        func.walk([&](::mlir::stablehlo::CustomCallOp globalToLocal) {
-          if (globalToLocal.getCallTargetName() == mlir::sdy::kGlobalToLocalShapeCallTargetName) {
-            for (auto user : globalToLocal->getResult(0).getUsers()) {
-              if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(user)) {
-                if (callOp.getCallee().contains(mlir::sdy::kManualComputationBodyFuncName)) {
-                  auto globalAttrs = globalToLocal->getAttrOfType<mlir::DictionaryAttr>(mlir::sdy::kFrontendAttributesAttr);
-                  
-                  mlir::DictionaryAttr localAttrs;
-                  for (auto callUser : callOp->getResult(0).getUsers()) {
-                    if (auto localToGlobal = mlir::dyn_cast<::mlir::stablehlo::CustomCallOp>(callUser)) {
-                      if (localToGlobal.getCallTargetName() == mlir::sdy::kLocalToGlobalShapeCallTargetName) {
-                        localAttrs = localToGlobal->getAttrOfType<mlir::DictionaryAttr>(mlir::sdy::kFrontendAttributesAttr);
-                        break;
-                      }
-                    }
-                  }
-                  
-                  if (globalAttrs && localAttrs) {
-                    llvm::SmallVector<mlir::NamedAttribute> combinedAttrs;
-                    
-                    if (auto inShardings = globalAttrs.get(mlir::sdy::kInShardings)) {
-                      combinedAttrs.push_back(mlir::NamedAttribute(
-                          mlir::StringAttr::get(globalToLocal->getContext(), mlir::sdy::kInShardings), inShardings));
-                    }
-                    if (auto manualAxes = globalAttrs.get(mlir::sdy::kManualAxes)) {
-                      combinedAttrs.push_back(mlir::NamedAttribute(
-                          mlir::StringAttr::get(globalToLocal->getContext(), mlir::sdy::kManualAxes), manualAxes));
-                    }
-                    if (auto outShardings = localAttrs.get(mlir::sdy::kOutShardings)) {
-                      combinedAttrs.push_back(mlir::NamedAttribute(
-                          mlir::StringAttr::get(globalToLocal->getContext(), mlir::sdy::kOutShardings), outShardings));
-                    }
-                    
-                    auto frontendAttrsDict = mlir::DictionaryAttr::get(globalToLocal->getContext(), combinedAttrs);
-                    callOp->setAttr(mlir::sdy::kFrontendAttributesAttr, frontendAttrsDict);
-                  }
-                }
-              }
-            }
-          }
-        });
-      });
-      
-      PassManager roundTripPM(module->getName());
-      mlir::sdy::addSdyRoundTripImportPipeline(roundTripPM);
-      
-      if (failed(roundTripPM.run(module))) {
-        signalPassFailure();
-      }
-    }
-  }
-  
-  StringRef getName() const override { return "ConditionalShardyRoundTripPass"; }
-  StringRef getArgument() const override { return "conditional-shardy-roundtrip"; }
-  StringRef getDescription() const override { 
-    return "Conditionally run Shardy round-trip import for modules with SDY annotations"; 
-  }
-  
-  std::unique_ptr<Pass> clonePass() const override {
-    return std::make_unique<ConditionalShardyRoundTripPass>();
-  }
-};
-
 #endif // TTMLIR_ENABLE_STABLEHLO
 
 //===----------------------------------------------------------------------===//
@@ -130,14 +30,14 @@ struct ConditionalShardyRoundTripPass : public OperationPass<ModuleOp> {
 
 void createStableHLOPipeline(OpPassManager &pm,
                              const StableHLOPipelineOptions &options) {
-#ifdef TTMLIR_ENABLE_STABLEHLO
-  
-  // Add conditional Shardy round-trip import pass
-  pm.addPass(std::make_unique<ConditionalShardyRoundTripPass>());
 
-#endif // TTMLIR_ENABLE_STABLEHLO
-  // Inline all operations to make analysis easier.
+
+  // MERGED: Combined round-trip import + inlining (was separate ConditionalShardyRoundTripPass)
+#ifdef TTMLIR_ENABLE_STABLEHLO
+  pm.addPass(createCombinedRoundTripAndInlinePass());
+#else
   pm.addPass(mlir::createInlinerPass());
+#endif // TTMLIR_ENABLE_STABLEHLO
 
   // Annotate arguments with tt tensor annotations if the exist.
   pm.addPass(
@@ -145,6 +45,7 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
+
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.

@@ -12,6 +12,11 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Function declarations for custom passes
+#ifdef TTMLIR_ENABLE_STABLEHLO
+std::unique_ptr<Pass> createCombinedRoundTripAndInlinePass();
+#endif // TTMLIR_ENABLE_STABLEHLO
+
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 } // namespace mlir::tt::stablehlo
