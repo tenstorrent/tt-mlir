@@ -28,8 +28,8 @@ public:
   /// @see Planner::allocate()
   /// @see Planner::spillAllocate()
   enum class Algorithm : std::int32_t {
-    Simple, //! Monotonic "bumper" allocator, does not support dealloc.
-    Greedy  //! Greedy-by-size allocator.
+    Simple, ///< Monotonic "bumper" allocator, does not support dealloc.
+    Greedy  ///< Greedy-by-size allocator.
   };
 
   friend std::string to_string(Algorithm e) {
@@ -49,11 +49,11 @@ public:
   /// Enum for variable placement spaces as understood by `Planner`, i.e.
   /// without referencing hardware specifics like "L1" or "DRAM", etc.
   enum class Space : std::int32_t {
-    begin,           //! Iteration helper.
-    Scratch = begin, //! Space targeted by allocate(), etc.
-    Spill,           //! Space where "spilled" variables go.
-    end,             //! Iteration helper.
-    NA = end         //! Value alias for expressing "unset/not available".
+    begin,           ///< Iteration helper.
+    Scratch = begin, ///< Space targeted by allocate(), etc.
+    Spill,           ///< Space where "spilled" variables go.
+    end,             ///< Iteration helper.
+    NA = end         ///< Value alias for expressing "unset/not available".
   };
 
   friend Space operator++(Space &e) {
@@ -91,8 +91,8 @@ public:
   using IndexT = std::int32_t;
 
   struct LiveRange {
-    SequenceT first = -1; //! (Inclusive) start of live range.
-    SequenceT last = -1;  //! (Inclusive) end of live range.
+    SequenceT first = -1; ///< (Inclusive) start of live range.
+    SequenceT last = -1;  ///< (Inclusive) end of live range.
 
     bool valid() const { return 0 <= first && first <= last; }
 
@@ -104,9 +104,8 @@ public:
   /// An allocation descriptor, a region of memory usage `[offset, offset+size)`
   /// reserved over a liveness range `[first, last]`.
   struct Request : LiveRange {
-    AllocSizeT size = -1; //! Requested memory size.
-    AllocSizeT offset =
-        -1; //! Start memory address (base of zero implied; negative means N/A).
+    AllocSizeT size = -1;   ///< Requested memory size.
+    AllocSizeT offset = -1; ///< Start memory address (negative means N/A).
 
     friend bool operator==(const Request &lhs, const Request &rhs) {
       if (!(static_cast<const LiveRange &>(lhs) ==
@@ -137,7 +136,7 @@ public:
 
   /// A `Request` extension for a request that is associated with a `Variable`.
   struct VarRequest : Request {
-    IndexT varIndex = -1; //! Parent variable (index into `Problem::variables`).
+    IndexT varIndex = -1; ///< Parent variable (`Problem::variables` index).
 
     friend bool operator==(const VarRequest &lhs, const VarRequest &rhs) {
       if (!(static_cast<const Request &>(lhs) ==
@@ -174,10 +173,10 @@ public:
   /// A `Variable` represents a discrete decision for which of `Space`s to
   /// be placed.
   struct Variable {
-    //! This variable's requests, a (possibly empty) set of those for each
-    //! possible placement.
+    /// This variable's requests, a (possibly empty) set of those for each
+    /// possible placement.
     VariableDomain domain = {};
-    //! Current placement space (indexes into `domain`).
+    /// Current placement space (indexes into `domain`).
     Space placement = Space::NA;
 
     friend bool operator==(const Variable &lhs, const Variable &rhs) {
@@ -246,13 +245,13 @@ public:
   /// @note Copy-constructible, copy-assignable.
   /// @see allocation::Tools for randomized testing, JSON serialization, etc
   struct Problem {
-    //! All requests of all variables in the problem; indexed into by
-    //! `Variable::domain[*]`.
+    /// All requests of all variables in the problem; indexed into by
+    /// `Variable::domain[*]`.
     llvm::SmallVector<VarRequest> requests;
-    //! All variables in the problem.
+    /// All variables in the problem.
     llvm::SmallVector<Variable> variables;
-    //! A subset of `variables` that are bound as far as spilling heuristics are
-    //! concerned.
+    /// A subset of `variables` that are bound as far as spilling heuristics are
+    /// concerned.
     VariableIndexSet bound;
 
     const Variable &variable(IndexT varIndex) const {
@@ -356,8 +355,12 @@ public:
     }
   };
 
+  /// Extends `AllocateStats` with spill stats.
   struct SpillStats : AllocateStats {
+    /// Count of bisection steps that was needed to find the smallest
+    /// set of variables to spill.
     std::int32_t stepsTaken;
+    /// Count of free variables that needed to be placed into `Spill`.
     std::int32_t spillCount;
 
     SpillStats(std::int32_t stepsTaken, std::int32_t spillCount,
@@ -375,6 +378,8 @@ public:
   };
 
 protected:
+  /// Request-level metrics as computed by analyze(). Variable-level
+  /// aggregation is done by the caller.
   struct AnalysisStats {
     struct RequestMetrics {
       std::int32_t maxConflictSize = 0;
@@ -390,5 +395,4 @@ protected:
 };
 
 } // namespace mlir::tt::ttir::allocation
-
 #endif // TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_PLANNERIMPL_H
