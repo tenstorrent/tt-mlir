@@ -877,13 +877,10 @@ private:
         output, permutedOutputShape);
 
     return ttir::utils::createDPSOp<ttir::PermuteOp>(
-               rewriter,
-               ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
-               expectedOutputType.getShape(),
-               expectedOutputType.getElementType(),
-               expectedOutputType.getEncoding(), reshapedOutput,
-               inverseOutputPermutation)
-        .getResult();
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
+        expectedOutputType.getShape(), expectedOutputType.getElementType(),
+        expectedOutputType.getEncoding(), reshapedOutput,
+        inverseOutputPermutation);
   }
 
   static ttir::ReshapeOp
