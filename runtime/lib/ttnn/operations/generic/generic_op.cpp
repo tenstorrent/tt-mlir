@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -222,8 +222,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   auto size = op->io_tensors()->size();
   std::vector<::ttnn::Tensor> io_tensors;
   // This relies on the ttnn binary program being built with input tensors that
-  // includes the output tensor If not, we need to allocate the output tensor
-  // here. Revisit later when flatbuffer translation is pushed.
+  // includes the output tensor. If not, we need to allocate the output tensor
+  // here or will segfault. Revisit later when flatbuffer translation is pushed.
   for (const auto *io_tensor : *op->io_tensors()) {
     io_tensors.push_back(tensorPool.getTTNNTensorAndValidate(io_tensor));
   }
