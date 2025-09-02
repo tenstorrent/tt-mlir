@@ -207,3 +207,75 @@ func.func @mergeManyNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.
   }
   return
 }
+
+
+// CHECK: func.func @mergeManyNonTrivialDatamovementThreadsNoCompute
+func.func @mergeManyNonTrivialDatamovementThreadsNoCompute(%arg0: memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>) {
+  %alloc = memref.alloc() {address = 296352 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %alloc_0 = memref.alloc() {address = 361888 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %stream = "ttir.stream_layout"(%alloc, %alloc_0) : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>) -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>
+  %alloc_1 = memref.alloc() {address = 427424 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %alloc_2 = memref.alloc() {address = 492960 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %stream_3 = "ttir.stream_layout"(%alloc_1, %alloc_2) : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>) -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>
+  %alloc_4 = memref.alloc() {address = 558496 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %alloc_5 = memref.alloc() {address = 624032 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %stream_6 = "ttir.stream_layout"(%alloc_4, %alloc_5) : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>) -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>
+
+  %alloc_8 = memref.alloc() {address = 296352 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %alloc_9 = memref.alloc() {address = 361888 : i64, alignment = 16 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>
+  %stream_9 = "ttir.stream_layout"(%alloc, %alloc_0) : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1>) -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>
+
+  ttir.generic {block_factors = [1, 1],
+        grid = #ttcore.grid<1x1>,
+        indexing_maps = [#map, #map, #map, #map],
+        iterator_types = [#parallel, #parallel],
+        threads = [
+            #ttir.thread<datamovement>,
+            #ttir.thread<datamovement>,
+            #ttir.thread<datamovement>,
+            #ttir.thread<datamovement>
+            ]}
+      ins(%stream, %stream_3, %stream_9 :
+        memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>,
+        memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>,
+        memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>
+        )
+      outs(%stream_6 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)  {
+  // CHECK: ^datamovement0
+  // CHECK: ttir.dma [[STREAM0:%.*]]<#map>, [[CB0:%.*]]
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.yield [[CB0:%.*]] : {{.*}}
+  // CHECK-NEXT: ttir.dma [[STREAM2:%.*]]<#map>, [[CB2:%.*]]
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.yield [[CB2:%.*]] : {{.*}}
+  ^datamovement0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
+    %tx = ttir.dma %stream<#map>, %cb0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+    ttir.dma_wait %tx
+    ttir.yield %cb0 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  }, {
+  // CHECK: ^datamovement1
+  // CHECK-NEXT: ttir.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.yield [[CB1:%.*]] : {{.*}}
+  // CHECK-NEXT: ttir.await [[CB3:%.*]] : {{.*}}
+  // CHECK-NEXT: ttir.dma [[CB3:%.*]], [[STREAM3:%.*]]<#map>
+  // CHECK-NEXT: ttir.dma_wait
+  ^datamovement1(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
+    %tx = ttir.dma %stream_3<#map>, %cb1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+    ttir.dma_wait %tx
+    ttir.yield %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  }, {
+  ^datamovement2(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
+    %tx = ttir.dma %stream_9<#map>, %cb2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+    ttir.dma_wait %tx
+    ttir.yield %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  }, {
+  // CHECK-NOT: ^datamovement2
+  // CHECK-NOT: ^compute
+  ^datamovement3(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
+    ttir.await %cb3 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+    %tx = ttir.dma %cb3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !ttir.mem_tx
+    ttir.dma_wait %tx
+  }
+  return
+}

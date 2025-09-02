@@ -18,6 +18,13 @@ class TTIRGenericMergeDatamovementThreadsRewritePattern
     : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
+  unsigned numDMAHWThreads;
+
+  TTIRGenericMergeDatamovementThreadsRewritePattern(MLIRContext *context,
+                                                    unsigned numDMAHWThreads)
+      : OpRewritePattern<GenericOp>(context), numDMAHWThreads(numDMAHWThreads) {
+    assert(numDMAHWThreads > 0 && "numDMAHWThreads must be greater than 0");
+  }
 
   // Returns true if the region contains only a ttir.await
   // associated with the output CB.
@@ -48,28 +55,29 @@ public:
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
 
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
-
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
     unsigned numInputs = op.getInputs().size();
     unsigned numOutputs = op.getOutputs().size();
-    unsigned numDMAHWThreads = chipDesc.getNumDatamovementThreads();
 
     // Ops with # operands <= # DMA HW Threads don't need to be merged.
     if (numInputs + numOutputs <= numDMAHWThreads) {
       return failure();
     }
 
+    // Check if the last thread in op has ThreadType::Compute
+    ThreadAttr lastThreadAttr =
+        mlir::cast<ThreadAttr>(op.getThreads()[op.getThreads().size() - 1]);
+    bool hasComputeThread =
+        lastThreadAttr && lastThreadAttr.getThreadType() == ThreadType::Compute;
+
     // The final merged region will always have numDMAHWThreads datamovement
-    // threads and 1 compute thread.
+    // threads and (if present in original op) a compute thread
     SmallVector<Attribute> threads(
         numDMAHWThreads,
         rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
-    threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
+    if (hasComputeThread) {
+      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
+    }
 
     size_t numNewRegions = threads.size();
 
@@ -79,10 +87,12 @@ public:
         op.getIndexingMaps(), op.getIteratorTypes(),
         rewriter.getArrayAttr(threads), numNewRegions);
 
-    // Copy compute region from op to newGeneric.
-    rewriter.modifyOpInPlace(op, [&] {
-      newGeneric.getRegions().back().takeBody(op.getRegions().back());
-    });
+    // Copy compute region from op to newGeneric, if it exists.
+    if (hasComputeThread) {
+      rewriter.modifyOpInPlace(op, [&] {
+        newGeneric.getRegions().back().takeBody(op.getRegions().back());
+      });
+    }
 
     // Copy initial dma threads to newGeneric. Merging to an empty block
     // results in discarding cb block args, so we must copy the first
@@ -106,8 +116,9 @@ public:
       Block *mergeSrcBlock = &op.getRegion(i).front();
 
       unsigned dmaMergeTargetIndex = 0;
-      if (isLocalAwaitForOutputCB(op.getRegion(i), outputOperandsIndex)) {
-        // Merge trivial output DMA into compute region.
+      if (hasComputeThread &&
+          isLocalAwaitForOutputCB(op.getRegion(i), outputOperandsIndex)) {
+        // Merge trivial output DMA into compute region, if it exists.
         dmaMergeTargetIndex = newGeneric->getNumRegions() - 1;
       } else if (i == outputOperandsIndex) {
         // Always merge output to last DMA region (associated with NOC1).
@@ -140,15 +151,16 @@ public:
       TTIRGenericHWThreadSelection>::TTIRGenericHWThreadSelectionBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericMergeDatamovementThreadsRewritePattern>(
-        &getContext());
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
-
     ModuleOp moduleOp = getOperation();
     auto systemDesc = moduleOp->getAttrOfType<mlir::tt::ttcore::SystemDescAttr>(
         mlir::tt::ttcore::SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
+
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericMergeDatamovementThreadsRewritePattern>(
+        &getContext(), chipDesc.getNumDatamovementThreads());
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
+
     moduleOp.walk([&](GenericOp op) {
       // Assert that the op has a valid HW thread selection.
       if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
