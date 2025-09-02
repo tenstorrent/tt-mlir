@@ -2467,38 +2467,21 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // AllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-
+// AllGatherOp and ReduceScatterOp are not supported, since they have been
+// removed from metal. See
+// https://github.com/tenstorrent/tt-metal/commit/1ccd1c6480
 llvm::Expected<op_model::OpConstraints>
 AllGatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1 || inputs.size() == 2);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<AllGatherOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getAllGatherDim(), getClusterAxis(), getNumLinks(),
-      opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 llvm::Expected<size_t>
 AllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert(inputs.size() == 1 || inputs.size() == 2);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<AllGatherOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getAllGatherDim(), getClusterAxis(), getNumLinks(),
-      opConfig.outputLayout);
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2508,33 +2491,15 @@ AllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 ReduceScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
-  assert(inputs.size() == 1 || inputs.size() == 2);
-  const auto inputShape = getInput().getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ReduceScatterOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getReduceType(), getScatterDim(), getClusterAxis(),
-      getNumLinks(), opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 llvm::Expected<size_t>
 ReduceScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<ReduceScatterOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getReduceType(), getScatterDim(), getClusterAxis(),
-      getNumLinks(), opConfig.outputLayout);
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 //===----------------------------------------------------------------------===//

@@ -978,41 +978,5 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
-//===----------------------------------------------------------------------===//
-// AllGatherOp
-//===----------------------------------------------------------------------===//
-template <>
-struct OpModel<AllGatherOp> {
-  static llvm::Expected<OpConstraints> getOpConstraints(
-      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-      TTNNLayoutAttr inputLayout, int32_t allGatherDim, uint32_t clusterAxis,
-      uint32_t numLinks, TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               int32_t allGatherDim, uint32_t clusterAxis, uint32_t numLinks,
-               TTNNLayoutAttr outputLayout);
-};
-
-//===----------------------------------------------------------------------===//
-// ReduceScatterOp
-//===----------------------------------------------------------------------===//
-
-template <>
-struct OpModel<ReduceScatterOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, ttcore::ReduceType reduceType,
-                   int32_t scatterDim, uint32_t clusterAxis, uint32_t numLinks,
-                   TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               ttcore::ReduceType reduceType, int32_t scatterDim,
-               uint32_t clusterAxis, uint32_t numLinks,
-               TTNNLayoutAttr outputLayout);
-};
-
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
