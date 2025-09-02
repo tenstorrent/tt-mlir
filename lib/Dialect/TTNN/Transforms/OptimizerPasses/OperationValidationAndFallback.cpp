@@ -210,8 +210,9 @@ public:
     // Log validation summary
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Operation validation complete: {} operations checked, "
-                 "{} valid, {} failed",
-                 totalOperationsChecked, operationsValid, operationsFailed);
+                 "{} valid, {} fixed, {} failed",
+                 totalOperationsChecked, operationsValid, operationsFixed,
+                 operationsFailed);
 
     // Fail the pass if we have operations that couldn't be validated
     if (operationsFailed > 0) {
@@ -267,14 +268,14 @@ bool tryFallbacks(Operation *operation,
   }
 
   if (originalInputLayouts.empty()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "No TTNN input layouts found for operation {} at {}",
                  operation->getName(), operation->getLoc());
     return false;
   }
 
   TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
+      ttmlir::LogComponent::OpValidation,
       "Testing fallback combinations for operation {} at {} with {} operands",
       operation->getName(), operation->getLoc(), originalInputLayouts.size());
 
@@ -354,7 +355,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {
       for (BufferType targetBufferType : targetBufferTypes) {
-        // Skip if this is the same as original (already tested)
+        // Skip if this is the same as original
         if (targetLayout == originalLayout.getLayout() &&
             targetDataType == originalLayout.getDataType() &&
             targetBufferType == originalLayout.getBufferType()) {
@@ -455,6 +456,10 @@ double calculateLayoutTransformDistance(TTNNLayoutAttr from,
   // Add buffer type distance (if different), make it more expensive
   if (from.getBufferType() != to.getBufferType()) {
     distance += HIGH_COST;
+    if (from.isDeviceBufferType() && to.isSystemBufferType()) {
+      // Device <-> Host buffer type changes are more expensive
+      distance += HIGH_COST;
+    }
   }
 
   return distance;
@@ -469,9 +474,7 @@ void generateAllCombinations(
 
   if (operandIdx == operandFallbacks.size()) {
     // Reached the end, store the current combination if it has changes.
-    if (currentDistance > 0.0) {
-      allCombinations.push_back({currentCombination, currentDistance});
-    }
+    allCombinations.push_back({currentCombination, currentDistance});
     return;
   }
 
@@ -555,6 +558,20 @@ void applyFallbackTransformations(
 
   // Handle output layout changes if backend produced different layout
   if (result.actualOutputLayout != config.outputLayout) {
+    if (result.actualOutputLayout.getLayout() ==
+            config.outputLayout.getLayout() &&
+        result.actualOutputLayout.getDataType() ==
+            config.outputLayout.getDataType() &&
+        result.actualOutputLayout.getBufferType() ==
+            config.outputLayout.getBufferType() &&
+        result.actualOutputLayout.getMemLayout() ==
+            config.outputLayout.getMemLayout()) {
+      // This may happen if GridAttr is different, which should not matter for
+      // any memory layout other than Sharded. Since fallbacks do not go into
+      // Sharded memory layout, we can avoid this case for now.
+      return;
+    }
+
     // Step 1: Update operation's result type to what backend actually
     // produced
     assert(operation->getNumResults() == 1 &&
@@ -672,7 +689,7 @@ void applyInputOperandChange(Operation *operation,
 void applyOutputLayoutRevert(Operation *operation,
                              TTNNLayoutAttr actualOutputLayout,
                              TTNNLayoutAttr expectedOutputLayout) {
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Applying output layout revert for operation {}: "
                "actual layout {}, expected layout {}",
                operation->getName(), actualOutputLayout, expectedOutputLayout);
@@ -714,7 +731,7 @@ void applyOutputLayoutRevert(Operation *operation,
                                 expectedOutputLayout.getDataType()),
       expectedMemoryConfigAttr);
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Inserted revert ToLayout op after operation {} to restore "
                "expected layout",
                operation->getName());
@@ -723,7 +740,7 @@ void applyOutputLayoutRevert(Operation *operation,
   for (auto &use : uses) {
     Operation *useOp = use.first;
     useOp->setOperand(use.second, revertToLayoutOp.getResult());
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Updated consumer {}@{} to use reverted layout",
                  useOp->getName(), useOp->getLoc());
   }
