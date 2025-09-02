@@ -972,9 +972,9 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult ProgramAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::Attribute> kernels,
     llvm::ArrayRef<mlir::tt::ttnn::KernelCBAttr> cbs,
-    llvm::ArrayRef<mlir::tt::ttnn::KernelSemaphoreAttr> semaphores,
-    llvm::ArrayRef<mlir::Attribute> kernels) {
+    llvm::ArrayRef<mlir::tt::ttnn::KernelSemaphoreAttr> semaphores) {
 
   for (auto kernel : kernels) {
     if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
@@ -996,13 +996,13 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult KernelCBFormatAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    uint32_t page_size, uint32_t buffer_index, ttcore::DataType dtype) {
+    uint32_t buffer_index, ttcore::DataType dtype, uint32_t page_size) {
   return ::llvm::success();
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ComputeKernelCoreType core_type, ::mlir::tt::ttnn::CoreRangeAttr core_range,
+    KernelCoreType core_type, ::mlir::tt::ttnn::CoreRangeAttr core_range,
     uint32_t initial_value) {
   return ::llvm::success();
 }

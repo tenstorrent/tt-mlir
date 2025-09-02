@@ -703,7 +703,7 @@ def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
     Kernel semaphore descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins "ComputeKernelCoreType":$core_type,
+  let parameters = (ins "KernelCoreType":$core_type,
                         TTNN_CoreRangeAttr:$core_range,
                         "uint32_t":$initial_value);
   let assemblyFormat = "`<` struct(params) `>`";
@@ -717,9 +717,9 @@ def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
     Kernel CB format descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins "uint32_t":$page_size,
-                        "uint32_t":$buffer_index,
-                        "ttcore::DataType":$dtype);
+  let parameters = (ins "uint32_t":$buffer_index,
+                        "ttcore::DataType":$dtype,
+                        "uint32_t":$page_size);
   let assemblyFormat = "`<` struct(params) `>`";
 
   let genVerifyDecl = 1;
@@ -827,10 +827,10 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
     Program descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins OptionalArrayRefParameter<"KernelCBAttr">:$cbs,
-                        OptionalArrayRefParameter<"KernelSemaphoreAttr">:$semaphores,
-                        OptionalArrayRefParameter<"mlir::Attribute">:$kernels);
-  let assemblyFormat = "`<` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `,` `kernels` `=` `[` (`]`) : ($kernels^ `]`)? `>`";
+  let parameters = (ins ArrayRefParameter<"mlir::Attribute">:$kernels,
+                        OptionalArrayRefParameter<"KernelCBAttr">:$cbs,
+                        OptionalArrayRefParameter<"KernelSemaphoreAttr">:$semaphores);
+  let assemblyFormat = "`<` `kernels` `=` `[` $kernels `]` `,` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
