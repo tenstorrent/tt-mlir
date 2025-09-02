@@ -454,7 +454,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
       constraintsExp.get();
@@ -463,7 +464,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(peak_size, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -471,7 +473,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -479,7 +482,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -487,7 +491,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -501,10 +506,26 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
        {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
     auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-        tensorShape, input_layout, -1, output_layout);
+        tensorShape, input_layout, -1, false, output_layout);
     EXPECT_TRUE(static_cast<bool>(runtimeExp));
     EXPECT_TRUE(runtimeExp.get() > 0);
   }
+}
+
+TEST_F(OpModelTest, SoftmaxNumericStable) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const TTNNLayoutAttr inputLayout_dram = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, true,
+      inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
+      tensorShape, inputLayout_dram, -1, true, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, Reshape) {
@@ -1141,7 +1162,7 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2,
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, false,
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
@@ -1150,7 +1171,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, inputLayout_l1_i);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, false,
+      inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
@@ -1158,7 +1180,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, inputLayout_l1_hs);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, false,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
@@ -1166,7 +1189,7 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-      tensorShape, inputLayout_l1_i, -2, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_i, -2, false, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }

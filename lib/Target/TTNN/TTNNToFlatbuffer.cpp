@@ -1833,8 +1833,10 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
   int32_t dimension = op.getDimension();
+  bool numericStable = op.getNumericStable();
 
-  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
+  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension,
+                                             numericStable);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>

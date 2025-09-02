@@ -1066,7 +1066,8 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr: $dimension);
+                         SI32Attr: $dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 
