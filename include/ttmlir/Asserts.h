@@ -2,6 +2,45 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+//===---------------------------------------------------------------------===//
+/// @file
+/// This header offers better assert macro definitions for the "assert
+/// liberally" aspect of defensive programming.
+/// @link https://llvm.org/docs/CodingStandards.html#assert-liberally.
+///
+/// Main value propositions:
+///
+/// - in common cases of simple binary comparisons like `TT_assert(x < y)`,
+///   the runtime error message will contain not just the stringified image
+///  `x < y` but also the individual runtime values of `x` and `y`. This is
+///   often very helpful for understanding the root cause of the problem
+///   on the spot.
+///
+/// - a common case of non-binary checks are for range conditions like
+///   `a <= x && x < b`. These are supported directly with a family of
+///   shortcuts `T_assert_limit()`, `TT_assert_inclusive_range()`, etc
+///   that reduce runtime checking overhead to a single branch.
+///
+/// - macros are divided into two variants, with one variant (`TT_debug...`)
+///   guaranteed to be elided in release builds and therefore suitable for
+///   liberally asserting performance-critical code paths.
+///
+/// - runtime messaging can be further enhanced via `llvm::formatv()`-style
+///   formatting of local code expressions, including user types with bespoke
+///   streaming/print formatting. This is useful for print-style debugging.
+///
+/// @see TT_assert
+/// @see TT_assertv
+/// @see TT_assert_open_range
+/// @see TT_assert_limit
+/// @see TT_assert_exclusive_range
+/// @see TT_assert_inclusive_range
+///
+/// @see TT_debug
+///
+/// @see test/unittests/Support/DeathTestAsserts.cpp for usage examples
+//===---------------------------------------------------------------------===//
+
 #ifndef TTMLIR_ASSERTS_H
 #define TTMLIR_ASSERTS_H
 
@@ -13,7 +52,6 @@
 #include <string>
 #include <type_traits>
 
-// ............................................................................
 namespace ttmlir::utils::asserts {
 
 // The TT_debug*() family of macros are meant to be elided in "release" builds
@@ -54,7 +92,7 @@ namespace impl {
 
 #define TT_IMPL_ASSERT_LOC_INFO       __FILE__,__LINE__,__PRETTY_FUNCTION__
 
-#define TT_ASSERT_UNLIKELY(condition) __builtin_expect (static_cast<bool>(condition), 0)
+#define TT_ASSERT_UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
 
 #define TT_ASSERT_STRINGIZE(x)        TT_IMPL_STRINGIZE(x)
 #define TT_IMPL_STRINGIZE(x)          #x
