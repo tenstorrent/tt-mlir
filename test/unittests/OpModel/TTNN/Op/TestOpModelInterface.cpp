@@ -526,6 +526,9 @@ const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
   return b.create<BitwiseXorOp>(l, t, r).getOperation();
 };
+const auto createScatter = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<ScatterOp>(l, t, r).getOperation();
+};
 
 //===---------------------------------------------------------===
 
@@ -551,6 +554,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
 // Define the test parameters for binary bitwise operations
 const std::vector<BinaryOpTestParams> binaryBitwiseOpTestParams = {
     {"BitwiseAnd", createBitwiseAnd, binaryBitwiseExpected},
+    {"Scatter", createScatter, binaryBitwiseExpected},
     {"BitwiseOr", createBitwiseOr, binaryBitwiseExpected},
     {"BitwiseXor", createBitwiseXor, binaryBitwiseExpected}};
 

@@ -387,8 +387,6 @@ auto getOpSymbol() {
     return ::ttnn::bitwise_or;
   } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
     return ::ttnn::bitwise_xor;
-  } else if constexpr (std::is_same_v<OpTy, ScatterOp>) {
-    return ::ttnn::scatter;
   } else if constexpr (std::is_same_v<OpTy, PowOp>) {
     return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
