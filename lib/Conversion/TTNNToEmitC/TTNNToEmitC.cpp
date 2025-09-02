@@ -2561,6 +2561,11 @@ namespace {
 class BeginTraceCaptureOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::BeginTraceCaptureOp> {
+private:
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::trace::";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::BeginTraceCaptureOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2588,6 +2593,11 @@ namespace {
 class EndTraceCaptureOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::EndTraceCaptureOp> {
+private:
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::trace::";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::EndTraceCaptureOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2850,6 +2860,11 @@ namespace {
 class ExecuteTraceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::ExecuteTraceOp> {
+private:
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::trace::";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::ExecuteTraceOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2865,6 +2880,7 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getTraceId()),
         emitter.emitCQ(srcOp.getCqId()),
+        emitter.emit(srcOp.getBlocking()),
     };
 
     emitter.replaceOp(*this, args);
