@@ -1427,6 +1427,51 @@ TEST_F(OpModelBase, morehCumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
+  // create ConcatenateHeadsOp
+  // Input shape: [batch_size, num_heads, sequence_size, head_size]
+  // Output shape: [batch_size, sequence_size, num_heads * head_size]
+
+  // Define test tensor shapes based on typical transformer architecture
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto concatenateHeads = builder.create<ConcatenateHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  // test ConcatenateHeadsOp interface
+  auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for ConcatenateHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(concatenateHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ConcatenateHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
@@ -3012,6 +3057,144 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOp) {
+  // Test case 1: Basic RMSNorm with all optional tensors (weight and bias)
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
+  llvm::SmallVector<int64_t> weightShape = {
+      128}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      128}; // Bias is typically for the last dimension
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 94208);
+  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(outputSize, 16384);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpMinimal) {
+  // Test case 2: RMSNorm without optional tensors (only input)
+  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                nullptr, nullptr, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(peakSize, 8192);
+  EXPECT_EQ(outputSize, 8192);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpL1Memory) {
+  // Test case 3: RMSNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
+  llvm::SmallVector<int64_t> weightShape = {
+      32}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      32}; // Bias is typically for the last dimension
+
+  // Create tensors with L1 memory layout
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

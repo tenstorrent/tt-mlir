@@ -1513,6 +1513,41 @@ MorehCumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ConcatenateHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ConcatenateHeadsOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ConcatenateHeadsOp>::getOpRuntime, *this, inputShape,
+      inputs[0], opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -2101,6 +2136,76 @@ BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
       getTraining(), getMomentum(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct RMSNormOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+static RMSNormOptionalArgs
+unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                          RMSNormOp op) {
+  RMSNormOptionalArgs ret;
+  if (inputs.size() == 3) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.weightLayout = inputs[1];
+    ret.biasLayout = inputs[2];
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert((inputs.size() == 1 || inputs.size() == 3) &&
+         "ttnn::rms_norm can either have 1 input tensor (representing the "
+         "main input) or 3 input tensors (representing main input tensor, "
+         "weight and bias). The usage of this op with 2 input tensors is "
+         "discouraged as it's ambiguous.");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RMSNormOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert((inputs.size() == 1 || inputs.size() == 3) &&
+         "ttnn::rms_norm can either have 1 input tensor (representing the "
+         "main input) or 3 input tensors (representing main input tensor, "
+         "weight and bias). The usage of this op with 2 input tensors is "
+         "discouraged as it's ambiguous.");
+
+  const auto inputShape = getInput().getType().getShape();
+
+  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RMSNormOp>::getOpRuntime, *this, inputShape, inputs[0],
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

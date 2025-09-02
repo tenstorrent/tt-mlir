@@ -503,6 +503,22 @@ struct OpModel<MorehCumSumOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ConcatenateHeadsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
 
@@ -798,6 +814,31 @@ struct OpModel<BatchNormOp> {
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
                bool training, llvm::APFloat momentum,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// RMSNormOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> weightShape,
+                   std::optional<TTNNLayoutAttr> weightLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                   std::optional<TTNNLayoutAttr> biasLayout,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> weightShape,
+               std::optional<TTNNLayoutAttr> weightLayout,
+               std::optional<llvm::ArrayRef<int64_t>> biasShape,
+               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
                TTNNLayoutAttr outputLayout);
 };
 

@@ -1039,7 +1039,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait]> {
+def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{
       Takes in a tensor of shape [batch_size, num_heads, sequence_size, head_size],
@@ -1697,7 +1698,9 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments,
     let hasVerifier = 1;
 }
 
-def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, HasMemoryConfigTrait]> {
+def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>
+    ]> {
     let summary = "RMS normalization op.";
     let description = [{
       RMS (Root Mean Square) normalization operation over the input tensor.
