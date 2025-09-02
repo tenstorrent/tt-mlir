@@ -10,6 +10,7 @@ include "ttmlir/Target/TTNN/operations/data_movement.fbs";
 include "ttmlir/Target/TTNN/operations/deallocate.fbs";
 include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
+include "ttmlir/Target/TTNN/operations/generic_op.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
 include "ttmlir/Target/TTNN/operations/load_cached.fbs";
@@ -56,6 +57,7 @@ union OpType {
   FromDeviceOp,
   FullOp,
   FuncCallOp,
+  GenericOp,
   GetDeviceOp,
   LinearOp,
   LoadCachedOp,

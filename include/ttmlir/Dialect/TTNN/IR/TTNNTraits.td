@@ -18,10 +18,22 @@ def HasMemoryConfigTrait : NativeOpTrait<"HasMemoryConfigTrait">
 }
 
 // Trait for ops that have output data type attribute.
-def HasOutputDTypeTrait: NativeOpTrait<"HasOutputDTypeTrait">
+def HasDTypeTrait: NativeOpTrait<"HasDTypeTrait">
 {
   let cppNamespace = "::mlir::tt::ttnn";
 }
+
+// Trait for ops that have layout attribute.
+def HasLayoutTrait: NativeOpTrait<"HasLayoutTrait">
+{
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def HasOutputTensorSpecTraits : TraitList<[
+  HasMemoryConfigTrait,
+  HasDTypeTrait,
+  HasLayoutTrait
+]>;
 
 // Trait for ops that don't support implicit broadcast on operands.
 def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsTrait">

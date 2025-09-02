@@ -16,26 +16,27 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-// Check if we can fuse conv2d followed by add into conv2d with bias.
-class TTIRConv2dWithBias : public mlir::OpRewritePattern<AddOp> {
+// Check if we can fuse conv followed by add into conv with bias.
+template <typename ConvOpType>
+class TTIRConvWithBiasTemplate : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const final {
-    auto components = getConv2dAndBias(srcOp);
+    auto components = getConvAndBias(srcOp);
     if (!components) {
       return mlir::failure();
     }
 
-    auto conv2dOp = components->first;
+    auto convOp = components->first;
     auto bias = components->second;
 
     if (bias.getDefiningOp() &&
-        !bias.getDefiningOp()->isBeforeInBlock(conv2dOp)) {
+        !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
 
-      // To move bias before conv2d, we need to ensure that all operations
-      // in the UD chain are also moved before conv2dOp.
+      // To move bias before conv, we need to ensure that all operations
+      // in the UD chain are also moved before convOp.
 
       SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
       SetVector<Operation *> udChainOps =
@@ -43,44 +44,85 @@ public:
       SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
 
       for (auto *op : udChainSorted) {
-        if (op->isBeforeInBlock(conv2dOp)) {
+        if (op->isBeforeInBlock(convOp)) {
           continue;
         }
-        op->moveBefore(conv2dOp);
+        op->moveBefore(convOp);
       }
     }
 
-    rewriter.modifyOpInPlace(conv2dOp,
-                             [&]() { conv2dOp.getBiasMutable().assign(bias); });
-    rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
-
-    // The original conv2d op will be removed by DCE since it's no longer
+    rewriter.modifyOpInPlace(convOp,
+                             [&]() { convOp.getBiasMutable().assign(bias); });
+    rewriter.replaceAllOpUsesWith(srcOp, convOp);
+    // The original conv op will be removed by DCE since it's no longer
     // used.
     return mlir::success();
   }
 
 private:
-  bool isFusable(ttir::Conv2dOp conv2dOp,
-                 mlir::TypedValue<mlir::RankedTensorType> bias) const {
-    return conv2dOp && !conv2dOp.getBias() && conv2dOp->hasOneUse() &&
-           conv2dOp.isBiasCompatible(bias.getType().getShape());
+  std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+  isFusable(ConvOpType convOp,
+            mlir::TypedValue<mlir::RankedTensorType> bias) const {
+    if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+      return std::nullopt;
+    }
+
+    size_t outputFeatureDim = 0;
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      outputFeatureDim = 3;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    } else {
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
+    }
+
+    if (auto bcastOp = bias.getDefiningOp<BroadcastOp>()) {
+      bias = bcastOp.getInput();
+    }
+    auto biasShape = bias.getType().getShape();
+    auto outputShape =
+        mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+            .getShape();
+
+    if (biasShape.size() != outputShape.size()) {
+      return std::nullopt;
+    }
+
+    auto featureDimSize =
+        convOp.getResult().getType().getShape()[outputFeatureDim];
+    for (auto [dim, dimSize] : llvm::enumerate(biasShape)) {
+      if (dim == outputFeatureDim && dimSize != featureDimSize) {
+        return std::nullopt;
+      }
+      if (dim != outputFeatureDim && dimSize != 1) {
+        return std::nullopt;
+      }
+    }
+
+    return bias;
   }
 
-  std::optional<std::pair<ttir::Conv2dOp, mlir::Value>>
-  getConv2dAndBias(AddOp srcOp) const {
+  std::optional<std::pair<ConvOpType, mlir::Value>>
+  getConvAndBias(AddOp srcOp) const {
     auto lhs = srcOp.getLhs();
     auto rhs = srcOp.getRhs();
-    auto lhsConv2dOp = lhs.getDefiningOp<ttir::Conv2dOp>();
-    auto rhsConv2dOp = rhs.getDefiningOp<ttir::Conv2dOp>();
-    if (isFusable(lhsConv2dOp, rhs)) {
-      return std::make_pair(lhsConv2dOp, rhs);
+    auto lhsConvOp = lhs.getDefiningOp<ConvOpType>();
+    auto rhsConvOp = rhs.getDefiningOp<ConvOpType>();
+    if (auto fusableBias = isFusable(lhsConvOp, rhs)) {
+      return std::make_pair(lhsConvOp, *fusableBias);
     }
-    if (isFusable(rhsConv2dOp, lhs)) {
-      return std::make_pair(rhsConv2dOp, lhs);
+    if (auto fusableBias = isFusable(rhsConvOp, lhs)) {
+      return std::make_pair(rhsConvOp, *fusableBias);
     }
     return std::nullopt;
   }
 };
+
+// Instantiate the template for both Conv2dOp and ConvolutionOp
+using TTIRConv2dWithBias = TTIRConvWithBiasTemplate<Conv2dOp>;
+using TTIRConvolutionWithBias = TTIRConvWithBiasTemplate<ConvolutionOp>;
 
 // This pattern detects when a reduction operation is followed by a reshape
 // operation that simply adds back dimensions that were reduced. In such cases,
@@ -301,101 +343,100 @@ private:
   }
 };
 
-class Conv2dWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
+template <typename ConvOpType>
+class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
-  /// Pattern: conv2d(input, weight) * scale
+  /// Pattern: conv(input, weight) * scale
   ///
-  /// This pattern detects when a Conv2d operation (with constant weights) is
-  /// followed by a multiplication with a constant scale factor. It optimizes
+  /// This pattern detects when a Convolution operation (with constant weights)
+  /// is followed by a multiplication with a constant scale factor. It optimizes
   /// this pattern by pre-multiplying the convolution weights with the scale
   /// factor, which eliminates the runtime multiplication operation.
   ///
   /// Input pattern:
-  ///   %conv = conv2d(%input, %weight)  // weight is constant
+  ///   %conv = conv(%input, %weight)  // weight is constant
   ///   %result = multiply(%conv, %scale)  // scale is constant
   ///   (1,1,1,out_channels)
   ///
   /// Output pattern:
   ///   %reshaped_scale = reshape(%scale) to (out_channels,1,1,1)
   ///   %scaled_weight = multiply(%weight, %reshaped_scale)
-  ///   %result = conv2d(%input, %scaled_weight)
+  ///   %result = conv(%input, %scaled_weight)
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     // Check if this pattern is applicable.
-    auto components = getConv2dAndScale(multiplyOp);
+    auto components = getConvAndScale(multiplyOp);
     if (!components) {
       return mlir::failure();
     }
 
-    Conv2dOp conv2dOp = components->first;
+    ConvOpType convOp = components->first;
     Value scaleValue = components->second;
 
     // Reshape scale to match weight dimensions and pre-multiply weights.
-    Value reshapedScale =
-        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue,
-                            conv2dOp.getWeight().getType());
+    Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
     // Get UD chain starting from the reshaped scale. This chain will be
-    // moved before the conv2dOp to ensure that weight scale can be
+    // moved before the convOp to ensure that weight scale can be
     // const-evaled.
     SetVector<Value> udChain = ttmlir::utils::getUseDefChain(reshapedScale);
     SetVector<Operation *> udChainOps =
         ttmlir::utils::filterOperations(udChain.getArrayRef());
     SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
 
-    // We are not moving ops in UD chain that are already before the conv2d, as
-    // they could have descendants that are also before conv2d but are not in
+    // We are not moving ops in UD chain that are already before the conv, as
+    // they could have descendants that are also before conv but are not in
     // the UD chain.
     for (auto *op : udChainSorted) {
-      if (op->isBeforeInBlock(conv2dOp)) {
+      if (op->isBeforeInBlock(convOp)) {
         continue;
       }
-      op->moveBefore(conv2dOp);
+      op->moveBefore(convOp);
     }
 
-    rewriter.setInsertionPoint(conv2dOp);
+    rewriter.setInsertionPoint(convOp);
 
     // Create scaled weights by multiplying the original weights with the
     // resshaped scale.
     Value scaledWeights = createScaledWeights(
-        rewriter, conv2dOp.getLoc(), conv2dOp.getWeight(), reshapedScale);
+        rewriter, convOp.getLoc(), convOp.getWeight(), reshapedScale);
 
-    // Update conv2d to use scaled weights and replace multiply operation.
+    // Update conv to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
-        conv2dOp, [&]() { conv2dOp.getWeightMutable().assign(scaledWeights); });
-    rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
+        convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
+    rewriter.replaceAllOpUsesWith(multiplyOp, convOp);
 
     return mlir::success();
   }
 
 private:
-  static std::optional<std::pair<Conv2dOp, mlir::Value>>
-  getConv2dAndScale(MultiplyOp multiplyOp) {
+  static std::optional<std::pair<ConvOpType, mlir::Value>>
+  getConvAndScale(MultiplyOp multiplyOp) {
     auto lhs = multiplyOp.getLhs();
     auto rhs = multiplyOp.getRhs();
-    Conv2dOp lhsConv2d = lhs.getDefiningOp<Conv2dOp>();
-    Conv2dOp rhsConv2d = rhs.getDefiningOp<Conv2dOp>();
-    if (isCommutable(lhsConv2d, rhs)) {
-      return std::make_pair(lhsConv2d, rhs);
+    ConvOpType lhsConv = lhs.getDefiningOp<ConvOpType>();
+    ConvOpType rhsConv = rhs.getDefiningOp<ConvOpType>();
+    if (isCommutable(lhsConv, rhs)) {
+      return std::make_pair(lhsConv, rhs);
     }
-    if (isCommutable(rhsConv2d, lhs)) {
-      return std::make_pair(rhsConv2d, lhs);
+    if (isCommutable(rhsConv, lhs)) {
+      return std::make_pair(rhsConv, lhs);
     }
     return std::nullopt;
   }
 
   // We can commute only if both scale and weight are constant.
-  static bool isCommutable(Conv2dOp conv2dOp,
+  static bool isCommutable(ConvOpType convOp,
                            mlir::TypedValue<RankedTensorType> scale) {
-    // Conv2d should only have one use and that use should be a multiply op.
-    if (!conv2dOp || !conv2dOp.getResult().hasOneUse()) {
+    // Conv should only have one use and that use should be a multiply op.
+    if (!convOp || !convOp.getResult().hasOneUse()) {
       return false;
     }
-
-    mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
+    mlir::func::FuncOp funcOp =
+        convOp->template getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
     auto isConstant = [&constParams](mlir::Value value) {
@@ -416,8 +457,8 @@ private:
       scaleType = bcastOp.getInput().getType();
     }
 
-    // Check if scale shape is with conv2d weight.
-    if (!hasValidScaleShape(conv2dOp, scaleType)) {
+    // Check if scale shape is with conv weight.
+    if (!hasValidScaleShape(convOp, scaleType)) {
       return false;
     }
 
@@ -434,20 +475,50 @@ private:
       return false;
     }
 
-    // Since we want to move the scale chain before conv2dOp we want to make
-    // sure that the scale chain does not contain conv2dOp.
-    if (useDefChain.contains(conv2dOp)) {
+    // Since we want to move the scale chain before convOp we want to make
+    // sure that the scale chain does not contain convOp.
+    if (useDefChain.contains(convOp)) {
       return false;
     }
 
     return true;
   }
 
-  // Scale must have rank 4 and shape (1, 1, 1, out_channels).
-  static bool hasValidScaleShape(Conv2dOp convOp, RankedTensorType scaleType) {
-    return scaleType.getRank() == 4 && scaleType.getDimSize(0) == 1 &&
-           scaleType.getDimSize(1) == 1 && scaleType.getDimSize(2) == 1 &&
-           scaleType.getDimSize(3) == convOp.getOutputChannelSize();
+  // Scale must have rank 4 and size 1 in all dimensions except the output
+  // feature dim.
+  // For Conv2dOp: shape (1, 1, 1, out_channels)
+  // For ConvolutionOp: depends on the convolution layout attribute
+  static bool hasValidScaleShape(ConvOpType convOp,
+                                 RankedTensorType scaleType) {
+    if (!scaleType || scaleType.getRank() != 4) {
+      return false;
+    }
+
+    size_t outputFeatureDim = 0;
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      outputFeatureDim = 3;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    } else {
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
+    }
+
+    auto outputShape =
+        mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
+            .getShape();
+
+    for (auto [dim, dimSize] : llvm::enumerate(scaleType.getShape())) {
+      if (dim == outputFeatureDim && dimSize != outputShape[outputFeatureDim]) {
+        return false;
+      }
+      if (dim != outputFeatureDim && dimSize != 1) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // There are two cases we want to handle here:
@@ -455,16 +526,21 @@ private:
   // 2. Input scale is a broadcast operation that needs reshaping
   //
   // In case of 1 we just add reshape operation to the scale tensor such that
-  // it has shape (out_channels, 1, 1, 1).
+  // it has the output feature dimension at the kernel output feature dimension
+  // to match the weight layout.
+  // For Conv2dOp: shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels)
+  // For ConvolutionOp: depends on the convolution layout attribute
   //
   // In case of 2 we need to add reshape operation to the input of the of bcast
   // and then we create new broadcast operation with the new reshaped scale
   // which broadcasts the reshaped scale to the shape of the weight tensor.
   static Value createReshapedScale(mlir::PatternRewriter &rewriter,
-                                   Location loc, Value scaleValue,
-                                   RankedTensorType weightType) {
+                                   Value scaleValue, ConvOpType convOp) {
     // If scaleValue is broadcast operation we want to reshape its input.
     // Otherwise we reshape the scaleValue itself.
+    Location loc = scaleValue.getLoc();
+    RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(convOp.getWeight().getType());
     Value reshapeInput = scaleValue;
     if (auto bcastOp = mlir::dyn_cast_if_present<BroadcastOp>(
             scaleValue.getDefiningOp())) {
@@ -476,12 +552,29 @@ private:
     RankedTensorType scaleType =
         mlir::cast<RankedTensorType>(reshapeInput.getType());
 
-    // Create a new shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels).
+    // Create a new shape to match weight layout.
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
-    // Swap first and last dimensions.
     assert(newShape.size() == 4 &&
            "Scale tensor must have 4 dimensions for reshaping.");
-    std::swap(newShape[0], newShape[3]);
+
+    size_t outputFeatureDim = 0;
+    size_t kernelOutputFeatureDim = 0;
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      outputFeatureDim = 3;
+      kernelOutputFeatureDim = 0;
+    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
+      outputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+      kernelOutputFeatureDim =
+          convOp.getConvolutionLayoutAttr().getKernelOutputFeatureDimension();
+    } else {
+      static_assert(ttmlir::utils::always_false<ConvOpType>(),
+                    "Unsupported ConvOpType");
+    }
+
+    // Swap between output and kernel output feature dimensions.
+    std::swap(newShape[outputFeatureDim], newShape[kernelOutputFeatureDim]);
+
     // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
@@ -517,6 +610,10 @@ private:
         reshapedScale);
   }
 };
+
+// Instantiate the template for both Conv2dOp and ConvolutionOp
+using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
+using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
 // Tag all block arguments which are direct inputs to Conv2dOp with
 // discardable attribute. This is used during Layouting to check if
@@ -587,11 +684,11 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
 
     // Used only paired with convolution
-    if (auto conv2dOp = batchNormOp.getOperand().getDefiningOp<Conv2dOp>();
-        !conv2dOp || !conv2dOp->hasOneUse()) {
+    auto *definingOp = batchNormOp.getOperand().getDefiningOp();
+    if (!definingOp || (!isa<Conv2dOp, ConvolutionOp>(definingOp)) ||
+        !definingOp->hasOneUse()) {
       return mlir::failure();
     }
-
     // get all attributes
     auto scale = batchNormOp.getScale();
     auto offset = batchNormOp.getOffset();
@@ -1854,6 +1951,7 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRConv2dWithBias>(&getContext());
+      patterns.add<TTIRConvolutionWithBias>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -1871,6 +1969,7 @@ public:
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
+        patterns.add<ConvolutionWithMultiply>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());

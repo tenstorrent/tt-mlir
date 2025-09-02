@@ -106,9 +106,9 @@ public:
     }
     RankedTensorType rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
-                                  ShapeAttr::get(&context, tensorShape),
-                                  nullptr, nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(
+        builder.getUnknownLoc(), rankedTensorType, nullptr,
+        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
 
   mlir::Value createEmptyTensorUInt32(llvm::ArrayRef<int64_t> tensorShape,
@@ -601,9 +601,9 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensor using OnesOp with Int32 layout
-  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
-                                      ShapeAttr::get(&context, tensorShape),
-                                      nullptr, nullptr, nullptr, nullptr);
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), inputType, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto bitwiseNot = builder.create<BitwiseNotOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
@@ -653,12 +653,12 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), input1Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), input2Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
+  auto input1 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input1Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input2 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input2Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalRightShift = builder.create<LogicalRightShiftOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
@@ -707,12 +707,12 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), input1Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), input2Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
+  auto input1 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input1Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input2 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input2Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
@@ -1306,9 +1306,9 @@ TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
   auto tensor = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorType,
+      builder.getUnknownLoc(), rankedTensorType, nullptr,
       ShapeAttr::get(&context, tensorShape), nullptr,
-      LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
+      LayoutAttr::get(&context, Layout::RowMajor), nullptr);
 
   ToLayoutOp toLayout =
       builder.create<ToLayoutOp>(builder.getUnknownLoc(), tensor.getType(),
@@ -1494,6 +1494,51 @@ TEST_F(OpModelBase, morehCumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
+  // create ConcatenateHeadsOp
+  // Input shape: [batch_size, num_heads, sequence_size, head_size]
+  // Output shape: [batch_size, sequence_size, num_heads * head_size]
+
+  // Define test tensor shapes based on typical transformer architecture
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto concatenateHeads = builder.create<ConcatenateHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  // test ConcatenateHeadsOp interface
+  auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for ConcatenateHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(concatenateHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ConcatenateHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
@@ -1642,10 +1687,10 @@ TEST_F(OpModelBase, typecastOp) {
       RankedTensorType::get(tensorShape, builder.getBF16Type());
 
   auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorTypeBF16,
+      builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
       ShapeAttr::get(&context, tensorShape),
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
-      nullptr, nullptr);
+      nullptr);
   RankedTensorType rankedTensorTypeF32 =
       RankedTensorType::get(tensorShape, builder.getF32Type());
 
@@ -3086,6 +3131,144 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, rmsNormOp) {
+  // Test case 1: Basic RMSNorm with all optional tensors (weight and bias)
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
+  llvm::SmallVector<int64_t> weightShape = {
+      128}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      128}; // Bias is typically for the last dimension
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 94208);
+  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(outputSize, 16384);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpMinimal) {
+  // Test case 2: RMSNorm without optional tensors (only input)
+  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                nullptr, nullptr, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(peakSize, 8192);
+  EXPECT_EQ(outputSize, 8192);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpL1Memory) {
+  // Test case 3: RMSNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
+  llvm::SmallVector<int64_t> weightShape = {
+      32}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      32}; // Bias is typically for the last dimension
+
+  // Create tensors with L1 memory layout
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  op_model::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, EmptyOpInterface) {
   // create EmptyOp with full TTNN layout attributes
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -3115,10 +3298,10 @@ TEST_F(OpModelBase, EmptyOpInterface) {
 
   // Create the EmptyOp with all required parameters
   auto empty = builder.create<ttnn::EmptyOp>(
-      builder.getUnknownLoc(), inputType,
+      builder.getUnknownLoc(), inputType, device,
       ttnn::ShapeAttr::get(&context, inputTensorType.getShape()),
       ttcore::DataTypeAttr::get(&context, ttnnLayoutAttr.getDataType()),
-      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()), device,
+      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()),
       memoryConfigAttr);
 
   // test EmptyOp interface
@@ -3147,10 +3330,10 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   auto endAttr = builder.getI64IntegerAttr(10);
   auto stepAttr = builder.getI64IntegerAttr(2);
 
-  auto arange =
-      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
-                               endAttr, stepAttr, /*dtype=*/nullptr,
-                               /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto arange = builder.create<ArangeOp>(
+      builder.getUnknownLoc(), resultType, /*device=*/nullptr, startAttr,
+      endAttr, stepAttr, /*dtype=*/nullptr, /*layout=*/nullptr,
+      /*memoryConfig=*/nullptr);
 
   // test ArangeOp interface
   auto backend = dyn_cast<OpModel>(arange.getOperation());
@@ -3214,15 +3397,15 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
 const auto createZeros = [](OpBuilder &b, Location loc, Type type,
                             ttnn::ShapeAttr shape) {
   return b
-      .create<ZerosOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
-                       /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .create<ZerosOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
+                       /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 const auto createOnes = [](OpBuilder &b, Location loc, Type type,
                            ttnn::ShapeAttr shape) {
   return b
-      .create<OnesOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
-                      /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .create<OnesOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
+                      /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 
@@ -3245,12 +3428,11 @@ TEST_F(OpModelBase, FullOpInterface) {
                                   TensorMemoryLayout::Interleaved);
   auto outputType =
       createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
-  auto fullInt =
-      builder.create<FullOp>(builder.getUnknownLoc(), outputType,
-                             ttnn::ShapeAttr::get(&context, tensorShape),
-                             builder.getI32IntegerAttr(42),
-                             /*dtype=*/nullptr, /*layout=*/nullptr,
-                             /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto fullInt = builder.create<FullOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      builder.getI32IntegerAttr(42),
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   // test FullOp interface with int fill value:
   auto backendI = dyn_cast<OpModel>(fullInt.getOperation());
@@ -3269,10 +3451,9 @@ TEST_F(OpModelBase, FullOpInterface) {
 
   // test FullOp interface with float fill value:
   auto fullF = builder.create<FullOp>(
-      builder.getUnknownLoc(), outputType,
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
       ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
-      /*dtype=*/nullptr, /*layout=*/nullptr,
-      /*device=*/nullptr, /*memoryConfig=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
   auto backendF = dyn_cast<OpModel>(fullF.getOperation());
   auto constraintsExpF =
       backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
@@ -3303,8 +3484,9 @@ TEST_F(OpModelBase, ConstantOpInterface) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant =
-      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
   auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
@@ -3337,8 +3519,9 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant =
-      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
   auto constraintsExp =
@@ -3352,6 +3535,67 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, RandOpInterface) {
+  // Test RandOp with default parameters
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                  TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
+
+  // Create device value using GetDeviceOp
+  auto device = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+      ttnn::MeshShapeAttr::get(&context, 1, 1),
+      ttnn::MeshOffsetAttr::get(&context, 0, 0));
+
+  // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
+  auto randOp = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType, device,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+
+  // Test RandOp interface
+  auto backend = dyn_cast<OpModel>(randOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(randOp), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (default params); Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test RandOp with custom parameters
+  auto randOpCustom = builder.create<RandOp>(
+      builder.getUnknownLoc(), outputType, device,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      builder.getF32FloatAttr(-1.0),  // low
+      builder.getF32FloatAttr(2.0),   // high
+      builder.getUI32IntegerAttr(42), // seed
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+
+  // Test RandOp interface with custom parameters
+  auto backendCustom = dyn_cast<OpModel>(randOpCustom.getOperation());
+  auto constraintsExpCustom = backendCustom.getOpConstraints(
+      getInputLayouts(randOpCustom), OpConfig(nullptr));
+  if (constraintsExpCustom) {
+    auto l1 = constraintsExpCustom.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for RandOp (custom params); Error="
+           << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
   }
 }
 

@@ -64,6 +64,15 @@ table CpuCommand {
 table FinishCommand {
 }
 
+table MeshShardCommand {
+  src: BufferRef;
+  dst: BufferRef;
+  shard_type: MeshShardType;
+  shard_direction: MeshShardDirection;
+  shard_shape: [int64];
+  shard_dims: [int64];
+}
+
 union CommandType {
   HostAllocCommand,
   ReturnCommand,
@@ -78,6 +87,7 @@ union CommandType {
   MemrefCopyCommand,
   CpuCommand,
   FinishCommand,
+  MeshShardCommand,
 }
 
 table Command {

@@ -98,18 +98,18 @@ static target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
   assert(false && "Unsupported MathFidelity");
 }
 
-static std::vector<target::metal::UnpackToDestMode>
+static std::vector<target::UnpackToDestMode>
 toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
-  std::vector<target::metal::UnpackToDestMode> result;
+  std::vector<target::UnpackToDestMode> result;
   result.reserve(unpackToDestModes.size());
 
   for (auto mode : unpackToDestModes) {
     switch (mode) {
     case ttmetal::UnpackToDestMode::Fp32:
-      result.push_back(target::metal::UnpackToDestMode::Fp32);
+      result.push_back(target::UnpackToDestMode::Fp32);
       break;
     case ttmetal::UnpackToDestMode::Default:
-      result.push_back(target::metal::UnpackToDestMode::Default);
+      result.push_back(target::UnpackToDestMode::Default);
       break;
     }
   }
@@ -285,8 +285,7 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(tile && "non-tiled layouts are not supported");
   uint64_t pageSize = tile.getSizeBytes();
   uint64_t numTiles = memref.getNumElements();
-  uint64_t size = ttmlir::utils::alignUp(
-      static_cast<size_t>(numTiles * pageSize), pageSize);
+  uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
 
   return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
                                                       pageSize);

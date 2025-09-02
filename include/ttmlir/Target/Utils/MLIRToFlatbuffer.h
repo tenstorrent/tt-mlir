@@ -811,24 +811,27 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
-  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-      memoryConfigAttr.getTensorMemoryLayout();
-  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
-      toFlatbuffer(cache, tensorMemoryLayoutAttr);
+  if (!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
+    return 0;
+  }
+
   ::tt::target::BufferType bufferType =
       ::mlir::tt::ttnn::utils::toTargetBufferType(
           memoryConfigAttr.getBufferType().getValue());
-
+  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+      memoryConfigAttr.getTensorMemoryLayout();
+  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
+  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
+      toFlatbuffer(cache, tensorMemoryLayoutAttr);
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
   if (memoryConfigAttr.getShardSpec()) {
     assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
                                          tensorMemoryLayoutAttr.getValue()));
     shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
   }
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
-                                             bufferType, shardSpec);
-  return memoryConfig;
+
+  return ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
+                                                bufferType, shardSpec);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
