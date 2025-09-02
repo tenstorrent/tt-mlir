@@ -309,13 +309,13 @@ def TTNN_ComputeKernelUnpackToDestMode : I32EnumAttr<"ComputeKernelUnpackToDestM
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_ComputeKernelCoreTypeWorker : I32EnumAttrCase<"Worker", 0, "worker">;
-def TTNN_ComputeKernelCoreTypeEth : I32EnumAttrCase<"Eth", 1, "eth">;
+def TTNN_KernelCoreTypeWorker : I32EnumAttrCase<"Worker", 0, "worker">;
+def TTNN_KernelCoreTypeEth : I32EnumAttrCase<"Eth", 1, "eth">;
 
-def TTNN_ComputeKernelCoreType : I32EnumAttr<"ComputeKernelCoreType", "TT ComputeKernelCoreType",
+def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
                            [
-                            TTNN_ComputeKernelCoreTypeWorker,
-                            TTNN_ComputeKernelCoreTypeEth,
+                            TTNN_KernelCoreTypeWorker,
+                            TTNN_KernelCoreTypeEth,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

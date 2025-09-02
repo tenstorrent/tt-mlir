@@ -2453,7 +2453,14 @@ def TTNN_GenericOp : TTNN_Op<"generic", [HasMemoryConfigTrait,
       > {
     let summary = "Generic operation.";
     let description = [{
-      Generic operation capable of running a program with custom kernels.
+      Generic operation capable of running a program with custom kernels. Each kernel is described with a
+      symbol reference to its function in EmitC dialect plus compile and runtime arguments.
+
+      Inputs:
+        - `inputs` Variadic<AnyRankedTensor>: The input tensors.
+        - `program` ProgramAttr: Program descriptor that includes a description of each kernels, array of CBs and array of semaphores.
+      Outputs:
+        - `results` Variadic<AnyRankedTensor>: The output tensors.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
