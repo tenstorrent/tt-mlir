@@ -231,7 +231,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
   if (command->data() != nullptr) {
-    assert(command->data()->size() / 4 == size);
+    assert(command->data()->size() == size);
     std::memcpy(data.get(), command->data()->data(), size);
   }
 

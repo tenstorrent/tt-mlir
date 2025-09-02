@@ -26,32 +26,8 @@ class TTIRGenericGenerateDatamovementRewriter
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static bool needsDMA(Value operand) {
-    if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
-      return true;
-    }
-
-    // Check if it's a view that remaps grid dimensions
-    if (auto viewOp =
-            mlir::dyn_cast_or_null<ViewLayoutOp>(operand.getDefiningOp())) {
-      auto memrefType = mlir::cast<MemRefType>(viewOp.getResult().getType());
-      if (auto viewAttr =
-              mlir::dyn_cast<ttcore::ViewLayoutAttr>(memrefType.getLayout())) {
-        AffineMap viewMap = viewAttr.getAffineMap();
-        // Check if first two dimensions (grid dims) are permuted
-        if (viewMap.getNumDims() >= 2) {
-          auto d0 = viewMap.getResult(0);
-          auto d1 = viewMap.getResult(1);
-          // If d0 depends on dim 1 or d1 depends on dim 0, we have a grid
-          // permutation
-          if (d0.isFunctionOfDim(1) || d1.isFunctionOfDim(0)) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
+  static bool isStream(Value operand) {
+    return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
   }
 
   static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
@@ -243,7 +219,7 @@ public:
       builder.create<ttir::AwaitOp>(loc, blockOperand);
     }
 
-    if (needsDMA(genericOperand)) {
+    if (isStream(genericOperand)) {
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
       SmallVector<ttcore::IteratorType> mcastIterators =

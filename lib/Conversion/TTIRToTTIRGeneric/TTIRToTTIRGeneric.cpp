@@ -17,19 +17,15 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include <array>
 
 namespace mlir::tt {
 
 namespace {
-// ----------------------------------------------------------------------------
-//
-// Rewrite elementwise ops by emitting a matching tile version of the op
-// into a ttir.generic/linang.generic nest.
 class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
@@ -223,6 +219,10 @@ protected:
 } // namespace
 
 namespace {
+// ----------------------------------------------------------------------------
+//
+// Rewrite elementwise ops by emitting a matching tile version of the op
+// into a ttir.generic/linang.generic nest.
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
@@ -729,8 +729,8 @@ private:
 
 // ----------------------------------------------------------------------------
 //
-// Lower TransposeOp into a ViewLayoutOp, which tranposes via view (i.e. without
-// actually moving memory).
+// Lower TransposeOp into a StreamLayoutOp (to reblock into new tile-level
+// shape) + GenericOp (to transpose individual tiles).
 namespace {
 class TTIRPermuteRewriter final
     : public mlir::OpConversionPattern<ttir::PermuteOp>,
@@ -761,12 +761,11 @@ public:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
 
-    // Apply layout transformation with tiling
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    // Create transpose view for input (your existing view creation code)
+    // Create transpose view for input (your existing view creation code).
     auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
     auto inputShape = inputTensorType.getShape();
@@ -775,14 +774,14 @@ public:
     SmallVector<AffineExpr> results;
     results.reserve(deviceRank);
 
-    // Swap pairs of dimensions: (d0, d1, d2, d3, ...) -> (d1, d0, d3, d2, ...)
+    // Swap pairs of dimensions: (d0, d1, d2, d3, ...) -> (d1, d0, d3, d2, ...).
     for (unsigned i = 0; i < deviceRank; i += 2) {
       if (i + 1 < deviceRank) {
-        // Swap each pair
+        // Swap each pair.
         results.push_back(rewriter.getAffineDimExpr(i + 1));
         results.push_back(rewriter.getAffineDimExpr(i));
       } else {
-        // Odd dimension count - keep last dim as-is
+        // Odd dimension count - keep last dim as-is.
         results.push_back(rewriter.getAffineDimExpr(i));
       }
     }
@@ -810,18 +809,16 @@ public:
     auto viewType = mlir::RankedTensorType::get(
         resultDeviceShape, inputTensorType.getElementType(), resultLayout);
 
-    // Use a stream layout instead of a pure view to avoid race conditions
-    // during transpose (paired tiles may otherwise write into each other).
     // Create a storage tensor and form a stream from input to the transposed
-    // view.
+    // view to handle reblocking (e.g. NxMxtile -> MxNxtile).
     auto storage = rewriter.create<ttir::EmptyOp>(loc, viewType);
     auto stream = rewriter.create<ttir::StreamLayoutOp>(loc, viewType,
                                                         inputs[0], storage);
 
-    // NOW CREATE THE GENERIC OP WITH TILE TRANSPOSE
-    inputs[0] = stream.getResult(); // Use the stream view as input
+    // Next, create GenericOp to tranpose each tile in the output tensor.
+    inputs[0] = stream.getResult();
 
-    // Identity maps since grid shapes now match
+    // Identity maps since grid shapes now match.
     auto identityMap = rewriter.getMultiDimIdentityMap(2);
     SmallVector<mlir::Attribute> iteratorTypes(
         2, ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
@@ -831,7 +828,7 @@ public:
         rewriter.getAffineMapArrayAttr({identityMap, identityMap}),
         rewriter.getArrayAttr(iteratorTypes));
 
-    // Create block with tile transpose
+    // Create block with tile transpose.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {
@@ -863,7 +860,7 @@ public:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    // Now replace with the generic's result
+    // Now replace with the generic's result.
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return llvm::success();
@@ -880,7 +877,7 @@ void populateTTIRToTTIRGenericPatterns(
     const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
   // clang-format off
   patterns.add<
-    // Elementwise ops.
+    // Elementwise.
     TTIRNamedElementwiseRewriter<ttir::AbsOp,        ttir::TileAbsOp>,
     TTIRNamedElementwiseRewriter<ttir::AddOp,        ttir::TileAddOp>,
     TTIRNamedElementwiseRewriter<ttir::CeilOp,       ttir::TileCeilOp>,
@@ -901,17 +898,17 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,
     TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
-    // Reduction ops.
+    // Reduction.
     TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
-    // Data movement op.
+    // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
-    // Permute op (handles tranpose ops, since they're canonicalized into permutes).
+    // Permute (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
 
 
-  // Matmul op.
+  // Matmul.
   if (useTileMatmul) {
     patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   }

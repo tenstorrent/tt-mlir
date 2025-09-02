@@ -3099,9 +3099,7 @@ mlir::tt::ttir::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  // Use the op result type so that any view remapping encoded in the
-  // result's MetalLayoutAttr is propagated during bufferization.
-  return mlir::tt::ttir::getBufferType(getResult().getType(), /*isView=*/true);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
 }
 
 mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -4764,24 +4762,6 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
   // We reverse it so that output dimensions get priority for the inverse
   // permutation.
   SmallVector<AffineMap> affineMaps = getIndexingMapsValue();
-
-  // // Check if this is a transpose pattern
-  // if (affineMaps.size() == 2) {
-  //   auto inputMap = affineMaps[0];
-  //   auto outputMap = affineMaps[1];
-
-  //   // Detect transpose: input is (d0, d1) -> (d1, d0), output is identity
-  //   if (outputMap.isIdentity() && inputMap.getNumDims() == 2 &&
-  //       inputMap.getNumResults() == 2) {
-  //     auto results = inputMap.getResults();
-  //     if (results[0].isFunctionOfDim(1) && results[1].isFunctionOfDim(0)) {
-  //       // For transpose, use output grid shape as iteration bounds
-  //       auto outputType = cast<ShapedType>(getOutputs()[0].getType());
-  //       return SmallVector<int64_t>(outputType.getShape().begin(),
-  //                                   outputType.getShape().end());
-  //     }
-  //   }
-  // }
 
   SmallVector<AffineMap> affineMapsReversed =
       llvm::to_vector(llvm::reverse(affineMaps));
