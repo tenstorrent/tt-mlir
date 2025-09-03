@@ -79,8 +79,8 @@ This section explains how to manually build the environment so you can use tt-ml
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
-sudo mkdir -p /opt/ttmlir-toolchain
-sudo chown -R $USER /opt/ttmlir-toolchain
+sudo mkdir -p "${TTMLIR_TOOLCHAIN_DIR}"
+sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
 ```
 
 3. Please ensure that you do not already have an environment (venv) activated before running the following commands:
