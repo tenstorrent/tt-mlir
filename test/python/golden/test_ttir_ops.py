@@ -2500,13 +2500,13 @@ def test_ternary_eltwise_ops_implicit_broadcast(
             reshape,
             [(64, 32)],
             [torch.float32],
-            marks=[pytest.mark.skip_config(["ttmetal"])],  # marks should be a list
+            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=[pytest.mark.skip_config(["ttmetal"])],  # marks should be a list
+            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
         pytest.param(
             where,
@@ -2515,7 +2515,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
             marks=[
                 pytest.mark.fails_golden,
                 pytest.mark.skip_config(["ttmetal"]),
-            ],  # this one was already correct
+            ],
         ),
     ],
 )
@@ -2524,6 +2524,7 @@ def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
+    target: str,
     request,
 ):
     compile_ttir_to_flatbuffer(
@@ -2533,6 +2534,7 @@ def test_unique_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
