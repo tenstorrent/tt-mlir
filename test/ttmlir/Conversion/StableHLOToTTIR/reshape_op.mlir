@@ -34,4 +34,15 @@ module @jit_module_reshape attributes {mhlo.num_partitions = 1 : i32, mhlo.num_r
     // CHECK: return %[[VAL]]
     return %0 : tensor<7x2xi1>
   }
+
+  func.func public @test_reshape_ui8(%arg0: tensor<71x1xui8>) -> tensor<71xui8> {
+    // CHECK-LABEL: func.func public @test_reshape_ui8
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0, %[[EMPTY]])
+    // CHECK-SAME: shape = [71 : i32]
+    // CHECK-SAME: (tensor<71x1xui8>, tensor<71xui8>) -> tensor<71xui8>
+    %0 = stablehlo.reshape %arg0 : (tensor<71x1xui8>) -> tensor<71xui8>
+    // CHECK: return %[[VAL]]
+    return %0 : tensor<71xui8>
+  }
 }
