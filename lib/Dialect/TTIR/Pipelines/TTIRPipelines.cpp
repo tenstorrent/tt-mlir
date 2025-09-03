@@ -110,6 +110,9 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   //  explicitly iterate over tensor elements.
   manager.addPass(mlir::createConvertLinalgToAffineLoopsPass());
 
+  manager.addPass(mlir::affine::createLoopCoalescingPass());
+  manager.addPass(mlir::affine::createAffineLoopNormalizePass());
+
   // Performs loop-invariant code motion on affine loops, moving computations
   //  outside loops when possible to reduce redundant calculations.
   manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());

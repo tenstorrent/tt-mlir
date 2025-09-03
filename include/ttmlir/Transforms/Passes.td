@@ -123,17 +123,20 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
 }
 
 def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::FuncOp"> {
-  let summary = "Wrap single AffineFor operations with outer dummy loops for GPU conversion.";
+  let summary = "Wrap single AffineFor operations with outer loops for GPU conversion.";
   let description = [{
     This pass addresses a limitation in the AffineFor to GPU conversion where single
     (non-nested) AffineFor operations cannot be converted to GPU kernels. The pass
-    wraps such single AffineFor operations with an outer AffineFor loop that iterates
-    from 0 to 1, creating the nested structure required for GPU kernel generation.
+    divides such single AffineFor operations with an outer AffineFor loop that iterates
+    from 0 to block_size, and another loop that iterates from 0 to thread_size creating
+    the nested structure required for GPU kernel generation. The pass is optimizing for
+    gpu usage so block_size and thread_size are powers of 2. A scf.if op is added to
+    prevent for from going out of bounds.
 
     Example transformation:
     ```mlir
     func.func @single_loop() {
-      affine.for %i = 0 to 10 {
+      affine.for %i = 0 to 30000000 {
         // loop body
       }
     }
@@ -142,9 +145,15 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
     Becomes:
     ```mlir
     func.func @single_loop() {
-      affine.for %outer = 0 to 1 {
-        affine.for %i = 0 to 10 {
-          // loop body
+      affine.for %block = 0 to 1024 {
+        affine.for %thread = 0 to 1024 {
+          affine.for %reminder = 0 to 29 {
+            // calculate proper indexes for loop body
+            scf.if(%block * 1024 * 29 + %thread * 29 + %reminder < 30000000)
+            {
+              // loop body
+            }
+          }
         }
       }
     }
