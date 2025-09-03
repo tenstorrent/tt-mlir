@@ -53,16 +53,15 @@ def jit(
             system_desc_path = os.getenv("SYSTEM_DESC_PATH")
             assert system_desc_path, "SYSTEM_DESC_PATH must be set."
 
-            # TODO: legalize lowering ttir constants through D2M
-            # ttir_to_ttmetal_backend_pipeline(
-            #     ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
-            # )
-            # if debug:
-            #     print("---- After ttir_to_ttmetal_backend_pipeline ----")
-            #     print(ir)
+            ttir_to_ttmetal_backend_pipeline(
+                ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
+            )
+            if debug:
+                print("---- After ttir_to_ttmetal_backend_pipeline ----")
+                print(ir)
 
-            # if to_flatbuffer_file:
-            #     ttmetal_to_flatbuffer_file(ir, to_flatbuffer_file, {}, [])
+            if to_flatbuffer_file:
+                ttmetal_to_flatbuffer_file(ir, to_flatbuffer_file, {}, [])
 
             return ir
 
