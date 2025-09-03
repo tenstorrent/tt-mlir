@@ -62,7 +62,7 @@ struct TTIRToTTMetalPipelineOptions
   Option<bool> useTileMatmul{
       *this, "use-tile-matmul",
       llvm::cl::desc("Use ttir.tile_matmul instead of ttir.tile_matmul_block"),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Options to control the default memspaces for placing input/output tensors.
   //
