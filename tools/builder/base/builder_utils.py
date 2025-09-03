@@ -99,7 +99,7 @@ def _run_ttir_pipeline(
     pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
 ):
@@ -323,6 +323,7 @@ def compile_ttir_to_flatbuffer(
     inputs_types : *Optional[List[torch.dtype]]*, optional
         The dtypes to use for the inputs to `fn`. Note that if supplied,
         `len(inputs_shapes) == len(inputs_types)` must be true.
+        Default is None.
 
     test_base : str
         The string to be used as the base name for dumped files throughout the
