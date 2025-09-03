@@ -918,8 +918,8 @@ private:
       return nullptr;
     }
 
-    auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-        opConstraintsResult.get();
+    auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+          outputLayout] = opConstraintsResult.get();
     constexpr float tensorL1UsageCap = 0.8;
     bool l1UsageValid =
         (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;

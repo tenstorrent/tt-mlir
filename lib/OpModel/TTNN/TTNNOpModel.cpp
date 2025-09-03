@@ -12,9 +12,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
-#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -112,6 +110,7 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
   return OpConstraints(
       response.resource_usage.cb_peak_size_per_core,
       response.resource_usage.l1_buffers_peak_per_core,
+      response.resource_usage.peak_memory_usage_per_core,
       response.resource_usage.l1_output_buffer_per_core,
       conversion::getLayoutAttrFromTensorSpec(
           context, response.output_tensor_spec.value(), deviceGrid.getShape()));
