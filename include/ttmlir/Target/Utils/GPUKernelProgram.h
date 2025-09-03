@@ -22,6 +22,8 @@ struct MemRefDesc {
   std::string name;
   mlir::Type type;
   mlir::TypedAttr value;
+  uint64_t first;
+  uint64_t last;
 };
 
 struct Kernel {
